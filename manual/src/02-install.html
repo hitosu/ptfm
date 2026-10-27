@@ -1,0 +1,91 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="install" data-kind="basics">
+<h2>Installing and updating</h2>
+<p class="lead">PT/FM is installed from a web page, <b>install.html</b>, that comes with the firmware. It works
+offline: the firmware and the demo disk are inside the page. Get the latest from PT/FM's home,
+<a href="https://hitosu.github.io/ptfm" target="_blank" rel="noopener">hitosu.github.io/ptfm</a>, or from its
+repository, <a href="https://github.com/hitosu/ptfm" target="_blank" rel="noopener">github.com/hitosu/ptfm</a> (the
+dist folder).</p>
+
+<section class="topic" id="install-before">
+<h3>Before you start</h3>
+<ul>
+<li>Open install.html in <b>Chrome or Edge</b>, on a computer or an Android phone. Safari and iPhones cannot talk
+MIDI from a web page.</li>
+<li>Connect the FM-1 by USB and switch it on. Keep it connected until the page says it is done.</li>
+<li>When the browser asks, allow MIDI devices, <b>SysEx included</b>: the whole install goes through MIDI.</li>
+</ul>
+<aside class="note">Changes not yet saved on the FM-1 are lost by an install, as when it is switched off. Press
+<kbd>SAVE</kbd> on the FM-1 first.</aside>
+</section>
+
+<section class="topic" id="install-firmware">
+<h3>INSTALL FIRMWARE</h3>
+<p>Writes PT/FM over whatever firmware the FM-1 runs.</p>
+<ol class="steps">
+<li>Open install.html and connect the FM-1.</li>
+<li>Press <b>INSTALL FIRMWARE</b>. The page shows its progress; the FM-1 restarts by itself.</li>
+<li>When the page says it is done, the FM-1 starts PT/FM on its STATUS screen.</li>
+</ol>
+<p><b>Over PT/FM</b> (an update), your songs, patterns, instruments, samples and settings stay where they are: the
+install writes nothing into PT/FM's own memory, the <i>user area</i>. <b>Over another firmware</b>, keep a copy of
+your work first: other firmwares erase that memory when they are installed. The EDITOR page saves the FM-1's whole
+library to a file (<a href="#editor-page">chapter 17</a>).</p>
+<p><b>Updates:</b> a new version comes as a new install page, on PT/FM's home. Install it as above; STATUS shows the
+version the FM-1 runs.</p>
+</section>
+
+<section class="topic" id="install-clean">
+<h3>CLEAN INSTALL</h3>
+<p>A fresh start. With the CLEAN INSTALL switch on, INSTALL FIRMWARE writes PT/FM and then erases everything the FM-1
+holds: your work, the settings, and any damaged records. The FM-1 then starts with an empty user area and only the
+built-in cartridges. Upload the demo disk after it if you want the demo songs.</p>
+<p>The FM-1 can do the same erase on its own, without a computer: SETTINGS, TOOLS, FACTORY RESET
+(<a href="#settings-tools">chapter 13</a>).</p>
+</section>
+
+<section class="topic" id="install-demo">
+<h3>UPLOAD DEMO DISK</h3>
+<p>Needs PT/FM running on the FM-1. Afterwards the FM-1 holds exactly the demo disk: its songs, patterns, cartridges
+and samples take the place of yours, and what of yours is not on it is gone.</p>
+<p>It is a fresh start with the demo disk: <b>everything you saved goes</b>, your settings, MIDI mappings, loops,
+DJ's decks and your changes to the built-in cartridges included. Only the built-in cartridges themselves stay.</p>
+<ul>
+<li>To keep your work, back it up first on the EDITOR page: READ, then DOWNLOAD DISK
+(<a href="#editor-page">chapter 17</a>).</li>
+<li>To add the demo songs to your own work instead of replacing it, drop demo.ptfmdsk on the EDITOR page's TABLE,
+drag what you want onto its FM-1 panel, and WRITE.</li>
+</ul>
+<ul>
+<li>If the FM-1 has edits not saved, the upload is refused: press <kbd>SAVE</kbd> on the FM-1 (or revert them),
+then upload again.</li>
+<li>An upload cut short leaves what was there whole, unless the upload was replacing a nearly full FM-1's library:
+then part of it may be left. Either way, upload again. The FM-1 says what it found when it starts.</li>
+</ul>
+</section>
+
+<section class="topic" id="install-rescue">
+<h3>USB RESCUE</h3>
+<p>If the FM-1 does not start, or does not answer the install page:</p>
+<ol class="steps">
+<li>Switch the FM-1 off.</li>
+<li>Hold <kbd>OCT-</kbd> and switch it on. The screen says <b>USB RESCUE</b>.</li>
+<li>Press INSTALL FIRMWARE on the install page.</li>
+</ol>
+<p>The FM-1 also starts in USB RESCUE by itself after two failed starts in a row.</p>
+<aside class="note">An install cut short (a cable pulled, the power lost) is not resumed by itself. Press INSTALL
+FIRMWARE again. If the FM-1 no longer answers the page, switch it off and start it in USB RESCUE (<kbd>OCT-</kbd>
+held at power-on), then install from there.</aside>
+</section>
+
+<section class="topic" id="install-trouble">
+<h3>If something goes wrong</h3>
+<ul>
+<li><b>No FM-1 found:</b> close what else uses its MIDI port (a music program, another installer, another browser
+tab), then try again.</li>
+<li><b>Back to another firmware:</b> PT/FM keeps the FM-1's update path, so another FM-1 firmware's installer replaces
+it, from USB RESCUE if need be.</li>
+</ul>
+</section>
+</section>

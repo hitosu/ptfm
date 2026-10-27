@@ -603,6 +603,7 @@
             });
         }
         if (t === "REVERT ALL") U.revert();                  /* (SAVE + OCT-'s question) */
+        if (t === "FACTORY RESET") U.factoryReset();
     }
     const ABOUT = ["PT/FM " + U.version + " DEV", "POCKET TRACKER / FUSION MACHINE", "",
                    "GPL-3.0-ONLY, (C) 2026 HITOSU", "",

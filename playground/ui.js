@@ -833,6 +833,27 @@ PTFM.ui = (function () {
             });
         });
     };
+    /* SETTINGS' FACTORY RESET (specs/ui/screens/settings.md): two questions, the second counting the changes not saved
+     * (lost with the rest); then the user area erased under a progress bar, the sound silent from the first and every
+     * control waiting (the FM-1 erases a block in use in ~17 ms and skips an empty one), and the restart: here this
+     * browser's kept user area dropped and the page loaded again (U.restart) */
+    U.factoryReset = function () {
+        if (U.saving) { U.toast("A SAVE IS UNDER WAY"); return; }
+        U.ask(["FACTORY RESET?", "ERASES ALL YOU SAVED OR UPLOADED", "ONLY THE BUILT-IN INSTRUMENTS STAY"], ["RESET", "KEEP"], a => {
+            if (a !== "RESET") return;
+            const n = U.unsavedCount(), lines = ["ERASE IT ALL NOW?", "THERE IS NO WAY BACK"];
+            if (n) lines.push(n + " UNSAVED CHANGE" + (n === 1 ? "" : "S") + " LOST TOO");
+            U.ask(lines, ["ERASE", "KEEP"], b => {
+                if (b !== "ERASE") return;
+                if (U.saving) { U.toast("A SAVE IS UNDER WAY"); return; }
+                const st = M.storage(), blocks = Math.ceil((st.userUsed - M.FLASH.reserve) / 4096);
+                PTFM.player.allSoundOff();
+                PTFM.audio.end();
+                U.progress("ERASING", 100 + 17 * blocks, () => U.restart());
+            });
+        });
+    };
+    U.restart = () => M.eraseKept().then(() => location.reload(), () => location.reload());
     /* what plays paused: the screens told (LOOPS: a song's recording ends there), then a SAVE waiting for it */
     U.pausedHook = () => {
         for (const k in U.screens) if (U.screens[k].paused) U.screens[k].paused();

@@ -1,0 +1,97 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="playback" data-kind="screen">
+<h2>PLAYBACK</h2>
+<p class="lead">PLAYBACK follows what plays: the pattern playing now, scrolling with the music, in the EDITOR's grid.
+Nothing on it can be changed by accident, so it is the screen to perform from: jump between positions, change the
+song's speed and volume, play over it. Open it with <span class="combo"><kbd>HOME</kbd> +
+<kbd class="b">OP4</kbd></span>.</p>
+
+<section class="topic" id="playback-view">
+<h3>What it shows</h3>
+<figure data-shot="playback-view"><figcaption>PLAYBACK following MIDNIGHT RUN: the playing row on a blue band, the
+header's page the song position of the last one, the footer the play position.</figcaption></figure>
+<ul>
+<li>The pattern playing now, scrolling with the play position. There is no cursor and no editing.</li>
+<li>The header shows the song position and the last one (<b>02/0B</b>); the footer's right side the position and
+row playing (<b>POS 02 ROW 1F</b>).</li>
+<li>While the EDITOR's pattern loop plays, the header says <b>PAT 0C</b> (or EDITOR for its own pattern) and the
+footer <b>PAT 0C ROW 1F</b>.</li>
+<li>While LOOPS' loops play, each loop is a track; the header says LOOPS. EDIT then goes to LOOPS.</li>
+<li>When nothing plays, it shows where playback paused, or the current song's start; with no song at all,
+<b>NOTHING HAS PLAYED: PLAY STARTS THE SONG</b>.</li>
+</ul>
+<p><kbd>SEQ</kbd> (or <kbd>K2</kbd>) shows 8, 4, 2 or 1 tracks at once, as in the EDITOR
+(<samp class="msg" data-t="%d TRACKS">4 TRACKS</samp>). <kbd>ALGORITHM</kbd> moves the highlighted track across;
+the view scrolls sideways to keep it in sight.</p>
+<figure data-shot="playback-1track"><figcaption>The 1-track view: the whole cell of the highlighted track as it
+plays.</figcaption></figure>
+</section>
+
+<section class="topic" id="playback-perform">
+<h3>Playing the song live</h3>
+<ul>
+<li><kbd>PLAY</kbd> pauses and resumes what played last.</li>
+<li><kbd>SELECT</kbd> steps through the song a row at a time: the first click pauses and plays the current row
+again; each click forward plays the next row, each click back the previous one. <kbd>PLAY</kbd> goes on from
+there.</li>
+<li><kbd>K1</kbd> jumps to another position of the song (<b>K1 POSITION 03/0B PATTERN 05</b>). While playing, the jump
+comes as the current row ends, and it is a clean start: every note of the song is cut and the effects' tails emptied.
+Paused, PLAY resumes from that position.</li>
+<li><kbd>K3</kbd> is the song's volume, from +6 dB down to -24 dB and OFF, a dB a click (<b>K3 VOLUME -6 DB</b>). It
+turns the song alone, not the keys, so you can play over a quieter song.</li>
+<li><kbd>K4</kbd> is the song's speed, in BPM, from 3 to 600 (<b>K4 TEMPO 124.0 BPM -3.2%</b>: the BPM, and the change
+against the song's own tempo). Every tempo the song plays is scaled by it, its tempo commands too.</li>
+<li><kbd>LFO</kbd> puts back the one of K3 and K4 turned last: the volume to 0 dB, the speed to 100 %.</li>
+<li>The keys play the current instrument over the song; <kbd>ARP</kbd> arpeggiates them.</li>
+<li><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> mutes and unmutes tracks.</li>
+</ul>
+<aside class="memo">The speed and the volume are not saved. They stay for every song you play until something else
+plays (the EDITOR's pattern loop, LOOPS, DJ), and at power-off they go back to 100 % and 0 dB.</aside>
+</section>
+
+<section class="topic" id="playback-more">
+<h3>More from PLAYBACK</h3>
+<ul>
+<li><kbd>EDIT</kbd> opens the EDITOR on the pattern playing, with the cursor on the playing row; <kbd>HOME</kbd>
+comes back here.</li>
+<li><kbd>ENV</kbd> opens the song list: <kbd>PLAY</kbd> there plays the highlighted song from its start, and PLAYBACK
+follows it; <kbd>ENV</kbd> again closes the list.</li>
+<li><kbd>GLO</kbd> opens the view's options (PLAYBACK VIEW): SCROLL by ROWS (the playing row stays in the middle) or
+by PAGES (the highlight moves, the pages flip; also SETTINGS' PLAYBACK SCROLL), and UNLOAD SONG, listed once
+something has played: everything stops, and the keys get their own effects and tempo back, as at power-on
+(<a href="#songs-menu">chapter 6</a>).</li>
+</ul>
+<figure data-shot="playback-songs"><figcaption>The song list (ENV): PLAY plays the highlighted song from its start.
+</figcaption></figure>
+<figure data-shot="playback-glo"><figcaption>The view's options (GLO).</figcaption></figure>
+</section>
+
+<section class="topic" id="playback-keys">
+<h3>Keys on PLAYBACK</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>PLAY</kbd></td><td>Pauses and resumes what played last.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>Shows 8, 4, 2 or 1 tracks at once, round.</td></tr>
+<tr><td><kbd>K2</kbd></td><td>Also changes the number of tracks shown: clockwise more.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Moves the highlighted track across.</td></tr>
+<tr><td><kbd>SELECT</kbd></td><td>Pauses, then plays the song a row a click; PLAY goes on from there.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>Jumps to another position of the song.</td></tr>
+<tr><td><kbd>K3</kbd></td><td>The song's volume (the keys stay as they are).</td></tr>
+<tr><td><kbd>K4</kbd></td><td>The song's speed, in BPM.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Puts the volume or the speed, whichever you turned last, back to 0 dB or 100 %.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Opens the EDITOR on the row playing; HOME comes back here.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Back from the EDITOR opened with EDIT.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>Opens the song list; PLAY there plays a song from its start.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>The view's options: scroll by rows or pages; UNLOAD SONG.</td></tr>
+<tr><td><kbd>KEYS</kbd> <kbd>OCT-</kbd> <kbd>OCT+</kbd> <kbd>PRESETS</kbd></td><td>Play the current instrument over
+the song, as on every screen.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes or unmutes a track;
+held, solos it.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -1,0 +1,426 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="fx" data-kind="screen">
+<h2>FX</h2>
+<p class="lead">FX holds the effects on the whole mix, the mixer, the metronome and the punch-in effects. Press
+<kbd>FX</kbd> on any screen to open it, and <kbd>FX</kbd> again to go back where you were. <kbd>SEQ</kbd> turns its
+three pages: LIVE, EDIT and MIXER.</p>
+
+<section class="topic" id="fx-setup">
+<h3>Whose effects</h3>
+<p>Every song has its own effects (its <b>FX setup</b>: the chain's order, routing, each effect's knobs and on/off,
+the mixer and the metronome). LOOPS and DJ have their own. FX always edits what you hear:</p>
+<ul>
+<li>the song playing (or the one played last); a pattern from the EDITOR uses the current song's;</li>
+<li>in LOOPS, the loops'; on DJ, DJ's (FX from LOOPS or DJ does not leave them);</li>
+<li>before anything has played, <b>THE KEYS'</b>: the keys' own setup, with the reverb on, so the FM-1 sounds round as
+a synth from its keys alone.</li>
+</ul>
+<p>A new song starts with only the LIMITER on. THE KEYS' setup, which the keys play through at power-on, also has the
+REVERB on. While what FX edits plays, nothing but your hand changes the effect under the cursor: the song's own
+commands for it are skipped.</p>
+<p><b>The keys keep the last song's effects.</b> Once a song has played, the keys go on playing through its effects
+and at its tempo after it stops or pauses, until something else plays. THE KEYS' own setup comes back at the next
+power-on, or at once with UNLOAD SONG (SONGS' <kbd>SEL</kbd> menu, <a href="#songs-menu">chapter 6</a>). With LOOPS on
+the screen and nothing playing, the keys play through the loops' setup.</p>
+</section>
+
+<section class="topic" id="fx-live">
+<h3>LIVE: playing the effects</h3>
+<figure data-shot="fx-live"><figcaption>FX LIVE: the 16 punch-ins on the white keys, the effects on the black keys, the
+picked effect's knobs below.</figcaption></figure>
+<ul>
+<li>The <kbd class="w">white keys</kbd> are the 16 punch-in effects, each while its key is held
+(<a href="#fx-punch">below</a>); the keys play no notes on LIVE.</li>
+<li>The <kbd class="b">black keys</kbd> pick an effect, a fixed key each: <kbd class="b">OP1</kbd> GATE,
+<kbd class="b">OP2</kbd> FILTER, <kbd class="b">OP3</kbd> DRIVE, <kbd class="b">OP4</kbd> LO-FI,
+<kbd class="b">OP5</kbd> CHORUS, <kbd class="b">OP6</kbd> DELAY, <kbd class="b">PIT</kbd> REVERB,
+<kbd class="b">GLO</kbd> LIMITER, <kbd class="b">MONO</kbd> DUCK, <kbd class="b">POLY</kbd> METRONOME.</li>
+<li>The <kbd class="b">BLANK</kbd> key is BYPASS: every effect off while held (the metronome clicks on).</li>
+<li><kbd>SELECT</kbd> picks the effect too. <kbd>OCT+</kbd> switches it on, <kbd>OCT-</kbd> off
+(<samp class="msg" data-t="# ON">GATE ON</samp>, <samp class="msg" data-t="%s OFF">GATE OFF</samp>).</li>
+<li><kbd>K1</kbd> to <kbd>K4</kbd> turn its knobs (SEL held: steps of 10); <kbd>ALGORITHM</kbd> shows its next knobs
+(FILTER has 8, DELAY 5). <kbd>LFO</kbd> resets the knob turned last.</li>
+<li><kbd>EDIT</kbd> shows the effect on the EDIT page; <kbd>SEL</kbd> opens its menu (RESET, REVERT).</li>
+<li><kbd>ARP</kbd> on LIVE plays the last note you played, hands free (with SETTINGS' ARP LATCH not OFF), so you can
+play the effects over an arpeggio: the keys stay punch-ins.</li>
+</ul>
+<figure data-shot="fx-live-filter"><figcaption>FILTER picked on LIVE: its knobs, the cutoff turned.</figcaption></figure>
+<figure data-shot="fx-live-punch"><figcaption>A punch-in held (LOOP 1/4).</figcaption></figure>
+<figure data-shot="fx-live-bypass"><figcaption>BYPASS held.</figcaption></figure>
+</section>
+
+<section class="topic" id="fx-edit">
+<h3>EDIT: the chain</h3>
+<figure data-shot="fx-edit"><figcaption>FX EDIT: the chain as a list, the sound going top to bottom; the picked
+effect's knobs and its picture below.</figcaption></figure>
+<ul>
+<li>The chain is a list: the sound goes from top to bottom. The LIMITER is always last; DUCK and the METRONOME sit
+apart, outside the chain.</li>
+<li><kbd>SELECT</kbd> picks an effect; <kbd>K1</kbd>-<kbd>K4</kbd> its knobs; <kbd>ALGORITHM</kbd> its next
+knobs.</li>
+<li><kbd>OCT+</kbd> / <kbd>OCT-</kbd> switch it on and off, so you can set it first and switch it on after. The keys
+play notes on EDIT, to hear the effect; <span class="combo"><kbd>SEL</kbd> + <kbd>OCT+</kbd></span> and
+<span class="combo"><kbd>SEL</kbd> + <kbd>OCT-</kbd></span> change their octave.</li>
+<li><kbd>SEL</kbd> opens the menu: <b>MOVE</b> (SELECT moves the effect through the chain, heard as it goes; SEL puts
+it down, <samp class="msg">MOVED</samp>; HOME puts it back, <samp class="msg">NOT MOVED</samp>; the LIMITER, DUCK and
+the metronome stay: <samp class="msg" data-t="# DOES NOT MOVE">LIMITER DOES NOT MOVE</samp>), <b>RESET</b> (the
+effect as at first), <b>REVERT</b> (every effect as last saved).</li>
+<li>Each effect's picture shows what it does: the filter's curve, the echoes, the reverb's decay. The footer shows what
+the effect costs the processor (<b>GATE 0.4% CPU</b>). Each effect, its picture and its knobs are below.</li>
+</ul>
+</section>
+
+<section class="topic" id="fx-effects">
+<h3>The effects</h3>
+<p>Ten effects, each in a section of its own below, in the order FX EDIT lists them, with all its knobs. On EDIT,
+<kbd>SELECT</kbd> picks the effect, <kbd>K1</kbd>-<kbd>K4</kbd> turn its first four knobs and <kbd>ALGORITHM</kbd> shows the next four (FILTER
+and DELAY have more than four); <kbd>LFO</kbd> puts the last knob turned back to its default. A knob with no range
+given runs 0-100 %. A new song starts with only the LIMITER on (THE KEYS' setup has the REVERB on too);
+<kbd>OCT+</kbd> switches the picked effect on.</p>
+</section>
+
+<section class="topic" id="fx-gate">
+<h3>GATE</h3>
+<p>Chops the sound on and off in a rhythm, locked to the song's bars: a trance gate on whatever passes through it.
+Its rhythm is a pattern of 16 steps; each step is OFF (closed), ON (open for the first three quarters of the step) or
+a ratchet, X2, X3 or X4 (two, three or four short hits within the step).</p>
+<figure data-shot="fx-gate"><figcaption>GATE on EDIT: its knobs and its pattern's 16 steps.</figcaption></figure>
+<dl class="params">
+<dt>PATTERN</dt><dd>Which rhythm. 00-0F are built in (the table below); 10-1F are yours, MY GATE 10 to MY GATE 1F,
+written on the white keys (below). <span class="range">00-1F; 00 STRAIGHT at first</span></dd>
+<dt>RATE</dt><dd>How long a step is: at 1/16 the 16 steps make one bar of 4 beats, at 1/8 two bars, at 1/32 half a
+bar; 1/8T and 1/16T are triplet steps (3 and 6 to a beat). At 1/16, step 1 falls on the bar's first beat.
+<span class="range">1/8, 1/16, 1/32, 1/8T, 1/16T; 1/16 at first</span></dd>
+<dt>DEPTH</dt><dd>How far a closed step closes: 100 % is silence, 50 % only dips the sound, 0 % leaves it as it is.
+<span class="range">100 % at first</span></dd>
+<dt>SMOOTH</dt><dd>How soft the edges are: low, a hard click-on, click-off chop (0.5 ms); high, a soft pulse that
+swells in and out (up to 20 ms). <span class="range">20 % at first</span></dd>
+</dl>
+<table>
+<thead><tr><th>No.</th><th>Pattern</th><th>Its 16 steps (# open, . closed, 2 / 3 ratchets)</th></tr></thead>
+<tbody>
+<tr><td>00</td><td>STRAIGHT</td><td><code>################</code>: every step, a steady chop</td></tr>
+<tr><td>01</td><td>OFFBEAT</td><td><code>.#.#.#.#.#.#.#.#</code>: only the steps between</td></tr>
+<tr><td>02</td><td>TRANCE</td><td><code>#.###.###.###.##</code>: the classic trance gate</td></tr>
+<tr><td>03</td><td>HALF</td><td><code>##..##..##..##..</code>: two open, two closed</td></tr>
+<tr><td>04</td><td>GALLOP</td><td><code>#.##.##.#.##.##.</code>: a galloping rhythm</td></tr>
+<tr><td>05</td><td>SKIP</td><td><code>##.##.##.##.##.#</code>: threes skipping across the beats</td></tr>
+<tr><td>06</td><td>SPARSE</td><td><code>#...#...#...#...</code>: one hit a beat</td></tr>
+<tr><td>07</td><td>ROLL</td><td><code>####2222####3333</code>: a roll building up</td></tr>
+<tr><td>08</td><td>STUTTER</td><td><code>2.2.2.2.2.2.2.2.</code>: double hits, every other step</td></tr>
+<tr><td>09</td><td>DOTTED</td><td><code>#..#..#..#..#..#</code>: every third step, dotted eighths</td></tr>
+<tr><td>0A</td><td>SYNCOPE</td><td><code>#..#.#..#..#.#..</code>: syncopated</td></tr>
+<tr><td>0B</td><td>PULSE</td><td><code>###.###.###.###.</code>: three open, one closed</td></tr>
+<tr><td>0C</td><td>RAMP</td><td><code>#.#.##.####.####</code>: denser across the bar</td></tr>
+<tr><td>0D</td><td>BREAK</td><td><code>########........</code>: the bar's first half, then silence</td></tr>
+<tr><td>0E</td><td>TRIPS</td><td><code>3.3.3.3.3.3.3.3.</code>: triple hits, every other step</td></tr>
+<tr><td>0F</td><td>CHOP</td><td><code>##..#.#.##..#.#.</code>: a chopped break</td></tr>
+</tbody>
+</table>
+<p><b>Writing your own steps:</b> on EDIT with GATE picked, <kbd>EDIT</kbd> puts its 16 steps on the white keys: a
+key switches its step on or off; held, <kbd>ALGORITHM</kbd> gives it ratchets (X2, X3, X4). A built-in pattern is
+copied into yours first (<samp class="msg" data-t="%s COPIED TO %s">STRAIGHT COPIED TO MY GATE 11</samp>). EDIT keeps
+the changes, HOME drops them. <kbd>ENV</kbd> on GATE lists the patterns.</p>
+<figure data-shot="fx-gate-steps"><figcaption>GATE's steps on the white keys.</figcaption></figure>
+</section>
+
+<section class="topic" id="fx-filter">
+<h3>FILTER</h3>
+<p>One filter on the whole mix: a low-pass (darker, the top taken away) or a high-pass (thinner, the bass taken
+away), with an envelope that can open it on every note or beat, as a synth's filter envelope does. Its eight knobs
+are on two pages (<kbd>ALGORITHM</kbd> turns to the second).</p>
+<figure data-shot="fx-filter"><figcaption>FILTER on EDIT: CUT at LP 7.4K, the response around the
+cutoff.</figcaption></figure>
+<dl class="params">
+<dt>CUT</dt><dd>Where the filter cuts, and which kind: turned left of the middle it is a low-pass closing from LP 20K
+down to LP 100 (Hz); turned right, a high-pass opening from HP 20 up to HP 8.0K; in the middle, OFF. Turned by hand
+it glides, so no step is heard. With the envelope on, CUT is where the filter rests between notes.
+<span class="range">LP 100 ... LP 20K, OFF, HP 20 ... HP 8.0K; OFF at first</span></dd>
+<dt>RESO</dt><dd>Resonance: a peak at the cutoff. Low is smooth; high makes the cutoff ring and whistle, the acid
+squelch when the cutoff moves. <span class="range">30 % at first</span></dd>
+<dt>ENV</dt><dd>How far each note (or beat) opens the filter, as a part of the way from CUT to fully open: a
+low-pass opens upward, a high-pass downward. 0 % switches the envelope off. <span class="range">0 % at first</span></dd>
+<dt>SOURCE</dt><dd>What opens it. KEYS: every note the keys play (the FM-1's, MIDI's, the arpeggiator's), held as
+long as the key. TRACK 00 ... TRACK 0F: every note that track starts, muted or not, so a silent track can carry a
+rhythm for the filter. 4 BEATS, 2 BEATS, BEAT, 1/2 BEAT, 1/4 BEAT: the beat itself, every so many beats, each hit held
+half its length. <span class="range">KEYS at first</span></dd>
+<dt>ATTACK</dt><dd>How long the filter takes to open from where it is. <span class="range">2 ms-3 s; 2.0 MS at
+first</span></dd>
+<dt>DECAY</dt><dd>How long it then takes to close down to SUSTAIN. <span class="range">5 ms-5 s; 296 MS at
+first</span></dd>
+<dt>SUSTAIN</dt><dd>How open it stays while the note is held, as a part of ENV's opening; 0 % closes it fully after
+DECAY, a pluck. <span class="range">0 % at first</span></dd>
+<dt>RELEASE</dt><dd>How long it takes to close back to CUT once the note ends. <span class="range">5 ms-5 s; 296 MS at
+first</span></dd>
+</dl>
+<p>There is one envelope for the whole mix, not one a note: each new note starts it again from wherever it is, and it
+holds while any note of the source is held.</p>
+<figure data-shot="fx-filter-env"><figcaption>FILTER's second page: its envelope.</figcaption></figure>
+</section>
+
+<section class="topic" id="fx-lofi">
+<h3>LO-FI</h3>
+<p>The sound of an old sampler: fewer bits, a lower sample rate and record crackle.</p>
+<figure data-shot="fx-lofi"><figcaption>LO-FI on EDIT: a sine wave as it comes out, stepped and
+speckled.</figcaption></figure>
+<dl class="params">
+<dt>BITS</dt><dd>How finely the level is measured: 16 is clean, 8 grainy, 4 and under harsh and noisy, 2 a broken
+buzz. <span class="range">2-16; 8 at first</span></dd>
+<dt>RATE</dt><dd>The sample rate it imitates: lower takes the top away and adds the metallic ring of aliasing; 44 kHz
+leaves the rate as it is. <span class="range">1-44 kHz; 22 at first</span></dd>
+<dt>DUST</dt><dd>Crackles and specks, as from a record. They are a sound of their own: heard even when nothing plays.
+<span class="range">20 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-chorus">
+<h3>CHORUS</h3>
+<p>A JUNO-style chorus: two short delays, swaying in opposite ways left and right, mixed with the sound, so it widens,
+thickens and gently detunes.</p>
+<figure data-shot="fx-chorus"><figcaption>CHORUS on EDIT: the pitch each side gets as it sways.</figcaption></figure>
+<dl class="params">
+<dt>MODE</dt><dd>The JUNO-106's three chorus settings. I: slow (0.5 Hz) and gentle. II: a little faster (0.83 Hz) and
+deeper, a lusher swirl. I+II: fast (9 Hz) and shallow, a shimmering vibrato. <span class="range">I, II, I+II; I at
+first</span></dd>
+<dt>RATE</dt><dd>The sway's speed, around the mode's own: 50 % is the JUNO's, 0 % about a third of it, 100 % about 1.7
+times. <span class="range">30 % at first</span></dd>
+<dt>DEPTH</dt><dd>How far it sways, around the mode's own in the same way: more is a stronger pitch wobble.
+<span class="range">50 % at first</span></dd>
+<dt>MIX</dt><dd>How much of the chorus is heard against the sound itself. With ROUTING SENDS
+(<a href="#fx-routing">below</a>) it is the chorus's return level instead, and each track sends to it by its MIXER
+send. <span class="range">50 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-delay">
+<h3>DELAY</h3>
+<p>Echoes locked to the song's tempo. The echoes are mono; PING-PONG puts them left and right in turn.</p>
+<figure data-shot="fx-delay"><figcaption>DELAY on EDIT: the echoes on a bar's beats, each quieter.</figcaption></figure>
+<dl class="params">
+<dt>TIME</dt><dd>The time between echoes, as a note value; T marks triplets, a dot dotted values (1/8. is three
+sixteenths). Up to 1 s (0.5 s with PING-PONG): a value longer than that at a slow tempo plays the longest that fits.
+<span class="range">1/32, 1/16T, 1/16, 1/8T, 1/16., 1/8, 1/4T, 1/8., 1/4, 1/2T, 1/4., 1/2; 1/8. at first</span></dd>
+<dt>FEEDBACK</dt><dd>How much of each echo comes back as the next: low, one or two echoes; high, a long trail.
+<span class="range">40 % at first</span></dd>
+<dt>TONE</dt><dd>How bright each echo is: every repeat passes through a low-pass, so lower makes the echoes darker
+and softer as they go, as a tape or analogue delay; 100 % keeps them bright (up to about 13 kHz).
+<span class="range">60 % at first</span></dd>
+<dt>PING-PONG</dt><dd>ON: the echoes bounce between left and right. OFF: they stay in the middle.
+<span class="range">OFF, ON; OFF at first</span></dd>
+<dt>MIX</dt><dd>How loud the echoes are against the sound. With ROUTING SENDS, the delay's return level instead.
+<span class="range">30 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-reverb">
+<h3>REVERB</h3>
+<p>A plate reverb: the sound in a large, smooth, bright space.</p>
+<figure data-shot="fx-reverb"><figcaption>REVERB on EDIT: its decay, bright frequencies dying first.</figcaption></figure>
+<dl class="params">
+<dt>SIZE</dt><dd>How long the reverb rings: from about 1.3 s, a room, to about 11 s, a cathedral (the time it takes
+to die away). <span class="range">60 % at first</span></dd>
+<dt>DAMP</dt><dd>How dark the tail gets: more damping takes the highs out of the tail as it rings, warmer and less
+hissy; none leaves it bright. <span class="range">40 % at first</span></dd>
+<dt>PRE-DELAY</dt><dd>A gap before the reverb starts, so the sound's attack stays clear in front of it.
+<span class="range">0-100 ms; 10 at first</span></dd>
+<dt>MIX</dt><dd>How loud the reverb is against the sound. With ROUTING SENDS, the reverb's return level instead.
+<span class="range">25 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-drive">
+<h3>DRIVE</h3>
+<p>Warm distortion: the mix pushed into a soft clipper, adding harmonics as an overdriven amplifier or tape does. The
+deep bass (under about 55 Hz) is kept out of it, so it stays clean; the level is evened out as the drive rises.</p>
+<figure data-shot="fx-drive"><figcaption>DRIVE on EDIT: the harmonics it adds.</figcaption></figure>
+<dl class="params">
+<dt>DRIVE</dt><dd>How hard it is pushed: low, a little warmth and grit; high (up to about nine times the level),
+heavy saturation. <span class="range">30 % at first</span></dd>
+<dt>TONE</dt><dd>The brightness after the distortion: low is dark and smooth, high bright and edgy.
+<span class="range">50 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-limiter">
+<h3>LIMITER</h3>
+<p>Keeps the mix from going over a ceiling, catching its peaks so the sound never clips. Always last in the chain,
+and on in every new song.</p>
+<figure data-shot="fx-limiter"><figcaption>LIMITER on EDIT: its curve and its release.</figcaption></figure>
+<dl class="params">
+<dt>CEILING</dt><dd>The most the mix may reach. Lower catches more of the peaks, and the mix comes out quieter.
+<span class="range">-12 to 0 dB; -1 at first</span></dd>
+<dt>RELEASE</dt><dd>How fast the level comes back after a peak: short keeps it loud but can pump; long is smoother.
+<span class="range">10-1000 ms; 100 at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-duck">
+<h3>DUCK</h3>
+<p>One track pushes the others down while it plays, as a kick making room for itself in the bass and the pads
+(sidechain). It sits outside the chain. Which tracks duck, and how much, is set in the MIXER's DCK row, none at first:
+<b>raise DCK on the tracks that should duck</b> (<a href="#fx-mixer">MIXER</a>). The source never ducks itself.</p>
+<figure data-shot="fx-duck"><figcaption>DUCK on EDIT: the dip and its release; no track ducks yet.</figcaption></figure>
+<dl class="params">
+<dt>SOURCE</dt><dd>The track that pushes the others down, or KEYS: every note the keys play, so the song can make
+room for a part played live. <span class="range">00-0F, KEYS; 00 at first</span></dd>
+<dt>DEPTH</dt><dd>How far the others go down when the source hits (each also by its own DCK).
+<span class="range">60 % at first</span></dd>
+<dt>RELEASE</dt><dd>How long they take to come back up after it: short, a quick dip; long, a slow breathing pump.
+<span class="range">20-1000 ms; 150 at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-metronome">
+<h3>METRONOME</h3>
+<p>A click on the beats, to play or record in time. It is mixed after the effects, takes no voice, and stays off USB
+audio. It sits outside the chain. The count-in before a take is not the METRONOME's: SETTINGS' COUNT-IN
+(<a href="#settings-takes">chapter 13</a>).</p>
+<figure data-shot="fx-metronome"><figcaption>The METRONOME on EDIT: the bar's beats.</figcaption></figure>
+<dl class="params">
+<dt>TEMPO</dt><dd>FOLLOW: the tempo of what plays (on THE KEYS, their own TEMPO). A number: its own tempo, so it
+clicks with nothing playing. <span class="range">FOLLOW, 30-300 BPM; FOLLOW at first</span></dd>
+<dt>BEATS A BAR</dt><dd>How many beats a bar; the first is accented, louder and higher. In LOOPS it is also the
+loops' bar. <span class="range">1-16; 4 at first</span></dd>
+<dt>SOUND</dt><dd>CLICK: a short tick of noise. BEEP: a clean tone (higher on the accent). WOOD: a woodblock knock,
+its pitch falling. COWBELL: the classic drum machine's two-tone cowbell. <span class="range">CLICK, BEEP, WOOD,
+COWBELL; BEEP at first</span></dd>
+<dt>LEVEL</dt><dd>How loud it clicks. <span class="range">60 % at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-routing">
+<h3>Routing and the keys</h3>
+<p><kbd>GLO</kbd> opens FX PROPERTIES, titled whose setup it is (a song's name, THE LOOPS, DJ or THE KEYS):</p>
+<figure data-shot="fx-props"><figcaption>FX PROPERTIES for THE KEYS: their tempo and swing, routing, the keys.
+</figcaption></figure>
+<dl class="params">
+<dt>ROUTING</dt><dd>GLOBAL: one chain on the whole mix. SENDS: CHORUS, DELAY and REVERB leave the chain and become
+shared sends, each track sending its own amount (the MIXER's CHO, DLY, REV); their returns join the chain at the
+SENDS line (marked with a diamond): effects above it work on the dry sound only, below it on everything
+(<samp class="msg">ROUTING SENDS</samp>, <samp class="msg">ROUTING GLOBAL</samp>).</dd>
+<dt>KEYS, EVERYWHERE</dt><dd>THROUGH FX, or DRY: the keys skip every effect (as SETTINGS' KEYS)
+(<samp class="msg">KEYS DRY</samp>, <samp class="msg">KEYS THROUGH FX</samp>).</dd>
+<dt>TEMPO, SWING</dt><dd>For THE KEYS: their own tempo and swing.</dd>
+</dl>
+</section>
+
+<section class="topic" id="fx-mixer">
+<h3>MIXER</h3>
+<figure data-shot="fx-mixer"><figcaption>The MIXER: a column a track, the KEYS column last.</figcaption></figure>
+<ul>
+<li>A column for each of the 16 tracks (8 at a time), a row for each value: <b>LVL</b> (level), <b>PAN</b>, <b>DCK</b>
+(how much it ducks, shown while DUCK is on), and with ROUTING SENDS <b>CHO</b>, <b>DLY</b>, <b>REV</b> (its sends).</li>
+<li><kbd>ALGORITHM</kbd> picks the track, <kbd>SELECT</kbd> the value, <kbd>K1</kbd> changes it (SEL held: by 16),
+<kbd>LFO</kbd> resets it.</li>
+<li><b>KEYS</b>, the last column, is the keys' own strip, the same in every song (its LVL is SETTINGS' KEYS
+GAIN).</li>
+<li>In LOOPS the columns are the loops (MIXER: THE LOOPS).</li>
+<li>A value a song's command moved shows white, BY THE SONG; muted tracks are dark.</li>
+</ul>
+</section>
+
+<section class="topic" id="fx-punch">
+<h3>Punch-in effects</h3>
+<p>Hold <kbd>FX</kbd> and press a <kbd class="w">white key</kbd>, on any screen: that effect plays on the whole mix
+for as long as the key is held, locked to the tempo. On LIVE the white keys alone do it. Let go, it fades back into
+the mix.</p>
+<figure data-shot="fx-held"><figcaption>FX held: the map of the 16 punch-ins.</figcaption></figure>
+<table class="keys">
+<thead><tr><th>Key</th><th>Punch-in</th></tr></thead>
+<tbody>
+<tr><td><kbd class="w">1</kbd> <kbd class="w">2</kbd> <kbd class="w">3</kbd> <kbd class="w">4</kbd></td><td><b>Loops:</b>
+LOOP 1/4, LOOP 1/8, LOOP 1/16, LOOP 1/32.</td></tr>
+<tr><td><kbd class="w">5</kbd> <kbd class="w">6</kbd> <kbd class="w">7</kbd> <kbd class="w">8</kbd></td><td><b>Chops:</b>
+STUTTER 1/16T, BIT CRUSH, GATE 1/16, GATE 1/32.</td></tr>
+<tr><td><kbd class="w">9</kbd> <kbd class="w">10</kbd> <kbd class="w">11</kbd> <kbd class="w">12</kbd></td><td><b>Filters
+and space:</b> LOW-PASS SWEEP, HIGH-PASS SWEEP, ECHO THROW, REVERB SWELL.</td></tr>
+<tr><td><kbd class="w">13</kbd> <kbd class="w">14</kbd> <kbd class="w">15</kbd> <kbd class="w">16</kbd></td><td><b>Tape
+moves:</b> REVERSE, HALF SPEED, TAPE STOP, VINYL STOP.</td></tr>
+<tr><td><span class="combo"><kbd>FX</kbd> + <kbd class="w">white key</kbd></span> held</td><td>A punch-in on any
+screen.</td></tr>
+<tr><td><kbd>ARP</kbd>, with a punch-in's key held</td><td><b>Holds the punch-in on</b> after you let go of its key
+(<samp class="msg" data-t="# HELD ON: ITS KEY STOPS IT">LOOP 1/4 HELD ON: ITS KEY STOPS IT</samp>), so your hands
+are free; FX lights full meanwhile. Its key again (or another punch-in's) stops it, as does HOME + REC.</td></tr>
+</tbody>
+</table>
+<p>The song goes on underneath every punch-in, in time: let go, and you hear it where it is now, faded back in over
+80 ms (VINYL STOP spins back up instead). FX LIVE's map shows short names (LP SWEEP, ECHO THRW, HALF SPD ...); FX
+held's list and the toasts, the full ones below.</p>
+<dl class="params">
+<dt>LOOP 1/4, LOOP 1/8, LOOP 1/16, LOOP 1/32</dt><dd>Catch the last quarter, eighth, sixteenth or thirty-second note
+of the mix, just before the key, and repeat it for as long as the key is held: LOOP 1/4 repeats the last beat, as a
+DJ's loop does; LOOP 1/32 repeats so fast it becomes a buzzing roll.</dd>
+<dt>STUTTER 1/16T</dt><dd>The same with a sixteenth-note triplet (a sixth of a beat): the fast, off-grid stutter of a
+glitch edit.</dd>
+<dt>BIT CRUSH</dt><dd>The live mix ground down to a handful of levels (8 each way from silence, about 4 bits) at a
+sixth of the sample rate: gritty, aliased, old-sampler noise.</dd>
+<dt>GATE 1/16, GATE 1/32</dt><dd>The live mix chopped on and off in time: sound for the first half of every
+sixteenth (or thirty-second) note, silence for the second, with soft edges. A trance gate on the whole song.</dd>
+<dt>LOW-PASS SWEEP</dt><dd>A resonant low-pass filter closes over one bar, from 18 kHz down to 200 Hz, and stays
+closed while held: the song sinks under water.</dd>
+<dt>HIGH-PASS SWEEP</dt><dd>A resonant high-pass filter rises over one bar, from 30 Hz up to 6 kHz: the bass and
+the kick fall away and the song thins to its top, the classic build-up before a drop.</dd>
+<dt>ECHO THROW</dt><dd>Throws the mix into the delay while held: dotted-eighth echoes bouncing left and right, with
+65 % feedback. Let go, nothing more goes in, and the echoes ring on for about 2.4 s over the song. It borrows the
+DELAY's line, so the song's own DELAY is not heard meanwhile.</dd>
+<dt>REVERB SWELL</dt><dd>The mix rises into a huge reverb over two beats, the dry sound falling to half under it: a
+wash. Let go, its tail rings on in the song's own REVERB (with REVERB off, it fades out over 80 ms). It borrows the
+REVERB, so the song's own is not heard meanwhile.</dd>
+<dt>REVERSE</dt><dd>The last beat played backwards, again and again while held.</dd>
+<dt>HALF SPEED</dt><dd>The mix from the moment pressed, played at half speed: an octave down, dragging behind the
+song. It falls further behind the longer it is held, and every second it jumps back to the present, so each second
+held plays the half second that began it.</dd>
+<dt>TAPE STOP</dt><dd>The sound slows down and stops over one beat, pitch falling with it, as a tape machine switched
+off. Stopped, it is silent until you let go.</dd>
+<dt>VINYL STOP</dt><dd>A turntable's stop button: the record brakes to a standstill in half a second. Stopped, it is
+silent. Let go, it spins back up in a tenth of a second, straight into the song, landing on the beat.</dd>
+</dl>
+<aside class="note"><b>TAPE STOP or VINYL STOP?</b> Both slow the sound to a stop and stay silent while held. TAPE
+STOP follows the song: it takes one beat (half a second at 120 BPM, a whole second at 60), so it is slower than VINYL
+STOP in slow songs and faster in fast ones, and it simply fades back into the song when let go. VINYL STOP always
+takes half a second, whatever the tempo, and when let go it spins back up audibly, a DJ starting the record
+again.</aside>
+<aside class="memo">The loops, the stutter, reverse, half speed and both stops play back the last half second of
+the mix, which the FM-1 keeps for them. In songs slower than about 120 BPM a whole beat does not fit in it, so LOOP
+1/4 repeats an eighth note instead and REVERSE plays the last eighth backwards. The others (bit crush, the gates, the
+sweeps, the echo throw and the reverb swell) work on the live mix.</aside>
+<p>A pattern can hold punch-ins as commands (<b>!08</b>: as if its key were held for 8 rows), so songs can carry
+them. In LOOPS a punch-in is heard, and written only by RECORD LIVE.</p>
+</section>
+
+<section class="topic" id="fx-keys">
+<h3>Keys on FX</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>FX</kbd></td><td>Opens FX; again, back to where you were.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>The next page: LIVE, EDIT, MIXER.</td></tr>
+<tr><td><kbd>SELECT</kbd></td><td>Picks an effect (on MIXER, the value).</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>The effect's knobs (on MIXER, K1 changes the
+value).</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>The effect's next knobs (on MIXER, the track).</td></tr>
+<tr><td><kbd>OCT+</kbd> <kbd>OCT-</kbd></td><td>Switch the effect on or off.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> held + <kbd>OCT+</kbd></span> <span class="combo"><kbd>SEL</kbd>
+held + <kbd>OCT-</kbd></span></td><td>On EDIT: the keys' octave.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Puts the knob turned last back to its default.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The menu: MOVE, RESET, REVERT.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>On LIVE: the effect on EDIT. On EDIT with GATE picked: its steps on the white keys;
+again, keep them.</td></tr>
+<tr><td><kbd class="w">white key</kbd> held, <kbd>ALGORITHM</kbd></td><td>On GATE's steps: the held key's step gets
+ratchets, X2, X3, X4.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Drops GATE's step changes; during MOVE, puts the chain back.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>On GATE: the gate patterns.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>FX PROPERTIES: routing, the keys, THE KEYS' tempo and swing.</td></tr>
+<tr><td><kbd class="w">white keys</kbd></td><td>On LIVE: the punch-ins. On EDIT and MIXER: play notes.</td></tr>
+<tr><td><kbd class="b">black key</kbd></td><td>On LIVE: picks an effect.</td></tr>
+<tr><td><kbd class="b">BLANK</kbd></td><td>On LIVE: BYPASS while held.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>On LIVE no notes, only effects; on EDIT and MIXER they play.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>The arpeggiator; with a punch-in's key held, holds the punch-in on.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes a track (also on
+MIXER).</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -1,0 +1,212 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Vasily Kazantsev */
+/* The manual's page (specs/manual.md section 2): PT/FM's pages' look (panel/page.css's colours, the system's
+ * sans-serif, the FM-1 screen's colours on black), the contents in a sidebar, the text, the FM-1 drawn beside it whose
+ * keys light when the text names them. Narrower than 900 px: the FM-1 above the text, the contents a drawer. */
+
+:root {
+    --k: #000000; --blue: #4C5CD0; --cyan: #3AA8A8; --red: #C84C44; --lgrey: #B4B4AC; --dgrey: #5C5C5C;
+    --lblue: #7C8CF8; --lgreen: #84E884; --lcyan: #84E8E8; --lred: #F87C74; --lmagenta: #E884E8; --yellow: #F0E074;
+    --white: #F4F4EC;
+    --green-d: #163316; --yellow-d: #484322; --red-d: #3A1614; --line: #2E2E2E; --raise: #111115;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --side-w: 248px; --pcol-w: 440px; --top-h: 44px;
+    color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--top-h) + 12px); }
+body.manual {
+    margin: 0; background: var(--k); color: var(--lgrey); font: 15px/1.5 var(--sans);
+    display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--pcol-w);
+    grid-template-rows: var(--top-h) auto; min-height: 100vh;
+}
+body ::selection { background: var(--blue); color: var(--white); }
+
+/* ---- the header ---- */
+.mtop {
+    grid-column: 1 / 4; position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px;
+    padding: 0 16px; background: #000; border-bottom: 1px solid var(--dgrey);
+}
+.mtop .mark { font: 800 20px/1 var(--sans); color: var(--white); letter-spacing: .02em; text-decoration: none; }
+.mtop .mark:hover, .mtop .mark:focus-visible { outline: 1px solid var(--lcyan); outline-offset: 3px; }   /* (PT/FM's page) */
+/* the logo's letters in the start screen's colours, as the other pages have them */
+.mark b { font-weight: inherit; }
+.mark .c-p { color: var(--lred); }
+.mark .c-t { color: var(--lcyan); }
+.mark .c-s { color: var(--yellow); }
+.mark .c-f { color: var(--lgreen); }
+.mark .c-m { color: var(--lmagenta); }
+.mtop .mt { font: 600 13px/1 var(--sans); letter-spacing: .12em; color: var(--white); }
+.mtop .mv { margin-left: auto; font-size: 13px; color: var(--dgrey); }
+/* DOWNLOAD PDF MANUAL: the PDF beside the page */
+.mtop .pdf { font: 600 12px/1 var(--sans); letter-spacing: .1em; color: var(--white); text-decoration: none;
+    padding: 7px 11px; border: 1px solid var(--dgrey); border-radius: 4px; background: var(--raise); white-space: nowrap; }
+.mtop .pdf:hover, .mtop .pdf:focus-visible { border-color: var(--lcyan); color: var(--lcyan); outline: none; }
+.mtop .pdf .short { display: none; }
+.mtop .menu { display: none; font: 18px/1 var(--sans); color: var(--white); background: none; border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+
+/* ---- the contents ---- */
+.side {
+    position: sticky; top: var(--top-h); height: calc(100vh - var(--top-h)); overflow-y: auto; padding: 12px 10px 24px;
+    border-right: 1px solid var(--dgrey); background: #000;
+}
+.search {
+    width: 100%; font: 14px var(--sans); color: var(--white); background: var(--raise); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; margin-bottom: 8px;
+}
+.search::placeholder { color: var(--dgrey); }
+.toc, .toc ul { list-style: none; margin: 0; padding: 0; }
+.toc { font-size: 13.5px; }
+.toc .h { font: 600 10.5px/1 var(--sans); letter-spacing: .16em; color: var(--dgrey); padding: 14px 6px 6px; }
+.toc a { display: block; color: var(--lgrey); text-decoration: none; padding: 3px 8px; border-radius: 4px; }
+.toc a:hover { background: var(--raise); color: var(--white); }
+.toc .n { display: inline-block; min-width: 1.7em; color: var(--dgrey); font-variant-numeric: tabular-nums; }
+.toc ul a { padding-left: 30px; font-size: 13px; }
+.toc a.cur { background: #161B3E; color: var(--white); box-shadow: inset 2px 0 0 var(--lblue); }
+.toc [hidden] { display: none; }
+/* only the chapter being read shows its topics (manual.js: open); while searching, every match */
+.toc li.c > ul { display: none; }
+.toc li.c.open > ul, .toc.searching li.c > ul { display: block; }
+
+/* ---- the text ---- */
+.doc { padding: 22px 30px 60px; min-width: 0; }
+.doc > section.chapter { max-width: 76ch; margin: 0 auto 56px; }
+.chapter > h2 { font: 700 28px/1.15 var(--sans); color: var(--white); margin: 0 0 8px; text-wrap: balance; }
+.chapter > h2[data-num]:not([data-num=""])::before {
+    content: attr(data-num); display: inline-block; min-width: 1.6em; margin-right: 10px; padding: 2px 6px;
+    font-size: 20px; text-align: center; color: #000; background: var(--lcyan); border-radius: 4px; vertical-align: 3px;
+}
+.topic > h3 { font: 600 18px/1.25 var(--sans); color: var(--lcyan); margin: 30px 0 8px; }
+.doc p { margin: 0 0 10px; }
+.doc .lead { color: #D4D4CC; font-size: 16px; }
+.doc a { color: var(--lblue); }
+.doc b { color: var(--white); font-weight: 600; }
+ol.steps { margin: 10px 0 14px; padding: 0; list-style: none; counter-reset: st; }
+ol.steps > li { counter-increment: st; position: relative; padding: 2px 0 6px 34px; }
+ol.steps > li::before {
+    content: counter(st); position: absolute; left: 0; top: 2px; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--white); color: #000; font: 700 13px/22px var(--sans); text-align: center;
+}
+aside.memo, aside.note { border-radius: 6px; padding: 9px 12px; margin: 12px 0; font-size: 14px; }
+aside.memo { border: 1px solid #234423; background: var(--green-d); color: #CDEFCD; }
+aside.note { border: 1px solid #5A2420; background: var(--red-d); color: #F4D2CE; }
+aside.memo::before, aside.note::before { font: 700 11px/1 var(--sans); letter-spacing: .12em; margin-right: 8px; }
+aside.memo::before { content: "MEMO"; color: var(--lgreen); }
+aside.note::before { content: "NOTE"; color: var(--lred); }
+
+/* keys and messages */
+kbd {
+    display: inline-block; font: 600 11.5px/1 var(--sans); letter-spacing: .04em; color: var(--white);
+    background: #1B1B1E; border: 1px solid #3A3A40; border-bottom-width: 2px; border-radius: 5px; padding: 3px 6px 2px;
+    vertical-align: 1px; white-space: nowrap;
+}
+kbd.w { background: #E9E9E2; color: #111; border-color: #9A9A92; border-radius: 9px; }
+kbd.b { background: #111; color: #DADAD2; border-color: #4A4A4A; border-radius: 9px; }
+.combo { white-space: nowrap; }
+[data-k] { cursor: pointer; border-radius: 6px; }
+[data-k]:hover, [data-k]:focus-visible, [data-k].on { outline: 1px solid var(--lblue); outline-offset: 1px; }
+tr[data-k]:hover, tr[data-k]:focus-visible, tr[data-k].on { background: #10142E; outline-offset: -1px; }
+samp.msg { font: 600 12.5px/1 var(--mono); color: var(--yellow); background: var(--yellow-d); padding: 2px 5px;
+    border-radius: 3px; white-space: nowrap; }
+
+/* screenshots and the panel figures */
+figure.shot { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 16px; align-items: center; margin: 16px 0; }
+figure.shot .lcd { background: #0E0E10; border: 1px solid #333; border-radius: 14px; padding: 12px; }
+figure.shot img { width: 240px; height: 240px; image-rendering: pixelated; display: block; }
+figure figcaption { font-size: 13.5px; color: var(--lgrey); }
+figure.panel-fig { margin: 16px 0; }
+figure.panel-fig svg { width: 100%; height: auto; display: block; }
+
+/* tables and parameters */
+.tw { overflow-x: auto; max-width: 100%; }
+.notice { font-size: 13px; color: var(--lgrey); }
+code { font: 13.5px var(--mono); color: var(--lcyan); letter-spacing: .06em; }   /* (GATE's steps) */
+dl.params dl.params { margin: 6px 0 10px; padding-left: 12px; border-left: 1px solid var(--line); }   /* (an effect's
+    knobs under it) */       /* (a licence's notice, as its text is) */
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0 14px; }
+th { text-align: left; font: 600 10.5px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--cyan);
+    padding: 8px 8px 6px; border-bottom: 1px solid var(--dgrey); }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody th { font: 600 14px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--lcyan);   /* (a row's
+    head: the specifications, the MIDI chart) */
+    padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.keys td:first-child { white-space: nowrap; }
+dl.params { margin: 8px 0 14px; }                 /* (a name above its text: names can be long lists) */
+dl.params dt { font: 600 13.5px var(--mono); color: var(--lcyan); margin-top: 10px; }
+dl.params dd { margin: 2px 0 0 18px; }
+dl.params .range { display: block; color: var(--dgrey); font-size: 13.5px; }
+
+/* the cover */
+.cover { padding: 8px 0 20px; }
+.cover p { margin: 0; }
+.cover-sub { font: 600 13px var(--sans); letter-spacing: .16em; color: var(--lcyan); }
+.cover-ver, .cover-by { font-size: 13px; color: var(--dgrey); letter-spacing: .1em; }
+
+/* ---- the FM-1 beside the text ---- */
+.pcol { border-left: 1px solid var(--line); background: #050506; padding: 16px; }
+.pstick { position: sticky; top: calc(var(--top-h) + 16px); display: flex; flex-direction: column; gap: 10px; }
+.pstick > * { flex: none; }                         /* (only the strip below gives way) */
+.pcol svg.panel { width: 100%; height: auto; display: block; user-select: none; }
+.pcol svg.panel, .pcol svg.panel * { cursor: default; }    /* (not the text cursor over the keys' prints) */
+/* a key or knob of the drawing pointed at: its name on the drawing's screen (manual.js) */
+.pcol .panel-web .p-el:hover rect, .pcol .panel-web .p-el:hover circle { stroke: var(--lcyan); }
+.panel-web .p-say { display: none; pointer-events: none; }
+.panel-web .p-say.on { display: inline; }
+.panel-web .p-say rect { fill: #000; }
+.panel-web .p-say-n { font-family: var(--mono); font-weight: 600; text-anchor: middle; fill: var(--yellow); }
+.panel-web .p-say-k { font-family: var(--mono); text-anchor: middle; fill: var(--cyan); letter-spacing: .08em; }
+.pcol .hint { font-size: 12.5px; color: var(--dgrey); margin: 0; }
+/* the drawing folded away (manual.js, remembered): the screenshots take the column */
+.pfold { align-self: flex-end; font: 600 10.5px/1 var(--sans); letter-spacing: .12em; color: var(--dgrey);
+    background: none; border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; cursor: pointer; }
+.pfold:hover, .pfold:focus-visible { color: var(--lcyan); border-color: var(--lcyan); outline: none; }
+body.folded .pcol svg.panel, body.folded .pcol .hint { display: none; }
+.panel-web .p-body { fill: #0C0C0E; stroke: #2E2E33; stroke-width: 3; }
+.panel-web .p-plate { fill: #151518; stroke: #26262B; stroke-width: 1.5; }
+.panel-web .p-bezel { fill: #08080A; stroke: #2E2E33; stroke-width: 2; }
+.panel-web .p-screen { fill: #000; }
+.panel-web .p-print { font-family: var(--sans); font-weight: 600; text-anchor: middle; fill: #6A6A66; }
+.panel-web .p-el rect, .panel-web .p-el circle { fill: #1D1D21; stroke: #3A3A40; stroke-width: 2; transition: fill .12s, stroke .12s; }
+.panel-web .p-white rect { fill: #2A2A2E; }
+.panel-web .p-tick { stroke: #8A8A84; stroke-width: 3; }
+.panel-web .p-label { font-family: var(--sans); font-weight: 600; text-anchor: middle; fill: #9A9A94; }
+.panel-web .lit rect, .panel-web .lit circle { fill: var(--yellow); stroke: #fff; filter: drop-shadow(0 0 8px rgba(240, 224, 116, .85)); }
+.panel-web .lit text { fill: #000; }
+.panel-web .p-num { font-family: var(--sans); font-weight: 700; text-anchor: middle; fill: #fff; }
+@media (prefers-reduced-motion: reduce) { .panel-web .p-el rect, .panel-web .p-el circle { transition: none; } }
+/* the screenshot of the part being read, under the FM-1 (manual.js); in the text only on narrow pages */
+.pstick { max-height: calc(100vh - var(--top-h) - 32px); }
+.pshot { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; gap: 14px; align-content: start; padding: 2px 4px 2px 2px; }
+.pshot figure.shot { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0; justify-items: stretch;
+    cursor: pointer; border-radius: 16px; }
+.pshot figure.shot:hover .lcd, .pshot figure.shot:focus-visible .lcd { border-color: var(--lcyan); outline: none; }
+.pshot figure.shot.cur .lcd { border-color: var(--lblue); box-shadow: 0 0 0 1px var(--lblue); }
+.pshot:empty { display: none; }
+.pshot figure.shot .lcd { padding: 8px; }
+.pshot figure.shot img { width: 100%; height: auto; }               /* (the column's full width) */
+@media (min-width: 901px) {                 /* (collapsed, not display: none: its place in the text is where it applies) */
+    .doc figure.shot { height: 0; margin: 0; padding: 0; overflow: hidden; visibility: hidden; }
+}
+
+@media (max-width: 1180px) { :root { --pcol-w: 340px; --side-w: 220px; } }
+@media (max-width: 520px) { .mtop .pdf .long { display: none; } .mtop .pdf .short { display: inline; } }
+@media (max-width: 900px) {
+    body.manual { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--top-h) auto; }
+    .mtop { grid-column: 1; }
+    .mtop .menu { display: inline-block; }
+    .mtop .mv { display: none; }
+    .mtop .pdf { margin-left: auto; }
+    .side { position: fixed; left: 0; top: var(--top-h); z-index: 6; width: min(86vw, 320px); transform: translateX(-102%);
+        transition: transform .18s; box-shadow: 0 0 24px #000; }
+    body.drawer .side { transform: none; }
+    .pcol { display: none; }        /* (no hover on a phone: the FM-1 drawn above the text only covered it) */
+    [data-k] { cursor: auto; }      /* (nothing to light) */
+    [data-k]:hover, [data-k].on { outline: none; }
+    tr[data-k]:hover, tr[data-k].on { background: none; }
+    .doc { grid-row: 2; padding: 18px 16px 40px; }
+    figure.shot { grid-template-columns: 1fr; }
+    figure.shot .lcd { padding: 8px; }
+    figure.shot img { width: 100%; height: auto; }      /* (the text's full width) */
+}

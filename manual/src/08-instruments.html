@@ -1,0 +1,450 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="instruments" data-kind="screen">
+<h2>INSTRUMENTS</h2>
+<p class="lead">INSTRUMENTS picks, plays and edits the sounds. Sounds live in <b>cartridges</b>: a cartridge is a bank of
+up to 128 instruments of one type, each in a numbered slot (<b>01:05</b> is cartridge 01, slot 05). Open it with
+<span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP3</kbd></span>.</p>
+
+<section class="topic" id="instruments-browse">
+<h3>Browsing and playing</h3>
+<figure data-shot="instruments-browse"><figcaption>INSTRUMENTS: the cartridge's slots at the top, the sound picked in
+detail below; the footer's right side names the cartridge.</figcaption></figure>
+<ul>
+<li>The cursor is the current instrument: <kbd>SELECT</kbd> moves a slot at a time, <kbd>ALGORITHM</kbd> by 8 (a
+column).</li>
+<li><kbd>PRESETS</kbd> steps to the next or previous sound there is, skipping empty slots, round.</li>
+<li><kbd>K1</kbd> turns the cartridges, round.</li>
+<li>The <kbd>KEYS</kbd> play the sound picked; <kbd>ARP</kbd> arpeggiates it, so with ARP LATCH both hands are free
+for the knobs.</li>
+<li>The bottom half shows the sound: a DX7's operators, a JUNO-106's sliders, a TB-303's knobs, a CHIP sound's steps
+and tables, a sample's waveform, a FUSION's pattern as a little map.</li>
+<li><kbd>GLO</kbd> shows the cartridge's name, type and slots used, and renames it.</li>
+<li><kbd>ENV</kbd> lists all the cartridges (CARTRIDGES: ID, name, type, slots used); <kbd>ENV</kbd> again opens the
+highlighted one.</li>
+</ul>
+<figure data-shot="instruments-carts"><figcaption>The cartridge list (ENV): the demo disk's 01-06, then the built-in
+F0-FA, each type in its colour.</figcaption></figure>
+</section>
+
+<section class="topic" id="instruments-edit">
+<h3>Changing a sound: edit mode</h3>
+<p>Press <kbd>EDIT</kbd>: the list gives way to the sound's settings below and a picture of it above (the DX7's
+algorithm and envelope, the JUNO-106's envelope and filter, the sample's waveform ...).</p>
+<figure data-shot="instruments-edit-dx7"><figcaption>Editing a DX7 sound: the algorithm and the selected operator's
+envelope above, a page of settings below, four to a row.</figcaption></figure>
+<ul>
+<li>The settings are a table, four to a row (a group). <kbd>SELECT</kbd> picks a row; <kbd>K1</kbd> to
+<kbd>K4</kbd> change its four values (<b>RELEASE 33 MS</b> in the header as you turn).</li>
+<li><kbd>ALGORITHM</kbd> or <kbd>SEQ</kbd> turn the pages of settings (SEQ goes round).</li>
+<li>The <kbd>KEYS</kbd> play the sound as it changes; every change is heard at once, by everything that plays it.
+</li>
+<li><kbd>LFO</kbd> puts the knob turned last back to its default (<b>LEVEL 0 DB (DEFAULT)</b>).</li>
+<li><kbd>PRESETS</kbd> moves to another sound, still editing.</li>
+<li><kbd>SEL</kbd> on NAME types the name; elsewhere it opens the menu: COPY, PASTE, INIT, RENAME, AUTO LEVEL,
+REVERT (FUSION: EDIT PATTERN too).</li>
+<li>SEL held + a knob: big steps (LEVEL by 6 dB, a value by 10).</li>
+<li><kbd>EDIT</kbd> leaves, keeping the changes; <kbd>HOME</kbd> leaves, dropping them
+(<samp class="msg">CHANGES DROPPED</samp>).</li>
+</ul>
+<p>An empty slot has nothing to edit: <samp class="msg">EMPTY SLOT: SEL, INIT</samp> (except FUSION, below).</p>
+<dl class="params">
+<dt>LEVEL</dt><dd>Every instrument has one: how loud it is, in dB, half a dB a click. AUTO LEVEL (in the SEL menu)
+measures the sound and sets it as loud as the others (<samp class="msg" data-t="LEVEL SET TO #">LEVEL SET TO -1.5
+DB</samp>; a silent sound: <samp class="msg">NO SOUND TO MEASURE</samp>). <span class="range">-64 to +63.5 dB</span>
+</dd>
+<dt>NAME</dt><dd>The sound's name; <kbd>SEL</kbd> on it types it.</dd>
+</dl>
+</section>
+
+<section class="topic" id="instruments-dx7">
+<h3>DX7</h3>
+<p>The DX7 makes sound by FM: six sine-wave <b>operators</b>, each with its own envelope. Some (the carriers) are
+heard; the others (the modulators) bend their waves, which gives bells, electric pianos, basses and brass. Its four
+pages:</p>
+<dl class="params">
+<dt>OPERATORS</dt><dd>The first page: a row for each operator.
+<dl class="params">
+<dt>OP1, OP2, OP3, OP4, OP5, OP6</dt><dd>The six rows, one an operator. Each has the same four knobs:</dd>
+<dt>LEVEL</dt><dd>K1: how loud the operator is (a carrier), or how strongly it bends the others (a modulator).
+<span class="range">0-99</span></dd>
+<dt>COARSE</dt><dd>K2: the operator's frequency as a multiple of the note's: 1 is the note, 2 an octave up, 3 an
+octave and a fifth; 0 is half. Whole multiples sound harmonic, the others bell-like.
+<span class="range">0-31</span></dd>
+<dt>FINE</dt><dd>K3: adds to COARSE in small steps, up to almost twice its multiple.
+<span class="range">0-99</span></dd>
+<dt>DETUNE</dt><dd>K4: a slight detune, for a slow beating between operators. <span class="range">-7 to +7</span></dd>
+</dl></dd>
+<dt>ENVELOPES</dt><dd>Two rows for each operator: how its volume moves over a note.
+<figure data-shot="instruments-dx7-envelopes"><figcaption>The DX7's ENVELOPES page.</figcaption></figure>
+<dl class="params">
+<dt>OP1 RATE, OP2 RATE, OP3 RATE, OP4 RATE, OP5 RATE, OP6 RATE</dt><dd>An operator's four rates, R1 to R4 on K1 to
+K4.</dd>
+<dt>OP1 LVL, OP2 LVL, OP3 LVL, OP4 LVL, OP5 LVL, OP6 LVL</dt><dd>Its four levels, L1 to L4 on K1 to K4.</dd>
+<dt>R1, R2, R3, R4</dt><dd>How fast the envelope moves to each level: R1 to L1, R2 to L2, R3 to L3, and, once the key
+is let go, R4 to L4. 99 is the fastest, 0 the slowest. <span class="range">0-99</span></dd>
+<dt>L1, L2, L3, L4</dt><dd>The levels it moves to: it rises to L1, goes on to L2, then to L3, where it stays while the
+key is held; let go, it moves to L4 (usually 0: silence). <span class="range">0-99</span></dd>
+</dl></dd>
+<dt>PITCH / LFO</dt><dd>The pitch envelope and the LFO.
+<figure data-shot="instruments-dx7-pitch"><figcaption>The DX7's PITCH / LFO page.</figcaption></figure>
+<dl class="params">
+<dt>P RATE, P LEVEL</dt><dd>The pitch envelope: its rates R1-R4 and levels L1-L4 move as an operator's envelope does,
+but on the pitch of the whole voice. Level 50 is the note's own pitch; above it bends up, below it down.
+<span class="range">0-99</span></dd>
+<dt>LFO</dt><dd>The LFO's first row. The LFO is a slow wave that moves the pitch or the volume:</dd>
+<dt>SPEED</dt><dd>K1: how fast the LFO's wave goes. <span class="range">0-99</span></dd>
+<dt>DELAY</dt><dd>K2: how long after the key the LFO fades in. <span class="range">0-99</span></dd>
+<dt>PM DEPTH</dt><dd>K3: how much it moves the pitch: vibrato. <span class="range">0-99</span></dd>
+<dt>AM DEPTH</dt><dd>K4: how much it moves the volume: tremolo, on the operators whose stored sensitivity lets it
+(below). <span class="range">0-99</span></dd>
+<dt>LFO 2</dt><dd>The LFO's second row:</dd>
+<dt>WAVE</dt><dd>K1: the LFO's wave; S+H is random steps. <span class="range">TRI, SAW-, SAW+, SQR, SINE,
+S+H</span></dd>
+<dt>SYNC</dt><dd>K2: ON, the LFO starts again with each key; OFF, it runs on freely. <span class="range">OFF,
+ON</span></dd>
+<dt>P SENS</dt><dd>K3: how strongly PM DEPTH acts on the pitch. <span class="range">0-7</span></dd>
+</dl></dd>
+<dt>VOICE</dt><dd>The last page: NAME, LEVEL, and the row VOICE.
+<figure data-shot="instruments-dx7-voice"><figcaption>The DX7's VOICE page: name, algorithm, feedback, level.
+</figcaption></figure>
+<dl class="params">
+<dt>ALGORITHM</dt><dd>K1: which of the 32 ways the six operators are wired, which are heard and which modulate which;
+the picture shows it. <span class="range">00-1F</span></dd>
+<dt>FEEDBACK</dt><dd>K2: the loop drawn in the algorithm's picture, an operator modulating itself: brighter, then
+noisy. <span class="range">0-7</span></dd>
+<dt>OSC SYNC</dt><dd>K3: ON, every operator's wave starts again from zero with each key, so every note starts alike.
+<span class="range">OFF, ON</span></dd>
+<dt>TRANSPOSE</dt><dd>K4: shifts the whole voice, in semitones. <span class="range">-24 to +24</span></dd>
+</dl></dd>
+</dl>
+<p>A DX7 voice also stores what its pages do not show: keyboard scaling (louder or softer towards the ends of the
+keyboard), the sensitivities to velocity and to the LFO's AM, and fixed frequencies. Voices from DX7 cartridge files
+keep them, and PT/FM plays them as they are.</p>
+</section>
+
+<section class="topic" id="instruments-juno">
+<h3>JUNO-106</h3>
+<p>The JUNO-106 is an analogue polysynth: one oscillator (DCO) with a pulse, a saw, a sub-oscillator and noise,
+through a resonant low-pass filter (VCF) and a high-pass, shaped by one envelope, with a chorus. Browsing, its sound
+shows as the original's sliders.</p>
+<figure data-shot="instruments-juno-browse"><figcaption>F8 JUNO-106 browsed: its sliders below the slots.</figcaption></figure>
+<figure data-shot="instruments-juno-dco"><figcaption>Editing: the DCO page, under the envelope and the filter.
+</figcaption></figure>
+<p>Its pages:</p>
+<dl class="params">
+<dt>DCO</dt><dd>The first page, the oscillator. Its first row is named DCO too:
+<dl class="params">
+<dt>LFO</dt><dd>K1: vibrato, how much the LFO moves the pitch. <span class="range">0-127</span></dd>
+<dt>PWM</dt><dd>K2: the pulse's width: how far the LFO moves it (PWM BY LFO), or where it stands (PWM BY MAN).
+<span class="range">0-127</span></dd>
+<dt>NOISE</dt><dd>K3: how much noise is mixed in. <span class="range">0-127</span></dd>
+<dt>SUB</dt><dd>K4: the sub-oscillator, a square an octave down, mixed in. <span class="range">0-127</span></dd>
+<dt>WAVES</dt><dd>The second row:</dd>
+<dt>RANGE</dt><dd>K1: the octave, 16' the lowest. <span class="range">16', 8', 4'</span></dd>
+<dt>PULSE</dt><dd>K2: the pulse wave on or off. <span class="range">OFF, ON</span></dd>
+<dt>SAW</dt><dd>K3: the saw wave on or off; the two can sound together. <span class="range">OFF, ON</span></dd>
+<dt>PWM BY</dt><dd>K4: LFO, the LFO moves the pulse's width; MAN, PWM sets a fixed width.
+<span class="range">LFO, MAN</span></dd>
+</dl></dd>
+<dt>FILTERS</dt><dd>The page of the filters.
+<figure data-shot="instruments-juno-filters"><figcaption>The JUNO-106's FILTERS page.</figcaption></figure>
+<dl class="params">
+<dt>VCF</dt><dd>The low-pass filter's row:</dd>
+<dt>FREQ</dt><dd>K1: the cutoff: how bright the sound is. <span class="range">0-127</span></dd>
+<dt>RES</dt><dd>K2: resonance, a peak at the cutoff; turned high, the filter whistles.
+<span class="range">0-127</span></dd>
+<dt>ENV</dt><dd>K3: how far the envelope moves the cutoff over a note. <span class="range">0-127</span></dd>
+<dt>LFO</dt><dd>K4: how far the LFO sweeps the cutoff. <span class="range">0-127</span></dd>
+<dt>VCF 2</dt><dd>The second row:</dd>
+<dt>KYBD</dt><dd>K1: how much the cutoff follows the note: higher notes brighter. <span class="range">0-127</span></dd>
+<dt>ENV +/-</dt><dd>K2: +, the envelope opens the filter; -, it closes it. <span class="range">+, -</span></dd>
+<dt>HPF</dt><dd>K3: the high-pass filter: 0 boosts the bass, 1 leaves it flat, 2 and 3 make the sound thinner.
+<span class="range">0-3</span></dd>
+</dl></dd>
+<dt>ENVELOPE</dt><dd>The page of the envelope, the amplifier and the LFO.
+<figure data-shot="instruments-juno-envelope"><figcaption>The JUNO-106's ENVELOPE page.</figcaption></figure>
+<dl class="params">
+<dt>ENV</dt><dd>The envelope's row. The envelope shapes the volume (with MODE at ENV) and the filter (by VCF's
+ENV):</dd>
+<dt>A</dt><dd>K1: attack, how fast the sound rises. <span class="range">0-127</span></dd>
+<dt>D</dt><dd>K2: decay, how fast it falls to the sustain level. <span class="range">0-127</span></dd>
+<dt>S</dt><dd>K3: sustain, the level it holds while the key is down. <span class="range">0-127</span></dd>
+<dt>R</dt><dd>K4: release, how long it fades once the key is let go. <span class="range">0-127</span></dd>
+<dt>VCA</dt><dd>The amplifier's row:</dd>
+<dt>LEVEL</dt><dd>K1: the amplifier's level, before the instrument's own LEVEL in dB. <span class="range">0-127</span></dd>
+<dt>MODE</dt><dd>K2: ENV, the volume follows the envelope; GATE, full while the key is held, silent at once when let
+go. <span class="range">ENV, GATE</span></dd>
+<dt>CHORUS</dt><dd>K3: the JUNO's own chorus, II the deeper. <span class="range">OFF, I, II</span></dd>
+<dt>LFO</dt><dd>The LFO's row: the slow wave that DCO's LFO and PWM and VCF's LFO use.</dd>
+<dt>RATE</dt><dd>K1: the LFO's speed. <span class="range">0-127</span></dd>
+<dt>DELAY</dt><dd>K2: how long after the key the LFO fades in. <span class="range">0-127</span></dd>
+</dl></dd>
+<dt>VOICE</dt><dd>The last page: NAME and LEVEL.
+<figure data-shot="instruments-juno-voice"><figcaption>The JUNO-106's VOICE page.</figcaption></figure></dd>
+</dl>
+</section>
+
+<section class="topic" id="instruments-tb303">
+<h3>TB-303</h3>
+<p>The TB-303 is the acid bass line: one oscillator through a squelchy resonant filter. In a pattern, the commands
+ACC (accent) and SLD (slide) play its two famous tricks (<a href="#editor-commands">EDITOR</a>). One page:</p>
+<figure data-shot="instruments-tb303-browse"><figcaption>FA TB-303 browsed: its six knobs.</figcaption></figure>
+<figure data-shot="instruments-edit-tb303"><figcaption>Editing a TB-303 sound: the filter's envelope over a note (an
+accented one dotted) and the filter, above its KNOBS page.</figcaption></figure>
+<dl class="params">
+<dt>KNOBS</dt><dd>The page, and its first row, the original's knobs:
+<dl class="params">
+<dt>WAVE</dt><dd>K1: the oscillator's wave: saw at 0, square at 127, the two mixed between.
+<span class="range">0-127</span></dd>
+<dt>CUTOFF</dt><dd>K2: the filter's cutoff: how bright the sound is. <span class="range">0-127</span></dd>
+<dt>RESO</dt><dd>K3: resonance, the squelch: a peak at the cutoff. <span class="range">0-127</span></dd>
+<dt>ENV MOD</dt><dd>K4: how far each note's envelope opens the filter. <span class="range">0-127</span></dd>
+<dt>KNOBS 2</dt><dd>The second row:</dd>
+<dt>DECAY</dt><dd>K1: how fast the filter closes again after each note. <span class="range">0-127</span></dd>
+<dt>ACCENT</dt><dd>K2: how much an accented note stands out: louder, brighter, a sharper sweep.
+<span class="range">0-127</span></dd>
+</dl></dd>
+</dl>
+</section>
+
+<section class="topic" id="instruments-chip">
+<h3>CHIP</h3>
+<p>CHIP is a virtual sound chip: it makes the sounds of 8-bit computers and consoles the way their chips made them,
+square waves at a few widths, a stepped triangle, a drawn wave, noise, 16 volume steps moving 50 or 60 times a
+second. Its four families: <b>BRK</b> (the handheld), <b>8BIT</b> (the console), <b>PSG</b> (the computers'
+programmable sound generator) and <b>16BIT</b> (that chip's finer later version). Any part works on any voice.</p>
+<figure data-shot="instruments-chip-browse"><figcaption>F9 CHIPTUNE browsed: the oscillator's steps and the sound's
+tables.</figcaption></figure>
+<figure data-shot="instruments-chip-tone"><figcaption>Editing: the TONE page, the oscillator's wave above.</figcaption></figure>
+<figure data-shot="instruments-chip-volume"><figcaption>The VOLUME page, the volume over a note above.</figcaption></figure>
+<figure data-shot="instruments-chip-tables"><figcaption>The TABLES page, the table at the cursor above.</figcaption></figure>
+<figure data-shot="instruments-chip-wave"><figcaption>The WAVE page: the 16 waves, the one picked drawn large.</figcaption></figure>
+<p>Its pages:</p>
+<dl class="params">
+<dt>TONE</dt><dd>The first page: the oscillator, the noise, the clock and the sweep.
+<dl class="params">
+<dt>OSC</dt><dd>The oscillator's row. K1 picks the oscillator: PULSE, TRIANGLE, WAVE (one of 16 drawn waves), BUZZ
+(the PSG's envelope run fast enough to be a tone) or NOISE. The row's other knobs are that oscillator's own:</dd>
+<dt>DUTY</dt><dd>PULSE's: the pulse's width; 50% is the hollow square, the narrow ones thinner. (A table can move it:
+below.) <span class="range">12.5%, 25%, 50%, 75%</span></dd>
+<dt>WAVE</dt><dd>WAVE's: which of the 16 waves it plays, by name (ORGAN ...); the WAVE page shows them.</dd>
+<dt>SHAPE, STEPS, GATE</dt><dd>BUZZ's: SHAPE the envelope's shape (SAW DN, SAW UP, TRI), STEPS how many steps it has
+(16 or 32), GATE ON cuts it with a square at the same note (the "sync buzzer").</dd>
+<dt>NOISE</dt><dd>The noise row. Its first knob, NOISE, ON mixes noise into the tone:</dd>
+<dt>MODE</dt><dd>K2: LONG, a hiss; SHORT, a metallic, pitched noise. <span class="range">LONG, SHORT</span></dd>
+<dt>RATE</dt><dd>K3: how high the noise sounds. <span class="range">0-F</span></dd>
+<dt>KEY</dt><dd>K4: KEY ON, the rate follows the note played; KEY OFF, it stays as set. <span class="range">KEY OFF,
+KEY ON</span></dd>
+<dt>CLOCK</dt><dd>The row of the chip's own manners. Its first knob, CLOCK, is the chip it is tuned on (BRK, 8BIT,
+PSG 1.77, PSG 1.00, PSG 1.79, 16BIT), so high notes go out of tune as they did on that chip; EXACT is always in
+tune.</dd>
+<dt>CURVE</dt><dd>K2: how its 16 volume steps sound, as on each chip. <span class="range">BRK, 8BIT, PSG,
+16BIT</span></dd>
+<dt>FILTER</dt><dd>K3: the chip's own output filter, or NONE. <span class="range">BRK, 8BIT, PSG, NONE</span></dd>
+<dt>FRAMES</dt><dd>K4: how often its tables and envelopes step: 60 or 50 times a second, as the old machines' screens
+did. <span class="range">60 HZ, 50 HZ</span></dd>
+<dt>SWEEP</dt><dd>The sweep's row: the pitch slides by itself from each note's start. Its first knob, SWEEP, sets the
+way: OFF, DOWN or UP.</dd>
+<dt>SHIFT</dt><dd>K2: how big each step of the slide is. <span class="range">0-7</span></dd>
+<dt>PACE</dt><dd>K3: how often it steps; 0, never. <span class="range">0-7</span></dd>
+</dl></dd>
+<dt>VOLUME</dt><dd>The page of the volume. Its first row is named VOLUME too:
+<dl class="params">
+<dt>VOL</dt><dd>K1: the volume, in the chip's 16 steps. <span class="range">0-F</span></dd>
+<dt>ENV</dt><dd>K2: NONE, the volume stays; DOWN or UP, it steps down or up by itself; PSG, the chip's own envelope
+(the next row). <span class="range">NONE, DOWN, UP, PSG</span></dd>
+<dt>STEP</dt><dd>K3: how often DOWN or UP takes a step. <span class="range">0-7</span></dd>
+<dt>RELEASE</dt><dd>K4: how fast the sound fades once the key is let go; 0 stops it at once.
+<span class="range">0-F</span></dd>
+<dt>PSG ENV</dt><dd>The PSG's envelope, used with ENV at PSG:</dd>
+<dt>SHAPE</dt><dd>K1: one of the chip's 16 shapes, drawn beside its number: down, up, repeated, triangles.
+<span class="range">0-F</span></dd>
+<dt>PERIOD, FINE</dt><dd>K2 and K3: the envelope's speed, a four-digit hex number: PERIOD sets its first two digits,
+FINE its last two. Bigger is slower.</dd>
+</dl></dd>
+<dt>TABLES</dt><dd>The page of the tables: built-in lists that change the sound a step a frame (FRAMES: 60 or 50 a
+second).
+<dl class="params">
+<dt>VOL, ARP, PITCH, DUTY, NOISE</dt><dd>A row for each table: VOL shapes the volume, ARP adds notes (chords, drum
+drops), PITCH bends the pitch, DUTY changes the pulse's width, NOISE the noise's rate. Each row has the same two
+knobs:</dd>
+<dt>TABLE</dt><dd>K1: which table, by number and name, or -- for none.</dd>
+<dt>SPEED</dt><dd>K2: how many frames each step of it lasts. <span class="range">X1-X4</span></dd>
+<dt>VIBRATO</dt><dd>The vibrato's row: DELAY (K1, how many frames after the note it starts, 0-62), SPEED (K2, X1-X4)
+and DEPTH (below).</dd>
+<dt>DEPTH</dt><dd>K3: how far the pitch swings. <span class="range">0-62 cents</span></dd>
+</dl></dd>
+<dt>WAVE page</dt><dd>The row <b>TABLE</b>: the wave the WAVE oscillator plays (00 SAW ...), drawn large.</dd>
+</dl>
+</section>
+
+<section class="topic" id="instruments-sampler">
+<h3>Sampler</h3>
+<p>A sampler cartridge holds samples (recorded sounds, uploaded from the computer: the FM-1 does not record audio)
+and up to 64 instruments that play them. One sample can serve several instruments: a drum loop cut into hits, say.
+To bring your own sounds and make instruments for them, see <a href="#editor-page-sounds">chapter 17</a>.</p>
+<figure data-shot="instruments-sampler-browse"><figcaption>01 DRUM KIT browsed: the sound's waveform, its loop and
+base note below.</figcaption></figure>
+<figure data-shot="instruments-edit-sampler"><figcaption>Editing a sampler instrument: the settings above, the
+sample's waveform below with its markers (white START and END, green the loop, yellow where voices play) and the
+envelope as heard.</figcaption></figure>
+<dl class="params">
+<dt>SAMPLE</dt><dd>The first page. Its first row is named SAMPLE too:
+<dl class="params">
+<dt>SAMPLE</dt><dd>K1: which of the cartridge's samples it plays. <kbd>ENV</kbd> on it lists the samples (name,
+length, rate, waveform): the keys play the one highlighted, and <kbd>ENV</kbd> again picks it.</dd>
+<dt>START, END</dt><dd>K2 and K3: the part of the sample that plays, a click moving 1/200 of the sample (SEL held: 10
+clicks).</dd>
+<dt>LOOP</dt><dd>The loop's row. Its first knob, LOOP, sets how the part from FROM to TO repeats while the key is
+held: OFF, it plays once; FWD, over and over; PING, forwards and backwards in turn.</dd>
+<dt>FROM / LOOP START, TO / LOOP END</dt><dd>K2 and K3: where the loop starts and ends (the header says LOOP START and
+LOOP END), a click 1/200 of the sample.</dd>
+<dt>RELEASE</dt><dd>K4: how long the sound fades once the key is let go; ENDLESS lets it ring.
+<span class="range">4 MS ... 118 S, ENDLESS</span></dd>
+<dt>PITCH</dt><dd>The pitch's row:</dd>
+<dt>BASE NOTE</dt><dd>K1: the note at which the sample plays as it was recorded. Set it to the note the recording
+sounds, and the keys play it in tune.</dd>
+<dt>TUNE</dt><dd>K2: finer tuning, in 1/128 of a semitone, up to almost a semitone either way.</dd>
+<dt>VOLUME</dt><dd>K3: the volume a note gets when its cell has none. Songs converted from MOD, S3M or XM files bring
+their samples' default volumes here; for your own sounds, leave it at 64. <span class="range">0-64</span></dd>
+</dl></dd>
+<dt>ENVELOPE</dt><dd>The second page, an envelope as a DX7 operator's.
+<figure data-shot="instruments-sampler-envelope"><figcaption>The sampler's ENVELOPE page.</figcaption></figure>
+<dl class="params">
+<dt>RATES, LEVELS</dt><dd>Two rows: RATES, R1 to R4 on K1 to K4, and LEVELS, L1 to L4. The volume rises to L1, goes on
+to L2, then L3, where it stays while the key is held; let go, it moves to L4. Each R sets how fast it moves to its
+L, 99 the fastest. <span class="range">0-99</span></dd>
+</dl></dd>
+</dl>
+<p>In the samples list, <kbd>SEL</kbd>, DELETE removes a sample. When instruments use it, it warns first
+(<samp class="msg">DELETE SAMPLE?</samp>, <samp class="msg" data-t="# INSTRUMENTS USE IT AND ARE">3 INSTRUMENTS USE IT
+AND ARE</samp> <samp class="msg">DELETED TOO</samp>), and they go with it; an unused one goes at once
+(<samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 03 DELETED</samp>). Deleting an instrument never deletes its
+sample: SETTINGS' CLEAN UP removes samples nothing uses.</p>
+</section>
+
+<section class="topic" id="instruments-fusion">
+<h3>FUSION</h3>
+<p>A FUSION instrument is a sound made of a pattern. Each key plays its own row of the pattern, every note of that
+row at once: C-4 plays row 3C (its MIDI note number), and letting go stops them all. So one key can play a chord, a
+layered sound, or a different drum on every key (a kit).</p>
+<figure data-shot="instruments-fusion-browse"><figcaption>06 FUSION browsed: SPACE PAD's pattern as a map, its rows
+across the keys' notes.</figcaption></figure>
+<figure data-shot="instruments-fusion-edit"><figcaption>Editing a FUSION: PATTERN, NAME and LEVEL under the map.
+</figcaption></figure>
+<dl class="params">
+<dt>FUSION</dt><dd>The one page: the pattern's map above.</dd>
+<dt>PATTERN</dt><dd>Which pattern it plays. On it, <kbd>K1</kbd> or <kbd>ENV</kbd> pick another (in ENV's list the
+keys try each before you pick); <kbd>SEL</kbd> opens it in the EDITOR to write it.</dd>
+</dl>
+<ul>
+<li><b>Writing it:</b> SEL on PATTERN opens the EDITOR on the pattern, locked to it: with REC off the keys play this
+FUSION as you write it, its rows lighting green; with REC on they write. HOME comes back.</li>
+<li><b>EDIT on an empty FUSION slot</b> makes a new pattern (128 rows, 4 tracks) and first asks
+(<samp class="msg">A NEW PATTERN FOR THIS SLOT</samp>, <b>FILL IT WITH 01:00 EL PIANO?</b>): <kbd>K1</kbd> or
+<kbd>SELECT</kbd> pick another sound (the keys hear it); <kbd>OCT+</kbd> (FILL) writes that sound's note on every
+row, so the slot plays as that sound, ready for layers; <kbd>OCT-</kbd> (EMPTY) leaves it empty.</li>
+<li>Rows the keys do not reach can keep ideas for later; SEL, MOVE puts one on a key.</li>
+<li>A FUSION inside a FUSION is silent: no chains, no loops. Voices are shared: rows with many notes take voices from
+other sounds.</li>
+</ul>
+</section>
+
+<section class="topic" id="instruments-menus">
+<h3>The menus</h3>
+<p><kbd>SEL</kbd> on a slot:</p>
+<dl class="params">
+<dt>MARK</dt><dd>Several slots: SELECT (ALGORITHM by 8) stretches the mark; then SEL for their menu. COPY, INIT and
+DELETE act on all of them. SEL held + SELECT marks too.</dd>
+<dt>COPY, PASTE</dt><dd>Copy a sound (4 at most) and paste it over a slot (<samp class="msg" data-t="COPIED %d">COPIED
+3</samp>; nothing copied: <samp class="msg">NOTHING COPIED</samp>).</dd>
+<dt>MOVE, SWAP</dt><dd>MOVE carries the sound to an empty slot (full cartridge:
+<samp class="msg">NO EMPTY SLOT: SWAP INSTEAD</samp>); SWAP trades places. SELECT carries, SEL puts down, HOME takes
+back. Songs using it are asked about (<a href="#basics-references">references</a>).</dd>
+<dt>DELETE</dt><dd>Empties the slot.</dd>
+<dt>INIT</dt><dd>A plain starting sound in the slot.</dd>
+<dt>RENAME</dt><dd>Type its name.</dd>
+<dt>AUTO LEVEL</dt><dd>As loud as the others.</dd>
+<dt>REVERT</dt><dd>The sound as last saved (REVERT SLOT 01:00 TO SAVED?).</dd>
+</dl>
+<p><kbd>SEL</kbd> in the cartridge list (<kbd>ENV</kbd>):</p>
+<dl class="params">
+<dt>NEW</dt><dd>A new cartridge: pick its type (DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION). It goes at the end of
+your cartridges (<samp class="msg" data-t="CARTRIDGE %02X MADE">CARTRIDGE 11 MADE</samp>); all numbers used:
+<samp class="msg">ALL CARTRIDGE NUMBERS USED</samp>.</dd>
+<dt>CLONE</dt><dd>A copy (<samp class="msg" data-t="%02X CLONED TO %02X">01 CLONED TO 11</samp>). A sampler
+cartridge's samples are copied too, written at once (CLONING ITS SAMPLES); without room for them,
+<samp class="msg">NO ROOM IN THE USER AREA</samp>.</dd>
+<dt>MOVE</dt><dd>To another free number; a sampler cartridge with unsaved changes must be saved first
+(<samp class="msg">SAVE IT FIRST</samp>).</dd>
+<dt>DELETE, RENAME</dt><dd>As for a slot.</dd>
+<dt>AUTO LEVEL ALL</dt><dd>Sets every sound's LEVEL at once, after a question
+(<samp class="msg" data-t="AUTO LEVEL %d SOUNDS?">AUTO LEVEL 32 SOUNDS?</samp>,
+<samp class="msg">EACH ONE'S LEVEL SET AGAIN</samp>): <samp class="msg">LEVELS SET</samp>.</dd>
+<dt>BACK TO BUILT-IN</dt><dd>On a changed built-in cartridge (brown number): your changes dropped, the firmware's own
+back.</dd>
+<dt>REVERT</dt><dd>The whole cartridge as last saved.</dd>
+</dl>
+</section>
+
+<section class="topic" id="instruments-keys">
+<h3>Keys on INSTRUMENTS</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Browsing a cartridge</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Moves to the next or previous slot: that sound becomes the current one.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Moves by 8 slots, a column at a time.</td></tr>
+<tr><td><kbd>PRESETS</kbd></td><td>Goes to the next or previous sound, skipping empty slots.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>Turns to another cartridge.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>Play the sound picked.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Opens the sound's settings to change it (edit mode). On an empty FUSION slot, makes a new
+pattern for it first.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>Shows the cartridge's name, type and slots used, and renames it.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>Lists all the cartridges; ENV again opens the one highlighted.</td></tr>
+<tr><td><kbd>ENV</kbd>, then <kbd>SEL</kbd></td><td>In the cartridge list, SEL opens the cartridge's menu: NEW, CLONE,
+MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT, BACK TO BUILT-IN.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>Opens the slot's menu: MARK, COPY, PASTE, MOVE, SWAP, DELETE, INIT, RENAME, AUTO LEVEL,
+REVERT.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off: it plays the sound picked while your hands are on
+the knobs.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
+</tbody>
+<thead><tr><th>Key</th><th>In edit mode</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Picks a row of settings.</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Change the row's four values, one a
+knob.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Turns the pages of settings.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>Turns the pages too, round.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>Play the sound as it changes.</td></tr>
+<tr><td><kbd>PRESETS</kbd></td><td>Moves to another sound, still editing.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Puts the knob turned last back to its default.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>On NAME, types the name. Elsewhere, opens the menu: COPY, PASTE, INIT, RENAME, AUTO
+LEVEL, REVERT.</td></tr>
+<tr><td><kbd>K4</kbd></td><td>On a sampler's LOOP row: RELEASE, how long the sound fades after the key is let
+go.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Leaves edit mode, keeping the changes.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Leaves edit mode, dropping the changes.</td></tr>
+</tbody>
+<thead><tr><th>Key</th><th>Samples and FUSION</th></tr></thead>
+<tbody>
+<tr><td><kbd>ENV</kbd></td><td>On a sampler's SAMPLE: lists the cartridge's samples. On a FUSION's PATTERN: lists the
+patterns.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>In the samples list, play the sample highlighted. In the pattern list, try each pattern
+as this FUSION would play it. On a FUSION sound, each key plays its own row of the pattern.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>Again: uses the sample, or the pattern, highlighted.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>On a FUSION's PATTERN: steps to another pattern.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>In the samples list: DELETE (it asks when sounds use the sample). On a FUSION's
+PATTERN: opens the pattern in the EDITOR to write it.</td></tr>
+<tr><td><kbd>REC</kbd></td><td>In the EDITOR opened for a FUSION: with REC off, the keys play the FUSION as you write it;
+with REC on, they write.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>In that EDITOR: back to the FUSION's settings.</td></tr>
+<tr><td><kbd>OCT+</kbd></td><td>A new FUSION pattern's question: FILL, every row with the sound offered.</td></tr>
+<tr><td><kbd>OCT-</kbd></td><td>... or EMPTY, the pattern left empty.</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>SELECT</kbd></td><td>In that question: offer another sound (K1 another cartridge's,
+SELECT the next sound).</td></tr>
+</tbody>
+</table>
+</section>
+</section>

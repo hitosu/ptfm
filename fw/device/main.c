@@ -1234,6 +1234,19 @@ int plat_flash_prog(uint32_t addr, const void *src, uint32_t n)
     return rc ? -1 : 0;
 }
 
+/* SETTINGS' FACTORY RESET's restart (plat.h): one of ours, as an update's: core 2 held, the DMA quiet, the screen's
+ * last rows out, USB detached; not a failed start for the boot guard */
+void plat_restart(void)
+{
+    c2_hold_reset();
+    dma_quiet();
+    lcd_sync();
+    usb_detach();
+    fm1_delay_ms(30);
+    bootguard_clear(&bootguard);
+    fm1_reboot();
+}
+
 /* the flash offset where the firmware ends (its .data's load address + size) */
 uint32_t plat_fw_end(void)
 {

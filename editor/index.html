@@ -15,7 +15,10 @@
 <body>
 <div class="app">
   <header class="top">
-    <button class="brand" id="brand" title="FILES"><b><span class="ptfm"><span class="l-p">P</span><span class="l-t">T</span><span class="l-s">/</span><span class="l-f">F</span><span class="l-m">M</span></span> EDITOR</b><span class="chip beta">BETA</span></button>
+    <div class="brandbox">
+      <a class="home ptfm" href="https://hitosu.github.io/ptfm/" title="PT/FM's page" aria-label="PT/FM's page"><span class="l-p">P</span><span class="l-t">T</span><span class="l-s">/</span><span class="l-f">F</span><span class="l-m">M</span></a>
+      <button class="brand" id="brand" title="FILES"><b>EDITOR</b><span class="chip beta">BETA</span></button>
+    </div>
     <nav class="tabs" id="tabs" aria-label="Tabs"></nav>
     <div class="topr">
       <button class="btn small" id="undo" title="UNDO (CTRL+Z)" disabled>UNDO</button>
@@ -42,7 +45,7 @@
 </div>
 <div class="dlgwrap" id="dlg" hidden></div>
 <input type="file" id="filepick" multiple hidden>
-<input type="file" id="diskpick" accept=".ptfmdsk,.ptd" hidden>
+<input type="file" id="diskpick" accept=".ptfmdsk" hidden>
 
 <script src="../fw/web/seed.js"></script>
 <script src="js/util.js"></script>

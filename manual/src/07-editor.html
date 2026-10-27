@@ -1,0 +1,429 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="editor" data-kind="screen">
+<h2>EDITOR</h2>
+<p class="lead">The EDITOR writes patterns: a grid of tracks across and rows down. Each cell holds a note, the
+instrument that plays it, a volume and up to four commands. Open it with <span class="combo"><kbd>HOME</kbd> +
+<kbd class="b">OP2</kbd></span>.</p>
+
+<section class="topic" id="editor-grid">
+<h3>The grid</h3>
+<figure data-shot="editor-grid"><figcaption>The EDITOR in its 8-track view: row numbers on the left, a track a
+column. The focus row is taller; the cursor's cell is boxed.</figcaption></figure>
+<ul>
+<li><kbd>SELECT</kbd> moves up and down the rows, <kbd>ALGORITHM</kbd> across the tracks. Nothing wraps; past the
+last row of a page the next page shows.</li>
+<li><kbd>SEQ</kbd> turns the view: 8, 4, 2 or 1 tracks at once (<samp class="msg" data-t="%d TRACKS">8 TRACKS</samp> ...
+<samp class="msg">1 TRACK</samp>). Fewer tracks show more of each cell: 8 tracks the notes only, 4 the instrument
+too, 2 a command as well, 1 the whole cell with all four commands.</li>
+<li>Row numbers are hexadecimal, 00 to 7F. Beat rows are cyan, each bar's first row light cyan. When this pattern
+plays, the playing row sits on a blue band; the view stays with the cursor.</li>
+<li>In a cell, <b>---</b> is no note, <b>===</b> a note off, <b>..</b> no volume (the instrument's own) and
+<b>..:..</b> no instrument (the track's plays on).</li>
+<li>The footer's right side says the command (or volume) under the cursor in words:
+<b>A04 VOLUME -4</b>.</li>
+</ul>
+<figure data-shot="editor-4tracks"><figcaption>The 4-track view: each note with its instrument (cartridge:slot).
+</figcaption></figure>
+<figure data-shot="editor-2tracks"><figcaption>The 2-track view: the note, instrument, volume and the command in K1's
+slot; the pips under it count the cell's commands.</figcaption></figure>
+<figure data-shot="editor-1track"><figcaption>The 1-track view: the whole cell, its four commands each with a short
+name.</figcaption></figure>
+</section>
+
+<section class="topic" id="editor-own">
+<h3>Which pattern you edit</h3>
+<p>The EDITOR edits one pattern at a time: its own, or a numbered one.</p>
+<ul>
+<li><b>Its own pattern</b> (the header says just EDITOR): a sketch pad no song can play. SAVE keeps it after
+switching off. A fresh FM-1 opens on it.</li>
+<li><b>A numbered pattern</b> (EDITOR 12): your edits go straight into pattern 12, and every song that plays it
+hears them.</li>
+</ul>
+<p>From the cell's <kbd>SEL</kbd> menu (nothing marked):</p>
+<figure data-shot="editor-menu"><figcaption>The cell's menu (SEL): MARK and the pipette first, the block's actions,
+then the pattern's own: NEW, LOAD, STORE, RECORD PATTERN.</figcaption></figure>
+<dl class="params">
+<dt>NEW PATTERN</dt><dd>Empties the EDITOR's own pattern (8 tracks × 64 rows) and opens it.</dd>
+<dt>LOAD A PATTERN</dt><dd>Copies a numbered pattern into the EDITOR's own, to start from it
+(<samp class="msg" data-t="PATTERN # LOADED">PATTERN 1A LOADED</samp>). The numbered one is not changed.</dd>
+<dt>STORE IN A PATTERN</dt><dd>Gives what the EDITOR shows a number, so songs can play it: pick a pattern, or
+<b>+ NEW PATTERN</b> for the first free number (<samp class="msg" data-t="STORED IN PATTERN #">STORED IN PATTERN
+1A</samp>); the EDITOR follows it there. Storing over a pattern that holds anything asks first
+(<samp class="msg" data-t="PATTERN %02X WILL BE REPLACED">PATTERN 0C WILL BE REPLACED</samp>,
+<samp class="msg">DO YOU WANT TO CONTINUE?</samp>).</dd>
+</dl>
+<aside class="note">Opening another pattern empties the EDITOR's own. When it holds anything, a question asks first:
+<samp class="msg">EDITOR CHANGES WILL BE LOST</samp>, <samp class="msg">DO YOU WANT TO CONTINUE?</samp>. Store it in a
+pattern first if you want to keep it.</aside>
+<figure data-shot="editor-list"><figcaption>The pattern list (ENV): each pattern's number, its size (tracks × rows),
+a map of how many notes each track holds, and how many songs use it.</figcaption></figure>
+<p><b>The pattern list:</b> <kbd>ENV</kbd> opens it (PATTERNS: number, size, a map of notes by track, the songs using
+it; unused patterns dim). <kbd>ENV</kbd> again opens the highlighted pattern; <kbd>PLAY</kbd> hears it on its own,
+looped, and what played before pauses, keeping its place. Moving the highlight moves the preview; PLAY again
+stops it (<kbd>ARP</kbd> does what PLAY does here). Picking a pattern or leaving the list ends the preview, and the
+next PLAY resumes what played before. <kbd>HOME</kbd> closes. Its <kbd>SEL</kbd>
+menu:</p>
+<dl class="params">
+<dt>NEW</dt><dd>An empty pattern, 8 tracks × 64 rows, at the first free number
+(<samp class="msg" data-t="PATTERN %02X MADE">PATTERN 13 MADE</samp>); with all 240 used,
+<samp class="msg">ALL 240 PATTERNS USED</samp>.</dd>
+<dt>CLONE</dt><dd>A copy of the highlighted pattern at the first free number
+(<samp class="msg" data-t="%02X CLONED TO %02X">12 CLONED TO 13</samp>).</dd>
+<dt>MOVE</dt><dd>To another free number: SELECT carries it, SEL puts it down
+(<samp class="msg" data-t="PATTERN %02X MOVED TO %02X">PATTERN 12 MOVED TO 20</samp>); with none free,
+<samp class="msg">NO FREE NUMBER</samp>. Songs using it ask to follow (<a href="#basics-references">references</a>).
+</dd>
+<dt>DELETE</dt><dd>Deletes it (<samp class="msg" data-t="PATTERN %02X DELETED">PATTERN 12 DELETED</samp>), asking
+first when something uses it.</dd>
+</dl>
+</section>
+
+<section class="topic" id="editor-writing">
+<h3>Writing notes</h3>
+<p><kbd>REC</kbd> switches writing. With REC off (<samp class="msg">REC OFF: KEYS PLAY</samp>) the keys only play
+the current instrument, so you can try sounds freely. With REC on (<samp class="msg">REC ON: KEYS WRITE</samp>, REC
+lit), the keys write:</p>
+<ol class="steps">
+<li>Pick the sound with <kbd>PRESETS</kbd>: the note is written with the current instrument and SETTINGS' KEYS
+VOLUME.</li>
+<li>Play a key: its note is written at the cursor and sounds; the cell's commands stay.</li>
+<li>The cursor moves down by the edit step (GLO's EDIT STEP; 0 stays put). Keys pressed together (a chord) land on
+the same row, spreading to the next tracks.</li>
+</ol>
+<ul>
+<li><kbd>LFO</kbd> clears the cell and moves on; on an empty cell it writes a note off (<b>===</b>).</li>
+<li>REC while a song plays pauses the song (<samp class="msg">SONG PAUSED: WRITING</samp>).</li>
+<li>REC while the EDITOR's loop plays: the loop plays on and the keys write step by step at the cursor; it plays what
+you write as it reaches it. <kbd>PLAY</kbd> then pauses the loop
+(<samp class="msg">LOOP STOPPED: PLAY FOR A TAKE</samp>), and the next PLAY starts a take.</li>
+<li>Every change is heard at once by whatever plays this pattern (the EDITOR's loop, a song, a DJ deck).</li>
+<li>K1-K4, LFO, the menu and the note editor change cells whether REC is on or off.</li>
+<li>A note written with no instrument (<b>..:..</b>) plays the track's last instrument.</li>
+<li>To change the sound of notes already written, change each cell's INSTR in the note editor (below); there is no
+change for many cells at once. On LOOPS, APPLY INSTRUMENT gives a whole loop another sound.</li>
+</ul>
+<p><kbd>PLAY</kbd> with REC off plays the pattern in a loop from the cursor's row.</p>
+</section>
+
+<section class="topic" id="editor-knobs">
+<h3>Volume and commands: K1 to K4</h3>
+<p>The knobs change the cell at the cursor, without moving the cursor:</p>
+<dl class="params">
+<dt>K1</dt><dd>Picks which part of the cell the other knobs change: the volume, or command 1 to 4 (one past the
+last, to add one) (<b>K1 VOLUME</b>, <b>K1 CMD 1 ACCENT</b>). The grid shows the command in that place.</dd>
+<dt>K2</dt><dd>The command there, through every command there is (<a href="#editor-commands">below</a>); back to
+NO COMMAND removes it.</dd>
+<dt>K3, K4</dt><dd>Its value, a digit each. On the volume, K3 steps by 16 and K4 by 1. For an instrument parameter
+(*), mixer value (=) or <span class="nolink">FX</span> knob (#), K3 picks which and K4 sets it. SEL held: K4 by
+16.</dd>
+</dl>
+<p><b>The volume</b> runs from 00 (silent) to 7F, the instrument at its full level. Turned past 7F it becomes
+<b>..</b>, no volume: the note plays at the instrument's own default (for a sampler instrument, its VOLUME). The
+VOLUME command (Cxx) uses the trackers' smaller scale, 00 to 40, where 40 is as loud as a volume of 7F.</p>
+<p><b>An example:</b> to fade a note out, put the cursor on it, turn <kbd>K1</kbd> to CMD 1, <kbd>K2</kbd> to VOL
+SLIDE (Axy), and <kbd>K4</kbd> to 4: the cell shows A04, and the note's volume falls by 4 on every tick of the row.
+The footer says what the command at the cursor does, in words.</p>
+</section>
+
+<section class="topic" id="editor-note-editor">
+<h3>The note editor</h3>
+<p><kbd>EDIT</kbd> on a cell opens it as a list of fields, a line each: NOTE, INSTR (its sound), VOLUME, CMD 1 to
+CMD 4, and <b>+ COMMAND</b> to add one.</p>
+<figure data-shot="editor-note"><figcaption>The note editor: the cell as a list. The footer says the field at the
+cursor in words.</figcaption></figure>
+<ul>
+<li><kbd>SELECT</kbd> moves a line up or down, <kbd>ALGORITHM</kbd> across a command line (the command, its value).
+</li>
+<li><kbd>K1</kbd> changes the part at the cursor a step; <kbd>K2</kbd> in big steps: an octave, a cartridge, 16, or
+the next group of commands (each command is explained <a href="#editor-commands">below</a>).</li>
+<li><kbd>SEL</kbd> makes SELECT and ALGORITHM move to the neighbouring cells instead
+(<samp class="msg">SELECT, ALG: CELLS</samp>), without leaving; <kbd>SEL</kbd> again goes back to the fields
+(<samp class="msg">SELECT, ALG: FIELDS</samp>).</li>
+<li>The <kbd>KEYS</kbd> change the note; <kbd>LFO</kbd> clears the cell.</li>
+<li><kbd>EDIT</kbd> closes it keeping the changes; <kbd>HOME</kbd> drops them.</li>
+</ul>
+</section>
+
+<section class="topic" id="editor-takes">
+<h3>Recording live: takes</h3>
+<p>With REC on and nothing playing, PLAY records a <b>take</b>: from the cursor's row round and round the pattern,
+adding on each pass, until PLAY or REC stops it.</p>
+<ol class="steps">
+<li>Press <kbd>PLAY</kbd>: recording starts as you let go, after SETTINGS' COUNT-IN (1 or 2 bars of clicks, or
+none). With COUNT-IN set to KEY, your first note starts it.</li>
+<li>Or hold <kbd>PLAY</kbd> and press a key: the take starts on that note at once. Hold PLAY alone to see both ways
+(LET GO: START THE TAKE, PRESS A KEY: START ON THAT NOTE).</li>
+<li>Play. Notes land on SETTINGS' QUANTIZE grid (2, 3 or 4 rows, a row, or REAL TIME); letting go of a key writes a
+note off. A melody stays on the cursor's track; a chord spreads to the next tracks.</li>
+<li>Press <kbd>PLAY</kbd> or <kbd>REC</kbd> to stop (<samp class="msg">TAKE STOPPED</samp>). REC stays on and the
+cursor goes back to the row the take started on.</li>
+</ol>
+<p>During a count-in a box in the middle of the screen counts it: <b>COUNT-IN</b>, the beats left in big figures,
+and the bar (<samp class="msg" data-t="BAR # OF #">BAR 1 OF 2</samp>). With COUNT-IN set to KEY, the box says TAKE
+ARMED, PLAY A NOTE, until your first note.</p>
+<p>REC blinks during a take and its count-in. An armed take is cancelled with HOME, PLAY or REC
+(<samp class="msg">TAKE CANCELLED</samp>). A full edit memory ends a take, keeping what was written.</p>
+</section>
+
+<section class="topic" id="editor-preview">
+<h3>Listening to a row</h3>
+<p><kbd>ARP</kbd> on the EDITOR repeats the cursor's row at the song's tempo, in SETTINGS' ARP RHYTHM
+(<samp class="msg" data-t="ROW PREVIEW #">ROW PREVIEW #___</samp>; again, <samp class="msg">ROW PREVIEW OFF</samp>).
+Whatever plays stops first, so the row is heard alone; moving the cursor moves the preview.
+<span class="combo"><kbd>ARP</kbd> + <kbd>SELECT</kbd></span> changes the rhythm (<b>RHYTHM ##_</b>: # plays a row, _
+rests one).</p>
+</section>
+
+<section class="topic" id="editor-blocks">
+<h3>Blocks</h3>
+<ol class="steps">
+<li><kbd>SEL</kbd>, MARK: then <kbd>SELECT</kbd> and <kbd>ALGORITHM</kbd> stretch a block over rows and tracks from
+the cursor. Or hold <kbd>SEL</kbd> and turn them.</li>
+<li><kbd>SEL</kbd> again opens the block's menu.</li>
+</ol>
+<figure data-shot="editor-block"><figcaption>A block marked over four rows of two tracks, shaded.</figcaption></figure>
+<dl class="params">
+<dt>COPY, CUT, PASTE</dt><dd>Through a clipboard kept until power-off (<samp class="msg" data-t="COPIED %d X %d">COPIED
+4 X 1</samp>: rows × tracks). Over 2 KB: <samp class="msg">BLOCK TOO BIG TO COPY</samp>; an empty clipboard:
+<samp class="msg">NOTHING COPIED</samp>.</dd>
+<dt>PASTE MIX</dt><dd>Pastes into empty cells only.</dd>
+<dt>CLEAR</dt><dd>Empties the block.</dd>
+<dt>MOVE, SWAP</dt><dd>Carry the block with the cursor; SEL puts it down. MOVE leaves its old place empty, SWAP puts
+what was there in its place; HOME cancels (<samp class="msg">CANCELLED</samp>).</dd>
+<dt>INSERT ROW, DELETE ROW</dt><dd>Under ROWS. INSERT ROW puts an empty row at the cursor's row, the rows below moving
+down (the pattern's last row is lost); DELETE ROW takes the cursor's row out, the rows below moving up. With a block
+marked, it acts on the block's tracks; with nothing marked, on the cursor's track and every track to its right, so
+from the first track it is every track.</dd>
+<dt>TRANSPOSE</dt><dd>Under TRANSFORM: K1 a semitone, SEL held an octave, SEL ends it
+(<samp class="msg" data-t="TRANSPOSED %s%02X">TRANSPOSED +02</samp>).</dd>
+<dt>INTERPOLATE</dt><dd>Under TRANSFORM: a sweep. A command on the block's first and last rows goes on every row
+between, its value stepping from one to the other; without one, the volumes step.</dd>
+</dl>
+<p><b>The pipette:</b> <kbd>SEL</kbd>, TAKE ITS INSTRUMENT, or <kbd>ENV</kbd> held: the cursor's cell's instrument
+becomes the current one (the toast names it, <b>01:05 EL PIANO DX7</b>); none there:
+<samp class="msg">NO INSTRUMENT HERE</samp>.</p>
+</section>
+
+<section class="topic" id="editor-record-pattern">
+<h3>RECORD PATTERN: steps on the white keys</h3>
+<p><kbd>SEL</kbd>, RECORD PATTERN opens a step sequencer: the white keys switch 16 steps on and off, and REC writes
+their notes into the cursor's track from the cursor's row (<samp class="msg" data-t="PATTERN: # NOTES">PATTERN: 12
+NOTES</samp>). It is the same recorder LOOPS has; <a href="#loops-recorder">LOOPS</a> explains its keys. Here
+<kbd>K4</kbd> picks <b>TO THE END</b> (the steps repeated down to the pattern's last row) or <b>ONCE</b>. Nothing
+already there is removed: a step off leaves its cell as it is.</p>
+</section>
+
+<section class="topic" id="editor-props">
+<h3>The pattern's properties</h3>
+<p><kbd>GLO</kbd> opens the pattern's properties: <kbd>SELECT</kbd> picks one, <kbd>K1</kbd> changes it, GLO or HOME
+closes them.</p>
+<figure data-shot="editor-props"><figcaption>Pattern 0D's properties: 12 tracks of 128 rows, used by one song.
+</figcaption></figure>
+<dl class="params">
+<dt>TRACKS</dt><dd><span class="range">1-16</span></dd>
+<dt>ROWS</dt><dd>SEL held: by 16. <span class="range">1-128</span></dd>
+<dt>EDIT STEP</dt><dd>How far the cursor moves after a note. <span class="range">0-16</span></dd>
+<dt>USED BY</dt><dd>The songs that play it, and FUSION when a FUSION instrument does; not changeable.</dd>
+</dl>
+<p>Making the pattern smaller where notes would go asks first (<samp class="msg" data-t="THIS DROPS %d CELLS">THIS
+DROPS 12 CELLS</samp>, MAKE THE PATTERN SMALLER?).</p>
+</section>
+
+<section class="topic" id="editor-commands">
+<h3>The commands</h3>
+<p>A cell holds up to four commands, acting in their order. Each takes 3 characters in the grid: the command, then
+its value. Values are hexadecimal; x and y are one digit (0-F), xx two (00-FF).</p>
+<p><b>Rows and ticks.</b> Every row is cut into ticks: TICKS A ROW in the song's properties, 6 at first. A command
+works either <b>once</b>, as the row starts (the "fine" ones, a volume, a pan), or <b>on every tick after the
+first</b> (slides, vibratos, volume slides move a little each tick, so the same command is stronger with more ticks
+a row). In the slides, vibratos and volume slides, a value of <b>00 goes on with the last one</b> that track used.</p>
+<p><kbd>K2</kbd> turns through the commands in this order: the tracker effects (0-9, then A-Z), the volume-column
+ones (~), PT/FM's own, then *, = and #. Below they are grouped by what they change.</p>
+
+<p><b>Pitch</b></p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>0xy</td><td>ARPEGGIO</td><td>Plays the note, the note x semitones up and the note y semitones up in turn, a tick
+each, over and over for the row: a chord from one voice, the chip-music arpeggio. 037 is a minor chord, 047 a major
+one.</td></tr>
+<tr><td>1xx, 2xx</td><td>SLIDE UP, SLIDE DOWN</td><td>The pitch slides up (or down) by xx sixteenths of a semitone
+every tick: 10 slides a semitone a tick. It keeps the new pitch until the next note.</td></tr>
+<tr><td>3xx</td><td>SLIDE TO NOTE</td><td>Portamento: the cell's note is not started; instead the note playing glides
+toward it at speed xx (sixteenths of a semitone a tick) and stops there. Put 300 on the following rows to keep
+gliding.</td></tr>
+<tr><td>4xy</td><td>VIBRATO</td><td>The pitch wobbles around the note: x is how fast, y how deep. 400 goes on with the
+last speed and depth.</td></tr>
+<tr><td>5xy</td><td>SLIDE TO NOTE + VOL</td><td>Goes on gliding to the note as 300 does, and slides the volume as
+Axy does.</td></tr>
+<tr><td>6xy</td><td>VIBRATO + VOL</td><td>Goes on with the vibrato as 400 does, and slides the volume as Axy
+does.</td></tr>
+<tr><td>E1x, E2x</td><td>FINE SLIDE UP, DOWN</td><td>Moves the pitch up (or down) by x sixteenths of a semitone,
+once, as the row starts: a small correction rather than a slide.</td></tr>
+<tr><td>X1x, X2x</td><td>EXTRA FINE UP, DOWN</td><td>As E1x and E2x, four times finer.</td></tr>
+<tr><td>E3x</td><td>GLISSANDO</td><td>E31 makes slides to a note (3xx, 5xy, ~Mx) heard in semitone steps, as a
+glissando on a keyboard; E30 makes them smooth again.</td></tr>
+<tr><td>E4x</td><td>VIBRATO WAVE</td><td>The shape of the vibrato's wobble: 0 sine, 1 saw, 2 square, 3
+random.</td></tr>
+<tr><td>E5x</td><td>FINETUNE</td><td>Tunes the note as it starts, by x - 8 eighths of a semitone: E50 is a semitone
+flat, E58 in tune, E5F nearly a semitone sharp.</td></tr>
+<tr><td>Uxy</td><td>FINE VIBRATO</td><td>As 4xy, four times shallower: a gentle shimmer.</td></tr>
+<tr><td>~Sx, ~Vx</td><td>VIBRATO SPEED, DEPTH</td><td>The volume column's vibrato: ~Sx sets its speed, ~Vx vibrates
+with depth x.</td></tr>
+<tr><td>~Mx</td><td>SLIDE TO NOTE</td><td>The volume column's 3xx, at speed x × 16.</td></tr>
+</tbody>
+</table>
+
+<p><b>Volume</b></p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>Cxx</td><td>VOLUME</td><td>Sets the note's volume on the trackers' scale, 00 (silent) to 40 (full, the same
+as a cell volume of 7F).</td></tr>
+<tr><td>Axy</td><td>VOLUME SLIDE</td><td>The volume rises by x every tick (Ax0), or falls by y (A0y): a fade in or out
+within the row. AxF and AFy are fine slides: once, as the row starts.</td></tr>
+<tr><td>EAx, EBx</td><td>FINE VOLUME UP, DOWN</td><td>Raises (or lowers) the volume by x, once, as the row
+starts.</td></tr>
+<tr><td>7xy</td><td>TREMOLO</td><td>The volume wobbles: x is how fast, y how deep.</td></tr>
+<tr><td>E7x</td><td>TREMOLO WAVE</td><td>The shape of the tremolo: 0 sine, 1 saw, 2 square, 3 random.</td></tr>
+<tr><td>Txy</td><td>TREMOR</td><td>The note sounds for x ticks and is silent for y ticks, again and again: a hard,
+rhythmic chop. A 0 keeps the last value.</td></tr>
+<tr><td>Gxx</td><td>GLOBAL VOLUME</td><td>The whole song's volume, 00 to 40 (full), from any track.</td></tr>
+<tr><td>Hxy</td><td>GLOBAL VOL SLIDE</td><td>The whole song's volume rises by x (or falls by y) every tick: a fade of
+the whole song.</td></tr>
+<tr><td>~-x, ~+x</td><td>VOL SLIDE DOWN, UP</td><td>The volume column's volume slide: down (or up) by x every
+tick.</td></tr>
+<tr><td>~Dx, ~Ux</td><td>FINE VOL DOWN, UP</td><td>Down (or up) by x, once, as the row starts.</td></tr>
+</tbody>
+</table>
+
+<p><b>Pan</b></p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>8xx</td><td>PAN</td><td>Places the track: 00 fully left, 80 in the middle, FF fully right. It is the track's
+pan, the same as the MIXER's PAN.</td></tr>
+<tr><td>Pxy</td><td>PAN SLIDE</td><td>The pan moves right by x (or left by y) every tick.</td></tr>
+<tr><td>Yxy</td><td>PANBRELLO</td><td>The pan swings around its place, left and right: x is how fast, y how
+wide.</td></tr>
+<tr><td>~Px</td><td>PAN</td><td>The volume column's pan: 0 left, 8 the middle, F right.</td></tr>
+<tr><td>~&lt;x, ~&gt;x</td><td>PAN SLIDE LEFT, RIGHT</td><td>The pan moves left (or right) by x every tick.</td></tr>
+</tbody>
+</table>
+
+<p><b>Notes and timing</b></p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>EDx</td><td>NOTE DELAY</td><td>The note starts x ticks into the row instead of on it: a flam, a late hit, a
+swing feel on one note.</td></tr>
+<tr><td>ECx</td><td>NOTE CUT</td><td>The note is silenced at tick x of the row: short, staccato notes.</td></tr>
+<tr><td>Kxx</td><td>KEY OFF</td><td>Lets the note go at tick xx, as a key released: it fades by its own release
+instead of stopping dead.</td></tr>
+<tr><td>E9x</td><td>RETRIGGER</td><td>Starts the note again every x ticks: a drum roll from one hit.</td></tr>
+<tr><td>Rxy</td><td>MULTI RETRIGGER</td><td>Starts the note again every y ticks, changing the volume each time by x:
+1 to 5 lower it by 1, 2, 4, 8, 16; 6 makes it 2/3 and 7 half; 9 to D raise it by 1, 2, 4, 8, 16; E makes it 1.5 times,
+F twice; 0 and 8 leave it. A roll that fades or builds.</td></tr>
+<tr><td>9xx</td><td>SAMPLE OFFSET</td><td>Sampler instruments: the sample starts xx × 256 samples in, from its START,
+so a long sample can be started in its middle.</td></tr>
+<tr><td>LEG</td><td>LEGATO</td><td>On a note: the note the track still holds moves to this one with no new attack, its
+envelope going on. Only with the same instrument; a TB-303 needs SLD on the note before; a FUSION instrument always
+starts a new note.</td></tr>
+<tr><td>ACC</td><td>ACCENT</td><td>TB-303: the note accented, louder and with its filter opening further, as the
+303's accent.</td></tr>
+<tr><td>SLD</td><td>SLIDE</td><td>TB-303: this note glides into the next one, with no new attack, as the 303's
+slide.</td></tr>
+<tr><td>A+S</td><td>ACCENT + SLIDE</td><td>Both on one note, in one place.</td></tr>
+</tbody>
+</table>
+
+<p><b>The song's flow and tempo</b> (from any track)</p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>Fxx</td><td>TICKS / TEMPO</td><td>F01 to F1F: that many ticks a row (fewer is faster, the tick staying as it
+is). F20 to FFF: the TEMPO (a tick's length; at 6 ticks and 4 rows a beat, the BPM). F00: back to the song's own
+TEMPO and ticks.</td></tr>
+<tr><td>Bxx</td><td>JUMP</td><td>After this row, the song goes on at its position xx.</td></tr>
+<tr><td>Dxx</td><td>BREAK</td><td>After this row, the song goes on at the next position, from its row xx (D00 from the
+start): a pattern cut short.</td></tr>
+<tr><td>E6x</td><td>LOOP</td><td>E60 marks a row; a later E6x (x 1-F) goes back to the mark x more times: a few rows
+repeated without copying them.</td></tr>
+<tr><td>EEx</td><td>PATTERN DELAY</td><td>Holds this row x rows longer, its notes not played again: a pause in the
+pattern.</td></tr>
+</tbody>
+</table>
+
+<p><b>PT/FM's own</b></p>
+<table>
+<thead><tr><th>Grid</th><th>Name</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td>*xx</td><td>PARAMETER</td><td>Turns a knob of the track's instrument, as on its edit page (a JUNO-106's VCF
+FREQ, a DX7's OP2 LEVEL, a TB-303's CUTOFF ...): K3 picks which, K4 sets it. The sound keeps it until changed, so a
+row of them turns the knob over time; another instrument on the track drops it.</td></tr>
+<tr><td>=xx</td><td>MIXER</td><td>Sets the track's place in the mixer: K3 picks LEVEL, CHORUS SEND, DELAY SEND,
+REVERB SEND or DUCK AMOUNT, K4 the value.</td></tr>
+<tr><td>#xx</td><td><span class="nolink">FX</span></td><td>Turns any knob of the song's effects (K3 picks it, K4
+sets it), or switches an effect on or off. It holds until the next song starts.</td></tr>
+<tr><td>!xx</td><td>LOOP 1/4 ... VINYL STOP</td><td>A punch-in effect, as if its key were held for xx rows (!08:
+8 rows), so a song can carry its own loops, sweeps and stops (<a href="#fx-punch">FX</a>).</td></tr>
+</tbody>
+</table>
+<ul>
+<li>B, D, E6, EE, F, G, H, # and ! act on the whole song, from any track. In a FUSION pattern they are ignored, shown
+dim.</li>
+<li>A command for what you are editing right now (an effect on FX, the mixer, an instrument's edit page, a song's
+properties) is skipped while you edit it, so nothing jumps under your hands.</li>
+<li><kbd>EDIT</kbd> (the note editor) says each command in words.</li>
+</ul>
+</section>
+
+<section class="topic" id="editor-keys">
+<h3>Keys on the EDITOR</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Up / down the rows; in the note editor, a line.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Across the tracks; in the note editor, a command or its value.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>8, 4, 2 or 1 tracks at once.</td></tr>
+<tr><td><kbd>PRESETS</kbd></td><td>The sound the keys write.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>REC off: play. REC on: write at the cursor. In the note editor: change the note.</td></tr>
+<tr><td><kbd>REC</kbd></td><td>Writing on / off. While the loop plays, it plays on and the keys write at the
+cursor.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>REC off: loop the pattern from the cursor's row. REC on: record a take (starts as you
+let go); stop the loop, then PLAY for a take; during a take, stop it.</td></tr>
+<tr><td><span class="combo"><kbd>PLAY</kbd> held + <kbd>KEYS</kbd></span></td><td>REC on: start a take on that
+note. PLAY held alone shows how.</td></tr>
+<tr><td><kbd>PLAY</kbd> <kbd>REC</kbd></td><td>During a take: stop recording.</td></tr>
+<tr><td><kbd>KEYS</kbd> held</td><td>In a take, a note lasts as long as its key is held: letting go writes a note
+off.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>The slot: volume or command 1-4. In the note editor: change the part at the
+cursor.</td></tr>
+<tr><td><kbd>K2</kbd></td><td>The command (slide, accent ...). In the note editor: big steps.</td></tr>
+<tr><td><kbd>K3</kbd> <kbd>K4</kbd></td><td>Its two digits, or the volume; in *, = and #, K3 picks which, K4 sets
+it.</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Never move the cursor.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Clear the cell (and move on); on an empty cell, a note off.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>The note editor; in it, done (it says each command in words).</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Close what is open (the note editor dropping its changes, a carried block, a mark);
+entered from another screen, back there.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>The pattern's properties: tracks, rows, edit step.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>The pattern list; again, open the one picked; in it, PLAY hears one.</td></tr>
+<tr><td><kbd>ENV</kbd> held</td><td>The pipette: take the cursor's sound.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The menu: MARK, TAKE ITS INSTRUMENT, the block's menu, NEW / LOAD / STORE A PATTERN,
+RECORD PATTERN, REVERT. In the note editor: move to other cells, again back. In the list: NEW, CLONE, MOVE,
+DELETE.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> held + <kbd>SELECT</kbd></span> <span class="combo"><kbd>SEL</kbd>
+held + <kbd>ALGORITHM</kbd></span></td><td>Mark a block: with SEL held, SELECT stretches it over rows, ALGORITHM over
+tracks.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Repeat the cursor's row (the row preview).</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT: the preview's rhythm.</td></tr>
+<tr><td><kbd>SAVE</kbd></td><td>Keeps the EDITOR's own pattern after switching off.</td></tr>
+<tr><td><kbd class="w">white keys</kbd></td><td>In RECORD PATTERN: the steps.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mute a track; held,
+or after SEQ, solo.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -30,8 +30,10 @@ button, input, select { font: inherit; }
 
 /* ---- the header ---- */
 .top { display: flex; align-items: stretch; gap: 14px; border-bottom: 1px solid var(--line); min-height: 46px; }
+.brandbox { display: flex; align-items: center; gap: .5em; }
 .brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
-.brand b { color: var(--white); font-weight: 700; letter-spacing: .14em; font-size: 14px; }
+.brand b, .brandbox .home { color: var(--white); font-weight: 700; letter-spacing: .14em; font-size: 14px; }
+.brandbox .home { text-decoration: none; white-space: nowrap; }      /* PT/FM: a link to PT/FM's page */
 /* PT/FM a letter in each engine's colour, as the FM-1's STATUS draws it: P the DX7's, T the Juno-106's, / the samples',
  * F the TB-303's, M FUSION's */
 .ptfm .l-p { color: var(--lred); }
@@ -390,7 +392,7 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
   .slots { max-height: 240px; position: static; }
 }
 @media (max-width: 520px) {
-  .brand b { font-size: 12px; }
+  .brand b, .brandbox .home { font-size: 12px; }
   /* (the mini player on one row of a phone: the label gives way, VOL shorter) */
   .plabel { min-width: 0; flex: 0 1 auto; }
   .prog { min-width: 40px; }

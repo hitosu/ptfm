@@ -36,7 +36,8 @@ PTFM.audio = (function () {
     }
     setInterval(() => { if (node && out.length) { node.port.postMessage({ t: "batch", list: out }); out = []; } }, 10);
 
-    /* SETTINGS' MIDI CONTROLLER: the sound fades as CUT's (12 ms), then stops for good (only reloading brings it) */
+    /* SETTINGS' MIDI CONTROLLER and FACTORY RESET: the sound fades as CUT's (12 ms), then stops for good (only reloading
+     * brings it) */
     A.end = function () {
         A.ended = true;
         A.hush(true);

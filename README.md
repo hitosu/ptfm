@@ -3,6 +3,8 @@
 **Pocket Tracker / Fusion Machine**: a tracker firmware for the M-VAVE FM-1 synthesizer, in the
 ProTracker tradition, whose tracks play synth engines and samples side by side.
 
+**https://hitosu.github.io/ptfm/**: install it, try it in the emulator, read the manual, open the editor.
+
 **Status:** the firmware runs on the FM-1 and is being made lighter, so more voices play at once
 (`dist/firmware/install.html` installs it and uploads the demo disk). Its **MIDI CONTROLLER** (SETTINGS' MIDI
 page) turns the FM-1 into a USB-MIDI controller, for the virtual FM-1 or any synth or DAW
@@ -18,7 +20,8 @@ page) turns the FM-1 into a USB-MIDI controller, for the virtual FM-1 or any syn
 | `demo-disk/` | the demo disk: patches, samples and songs under free licences, to show what PT/FM does ([demo-disk/README.md](demo-disk/README.md)) |
 | `fw/` | the firmware ([fw/README.md](fw/README.md)) |
 | `emulator/` | the firmware running in a browser: open `emulator/index.html` |
-| `dist/` | the built files, a folder for each kind of build: `firmware/install.html` installs the firmware and uploads the demo disk; `debug/install.html` installs the debug build and shows its figures; `emulator/` what the emulator loads; `playground/playground.html` the playground as one file to share |
+| `dist/` | the built files, a folder for each kind of build: `firmware/install.html` installs the firmware and uploads the demo disk; `debug/install.html` installs the debug build and shows its figures; `emulator/` what the emulator loads, and `emulator/emulator.html` the emulator as one file to share; `playground/playground.html` the playground as one file to share |
+| `site/` | the web site, https://hitosu.github.io/ptfm/ ([specs/site.md](specs/site.md)): the landing, and `assemble.sh`, which puts it together with the pages above for `.github/workflows/pages.yml` to publish |
 | `tools/`, `tests/`, `assets/` | build scripts, host tests, fonts |
 
 The layout in full: [specs/layout.md](specs/layout.md).

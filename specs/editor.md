@@ -19,7 +19,8 @@ edit with plain controls, to be refined later.
   yellow, labels cyan. No sidebar: the two panels take the width.
   - **The header:** `PT/FM EDITOR` (`PT/FM` a letter in each engine's colour, as the FM-1's STATUS draws it:
     [ui/screens/status.md](ui/screens/status.md)), a `BETA` mark, the tabs (FILES first, always there), UNDO and
-    REDO. A click on `PT/FM EDITOR` shows FILES too.
+    REDO. A click on `EDITOR` shows FILES too; `PT/FM` links to PT/FM's page, https://hitosu.github.io/ptfm/
+    ([site.md](site.md)).
   - **The work area:** the tab shown.
   - **The footer:** the mini player ([the preview](#the-preview)) and the status line: what the last action did,
     with UNDO beside it, and the progress of READ, WRITE and imports.
@@ -242,8 +243,9 @@ Files dropped on the TABLE, or picked with `+ ADD FILES`, become its items, all 
 what each made and what could not be kept. Taking only a part (some of a module's patterns, a cut of a sound) is
 done afterwards, in the item's tab ([the tabs](#the-tabs)).
 
-- **Disks** (`.ptfmdsk`; any file whose first bytes are `PTFMDISK`, an older `.ptd` too): their items as they are,
-  each remembering its number. Putting a disk on the FM-1 as it is goes through the FM-1 panel's UPLOAD DISK.
+- **Disks** (`.ptfmdsk`; any file whose first bytes are `PTFMDISK`, so a deprecated `.ptd` dropped still opens; the
+  pickers offer `.ptfmdsk` only): their items as they are, each remembering its number. Putting a disk on the FM-1
+  as it is goes through the FM-1 panel's UPLOAD DISK.
   Only what the FM-1 can hold is taken from a disk.
 - **Tracker modules: MOD, S3M and XM,** read as IBXM reads them (the reference the conversion is tested against,
   [files/commands.md](files/commands.md#tracker-effects)): the song (tempo, ticks, the order, its restart, the

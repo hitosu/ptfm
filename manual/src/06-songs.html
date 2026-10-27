@@ -1,0 +1,152 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="songs" data-kind="screen">
+<h2>SONGS</h2>
+<p class="lead">SONGS lists every song, and below the list shows the picked song's <b>order</b>: the patterns it plays,
+one after another. The song at the cursor is the current song everywhere: PLAY plays it, and the EDITOR opens on its
+patterns. Open it with <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP1</kbd></span>.</p>
+
+<section class="topic" id="songs-list">
+<h3>The list</h3>
+<figure data-shot="songs-list"><figcaption>SONGS: the list (number, name, BPM, positions, length) and, below, the
+current song's order, eight positions a line. The box marks where PLAY starts.</figcaption></figure>
+<ul>
+<li><kbd>SELECT</kbd> picks a song: it becomes the current song.</li>
+<li><kbd>PLAY</kbd> plays it, from the boxed position; again, pauses. The playing song has a play mark and its name
+turns green.</li>
+<li><kbd>ALGORITHM</kbd> moves the box: the position PLAY will start from (<b>PLAY FROM POS 03</b> in the header).
+While the song plays, only the box moves; it waits for the next PLAY.</li>
+<li>The header counts the songs (<b>3/18</b>); the footer's right side shows the current song's BPM and length.</li>
+<li>A position whose pattern is missing shows its number in red.</li>
+</ul>
+</section>
+
+<section class="topic" id="songs-modes">
+<h3>When a song ends: the play modes</h3>
+<p><kbd>SEQ</kbd> turns the play mode round (<samp class="msg">ONE PLAY</samp>,
+<samp class="msg">REPEAT SONG</samp>, <samp class="msg">PLAY NEXT</samp>). It decides how a song started here ends,
+if the song itself stops at its end:</p>
+<ul>
+<li><b>ONE PLAY</b> (at first): it stops.</li>
+<li><b>REPEAT SONG:</b> it plays again from its start.</li>
+<li><b>PLAY NEXT:</b> the next song in the list plays at once, and the cursor follows it; after the last song,
+playing stops.</li>
+</ul>
+<p>A song set to loop (AT THE END: LOOP) loops in every mode. The mode holds on every screen until something else
+plays (a pattern in the EDITOR, LOOPS, DJ), and it is not saved.</p>
+</section>
+
+<section class="topic" id="songs-order">
+<h3>Changing a song's order</h3>
+<p>Press <kbd>EDIT</kbd> on a song: the cursor moves into its order, onto the boxed position, and EDIT lights.</p>
+<figure data-shot="songs-order"><figcaption>Editing the order: the cursor on a position.</figcaption></figure>
+<ul>
+<li><kbd>SELECT</kbd> moves a line (8 positions) up or down, <kbd>ALGORITHM</kbd> one position left or right.</li>
+<li><kbd>K1</kbd> puts another pattern at the position (<b>K1 PATTERN 0A</b>); with SEL held, 8 at a time.</li>
+<li><kbd>LFO</kbd> removes the position.</li>
+<li><kbd>ENV</kbd> opens the pattern list; <kbd>ENV</kbd> again puts the highlighted pattern at the position.</li>
+<li><kbd>SEL</kbd> opens the position's menu (below).</li>
+<li><kbd>EDIT</kbd> leaves the order keeping the changes; <kbd>HOME</kbd> leaves dropping them
+(<samp class="msg">CHANGES DROPPED</samp>): a pattern made meanwhile is deleted again.</li>
+</ul>
+<dl class="params">
+<dt>EDIT PATTERN</dt><dd>Opens the position's pattern in the EDITOR; <kbd>HOME</kbd> comes back here.</dd>
+<dt>NEW PATTERN</dt><dd>An empty pattern at the first free number, put in after the position
+(<samp class="msg" data-t="PATTERN %02X MADE">PATTERN 0C MADE</samp>).</dd>
+<dt>INSERT</dt><dd>A position before the cursor's, with the same pattern.</dd>
+<dt>DELETE</dt><dd>Removes the position, as LFO does.</dd>
+<dt>COPY, PASTE</dt><dd>COPY takes the position's pattern number
+(<samp class="msg" data-t="PATTERN # COPIED">PATTERN 03 COPIED</samp>); PASTE puts it in after the position.</dd>
+<dt>CLONE PATTERN</dt><dd>Copies the position's pattern to a new number and uses the copy here
+(<samp class="msg" data-t="%02X CLONED TO %02X">03 CLONED TO 0C</samp>), so you can change it without changing the
+other places that play the original.</dd>
+<dt>REVERT</dt><dd>The song as last saved (listed only while it has unsaved changes).</dd>
+</dl>
+<p>Your patterns are numbered 00 to EF (240 of them). With all used, NEW PATTERN and CLONE PATTERN say
+<samp class="msg">NO FREE PATTERN</samp>.</p>
+</section>
+
+<section class="topic" id="songs-menu">
+<h3>The song menu</h3>
+<p><kbd>SEL</kbd> on the list opens the song's menu:</p>
+<figure data-shot="songs-menu"><figcaption>The song's menu (SEL on the list).</figcaption></figure>
+<dl class="params">
+<dt>NEW</dt><dd>A new song. First pick the pattern it starts with from the list (NEW SONG STARTS WITH), or
+<b>+ NEW PATTERN</b> for an empty one; HOME makes nothing. The song, NEW SONG, is added at the end of the list
+(tempo 120, LOOP). Past song FD: <samp class="msg">NO FREE SONG NUMBER</samp>.</dd>
+<dt>CLONE</dt><dd>A copy of the song, after it, named with " 2".</dd>
+<dt>MOVE</dt><dd>Another place in the list: SELECT carries it, SEL puts it down
+(<samp class="msg" data-t="SONG MOVED TO #">SONG MOVED TO 02</samp>), HOME takes it back
+(<samp class="msg">NOT MOVED</samp>).</dd>
+<dt>DELETE</dt><dd>Asks first (DELETE SONG 00?). The line <b>ITS PATTERNS TOO</b> is <b>ticked at first</b>: the
+song's own patterns, those no other song and no FUSION instrument uses, are deleted with it
+(<samp class="msg" data-t="SONG # DELETED, # PATTERNS TOO">SONG 00 DELETED, 4 PATTERNS TOO</samp>), and the line
+says how many there are and how much room they free. To keep them, clear the tick with <kbd>K1</kbd>. Patterns other
+songs use always stay. <kbd>OCT+</kbd> deletes, <kbd>OCT-</kbd> keeps the song, <kbd>HOME</kbd> cancels.</dd>
+<dt>RENAME</dt><dd>Type its name (up to 16 characters); EDIT is done.</dd>
+<dt>UNLOAD SONG</dt><dd>Once a song, the EDITOR's pattern loop, the loops or DJ's decks have played, the keys go on
+sounding through that one's effects and tempo, even after it stops (<a href="#fx-setup">chapter 15</a>). UNLOAD SONG
+stops everything at once, forgets the song's place, and gives the keys back their own effects and tempo, THE KEYS',
+as at power-on (<samp class="msg">SONG UNLOADED</samp>). The loops and DJ's stand stay as they are. It is listed only
+when there is something to unload; PLAY afterwards plays the current song from its start.</dd>
+<dt>REVERT</dt><dd>The song as last saved: its order, name, properties, mixer and effects (not its patterns), after a
+question (REVERT SONG 00 TO SAVED?).</dd>
+</dl>
+<p><kbd>ENV</kbd> on the list opens the pattern list; the pattern picked becomes the EDITOR's
+(<samp class="msg" data-t="PATTERN # FOR THE EDITOR">PATTERN 0A FOR THE EDITOR</samp>); <kbd>PLAY</kbd> in the list
+hears the highlighted pattern.</p>
+</section>
+
+<section class="topic" id="songs-props">
+<h3>A song's properties</h3>
+<p><kbd>GLO</kbd> opens the song's properties. <kbd>SELECT</kbd> picks one, <kbd>K1</kbd> changes it at once (SEL
+held: TEMPO by 10, SWING by 5), <kbd>EDIT</kbd> on NAME types it; GLO or HOME closes.</p>
+<p>How time works in a song: each row lasts a number of <i>ticks</i> (TICKS A ROW), and TEMPO sets how fast the
+ticks go (a tick lasts 2.5 seconds divided by TEMPO). Leave TICKS A ROW at 6 and ROWS A BEAT at 4, as a new song has
+them, and TEMPO is the BPM: for 128 BPM, set TEMPO to 80 (hex for 128). Whatever the three are, the screen shows the
+BPM they make.</p>
+<figure data-shot="songs-props"><figcaption>MIDNIGHT RUN's properties: TEMPO 82 hex, 6 ticks a row and 4 rows a beat
+make 130 BPM; it stops at its end.</figcaption></figure>
+<dl class="params">
+<dt>NAME</dt><dd>Up to 16 characters.</dd>
+<dt>TEMPO</dt><dd>How fast the song plays, with the BPM it makes: <b>8C (140 BPM)</b>.
+<span class="range">3-600 (hex 03-258)</span></dd>
+<dt>TICKS A ROW</dt><dd>The ticks in a row: commands that act during a row (slides, arpeggios, retriggers) act on each
+tick. <span class="range">1-31</span></dd>
+<dt>ROWS A BEAT</dt><dd>How many rows make a beat. Besides the BPM, it decides which row numbers the EDITOR colours
+as beats and bars, and how many rows DJ counts as a beat. <span class="range">1-16</span></dd>
+<dt>SWING</dt><dd>Every second row played late. <span class="range">50-75 %</span></dd>
+<dt>AT THE END</dt><dd>What the song does after its last position. <span class="range">LOOP, STOP</span></dd>
+<dt>LOOP FROM</dt><dd>The position a looping song goes back to. <span class="range">POSITION 00 to the last</span></dd>
+</dl>
+<p>The BPM is TEMPO × 24 / (TICKS A ROW × ROWS A BEAT), rounded: a song at TEMPO 140, 6 ticks a row, 4 rows a beat
+plays at 140 BPM.</p>
+</section>
+
+<section class="topic" id="songs-keys">
+<h3>Keys on SONGS</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>On the list</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Pick a song. In the order: a line (8 positions) up / down.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Where PLAY starts (the box). In the order: a position left / right.</td></tr>
+<tr><td><kbd>SELECT</kbd> <kbd>ALGORITHM</kbd></td><td>In the order: move through the positions, a line or one at a
+time.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Play / pause the song; in the pattern list, hear the highlighted pattern.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Into the song's order; in the order, done, keeping the changes.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>The song's properties: name, tempo, swing, loop or stop.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>The play mode: ONE PLAY, REPEAT SONG, PLAY NEXT.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The song's menu; in the order, the position's menu.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>The pattern list (for the EDITOR); in the order, again puts the highlighted pattern
+at the position.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>In the order: another pattern at the position.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>In the order: remove the position.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>In the order: leave it, dropping the changes.</td></tr>
+<tr><td><kbd>KEYS</kbd> <kbd>OCT-</kbd> <kbd>OCT+</kbd> <kbd>PRESETS</kbd></td><td>Play, as on every screen.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>The arpeggiator on / off.</td></tr>
+<tr><td><kbd>KEYS</kbd> held</td><td>With ARP on, the notes held take turns.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM, K1: the rhythm, the order, the latch.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -6,9 +6,13 @@ compiled to WebAssembly, written as a classic script the page loads from the fil
 
     python3 -I emulator/build.py              (from ptfm/) a dev build: build/fw/web/ptfm.wasm.js
     python3 -I emulator/build.py --release    the production build: dist/emulator/ptfm.wasm.js
+    python3 -I emulator/build.py --page       only dist/emulator/emulator.html, from dist/emulator's scripts
 
 Beside it, demo.ptfmdsk.js: the demo disk (dist/firmware/demo.ptfmdsk) as a script, for the page's DEMO DISK button
-(a page opened from file:// cannot read a file by itself).
+(a page opened from file:// cannot read a file by itself). --release also writes dist/emulator/emulator.html: the
+emulator as one self-contained page to pass on as a single file, emulator/index.html with every stylesheet and script
+it loads written in, in order, the firmware and the demo disk before main.js (which takes a firmware the page
+already carries). The same sources give the same bytes.
 
 Options: --fw-end ADDR (hex) where the firmware's image ends on the FM-1 (FWS's free part starts
 after it; by default the device build's image when there is one, else 0x50000); --out DIR a dev
@@ -24,6 +28,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -67,15 +72,54 @@ def script(name, obj, what):
     return f"{HEADER}/* {what} (made by emulator/build.py) */\nwindow.{name} = {body};\n"
 
 
+def page(dist):
+    """dist/emulator/emulator.html: index.html with its stylesheets and scripts written in, the firmware (and the demo
+    disk, when made) before main.js"""
+    def read(href):
+        path = (EMU / href).resolve()
+        if ROOT not in path.parents:
+            sys.exit(f"emulator/build.py: {href} is outside the repository")
+        return path.read_text(encoding="utf-8")
+
+    def inline(js):
+        # (inside <script>, "</script" would end it and "<!--" can change how the rest is read; in JS both stay the
+        # same text escaped)
+        return "<script>\n" + re.sub(r"</(script)", r"<\\/\1", js, flags=re.I).replace("<!--", "<\\!--") + "\n</script>"
+
+    def scripts(m):
+        own = inline(read(m.group(1)))
+        if m.group(1) != "main.js":
+            return own
+        carried = [dist / "ptfm.wasm.js"] + [p for p in [dist / "demo.ptfmdsk.js"] if p.exists()]
+        return "\n".join(inline(p.read_text(encoding="utf-8")) for p in carried) + "\n" + own
+
+    if not (dist / "ptfm.wasm.js").exists():
+        sys.exit("emulator/build.py: no dist/emulator/ptfm.wasm.js to write in (--release makes it)")
+    html = (EMU / "index.html").read_text(encoding="utf-8")
+    html = re.sub(r'<link rel="stylesheet" href="([^"]+)">', lambda m: "<style>\n" + read(m.group(1)) + "\n</style>", html)
+    html = re.sub(r'<script src="([^"]+)"></script>', scripts, html)
+    left = re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="[^"]*"', html)
+    if left or "window.PTFM_WASM = " not in html or not html.startswith("<!doctype html>\n"):
+        sys.exit(f"emulator/build.py: the page is not whole: {left or 'no firmware or doctype'}")
+    html = html.replace("<!doctype html>\n", "<!doctype html>\n<!-- built from emulator/, panel/, fw/web/ and dist/emulator/"
+                        " by emulator/build.py; edit those -->\n", 1)
+    (dist / "emulator.html").write_text(html, encoding="utf-8")
+    print(f"emulator.html    {dist / 'emulator.html'}  ({len(html.encode('utf-8')) // 1024} KB, one file)")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", action="store_true")
+    ap.add_argument("--page", action="store_true")        # (only the one-file page, from dist/emulator's scripts)
     ap.add_argument("--debug", action="store_true")       # (the debug build's figures: the autotests' tests)
     ap.add_argument("--fw-end")
     ap.add_argument("--extra")
     ap.add_argument("--out")
     ap.add_argument("--define", action="append", default=[])   # (-DNAME, as many as given)
     a = ap.parse_args()
+    if a.page:
+        page(ROOT / "dist" / "emulator")
+        return
 
     work = Path(a.out).resolve() if a.out else ROOT / "build" / "fw" / "web"
     gen = work / "gen"
@@ -91,6 +135,8 @@ def main():
     files = sources(a.extra) + sorted(gen.glob("*.c"))
     wasm = work / "ptfm.wasm"
     debug = ["-DPTFM_DEBUG", f'-DPTFM_VERSION="{version(a.release)} DEBUG"'] if a.debug else []
+    if a.release:                                   # (STATUS and ABOUT name the version, as the device's release does)
+        debug = [f'-DPTFM_VERSION="{version(True)}"']
     if a.debug and a.release:
         sys.exit("emulator/build.py: --debug is a dev build (--out), never the release's")
     defines = ["-D" + d for d in a.define]
@@ -116,6 +162,8 @@ def main():
         print(f"demo.ptfmdsk.js  {out / 'demo.ptfmdsk.js'}  ({len(d)} B)")
     else:
         print("demo.ptfmdsk.js  not made: no dist/firmware/demo.ptfmdsk yet (tools/pack.py makes it)")
+    if a.release:
+        page(out)
 
 
 if __name__ == "__main__":

@@ -39,7 +39,8 @@ static const uint8_t ACCEPTS[][2] = {
 typedef char scratch_fits[IN_BYTES + OUT_BYTES <= STORE_SEED_SCRATCH ? 1 : -1];
 
 static int active, lay_sending, out_pending, cur_block = -1;
-static uint32_t last_ms, lay_total, lay_off, out_n;
+static int wiping;                      /* FACTORY RESET: 1 erasing, 2 its restart asked */
+static uint32_t last_ms, lay_total, lay_off, out_n, wipe_at;
 static uint16_t blocks_total, blocks_done;
 static int (*unsaved)(void);
 static seed_info_t info;
@@ -49,7 +50,7 @@ static const uint8_t *out;              /* the message waiting to go: ackb, or i
 
 void seed_init(void)
 {
-    active = lay_sending = out_pending = 0;
+    active = lay_sending = out_pending = wiping = 0;
     cur_block = -1;
     blocks_total = blocks_done = 0;
     scr = 0;
@@ -58,6 +59,7 @@ void seed_init(void)
 
 void seed_set_unsaved(int (*fn)(void)) { unsaved = fn; }
 int seed_active(void) { return active; }
+int seed_wiping(void) { return wiping; }
 void seed_info(seed_info_t *s)
 {
     info.active = (uint8_t)active;
@@ -191,6 +193,22 @@ static void finish(uint8_t cmd)
     if (cmd) ack(cmd, 0, SEED_OK, ex, 8);
 }
 
+/* FACTORY RESET (seed_wipe): a block a pass, so the screen shows the bar between (an erase ~17 ms); one already erased
+ * is left; one that will not erase is left too (the store reads it at the next start as any). The pass after the
+ * last asks for the restart, once (a platform that returns from it: everything waits, silent) */
+static void wipe_step(void)
+{
+    if (blocks_done >= blocks_total) {
+        if (wiping == 1) { wiping = 2; plat_restart(); }
+        return;
+    }
+    if (!store_all_ff(wipe_at, STORE_BLOCK) && (plat_flash_erase(wipe_at) || !store_all_ff(wipe_at, STORE_BLOCK)))
+        info.result = SEED_FLASH;
+    blocks_done++;
+    wipe_at += STORE_BLOCK;
+    if (wipe_at == STORE_U1_END) wipe_at = STORE_U2_START;
+}
+
 static int in_user(uint32_t a, uint32_t n)      /* within a region the layout reported: the user area */
 {
     return (a >= STORE_U1_START && a + n <= STORE_U1_END && a + n >= a) ||
@@ -315,6 +333,7 @@ void seed_sysex(const uint8_t *msg, uint32_t n)
     if (cmd != C_HELLO && cmd != C_READ && cmd != C_BEGIN && cmd != C_CHUNK && cmd != C_BLOCK && cmd != C_END &&
         cmd != C_ABORT)
         return;                                         /* another PT/FM protocol's, or the device's own */
+    if (wiping) { ack(cmd, 0, SEED_BUSY, 0, 0); return; }  /* (FACTORY RESET erasing: nothing else is written) */
     last_ms = plat_ms();
     if (!scr) scr = store_scratch_claim(1);
     if (!scr) { ack(cmd, 0, SEED_BUSY, 0, 0); return; } /* a save is being made */
@@ -333,6 +352,12 @@ void seed_sysex(const uint8_t *msg, uint32_t n)
 
 void seed_poll(void)
 {
+    if (wiping) {                                       /* (a busy answer USB will not take never holds the erase up:
+                                                         * it is dropped, the page times out) */
+        out_pending = 0;
+        wipe_step();
+        return;
+    }
     if (out_pending) {
         if (plat_sysex_send(out, out_n)) return;
         out_pending = 0;
@@ -340,4 +365,19 @@ void seed_poll(void)
     if (lay_sending) { layout_part(); return; }
     release();
     if (active && plat_ms() - last_ms > TIMEOUT_MS) finish(0);    /* 10 s without a message */
+}
+
+int seed_wipe(void)
+{
+    if (active || store_saving()) return -1;
+    lay_sending = 0;                                    /* (a layout half sent: the page's next message is refused) */
+    release();
+    player_all_sound_off();                             /* (the audio goes silent with active: its voices let go) */
+    active = wiping = 1;
+    store_lock(1);
+    blocks_total = (uint16_t)((STORE_U1_END - STORE_U1_START + STORE_U2_END - STORE_U2_START) / STORE_BLOCK);
+    blocks_done = 0;
+    wipe_at = STORE_U1_START;
+    info.result = SEED_OK;
+    return 0;
 }

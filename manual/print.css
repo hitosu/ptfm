@@ -1,0 +1,117 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Vasily Kazantsev */
+/* The manual's PDF (specs/manual.md section 2): A4, set in Archivo; the look of a 1990s device manual. */
+
+@page {
+    size: A4; margin: 18mm 16mm 20mm 16mm;
+    @bottom-left { content: "PT/FM OWNER'S MANUAL"; vertical-align: top; padding-top: 2.5mm; border-top: .6pt solid #000;
+        font: 700 7pt "PTFM Archivo", sans-serif; letter-spacing: .16em; }
+    @bottom-right { content: counter(page); vertical-align: top; padding-top: 2mm; border-top: .6pt solid #000;
+        font: 800 9pt "PTFM Archivo", sans-serif; }
+}
+@page :first {
+    @bottom-left { content: none; border: 0; }
+    @bottom-right { content: none; border: 0; }
+}
+:root { --spot: #C8102E; --ink: #111; --rule: #111; --grey: #666; }
+* { box-sizing: border-box; }
+body.print { margin: 0; color: var(--ink); background: #fff; font: 400 10pt/1.45 "PTFM Archivo", sans-serif;
+    font-stretch: 100%; }
+section.chapter { break-before: page; }
+section.chapter > h2 {
+    display: flex; align-items: center; gap: 10pt; margin: 0 0 14pt; padding: 7pt 10pt; background: #000; color: #fff;
+    font: 800 20pt/1 "PTFM Archivo", sans-serif; font-stretch: 112%; letter-spacing: .02em; text-transform: uppercase;
+}
+section.chapter > h2[data-num]:not([data-num=""])::before {
+    content: attr(data-num); font-size: 26pt; padding-right: 10pt; border-right: 2pt solid #fff;
+}
+section.topic { display: grid; grid-template-columns: 38mm minmax(0, 1fr); column-gap: 6mm; margin: 0 0 10pt;
+    padding-top: 6pt; border-top: .6pt solid var(--rule); }
+section.topic > h3 { grid-column: 1; grid-row: 1 / 99; margin: 0; font: 700 10.5pt/1.25 "PTFM Archivo", sans-serif;
+    font-stretch: 90%; }
+section.topic > :not(h3) { grid-column: 2; }
+p { margin: 0 0 6pt; }
+a { color: inherit; text-decoration: none; }
+.lead { font-size: 11pt; margin-bottom: 12pt; }
+ol.steps { margin: 6pt 0; padding: 0; list-style: none; counter-reset: st; }
+ol.steps > li { counter-increment: st; position: relative; padding: 0 0 4pt 18pt; }
+ol.steps > li::before { content: counter(st); position: absolute; left: 0; top: -1pt; font: 800 13pt/1 "PTFM Archivo", sans-serif; }
+aside.memo, aside.note { border: 1pt solid var(--spot); padding: 5pt 7pt; margin: 6pt 0; break-inside: avoid; }
+aside.memo::before, aside.note::before { display: block; font: 800 8.5pt/1.3 "PTFM Archivo", sans-serif;
+    letter-spacing: .12em; color: var(--spot); }
+aside.memo::before { content: "MEMO"; }
+aside.note::before { content: "NOTE"; }
+kbd { font: 700 8.5pt/1 "PTFM Archivo", sans-serif; font-stretch: 90%; border: .8pt solid var(--ink); border-radius: 2pt;
+    padding: 1pt 3pt; white-space: nowrap; }
+kbd.w, kbd.b { border-radius: 6pt; }
+kbd.b { background: #000; color: #fff; }
+samp.msg { font: 600 9pt/1 "PTFM Archivo", sans-serif; font-stretch: 85%; letter-spacing: .04em; background: #E4E7DC;
+    padding: .5pt 3pt; white-space: nowrap; }
+figure { margin: 6pt 0 8pt; break-inside: avoid; }
+figure.shot { display: grid; grid-template-columns: 48mm minmax(0, 1fr); gap: 5mm; align-items: center; }
+figure.shot .lcd { border: 3pt solid #000; padding: 3pt; background: #CDD2C4; }
+figure.shot img { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+figcaption { font-size: 8.5pt; color: var(--grey); }
+figure.panel-fig svg { width: 100%; height: auto; display: block; }
+.panel-print .p-body { fill: #fff; stroke: #000; stroke-width: 3; }
+.panel-print .p-plate { fill: none; stroke: #000; stroke-width: 1; }
+.panel-print .p-bezel { fill: none; stroke: #000; stroke-width: 2; }
+.panel-print .p-screen { fill: #CDD2C4; stroke: #000; stroke-width: 1.5; }
+.panel-print .p-el rect, .panel-print .p-el circle { fill: #fff; stroke: #000; stroke-width: 2; }
+.panel-print .p-black rect { fill: #000; }
+.panel-print .p-black .p-label { fill: #fff; }
+.panel-print .p-tick { stroke: #000; stroke-width: 3; }
+.panel-print .p-print, .panel-print .p-label { font-family: "PTFM Archivo", sans-serif; font-weight: 700; text-anchor: middle; fill: #000; }
+.panel-print .p-num { font-family: "PTFM Archivo", sans-serif; font-weight: 800; text-anchor: middle; fill: #fff; }
+table { width: 100%; border-collapse: collapse; margin: 4pt 0 8pt; font-size: 9pt; break-inside: auto; }
+th { text-align: left; font: 800 8pt/1.2 "PTFM Archivo", sans-serif; letter-spacing: .08em; text-transform: uppercase;
+    border-bottom: 1.2pt solid #000; padding: 2pt 4pt; }
+td { border-bottom: .4pt solid #999; padding: 3pt 4pt; vertical-align: top; }
+tbody th { font: 700 9pt/1.35 "PTFM Archivo", sans-serif; letter-spacing: 0; text-transform: none;   /* (a row's head) */
+    border-bottom: .4pt solid #999; padding: 3pt 4pt; vertical-align: top; }
+code { font: 700 9pt/1 "PTFM Archivo", sans-serif; letter-spacing: .14em; }   /* (GATE's steps: the PDF's font) */
+dl.params dl.params { margin: 3pt 0 4pt 4pt; }          /* (an effect's knobs under it) */
+.notice { font-size: 8pt; line-height: 1.35; }           /* (a licence's notice, as its text is) */
+.notice ul { margin: 0 0 6pt; padding-left: 12pt; }
+#midi-chart-table { display: block; }                   /* (the chart the page's whole width, as charts are printed) */
+#midi-chart-table > h3 { margin-bottom: 6pt; }
+table.midichart { border: 1.2pt solid #000; }
+table.midichart th:first-child { width: 30%; }
+table.midichart td:nth-child(2), table.midichart td:nth-child(3) { width: 15%; }
+tr { break-inside: avoid; }
+table.keys td:first-child { white-space: nowrap; }
+dl.params { margin: 4pt 0; }
+dl.params dt { font-weight: 800; margin-top: 4pt; }
+dl.params dt::before { content: ""; display: inline-block; width: 6pt; height: 6pt; background: #000; margin-right: 4pt; }
+dl.params dd { margin: 0 0 0 10pt; }
+dl.params .range { display: block; }
+dl.params .range::before { content: ""; display: inline-block; width: 5pt; height: 5pt; border: .8pt solid #000;
+    margin-right: 4pt; }
+
+/* the cover and the contents */
+#front > h2 { background: none; color: #000; font-size: 30pt; padding: 0; margin-top: 30mm; border-bottom: 4pt solid #000;
+    padding-bottom: 6pt; }
+.cover-sub { font: 700 12pt "PTFM Archivo", sans-serif; letter-spacing: .14em; }
+.cover figure { margin: 18mm 0; }
+.cover figcaption { display: none; }
+.cover-ver { font-size: 11pt; }
+.cover-by { font: 800 11pt "PTFM Archivo", sans-serif; letter-spacing: .14em; margin-top: 30mm; }
+#front > section.topic:first-of-type { break-before: page; }   /* (the cover alone on its page) */
+section.contents { break-before: page; }
+section.contents h2 { font: 800 20pt "PTFM Archivo", sans-serif; border-bottom: 2pt solid #000; margin: 0 0 10pt; }
+section.contents ol { list-style: none; margin: 0; padding: 0; }
+section.contents li { display: flex; gap: 6pt; }
+section.contents li a { color: inherit; text-decoration: none; flex: 1; }
+section.contents li.c { font-weight: 800; margin-top: 6pt; }
+section.contents li.t { padding-left: 16pt; }
+section.contents .n { display: inline-block; min-width: 18pt; }
+section.contents .pg { min-width: 18pt; text-align: right; }
+
+/* the index (H): three columns, a letter a group */
+section.index ul { list-style: none; margin: 0; padding: 0; column-count: 3; column-gap: 7mm; font-size: 8.5pt;
+    line-height: 1.35; }
+section.index li { break-inside: avoid; padding-left: 8pt; text-indent: -8pt; }
+section.index li.ih { font: 800 11pt/1 "PTFM Archivo", sans-serif; margin: 8pt 0 3pt; padding: 0 0 2pt; text-indent: 0;
+    border-bottom: 1pt solid #000; break-after: avoid; }
+section.index li.ih:first-child { margin-top: 0; }
+section.index .ipg { font-weight: 700; }

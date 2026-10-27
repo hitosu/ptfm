@@ -1,0 +1,75 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="status" data-kind="screen">
+<h2>STATUS</h2>
+<p class="lead">STATUS is the start screen: the FM-1 opens on it (unless SETTINGS' POWER-ON SCREEN says otherwise). It
+shows PT/FM's version and how to get help, and the figures behind the header: how busy the sound keeps the processor,
+the voices, the storage and memory, the device. Open it with <span class="combo"><kbd>HOME</kbd> +
+<kbd class="b">GLO</kbd></span>.</p>
+
+<section class="topic" id="status-pages">
+<h3>The pages</h3>
+<p><kbd>SELECT</kbd> or <kbd>ALGORITHM</kbd> turns the pages:</p>
+<dl class="params">
+<dt>PT/FM</dt><dd>The name, the version, PRESS HOME + LFO FOR HELP, and the figures a glance needs:
+<figure data-shot="status-ptfm"><figcaption>The first page: PT/FM, the version, the help line, the figures and the
+song.</figcaption></figure>
+<table>
+<tbody>
+<tr><td><b>CPU 1, MAX</b></td><td>How much of its time the first processor spends on the sound now, and the most
+since the last reset. Green up to 50 %, yellow to 80 %, red above.</td></tr>
+<tr><td><b>CPU 2</b></td><td>The same for the second processor (effects and voices 11-16); OFF while it does not
+run.</td></tr>
+<tr><td><b>HALF</b></td><td>The longest piece of sound work, in microseconds: over 5804 is too slow.</td></tr>
+<tr><td><b>LATE</b></td><td>Pieces of sound not ready in time: each one is a click (dropout).</td></tr>
+<tr><td><b>STEALS</b></td><td>Notes that gave their voice up to a new note because all were busy.</td></tr>
+<tr><td><b>VOICES, MAX</b></td><td>Voices sounding now and the limit (01/12), and the most at once.</td></tr>
+<tr><td><b>EDITS FREE</b></td><td>The memory left for unsaved edits.</td></tr>
+<tr><td><b>FLASH FREE</b></td><td>The free storage, where saves go.</td></tr>
+<tr><td><b>UNSAVED</b></td><td>How many things changed since the last SAVE.</td></tr>
+<tr><td><b>BATTERY, UP</b></td><td>The battery, and the time since power-on.</td></tr>
+<tr><td><b>SONG</b></td><td>The song playing, else the current song.</td></tr>
+</tbody>
+</table></dd>
+<dt>PERFORMANCE</dt><dd>Each processor's load now, on average and at most; the worst sound piece, late pieces and
+steals; each engine's share; voices; the effects' cost; a graph of the last 30 seconds.
+<figure data-shot="status-performance"><figcaption>PERFORMANCE.</figcaption></figure></dd>
+<dt>STORAGE</dt><dd>The user area (where everything you keep goes), used and free; what it holds by kind; unsaved
+changes and the memory they take.
+<figure data-shot="status-storage"><figcaption>STORAGE.</figcaption></figure></dd>
+<dt>USER FLASH MAP</dt><dd>The user area as a map, a square a kilobyte, each in the colour of what it holds.
+<figure data-shot="status-flash"><figcaption>USER FLASH MAP.</figcaption></figure></dd>
+<dt>RAM MAP</dt><dd>The FM-1's 512 KB of memory as a map, a square a kilobyte.
+<figure data-shot="status-ram"><figcaption>RAM MAP.</figcaption></figure></dd>
+<dt>DEVICE</dt><dd>The battery, the firmware version, the output (stereo, mono, sync pulse), MASTER, the screen's
+frames a second, the time since power-on, VOICES, THEME and the second processor's state.
+<figure data-shot="status-device"><figcaption>DEVICE.</figcaption></figure>
+SECOND CORE reads <b>STARTING</b> in the first two seconds, then <b>ON</b>; <b>OFF</b> when SETTINGS' SECOND CORE is
+off; or, in red, why it stopped until the next start: <b>STOPPED: NO ANSWER</b>, <b>STOPPED: MISREAD</b>,
+<b>STOPPED: STUCK</b>, <b>STOPPED: FAULT</b>, or <b>STOPPED: AFTER A CRASH</b> (after PT/FM crashed, the second
+processor stays off until the FM-1 is switched off and on). Without it, the FM-1 plays on with 12 voices at most.
+BATTERY reads 1, 2 or 3 bars, or <b>USB POWER</b>.</dd>
+</dl>
+<p>The footer's right side shows the free storage (<b>FREE 237K</b>).</p>
+</section>
+
+<section class="topic" id="status-keys">
+<h3>Keys on STATUS</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd> or <kbd>ALGORITHM</kbd></td><td>Turns the pages, one a click.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Pauses and resumes what played last; in the song list, plays the song
+highlighted.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Zeroes MAX, HALF, LATE and STEALS (<samp class="msg">COUNTS ZEROED</samp>).</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>Opens the song list: PLAY there plays the highlighted song from its start and goes to
+SONGS.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Goes to SETTINGS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>LFO</kbd></span></td><td>The help: on STATUS it opens on the keys
+every screen shares.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

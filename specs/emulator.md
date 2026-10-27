@@ -14,14 +14,17 @@ In short:
   computer, a PORTRAIT one for a phone held upright and a SIDEWAYS one for a phone held sideways.
 - **Its page is the playground's** ([panel.md](panel.md#the-page)), with three groups more in its sidebar:
   DISKS (SEED, DEMO DISK), ITS USB MIDI (the emulated FM-1's MIDI IN and OUT ports) and FIRMWARE (which file
-  runs, its version, also in the header); POWER says whether it is switched on, or that its firmware stopped.
+  runs, its version, also in the header); POWER says whether it is switched on, or that its firmware stopped. Its
+  PT/FM logos (the sidebar's, the header's on a narrow page) lead to PT/FM's page, https://hitosu.github.io/ptfm/.
 - **Switching on** comes from a gesture the browser lets sound start from: a key, a click, a mouse's press, a
   finger lifted (a touch screen counts a tap only when the finger lifts: a sound made at the touch can stay
   silent, and its firmware with it, as its time is the sound's). Every such gesture asks again while the sound
   is not running. **POWER says ON only while the sound runs,** else `PAUSED: TAP TO GO ON`.
 - **RESET** (POWER's group) switches the emulated FM-1 off and on again, as its power switch: its flash kept
   first. **ERASE DATA**, tapped twice (the first tap turns it to `TAP AGAIN`), erases what the page keeps in
-  the browser (the flash, the page's settings) and switches on a new FM-1.
+  the browser (the flash, the page's settings) and switches on a new FM-1. The firmware's own restart
+  (SETTINGS' FACTORY RESET, once it has erased the user area) is RESET's: the page switches it off and on, the
+  flash kept.
 - **Not a CPU emulator.** The firmware's C is compiled a second time, to WebAssembly. `emulator/`'s
   web hardware layer replaces `fw/hal` and the device's drivers. The device's `ptfm.fwsc` cannot run
   there.
@@ -35,11 +38,17 @@ In short:
   page opened from `file://` can't fetch a `.wasm` file, but it can load a script.
 - **Loading:** the page loads `../dist/emulator/ptfm.wasm.js`. If that fails, it offers a file picker for a
   `.wasm.js` or `.wasm` file.
+- **`dist/emulator/emulator.html`** is the emulator as one page, to pass on as a single file: `emulator/index.html`
+  with every stylesheet and script written in, in order, `ptfm.wasm.js` and `demo.ptfmdsk.js` before `main.js`,
+  which takes a firmware the page already carries. `emulator/build.py --release` writes it after the firmware;
+  `--page` writes it alone from `dist/emulator/`'s scripts. The release build compiles the version in
+  (`fw/VERSION`), so STATUS and ABOUT name it as the device's release does.
 - **Toolchain:** clang and lld with the wasm32 target (`-ffreestanding -nostdlib`).
 
 ## Data
 
-- **The Seed button** opens a data blob and seeds it into the emulated device. It uses the same
+- **The Seed button** opens a PT/FM disk (the picker offers `.ptfmdsk` only) and seeds it into the emulated device,
+  asking for MIDI nowhere. It uses the same
   module and protocol as `dist/firmware/seed.html` (the files proposal, 12.2:
   [proposals/202610080050-fs.md](proposals/202610080050-fs.md)), so seeding is tested without the
   FM-1.

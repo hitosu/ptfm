@@ -85,16 +85,19 @@ int plat_flash_prog(uint32_t addr, const void *src, uint32_t n)
     return 0;
 }
 
+int fake_sysex_refused;
 int plat_sysex_send(const uint8_t *msg, uint32_t n)
 {
+    if (fake_sysex_refused) return -1;
     if (fake_sysex) fake_sysex(msg, n);
     return 0;
 }
 
 void plat_fault(const char *why) { fprintf(stderr, "fault: %s\n", why); abort(); }
 int plat_battery(void) { return -1; }
-long fake_idles, fake_locks;
+long fake_idles, fake_locks, fake_restarts;
 int fake_lock_depth;
+void plat_restart(void) { fake_restarts++; }
 void plat_idle(void) { fake_idles++; }
 uint32_t plat_lock(void) { fake_locks++; return (uint32_t)fake_lock_depth++; }
 void plat_unlock(uint32_t was) { fake_lock_depth = (int)was; }

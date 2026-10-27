@@ -1,0 +1,40 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="midi-chart" data-kind="appendix">
+<h2>MIDI implementation chart</h2>
+<p class="lead">What PT/FM sends and what it answers to. Transmitted: over USB only (the FM-1 has no MIDI OUT jack).
+Recognized: over USB and the MIDI IN jack alike. O yes, X no. <a href="#midi-usb">Chapter 16</a> explains it all.</p>
+
+<section class="topic" id="midi-chart-table">
+<h3>The chart</h3>
+<table class="midichart">
+<thead><tr><th>Function</th><th>Transmitted</th><th>Recognized</th><th>Remarks</th></tr></thead>
+<tbody>
+<tr><th>Basic channel: default</th><td>1</td><td>ALL</td><td>Sent: MIDI OUT CHANNEL; received: MIDI IN
+CHANNEL</td></tr>
+<tr><th>Basic channel: changed</th><td>1-16</td><td>ALL, 1-16</td><td>With MIDI OUT ALL, track 00-0F on channels
+1-16 besides</td></tr>
+<tr><th>Mode</th><td>Mode 3</td><td>Mode 1 (ALL), mode 3 (1-16)</td><td></td></tr>
+<tr><th>Note number</th><td>12-127</td><td>0-127</td><td>C-0 to G-9 sent. Notes past the keys' range play the
+current instrument</td></tr>
+<tr><th>Velocity: note on</th><td>O</td><td>O</td><td>The keys send KEYS VOLUME; a track's note its volume</td></tr>
+<tr><th>Velocity: note off</th><td>X</td><td>X</td><td>Sent as 8n, velocity 0</td></tr>
+<tr><th>After touch: keys, channel</th><td>X</td><td>X</td><td></td></tr>
+<tr><th>Pitch bend</th><td>X</td><td>O</td><td>The keys' notes, plus or minus 2 semitones</td></tr>
+<tr><th>Control change 0</th><td>X</td><td>O</td><td>Bank select: the n-th cartridge in the list, from 0</td></tr>
+<tr><th>Control change 64</th><td>X</td><td>O</td><td>Sustain: holds the notes played from MIDI</td></tr>
+<tr><th>Control change, others</th><td>X</td><td>O</td><td>Only once learned onto an FM-1 control</td></tr>
+<tr><th>Program change</th><td>X</td><td>O</td><td>0-127: the current cartridge's n-th sound, from 0, empty
+slots skipped</td></tr>
+<tr><th>System exclusive</th><td>O</td><td>O</td><td>PT/FM's own (manufacturer ID 7D), for its pages</td></tr>
+<tr><th>Song position</th><td>O</td><td>O</td><td>Sent with CLOCK OUT ON; followed with SYNC EXTERNAL</td></tr>
+<tr><th>Song select, tune request</th><td>X</td><td>X</td><td></td></tr>
+<tr><th>Clock</th><td>O</td><td>O</td><td>Sent with CLOCK OUT ON; followed with SYNC EXTERNAL</td></tr>
+<tr><th>Start, stop, continue</th><td>O</td><td>O</td><td>As the clock</td></tr>
+<tr><th>Local on / off, all notes off</th><td>X</td><td>X</td><td></td></tr>
+<tr><th>Active sensing, reset</th><td>X</td><td>X</td><td></td></tr>
+</tbody>
+</table>
+<p>Mode 1: OMNI ON, POLY. Mode 3: OMNI OFF, POLY. Notes that came in over MIDI are never sent back out.</p>
+</section>
+</section>

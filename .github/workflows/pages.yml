@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Vasily Kazantsev
+# hitosu.github.io/ptfm/ (specs/site.md): site/assemble.sh puts the landing and the pages it links together out of
+# what was pushed (nothing is built here), and GitHub Pages publishes it. Settings -> Pages -> Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh site/assemble.sh _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

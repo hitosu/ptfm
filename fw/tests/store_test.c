@@ -14,6 +14,7 @@
 #include "../core/plat.h"
 #include "../core/store/store.h"
 #include "../core/store/crc.h"
+#include "../core/store/seed.h"
 #include "../core/spare.h"
 #include "../core/play/rec.h"
 
@@ -1658,6 +1659,63 @@ static void t_builtin_extras(void)
           "the firmware's own back, both");
 }
 
+/* SETTINGS' FACTORY RESET (seed_wipe; specs/ui/screens/settings.md): refused while a save is made; else every block of
+ * the user area erased, a block a poll (one already erased left as it is), the seeding's commands answered busy
+ * meanwhile, the restart asked once at the end; the next start finds nothing */
+static int acks, ack_result;
+static void wipe_acks(const uint8_t *m, uint32_t n)
+{
+    if (n >= 11 && m[4] == 0x20) { acks++; ack_result = m[9] | (m[5] >> 3 & 1) << 7; }   /* (ACK: cmd, block, result) */
+}
+static int user_block_used(uint32_t a)
+{
+    for (uint32_t i = 0; i < STORE_BLOCK; i++) if (fake_flash[a + i] != 0xFF) return 1;
+    return 0;
+}
+static void t_factory_reset(void)
+{
+    fake_reset();
+    store_init();
+    seed_init();
+    int objs[3] = { 1, 2, 3 }, vers[3] = { 1, 1, 1 };
+    CHECK(save_versions(REC_PATTERN, objs, vers, 3) == STORE_OK, "factory reset: three patterns saved");
+    CHECK(store_save_begin() == STORE_OK && store_saving() && seed_wipe() == -1 && !seed_active(),
+          "factory reset: refused while a save is being made");
+    store_save_cancel();
+    int used = 0;
+    for (uint32_t a = STORE_U1_START; a < STORE_U2_END; a += STORE_BLOCK)
+        if ((a < STORE_U1_END || a >= STORE_U2_START) && user_block_used(a)) used++;
+    long e0 = fake_erases, r0 = fake_restarts;
+    CHECK(used > 0 && seed_wipe() == 0 && seed_wiping() && seed_active(), "factory reset: started (%d blocks in use)", used);
+    CHECK(seed_wipe() == -1, "factory reset: a second one refused while it runs");
+    static const uint8_t hello[] = { 0xF0, 0x7D, 0x50, 0x54, 0x01, 0x00, 0x01, 0xF7 };
+    fake_sysex = wipe_acks;
+    acks = 0;
+    seed_sysex(hello, sizeof hello);
+    CHECK(acks == 1 && ack_result == SEED_BUSY, "factory reset: a seeding's HELLO answered busy (%d, %d)", acks, ack_result);
+    fake_sysex_refused = 1;                             /* (another HELLO while USB takes nothing: its answer waits, and
+                                                         * must not hold the erase up) */
+    seed_sysex(hello, sizeof hello);
+    int polls = 0;
+    while (fake_restarts == r0 && polls < 1000) { seed_poll(); polls++; }
+    seed_info_t si;
+    seed_info(&si);
+    int left = 0;
+    for (uint32_t a = STORE_U1_START; a < STORE_U2_END; a += STORE_BLOCK)
+        if ((a < STORE_U1_END || a >= STORE_U2_START) && user_block_used(a)) left++;
+    CHECK(fake_restarts == r0 + 1 && polls == 104 && si.done == 103 && si.total == 103 && !left && fake_erases - e0 == used,
+          "factory reset: 103 blocks, a poll each, then the restart, though USB took nothing (polls %d, %u of %u, %d left, "
+          "%ld erased of %d in use)", polls, si.done, si.total, left, fake_erases - e0, used);
+    fake_sysex_refused = 0;
+    for (int i = 0; i < 10; i++) seed_poll();
+    CHECK(fake_restarts == r0 + 1 && seed_active(), "factory reset: the restart asked once; meanwhile it waits");
+    fake_sysex = 0;
+    seed_init();                                        /* the restart */
+    store_init();
+    CHECK(version_held(REC_PATTERN, 1) == -1 && version_held(REC_PATTERN, 3) == -1 && !seed_active(),
+          "factory reset: the next start finds nothing");
+}
+
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);
@@ -1692,6 +1750,7 @@ int main(void)
     t_kb_map();
     t_spare();
     t_rows_cap();
+    t_factory_reset();
     t_builtin_extras();                                 /* (last: its extras stay) */
     printf("store: %d checks, %d failed\n", checks, fails);
     return fails != 0;

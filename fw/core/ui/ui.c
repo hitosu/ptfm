@@ -701,6 +701,37 @@ void ui_controller_ask(void)
     ui_ask(lines, 3, T("SWITCH"), T("BACK"), ctl_answer);
 }
 
+/* SETTINGS' FACTORY RESET (specs/ui/screens/settings.md): two questions, the second counting the changes not
+ * saved (lost with the rest); then the user area erased (seed_wipe: the sound silent, every control waiting, a
+ * progress bar) and the restart */
+static int wipe_pct(void)
+{
+    seed_info_t s;
+    seed_info(&s);
+    return s.total ? s.done * 100 / s.total : 0;
+}
+static void reset_erase(int a)
+{
+    if (a != 1) return;
+    if (saving || seed_wipe()) { ui_toast(T("A SAVE IS UNDER WAY")); return; }
+    ui_progress_pct(T("ERASING"), wipe_pct);
+}
+static void reset_answer(int a)
+{
+    char l3[40];
+    if (a != 1) return;
+    ui_fmt(l3, sizeof l3, "%s", ui_txt_v(ui_unsaved == 1 ? T("# UNSAVED CHANGE LOST TOO") : T("# UNSAVED CHANGES LOST TOO"),
+                                         ui_dec(ui_unsaved)));
+    const char *lines[3] = {T("ERASE IT ALL NOW?"), T("THERE IS NO WAY BACK"), l3};
+    ui_ask(lines, ui_unsaved ? 3 : 2, T("ERASE"), T("KEEP"), reset_erase);
+}
+void ui_factory_reset_ask(void)
+{
+    if (saving) { ui_toast(T("A SAVE IS UNDER WAY")); return; }
+    const char *lines[3] = {T("FACTORY RESET?"), T("ERASES ALL YOU SAVED OR UPLOADED"), T("ONLY THE BUILT-IN INSTRUMENTS STAY")};
+    ui_ask(lines, 3, T("RESET"), T("KEEP"), reset_answer);
+}
+
 /* ----------------------------------------------------------- the button grammar --- */
 static void home_tap(void)
 {
@@ -1454,7 +1485,7 @@ static void draw_frame(void)
 {
     g_clear(C_BLACK);
     g_clip(0, BODY_Y, 240, BODY_H);
-    if (seed_active()) ui_seed_draw();
+    if (seed_active() && !seed_wiping()) ui_seed_draw();   /* (FACTORY RESET's erasing: its progress bar on SETTINGS) */
     else {
         cur->draw();
         count_box();

@@ -1,0 +1,92 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="first-steps" data-kind="basics">
+<h2>First steps</h2>
+<p class="lead">Half an hour with PT/FM: play a demo song, play the keys, write a pattern, record a loop, and save.
+The demo disk should be on the FM-1 (<a href="#install-demo">chapter 2</a>).</p>
+
+<section class="topic" id="first-song">
+<h3>Play a demo song</h3>
+<ol class="steps">
+<li>Switch the FM-1 on. It starts on STATUS, which shows the version and how to get help.</li>
+<li>Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP1</kbd></span>: SONGS, the list of songs.</li>
+<li>Turn <kbd>SELECT</kbd> to a song, then press <kbd>PLAY</kbd>. Turn <kbd>MASTER</kbd> for the volume.</li>
+<li>Press <kbd>PLAY</kbd> again to pause; hold it to stop and go back to the start.</li>
+</ol>
+<aside class="memo">The FM-1's speaker plays one channel only, and PT/FM sends stereo at first, so a part panned to
+the other side is not heard on it. To hear the whole mix on the speaker, set SETTINGS' OUTPUT to MONO; set it back
+to STEREO for headphones. A cable in the output jack mutes the speaker.</aside>
+</section>
+
+<section class="topic" id="first-keys">
+<h3>Play the keys</h3>
+<ol class="steps">
+<li>Play the keys: they play the current instrument, named in the footer's left corner.</li>
+<li>Turn <kbd>PRESETS</kbd> to try the instruments of its cartridge.</li>
+<li>Hold <kbd>SEL</kbd> and turn <kbd>PRESETS</kbd> to change the cartridge: try F8, the JUNO-106, or FA, the
+TB-303.</li>
+<li>Press <kbd>OCT-</kbd> or <kbd>OCT+</kbd> to play lower or higher.</li>
+</ol>
+</section>
+
+<section class="topic" id="first-pattern">
+<h3>Write a pattern</h3>
+<ol class="steps">
+<li>Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP2</kbd></span>: the EDITOR, with its own pattern.
+Tracks go across, rows go down; each row is a step in time.</li>
+<li>Press <kbd>REC</kbd>: its light comes on, and the keys now write.</li>
+<li>Play a key: the note is written at the cursor with the current instrument, and the cursor moves down. Play more.
+<kbd>SELECT</kbd> moves up and down, <kbd>ALGORITHM</kbd> to another track; <kbd>LFO</kbd> clears a cell.</li>
+<li>Press <kbd>REC</kbd> to stop writing, then <kbd>PLAY</kbd>: the pattern plays in a loop from the cursor's row.
+To hear it from the top, turn <kbd>SELECT</kbd> back to row 00 first.</li>
+</ol>
+<p>The loop plays at the current song's tempo and through its effects: the song at the cursor on SONGS. To make it
+faster or slower, change that song's TEMPO (SONGS, <kbd>GLO</kbd>), or make the pattern a song of its own, as
+below.</p>
+<p>The EDITOR's own pattern is a sketch pad. To use it in a song, give it a number: <kbd>SEL</kbd>, STORE IN A
+PATTERN (<a href="#editor">chapter 7</a>).</p>
+</section>
+
+<section class="topic" id="first-make-song">
+<h3>Make it a song</h3>
+<p>A song is a list of patterns played one after another, its <i>order</i>. From the pattern you wrote to a song of
+your own:</p>
+<ol class="steps">
+<li>In the EDITOR, press <kbd>SEL</kbd> and pick STORE IN A PATTERN, then <b>+ NEW PATTERN</b>: your pattern gets
+the first free number (<samp class="msg" data-t="STORED IN PATTERN #">STORED IN PATTERN 00</samp>), and the EDITOR
+follows it there.</li>
+<li>Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP1</kbd></span> for SONGS. Press <kbd>SEL</kbd> and
+pick NEW: the pattern list asks what the song starts with (NEW SONG STARTS WITH). Turn <kbd>SELECT</kbd> to your
+pattern and press <kbd>SEL</kbd>. The song, NEW SONG, is added at the end of the list and becomes the current
+song.</li>
+<li>Press <kbd>EDIT</kbd> to go into its order. <kbd>SEL</kbd> opens the position's menu: CLONE PATTERN puts a copy
+of the pattern after it, to vary; NEW PATTERN puts an empty one after it. <kbd>K1</kbd> changes which pattern a
+position plays, and EDIT PATTERN in the menu opens it in the EDITOR (<kbd>HOME</kbd> comes back). Press
+<kbd>EDIT</kbd> again when the order is done.</li>
+<li>Press <kbd>GLO</kbd> for the song's properties: set its TEMPO with <kbd>K1</kbd> (the BPM it makes is shown beside
+it), give it a NAME (<kbd>EDIT</kbd> types it), and choose whether it
+loops or stops AT THE END. <kbd>GLO</kbd> closes.</li>
+<li>Press <kbd>PLAY</kbd> to hear the whole song, then <kbd>SAVE</kbd>.</li>
+</ol>
+</section>
+
+<section class="topic" id="first-loop">
+<h3>Record a loop</h3>
+<ol class="steps">
+<li>Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">POLY</kbd></span>: LOOPS. The cursor is on
+<b>+ NEW LOOP</b>.</li>
+<li>Pick a sound with <kbd>PRESETS</kbd>, then press <kbd>REC</kbd>.</li>
+<li>Play: recording starts with your first note (or press <kbd>PLAY</kbd> to start it on the beat).</li>
+<li>Press <kbd>REC</kbd> again: the loop closes at the next bar line and plays on. Its length is now every loop's
+length.</li>
+<li>Pick another sound and press <kbd>REC</kbd> again: the next loop starts with the loops' next round.</li>
+</ol>
+</section>
+
+<section class="topic" id="first-save">
+<h3>Save</h3>
+<p>Everything you did is in the FM-1's working memory: the SAVE light is dim. Press <kbd>SAVE</kbd>. When the music
+plays, the save waits for a pause; press <kbd>PLAY</kbd> to pause and it is written: <samp class="msg">SAVED</samp>.
+Now your pattern and loops survive switching off.</p>
+</section>
+</section>

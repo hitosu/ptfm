@@ -1,0 +1,341 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="basics" data-kind="basics">
+<h2>Basic operation</h2>
+<p class="lead">A few rules work the same on every screen. Learn them once and every screen is easy: HOME takes you
+around, PLAY plays, SAVE keeps your work, the knobs move and change, and every button acts when you let it go.</p>
+
+<section class="topic" id="basics-home">
+<h3>HOME: back, and to everywhere</h3>
+<p><kbd>HOME</kbd> backs out of whatever is open: a menu, a list, an edit, a dialog. At the top of a screen, with
+nothing to back out of, a tap opens <b>HOME's combination</b>: HOME breathes, the keys that work light up, and the
+next key you press does one of these:</p>
+<table class="keys">
+<thead><tr><th>After HOME</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP1</kbd></span></td><td>Opens
+<a href="#songs">SONGS</a>, the list of your songs.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP2</kbd></span></td><td>Opens the
+<a href="#editor">EDITOR</a>, where you write patterns.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP3</kbd></span></td><td>Opens
+<a href="#instruments">INSTRUMENTS</a>, where you pick and edit sounds.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP4</kbd></span></td><td>Opens
+<a href="#playback">PLAYBACK</a>, which follows what plays.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP5</kbd></span></td><td>Opens <a href="#dj">DJ</a>,
+two songs mixed live.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">PIT</kbd></span></td><td>Opens
+<a href="#visual">VISUAL</a>, the sound made visible.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">GLO</kbd></span></td><td>Opens
+<a href="#status">STATUS</a>, the start screen.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">MONO</kbd></span></td><td>Opens
+<a href="#settings">SETTINGS</a>.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">POLY</kbd></span></td><td>Opens
+<a href="#loops">LOOPS</a>, the loop station.</td></tr>
+<tr><td><kbd>FX</kbd></td><td>Opens <a href="#fx">FX</a>, the effects. FX has a button of its own, so it needs no
+HOME.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SELECT</kbd></span></td><td>Turns through the screens, one a
+click, round: STATUS, SONGS, EDITOR, INSTRUMENTS, PLAYBACK, VISUAL, FX, LOOPS, DJ, SETTINGS, and round again. Press
+HOME again to stay on the screen shown.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes or unmutes a
+track: white key 1 is track 00, white key 16 track 0F (<samp class="msg" data-t="TRACK # MUTED">TRACK 02
+MUTED</samp>, <samp class="msg" data-t="TRACK # ON">TRACK 02 ON</samp>). Key after key, while it stays open. In LOOPS
+the white keys are the loops (<a href="#loops-control">chapter 14</a>); on DJ, keys 1-8 the left deck's tracks, 9-16
+the right deck's (<a href="#dj-mutes">chapter 10</a>).</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> held</td><td>Solos the track
+instead (<samp class="msg" data-t="TRACK # SOLO">TRACK 02 SOLO</samp>). The same on the soloed track ends the solo
+(<samp class="msg">SOLO OFF</samp>); on another track it moves the solo there.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SEQ</kbd> + <kbd class="w">white key</kbd></span></td><td>SEQ
+first switches the white keys to SOLO (and back to MUTE): then a tap solos.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span></td><td>Rewinds what plays (or played last) to
+its start: <samp class="msg">BACK TO THE START</samp> (<a href="#basics-play">below</a>). On DJ both decks go back
+to their cue points (<samp class="msg">BACK TO THE CUES</samp>, <a href="#dj-load-play">chapter 10</a>).</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span></td><td>The CUT: all sound off at once
+(<a href="#basics-cut">below</a>).</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>LFO</kbd></span></td><td>The help for this screen,
+<b>LOOK FOR ONSWERS</b> (<a href="#basics-help">below</a>).</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Closes the combination; at a menu, a list or an edit, backs out of it.</td></tr>
+<tr><td><kbd>HOME</kbd> held</td><td>Opens the same combination at once, for as long as it is held: HOME held + a
+black key goes to a screen, and so on.</td></tr>
+</tbody>
+</table>
+<p>While the combination is open, the white keys show the tracks: dim while a track plays, dark while it is muted,
+bright while it is soloed. The black keys show the screens, the current one bright.</p>
+<p>Mutes and solos are part of the performance: they are not saved with the song. Once the combination has done
+something (a mute, say), any other key closes it and does its own job.</p>
+</section>
+
+<section class="topic" id="basics-play">
+<h3>Playing and stopping</h3>
+<p>There is one transport: one thing plays at a time, the current song, the EDITOR's pattern loop, the loops or DJ's
+decks. <kbd>PLAY</kbd> acts the moment it is pressed.</p>
+<ul>
+<li><b>On SONGS, the EDITOR, LOOPS and DJ,</b> PLAY plays that screen's own thing: the song picked, the pattern shown
+(looped, from the cursor's row), the loops, both decks. If something else plays, it switches at once.</li>
+<li><b>On the other screens,</b> PLAY pauses and resumes whatever played last, so on FX or VISUAL it toggles what you
+hear.</li>
+<li><b>What plays plays on</b> from screen to screen until something else starts. Every edit is heard at once.</li>
+<li><b>PLAY held</b> stops: what plays goes back to its start, so the next PLAY plays it from the beginning
+(<samp class="msg">BACK TO THE START</samp>).</li>
+<li>With no song to play, PLAY blinks: <samp class="msg">NO SONG TO PLAY</samp>.</li>
+</ul>
+</section>
+
+<section class="topic" id="basics-cut">
+<h3>The CUT: all sound off</h3>
+<p><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span>, on every screen, stops every sound at once: notes,
+echoes, reverb tails. While REC is held there is no sound at all (<samp class="msg">SOUND CUT: LET GO OF REC</samp>),
+but what plays keeps its time; let go, it is heard again from its next notes.</p>
+<p>Keep REC held for 2 seconds and every effect of what plays is switched off too
+(<samp class="msg">SOUND CUT, EFFECTS OFF</samp>). That is an edit like any other: SAVE keeps it, REVERT undoes
+it.</p>
+</section>
+
+<section class="topic" id="basics-saving">
+<h3>Saving your work</h3>
+<p>Every edit goes into the FM-1's working memory first and is heard at once. <kbd>SAVE</kbd> writes all of them to
+its flash memory, where they survive power-off. <b>Switching off loses unsaved edits.</b></p>
+<ul>
+<li>The SAVE light is dim while something is not saved.</li>
+<li>A save shows its progress (<samp class="msg" data-t="SAVING # CHANGES">SAVING 3 CHANGES</samp>), then
+<samp class="msg">SAVED</samp>. With nothing to save: <samp class="msg">NOTHING TO SAVE</samp>.</li>
+<li>SAVE while playing waits for a pause (<samp class="msg">SAVE WAITS FOR A PAUSE</samp>); SAVE blinks meanwhile. A
+save still waiting is lost if the FM-1 is switched off.</li>
+<li><b>REVERT</b>, in a screen's <kbd>SEL</kbd> menu, takes the thing that screen shows back to what was saved (a
+pattern, a song, a cartridge, the loops ...), after a question: <samp class="msg">REVERTED</samp>.</li>
+<li><b>REVERT ALL</b> drops every edit since the last save: <span class="combo"><kbd>SAVE</kbd> +
+<kbd>OCT-</kbd></span>, or SETTINGS, TOOLS, REVERT ALL. It asks first, then reloads:
+<samp class="msg">REVERTED TO SAVED</samp> (<samp class="msg">NOTHING TO REVERT</samp> when there is nothing).</li>
+<li><kbd>SAVE</kbd> held alone only shows what it does with other keys; let go then, it saves nothing.
+<span class="combo"><kbd>SAVE</kbd> + <kbd>OCT+</kbd></span> saves.</li>
+</ul>
+<aside class="note">There is no undo step by step. What an edit changed only REVERT takes back, to what was saved. So
+the big actions ask first.</aside>
+<p><b>What SAVE keeps, and what switching off forgets:</b></p>
+<table>
+<thead><tr><th>SAVE keeps</th><th>Never saved: gone at power-off</th></tr></thead>
+<tbody>
+<tr><td>Your songs, with their order, properties, mixer and effects</td><td>Track mutes and solos, and a loop's
+solo</td></tr>
+<tr><td>Your patterns, and the EDITOR's own pattern</td><td>SONGS' play mode (ONE PLAY, REPEAT SONG, PLAY
+NEXT)</td></tr>
+<tr><td>Your cartridges, and your changes to the built-in ones</td><td>PLAYBACK's speed and volume</td></tr>
+<tr><td>The settings, the MIDI map and your GATE patterns</td><td>The clipboards (blocks, slots)</td></tr>
+<tr><td>The loops, with their mutes; DJ's decks as they stand</td><td>The pattern recorder's steps</td></tr>
+<tr><td>THE KEYS' setup and tempo</td><td>The arpeggiator being on, and the octave (SETTINGS' KEYS OCTAVE sets the
+octave at power-on)</td></tr>
+<tr><td>The current instrument, and the pattern the EDITOR is on</td><td>What was playing, and where</td></tr>
+</tbody>
+</table>
+<p>Samples are the one exception to "SAVE writes": CLONE and MOVE of a sampler cartridge write its samples at once.</p>
+<p><b>A power cut during a save</b> loses nothing that was saved before: the FM-1 keeps either the old state or the
+new one, whole. The same holds when the battery runs out.</p>
+<p><b>The memory for edits</b> holds what differs from what is saved (about 650 changed tracks). When it runs low,
+the header reminds you: <b>SAVE CHANGES TO FREE MEMORY</b>. When it is full, an edit that needs more is not made and
+a question asks you to save (<samp class="msg">MEMORY FOR EDITS IS FULL</samp>,
+<samp class="msg">SAVE BEFORE MAKING MORE EDITS</samp>): <kbd>OCT+</kbd> <samp class="msg">SAVE NOW</samp>,
+<kbd>OCT-</kbd> back. After the save, make the edit again.</p>
+<p><b>Storage full:</b> a save that does not fit writes nothing and asks
+(<samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp>): <kbd>OCT+</kbd> runs CLEAN UP, which offers to delete unused
+patterns, samples and instruments; or delete something yourself and save again. Your edits stay in memory
+meanwhile. STATUS shows the free storage.</p>
+</section>
+
+<section class="topic" id="basics-references">
+<h3>Things that use other things</h3>
+<p>A note uses an instrument, a song uses patterns, a FUSION instrument uses a pattern, a sampler instrument uses a
+sample. Moving, swapping or deleting something in use asks first
+(<samp class="msg" data-t="%s IS USED %d TIMES">PATTERN 1A IS USED 3 TIMES</samp>,
+<samp class="msg">UPDATE REFERENCES?</samp>):</p>
+<ul>
+<li><b>YES</b> (<kbd>OCT+</kbd>): everything that used it follows the change, and everything is saved at once
+(<samp class="msg" data-t="UPDATING # REFERENCES">UPDATING 3 REFERENCES</samp>, then
+<samp class="msg">REFERENCES UPDATED, SAVED</samp>).</li>
+<li><b>NO</b> (<kbd>OCT-</kbd>): the change is made, and what used it keeps the old number, now pointing at whatever
+is there.</li>
+<li><kbd>HOME</kbd>: nothing happens.</li>
+</ul>
+<p>A reference to something missing is drawn in red and plays nothing. SETTINGS, TOOLS, CHECK REFERENCES lists them.
+</p>
+</section>
+
+<section class="topic" id="basics-builtin">
+<h3>Built-in things</h3>
+<p>The built-in cartridges (F0 to FA) live in the firmware. Their numbers are brown wherever they are listed. You can
+play, use and edit them like anything else: SAVE keeps your changed copy under the same number, and it is used from
+then on, also after a firmware update. <b>BACK TO BUILT-IN</b>, in the cartridge list's SEL menu, brings the
+firmware's own back (<samp class="msg" data-t="# BUILT-IN AGAIN">CARTRIDGE F0 BUILT-IN AGAIN</samp>). Built-in things
+cannot be moved or deleted.</p>
+</section>
+
+<section class="topic" id="basics-buttons">
+<h3>Taps, holds and combinations</h3>
+<ul>
+<li><b>Most buttons act when you let them go</b> (a tap), so they can also be held as a modifier. <kbd>PLAY</kbd>,
+<kbd>REC</kbd> and the <kbd>KEYS</kbd> act the moment they are pressed, for timing.</li>
+<li><b>Held + another control</b> is a combination: <span class="combo"><kbd>SEL</kbd> + <kbd>K1</kbd></span> means
+keep SEL down and turn K1. The combination repeats while the button stays held (turn on and on), and the held
+button's own tap does not happen.</li>
+<li><b>A slack of 0.1 s:</b> a button let go a moment early still counts (SETTINGS' COMBO GRACE). So buttons that can
+combine act about 0.1 s after you let them go, and HOME then LFO can never clear a cell by mistake.</li>
+<li><b>A button held alone</b> past the hold delay (half a second, SETTINGS' HOLD DELAY) shows what it does with the
+other keys and knobs, for as long as it is held. Letting go then does nothing else.</li>
+<li><b>The key that opens something closes it:</b> a menu, a mode, an editor. <kbd>EDIT</kbd> opens an edit and
+leaves it keeping the changes; <kbd>HOME</kbd> leaves it dropping them (<samp class="msg">CHANGES DROPPED</samp>).
+</li>
+</ul>
+</section>
+
+<section class="topic" id="basics-knobs">
+<h3>The knobs</h3>
+<ul>
+<li><kbd>SELECT</kbd> moves the cursor up and down, <kbd>ALGORITHM</kbd> left and right. The cursor stops at the
+ends; only the instruments, the cartridges and the screens go round.</li>
+<li><kbd>K1</kbd> to <kbd>K4</kbd> change values at the cursor; the footer names what each turns. They never move the
+cursor.</li>
+<li>Turned fast, a knob takes bigger steps (SETTINGS' KNOB SPEED); turned slowly, always one.</li>
+<li><span class="combo"><kbd>SEL</kbd> + <kbd>K1</kbd></span> (SEL held, any of K1-K4) takes big steps: an octave
+for a note, 10 for a value.</li>
+</ul>
+</section>
+
+<section class="topic" id="basics-sound">
+<h3>The keys and the current instrument</h3>
+<p>The keys play the <b>current instrument</b> on every screen, unless the screen gives them a job. The footer shows
+it on the left.</p>
+<ul>
+<li><kbd>PRESETS</kbd> picks the instrument, one a click, round within its cartridge (a cartridge is a bank of up to
+128 instruments).</li>
+<li><span class="combo"><kbd>SEL</kbd> + <kbd>PRESETS</kbd></span> (SEL held, or tapped first) turns the
+cartridges instead: the list of cartridges opens and each click picks the next. Let go of SEL (or touch another
+control) and PRESETS turns the instruments again.</li>
+<li><kbd>OCT-</kbd> and <kbd>OCT+</kbd> shift the keys by an octave, from -4 to +4
+(<samp class="msg" data-t="OCT #">OCT +3</samp>).</li>
+</ul>
+<p>The keys have no velocity: they play at SETTINGS' KEYS VOLUME. SETTINGS also sets the keys' default octave and how
+the effects treat them.</p>
+</section>
+
+<section class="topic" id="basics-arp">
+<h3>The arpeggiator</h3>
+<p><kbd>ARP</kbd> switches the arpeggiator on and off on every screen but three: the EDITOR and LOOPS, where ARP has a
+job of its own, and DJ, where the keys are the decks'. While it is on, the keys you hold take turns as a rhythm
+instead of sounding together. Switched on with no key held, it waits for your first key.</p>
+<ul>
+<li>The notes follow SETTINGS' <b>ARP RHYTHM</b> (a row a step), in the order of <b>ARP PATTERN</b> (UP, DOWN,
+UP-DOWN, RANDOM, AS PLAYED).</li>
+<li><b>ARP LATCH</b> keeps up to 1-8 notes playing after you let go of their keys; a key pressed with none held
+starts a new set. OFF: a note stops with its key.</li>
+<li>Held, ARP changes them from the knobs: <span class="combo"><kbd>ARP</kbd> + <kbd>SELECT</kbd></span> the rhythm,
+<span class="combo"><kbd>ARP</kbd> + <kbd>ALGORITHM</kbd></span> the pattern
+(<samp class="msg" data-t="ARP #">ARP UP</samp>), <span class="combo"><kbd>ARP</kbd> + <kbd>K1</kbd></span> the latch
+(<samp class="msg" data-t="LATCH #">LATCH 4 NOTES</samp>), <span class="combo"><kbd>ARP</kbd> +
+<kbd>LFO</kbd></span> lets the latched notes go.</li>
+<li>To stop latched notes and keep the arpeggiator on, tap <kbd>ARP</kbd> with no key held: the first tap lets the
+latched notes go, and ARP stays on; the next tap switches it off.</li>
+<li>Changing screens switches it off.</li>
+</ul>
+</section>
+
+<section class="topic" id="basics-menus">
+<h3>Menus, questions and names</h3>
+<ul>
+<li><kbd>SEL</kbd> opens the menu of what is at the cursor (copy, paste, move, delete ...), its last choice ready.
+SELECT picks, SEL (or the key that opened it) chooses, HOME closes. Only what can act is listed: REVERT, for
+example, only when there is something not saved.</li>
+<li><b>Groups:</b> an item marked <b>&gt;</b> at the right holds more items (ROWS, TRANSFORM). SEL opens it; its
+first line, <b>&lt; BACK</b>, goes back up; HOME closes the whole menu from any level.</li>
+<li><b>MOVE:</b> SELECT carries the thing, SEL puts it down, HOME puts it back.</li>
+<li><b>Questions:</b> the answers sit over their keys, in their own words (REVERT or KEEP, YES or NO):
+<kbd>OCT+</kbd> on the right answers yes, <kbd>OCT-</kbd> on the left no; <kbd>HOME</kbd> cancels, and nothing
+happens. Nothing else acts while a question shows.</li>
+<li><b>Typing a name:</b> <kbd>ALGORITHM</kbd> moves along the name, <kbd>SELECT</kbd> changes the letter,
+<span class="combo"><kbd>SEL</kbd> + <kbd>SELECT</kbd></span> jumps to the next group of characters (letters, digits,
+signs), <kbd>LFO</kbd> deletes a letter, <kbd>OCT+</kbd> adds a space; <kbd>EDIT</kbd> is done, <kbd>HOME</kbd>
+cancels. Names take capitals, digits, the space and <b>: . - ? | / \ * # $ @ %</b>. An instrument's name holds 10
+characters, a cartridge's 12, a song's 16; a name left empty becomes NO NAME.</li>
+</ul>
+</section>
+
+<section class="topic" id="basics-help">
+<h3>The help on the FM-1</h3>
+<p><span class="combo"><kbd>HOME</kbd> + <kbd>LFO</kbd></span>, on any screen, opens <b>LOOK FOR ONSWERS</b>: a few
+pages on the screen you are on, then pages shared by all screens (the global keys, HOME, the screens, buttons,
+knobs, saving). <kbd>SELECT</kbd> turns the pages; <kbd>HOME</kbd> gets you back. In the help, keys are yellow, and a
+button whose print reads wrong gets its reading once: ENV <i>(Explore Named Vaults)</i>, SEQ <i>(Show Else,
+Quick)</i>, ARP <i>(Again, Repeat, Please)</i>.</p>
+</section>
+
+<section class="topic" id="basics-keys">
+<h3>Keys on every screen</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>KEYS</kbd></td><td>The keys play the current instrument, unless the screen gives them another job (on
+LOOPS' CONTROL mode, DJ and FX's LIVE page, for example).</td></tr>
+<tr><td><kbd>PRESETS</kbd></td><td>Picks the current instrument: the sound the keys play. It goes round within its
+cartridge.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>PRESETS</kbd></span></td><td>Picks another cartridge (a bank of
+sounds): the cartridge list opens, and each click shows the next one. Hold SEL, or tap it first.</td></tr>
+<tr><td><kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>Shift the keys an octave down or up, from -4 to +4.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>OCT-</kbd></span> <span class="combo"><kbd>SEL</kbd> +
+<kbd>OCT+</kbd></span></td><td>On FX's EDIT page, where OCT alone switches the effect off and on, these change the
+octave instead.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Plays, or pauses, what the screen plays (or what played last).</td></tr>
+<tr><td><kbd>PLAY</kbd> held</td><td>Stops: what plays goes back to its start.</td></tr>
+<tr><td><kbd>PLAY</kbd> <kbd>REC</kbd> <kbd>KEYS</kbd></td><td>These act the moment you press them, for timing. Every
+other button acts when you let it go.</td></tr>
+<tr><td><kbd>SAVE</kbd></td><td>Saves all your changes. Its light is dim while something is not saved. While music
+plays, the save waits for a pause.</td></tr>
+<tr><td><span class="combo"><kbd>SAVE</kbd> + <kbd>OCT+</kbd></span></td><td>Saves too: use it when you held SAVE so
+long that letting go no longer counts as a tap.</td></tr>
+<tr><td><span class="combo"><kbd>SAVE</kbd> held + <kbd>OCT-</kbd></span></td><td>REVERT ALL: throws away every
+change since the last save, after asking.</td></tr>
+<tr><td><kbd>FX</kbd></td><td>Opens the FX screen; press it again to go back.</td></tr>
+<tr><td><span class="combo"><kbd>FX</kbd> + <kbd class="w">white key</kbd></span> held</td><td>Plays a punch-in effect
+for as long as the white key is held (<a href="#fx-punch">FX</a>).</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Backs out of whatever is open. At the top of a screen, opens HOME's
+combination.</td></tr>
+<tr><td><kbd>HOME</kbd> held</td><td>Opens HOME's combination at once, for as long as it is held.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP1</kbd></span></td><td>Opens SONGS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP2</kbd></span></td><td>Opens the EDITOR.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP3</kbd></span></td><td>Opens INSTRUMENTS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP4</kbd></span></td><td>Opens PLAYBACK.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP5</kbd></span></td><td>Opens DJ.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">PIT</kbd></span></td><td>Opens VISUAL.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">GLO</kbd></span></td><td>Opens STATUS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">MONO</kbd></span></td><td>Opens SETTINGS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">POLY</kbd></span></td><td>Opens LOOPS.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SELECT</kbd></span></td><td>Turns through all the screens, one a
+click, round and round.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes or unmutes a track:
+white key 1 is track 00. In LOOPS it mutes a loop.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> held</td><td>Solos the track
+instead.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SEQ</kbd> + <kbd class="w">white key</kbd></span></td><td>SEQ first
+switches the white keys to solo: then a tap solos the track.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span></td><td>Rewinds what plays to its start.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span></td><td>The CUT: all sound off at once.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span> held</td><td>Silent for as long as REC is held;
+held for 2 seconds, it also switches every effect off.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>LFO</kbd></span></td><td>Opens the help for this screen, LOOK FOR
+ONSWERS.</td></tr>
+<tr><td><kbd>SELECT</kbd></td><td>Moves the cursor up and down.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Moves the cursor left and right; when typing a name, along the name.</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Change the values at the cursor. The footer
+says what each one turns.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> held + <kbd>K1</kbd></span></td><td>With SEL held, any of K1-K4 takes big
+steps: an octave for a note, 10 for a value.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>Opens the menu of what is at the cursor, its last choice ready. During a MOVE, it puts
+the thing down. In most menus, REVERT takes the thing back to what was saved.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Clears, or resets a value to its default. When typing a name, deletes a letter.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off.</td></tr>
+<tr><td><span class="combo"><kbd>ARP</kbd> + <kbd>SELECT</kbd></span></td><td>Changes the arpeggiator's rhythm.</td></tr>
+<tr><td><span class="combo"><kbd>ARP</kbd> + <kbd>ALGORITHM</kbd></span></td><td>Changes the order its notes take
+turns in.</td></tr>
+<tr><td><span class="combo"><kbd>ARP</kbd> + <kbd>K1</kbd></span></td><td>Changes how many notes it keeps playing
+after you let go (the latch).</td></tr>
+<tr><td><span class="combo"><kbd>ARP</kbd> + <kbd>LFO</kbd></span></td><td>Lets the latched notes go.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -175,7 +175,7 @@ their keys.
   unmutes loop *n* at once, held solos it, after SEQ solos (key 1 the top loop; a solo as CONTROL's, one loop at a
   time).
 - **A muted loop runs on silently,** in time; its row is dark grey. So is a loop silenced by another's solo.
-- **Mutes and solos are kept with the loops** (SAVE keeps them).
+- **Mutes are kept with the loops** (SAVE keeps them); solos are not.
 
 ## RECORD LIVE
 
@@ -513,7 +513,7 @@ The menu ([../dialogs.md](../dialogs.md#menus)), titled `LOOP 03 SUB BASS` on a 
 ## Saving
 
 **SAVE keeps the whole LOOPS setup,** as DJ's stand is kept: the loops (notes, instruments, colours, mixes, MONO /
-POLY, mutes and solos), the length, the properties, the next loop's mix, the next loops' mode, the FX setup, the
+POLY, mutes; never a solo), the length, the properties, the next loop's mix, the next loops' mode, the FX setup, the
 selection. A power cycle brings it back, paused at the start. Not kept: what plays, an armed take or song, the keys'
 mode (PLAY at first), the pattern recorder's steps. LOOPS lives in the edit memory as any edit: saved loops play
 from the flash, and only what changed since takes edit memory ([../../files/ram.md](../../files/ram.md)).

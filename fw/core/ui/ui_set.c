@@ -33,8 +33,8 @@ static const txt_t L_LATCH[9] = {TX("OFF"), TX("1 NOTE"), TX("2 NOTES"), TX("3 N
                                  TX("6 NOTES"), TX("7 NOTES"), TX("8 NOTES")};
 const txt_t UI_POWER_ON[11] = {TX("STATUS"), TX("LAST"), TX("SONGS"), TX("EDITOR"), TX("INSTRUMENTS"), TX("PLAYBACK"),
                                TX("FX"), TX("VISUAL"), TX("SETTINGS"), TX("LOOPS"), TX("DJ")};
-static const txt_t L_TOOLS[5] = {TX("CHECK REFERENCES"), TX("CHECK STORAGE"), TX("CLEAN UP"), TX("AUTO LEVEL ALL"),
-                                 TX("REVERT ALL")};
+static const txt_t L_TOOLS[6] = {TX("CHECK REFERENCES"), TX("CHECK STORAGE"), TX("CLEAN UP"), TX("AUTO LEVEL ALL"),
+                                 TX("REVERT ALL"), TX("FACTORY RESET")};
 static const txt_t L_ABOUT[1] = {TX("VERSION, LICENCES")};
 static const txt_t L_MIDI_IN[17] = {TX("ALL"), TX("1"), TX("2"), TX("3"), TX("4"), TX("5"), TX("6"), TX("7"), TX("8"),
                                     TX("9"), TX("10"), TX("11"), TX("12"), TX("13"), TX("14"), TX("15"), TX("16")};
@@ -65,7 +65,7 @@ const ui_setting_t UI_SETTINGS[S_COUNT] = {
     {TX("ARP LATCH"), L_LATCH, 9, 0, 0, 1, 4, SF_LIST},
     {TX("POWER-ON SCREEN"), UI_POWER_ON, 11, 0, 0, 1, 0, SF_LIST},
     {TX("TUNING"), 0, 0, 430, 450, 1, 440, SF_HZ},
-    {TX("TOOLS"), L_TOOLS, 5, 0, 0, 1, 0, SF_LIST},
+    {TX("TOOLS"), L_TOOLS, 6, 0, 0, 1, 0, SF_LIST},
     {TX("ABOUT"), L_ABOUT, 1, 0, 0, 1, 0, SF_LIST},
 };
 const ui_setting_t UI_MIDI_SETTINGS[S_MIDI_COUNT] = {

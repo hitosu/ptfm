@@ -1,0 +1,61 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="visual" data-kind="screen">
+<h2>VISUAL</h2>
+<p class="lead">VISUAL shows the sound: each voice's wave, the output as an oscilloscope, a scrolling waveform, a
+spectrum, a meter for each track, and FOMA, PT/FM's mascot. Open it with <span class="combo"><kbd>HOME</kbd> +
+<kbd class="b">PIT</kbd></span>.</p>
+
+<section class="topic" id="visual-views">
+<h3>The views</h3>
+<p><kbd>SELECT</kbd> turns the views a step at a time (it stops at both ends); <kbd>SEQ</kbd> goes to the next and
+round. The header names the view (VISUAL SCOPE).</p>
+<dl class="params">
+<dt>VOICES</dt><dd>A small scope for each voice, labelled with what plays it (T03 a song's track, KEY the keys, L05 a
+loop) and its note.
+<figure data-shot="visual-voices"><figcaption>VOICES: a scope for each voice, its track and note on top.</figcaption></figure></dd>
+<dt>SCOPE</dt><dd>The output as an oscilloscope, left above, right below.
+<figure data-shot="visual-scope"><figcaption>SCOPE: the output's left and right.</figcaption></figure></dd>
+<dt>WAVE</dt><dd>The output's waveform over the last seconds, scrolling.
+<figure data-shot="visual-wave"><figcaption>WAVE: the last seconds of the output.</figcaption></figure></dd>
+<dt>SPECTRUM</dt><dd>The output's spectrum: bass on the left, treble on the right (30 Hz to 18 kHz).
+<figure data-shot="visual-spectrum"><figcaption>SPECTRUM: the sound's frequencies.</figcaption></figure></dd>
+<dt>LEVELS</dt><dd>A meter for each track, 00 to 0F.
+<figure data-shot="visual-levels"><figcaption>LEVELS: a meter a track.</figcaption></figure></dd>
+<dt>FOMA</dt><dd>PT/FM's mascot: a little FM-1 with a cat's ears, flying into the stars, its rainbow tail waving
+with the sound.
+<figure data-shot="visual-foma"><figcaption>FOMA, into the stars.</figcaption></figure></dd>
+</dl>
+</section>
+
+<section class="topic" id="visual-knobs">
+<h3>Zoom, gain and options</h3>
+<ul>
+<li><kbd>K1</kbd> zooms SCOPE in time, 1 to 6 (<b>K1 ZOOM 3</b>): from 128 to 1,024 samples across the screen.</li>
+<li><kbd>K2</kbd> makes every view taller or flatter, x0.13 to x16 in doublings (<b>K2 GAIN X1</b>).</li>
+<li><kbd>GLO</kbd> opens VISUAL OPTIONS: <b>VIEW</b> STEREO or MONO, and <b>FREEZE</b> OFF or ON, to hold the picture
+still (the footer then says FROZEN).</li>
+</ul>
+<figure data-shot="visual-options"><figcaption>VISUAL OPTIONS (GLO).</figcaption></figure>
+<p>VISUAL works from a copy of the sound, never slowing it down.</p>
+</section>
+
+<section class="topic" id="visual-keys">
+<h3>Keys on VISUAL</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Turns the views, a step at a time.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>The next view, round.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>Zooms SCOPE in time.</td></tr>
+<tr><td><kbd>K2</kbd></td><td>Makes the view taller or flatter.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>The options: stereo or mono view, freeze.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Pauses and resumes what played last.</td></tr>
+<tr><td><kbd>KEYS</kbd> <kbd>OCT-</kbd> <kbd>OCT+</kbd> <kbd>PRESETS</kbd></td><td>Play the current instrument, as on
+every screen.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

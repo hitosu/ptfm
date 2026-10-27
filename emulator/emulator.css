@@ -95,3 +95,7 @@
 .dlg button:disabled { color: var(--dgrey); border-color: var(--line); cursor: default; }
 .dlg button.go:not(:disabled) { color: var(--lgreen); border-color: var(--green); }
 .dlg button[hidden] { display: none; }
+/* the logos lead to PT/FM's page */
+.brand .logo a.home, a.hlogo { color: inherit; text-decoration: none; }
+.brand .logo a.home:hover, .brand .logo a.home:focus-visible, a.hlogo:hover, a.hlogo:focus-visible {
+    outline: 1px solid var(--lcyan); outline-offset: 2px; }

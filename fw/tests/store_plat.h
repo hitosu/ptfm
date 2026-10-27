@@ -16,6 +16,7 @@ extern long fake_erases;
 extern long fake_idles;                 /* plat_idle calls (the watchdog fed) */
 extern long fake_locks;                 /* plat_lock calls, and how deep they are now (0 when balanced) */
 extern int fake_lock_depth;
+extern long fake_restarts;              /* plat_restart calls (FACTORY RESET's end) */
 extern long fake_reads;                 /* direct reads (plat_flash_read) so far, and their bytes */
 extern long fake_read_bytes;
 extern long fake_low_reads;             /* reads of the flash below the user area (plat_flash_ptr, plat_flash_read) */
@@ -23,6 +24,7 @@ extern long cut_at;                     /* -1: no cut */
 extern int cut_torn;                    /* the cut operation half done: a program's first half, an erase's most */
 extern jmp_buf cut_env;
 extern void (*fake_sysex)(const uint8_t *msg, uint32_t n);
+extern int fake_sysex_refused;          /* USB takes no message (a cable pulled): plat_sysex_send says -1 */
 
 void fake_reset(void);                  /* all 0xFF, no cut */
 

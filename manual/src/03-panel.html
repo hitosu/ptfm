@@ -1,0 +1,139 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="panel" data-kind="basics">
+<h2>The panel</h2>
+<p class="lead">Seven endless knobs and a volume knob, fourteen buttons, 27 keys and a 240 × 240 colour screen. Many
+of the buttons are printed for the FM-1's original synth; PT/FM gives each one job on every screen.</p>
+
+<section class="topic" id="panel-knobs-buttons">
+<h3>Knobs and buttons</h3>
+<figure data-panel="k-MASTER k-SELECT k-PRESETS k-ALGORITHM k-K1 k-K2 k-K3 k-K4 b-OCT- b-OCT+ b-FX b-SEL b-ENV b-LFO b-EDIT b-GLO b-HOME b-SAVE b-ARP b-SEQ b-PLAY b-REC"><figcaption>The knobs and buttons, numbered as in the table below.</figcaption></figure>
+<table class="keys">
+<thead><tr><th>Control</th><th>Its job</th></tr></thead>
+<tbody>
+<tr><td>1 <kbd>MASTER</kbd></td><td>The volume. It is a plain volume knob, never used for anything else.</td></tr>
+<tr><td>2 <kbd>SELECT</kbd></td><td>Moves the cursor up and down (rows, list items).</td></tr>
+<tr><td>3 <kbd>PRESETS</kbd></td><td>Picks the current instrument, on every screen: the sound the keys play.</td></tr>
+<tr><td>4 <kbd>ALGORITHM</kbd></td><td>Moves the cursor left and right (tracks, columns).</td></tr>
+<tr><td>5-8 <kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Change values at the cursor. The
+footer says what each one turns. (Printed KNOB1 to KNOB4.)</td></tr>
+<tr><td>9, 10 <kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>The keys' octave, -4 to +4.</td></tr>
+<tr><td>11 <kbd>FX</kbd></td><td>The FX screen. Held with a white key: a punch-in effect.</td></tr>
+<tr><td>12 <kbd>SEL</kbd></td><td>Select and act: the menu of the thing at the cursor. Held, a shift.</td></tr>
+<tr><td>13 <kbd>ENV</kbd></td><td>The lists: patterns, cartridges, samples, songs (read it as <i>Explore Named
+Vaults</i>).</td></tr>
+<tr><td>14 <kbd>LFO</kbd></td><td>Clear, or reset to the default (<i>Leave Field Open</i>). With HOME: the help.
+</td></tr>
+<tr><td>15 <kbd>EDIT</kbd></td><td>Open the thing at the cursor for editing; again, done.</td></tr>
+<tr><td>16 <kbd>GLO</kbd></td><td>The properties of what the screen shows: the song, the pattern, the view.</td></tr>
+<tr><td>17 <kbd>HOME</kbd></td><td>Back. At the top of a screen: the screens, mutes, rewind and help (HOME's
+combination).</td></tr>
+<tr><td>18 <kbd>SAVE</kbd></td><td>Write every change to the FM-1's memory.</td></tr>
+<tr><td>19 <kbd>ARP</kbd></td><td>The arpeggiator (<i>Again, Repeat, Please</i>).</td></tr>
+<tr><td>20 <kbd>SEQ</kbd></td><td>The screen's next view (<i>Show Else, Quick</i>).</td></tr>
+<tr><td>21 <kbd>PLAY</kbd></td><td>Play / pause. Held: stop and go back to the start.</td></tr>
+<tr><td>22 <kbd>REC</kbd></td><td>Record: write notes in the EDITOR, record loops in LOOPS.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="panel-keys">
+<h3>The keys</h3>
+<figure data-panel="bk-OP1 bk-OP2 bk-OP3 bk-OP4 bk-OP5 bk-OP6 bk-PIT bk-GLO bk-MONO bk-POLY bk-BLANK w-1" data-crop="keys"><figcaption>The black keys and the white keys.</figcaption></figure>
+<p>The 27 keys play notes, F-3 to G-5 at octave 0; OCT- and OCT+ shift them down to C-0 or up to G-9. At octave -4
+the seven lowest keys, which would be below C-0, are silent. Many screens give the keys other jobs:</p>
+<ul>
+<li><b>The 16 white keys</b> are 16 tracks, 16 loops, 16 steps or 16 punch-in effects, depending on the screen.
+White key 1 is the leftmost.</li>
+<li><b>The 11 black keys</b> open the screens (with HOME): OP1 to OP5, PIT, GLO, MONO and POLY. OP6 and the last,
+unprinted key, the <b>blank key</b>, have no screen yet.</li>
+</ul>
+<table class="keys">
+<thead><tr><th>Key</th><th>With HOME, opens</th></tr></thead>
+<tbody>
+<tr><td>1 <kbd class="b">OP1</kbd></td><td>SONGS (<i>Open Page 1</i>)</td></tr>
+<tr><td>2 <kbd class="b">OP2</kbd></td><td>EDITOR</td></tr>
+<tr><td>3 <kbd class="b">OP3</kbd></td><td>INSTRUMENTS</td></tr>
+<tr><td>4 <kbd class="b">OP4</kbd></td><td>PLAYBACK</td></tr>
+<tr><td>5 <kbd class="b">OP5</kbd></td><td>DJ</td></tr>
+<tr><td>6 <kbd class="b">OP6</kbd></td><td>nothing yet</td></tr>
+<tr><td>7 <kbd class="b">PIT</kbd></td><td>VISUAL (<i>Pictures In Time</i>)</td></tr>
+<tr><td>8 <kbd class="b">GLO</kbd></td><td>STATUS</td></tr>
+<tr><td>9 <kbd class="b">MONO</kbd></td><td>SETTINGS (<i>My Own Nerdy Options</i>)</td></tr>
+<tr><td>10 <kbd class="b">POLY</kbd></td><td>LOOPS (<i>Party On, Loop Yourself</i>)</td></tr>
+<tr><td>11 <kbd class="b">BLANK</kbd></td><td>nothing yet</td></tr>
+<tr><td>12 <kbd class="w">white keys</kbd></td><td>tracks to mute or solo (<a href="#basics-home">HOME's
+combination</a>)</td></tr>
+</tbody>
+</table>
+<p>Without HOME, some screens give the black keys jobs of their own: on DJ they work the two decks, on FX LIVE each
+picks an effect (and the blank key is BYPASS), on LOOPS' CONTROL mode they set the quantize and the next loops' mode.
+Each screen's chapter lists them.</p>
+</section>
+
+<section class="topic" id="panel-lights">
+<h3>The lights</h3>
+<p>Every button and key has a light, and the lights tell you what works:</p>
+<ul>
+<li><b>dim:</b> it does something on this screen;</li>
+<li><b>off:</b> it does nothing here;</li>
+<li><b>on:</b> its mode or its list is open (REC on: writing; ARP on: the arpeggiator runs).</li>
+</ul>
+<p>PLAY has two lights. Green means playing (brighter on each beat); red means paused. Green with a dim red means a
+loop is playing (the EDITOR's pattern or the loops), not a song. Red dim alone: nothing to resume yet. Both dark:
+PLAY has nothing to play here.</p>
+<p>Some lights have rules of their own:</p>
+<ul>
+<li><b>SAVE</b> is dim while something is not saved yet, dark when everything is saved, and blinks dim while a save
+waits for the music to pause.</li>
+<li><b>OCT- and OCT+</b> show the octave. Both are dark at octave 0; OCT- lights for the octaves below, OCT+ for those
+above: dim at 1, full at 2, blinking slowly at 3 and fast at 4.</li>
+<li><b>A fast blink</b> on a button means it cannot act just now: PLAY with no song to play, for example.</li>
+<li><b>HOME breathes</b> (dim to full and back) while HOME's combination is open; then the black keys show the
+screens (the current one bright, the others dim, OP6 and the blank key dark) and the white keys show the tracks: dim
+while a track plays, dark while it is muted, bright while it is soloed.</li>
+<li><b>REC</b> is on while the EDITOR writes, and blinks during a take.</li>
+<li><b>The keys light with their notes:</b> full while a note is loud, dim as it fades, dark once it is quiet. A
+plucked sound flashes and fades, a held pad stays lit, so the keys show what sounds, not only what is pressed.</li>
+<li><b>While FX is held</b> (and on FX LIVE) the white keys are the punch-ins: keys 1, 5, 9 and 13 light dim so you
+can find each group of four by touch, and a running punch-in lights full. Other screens that use the white keys as
+buttons (steps, DJ's pads) light them the same way.</li>
+</ul>
+</section>
+
+<section class="topic" id="panel-screen">
+<h3>The screen</h3>
+<p>Every screen has the same frame:</p>
+<ul>
+<li><b>The header</b> (the top line): the screen's name in its group's colour, then what it shows (a pattern's
+number, a page, <b>SEQ</b> and the view SEQ switches to); on the right the voices sounding, the transport (a green
+triangle playing, two red bars paused, a red dot recording), the processor's load and the battery. The battery
+has three bars, its shell turning red when none is left; while a computer powers the FM-1 over USB, the bars fill
+one after another in light blue (a plain USB charger cannot be told apart, so it shows the battery). Short messages
+(<i>toasts</i>) take the name's place for two seconds, and so does a knob's name and value while you turn it.</li>
+<li><b>The footer</b> (the bottom line): on the left the current instrument, the one the keys play
+(<b>F8:00</b> and its name: cartridge F8, slot 00); on the right what the knobs turn here.</li>
+<li><b>The body</b> between them: the screen's own content.</li>
+</ul>
+<p><b>The colours</b> (in the DEFAULT theme; other themes keep the same roles):</p>
+<table>
+<thead><tr><th>Colour</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td>light red</td><td>a DX7 instrument, its notes</td></tr>
+<tr><td>light cyan</td><td>a JUNO-106 instrument, its notes</td></tr>
+<tr><td>light green</td><td>a TB-303 instrument, its notes</td></tr>
+<tr><td>light blue</td><td>a CHIP instrument, its notes; commands in a cell (at its right, where notes never stand);
+the MAKE screens' names</td></tr>
+<tr><td>yellow</td><td>a sampler instrument, its notes; samples; something not saved; keys in the help</td></tr>
+<tr><td>light magenta</td><td>a FUSION instrument, its notes</td></tr>
+<tr><td>brown</td><td>volumes in a cell; a built-in item's number in a list; the HEAR screens' names</td></tr>
+<tr><td>green</td><td>playing, on, done; the PLAY screens' names</td></tr>
+<tr><td>red</td><td>recording, a warning, an instrument that is missing</td></tr>
+<tr><td>magenta</td><td>the SYSTEM screens' names</td></tr>
+<tr><td>dark grey</td><td>empty: an empty cell's dots</td></tr>
+</tbody>
+</table>
+<aside class="memo">The help (<span class="combo"><kbd>HOME</kbd> + <kbd>LFO</kbd></span>) colours keys yellow,
+just as this manual sets them apart.</aside>
+</section>
+</section>

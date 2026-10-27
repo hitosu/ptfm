@@ -1,0 +1,247 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<!-- PT/FM's landing page, hitosu.github.io/ptfm/ (specs/site.md): site/assemble.sh puts it together with the pages it
+     links (@VERSION@ becomes fw/VERSION's). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PT/FM</title>
+<meta name="description" content="PT/FM, Pocket Tracker / Fusion Machine: a tracker firmware for the M-VAVE FM-1.">
+<link rel="canonical" href="https://hitosu.github.io/ptfm/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://hitosu.github.io/ptfm/">
+<meta property="og:title" content="PT/FM: Pocket Tracker / Fusion Machine">
+<meta property="og:description" content="A tracker firmware for the M-VAVE FM-1: write songs, play them live, keep everything on the device.">
+<meta property="og:image" content="https://hitosu.github.io/ptfm/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+/* Studio night: the FM-1 under one light on the right, the pitch in the dark beside it; below, PT/FM's real
+   screens as small lit LCDs. One family (Archivo) in two widths, the FM-1's own pixel font for labels. */
+@font-face { font-family: "Archivo"; src: url(fonts/Archivo.woff2) format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+@font-face { font-family: "PTFM Pixel"; src: url(fonts/ptfm-pixel.woff2) format("woff2"); font-display: block; }
+@font-face { font-family: "PTFM Pixel Prop"; src: url(fonts/ptfm-pixel-prop.woff2) format("woff2"); font-display: block; }
+:root {
+    color-scheme: dark;
+    --ground: #0a0b0d;          /* the render's own backdrop */
+    --raised: #111317;
+    --line: #22252b;
+    --ink: #ecebe6;
+    --dim: #959ba6;
+    --led: #5dff7a;             /* PLAY's green LED */
+    --lred: #ff7d73; --lcyan: #83eaee; --yellow: #f6e273; --lgreen: #83ea83; --lmagenta: #ee85ee;   /* the start screen's logo */
+    --wide: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --pixel: "PTFM Pixel", ui-monospace, "DejaVu Sans Mono", monospace;
+    --gutter: max(16px, env(safe-area-inset-left, 0px));
+    --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+    --max: 1240px;
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 400 17px/1.6 var(--wide); font-stretch: 100%; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+.wrap { max-width: var(--max); margin: 0 auto; padding-left: var(--gutter); padding-right: var(--gutter-r); }
+.pix { font-family: "PTFM Pixel Prop", var(--pixel); font-size: 16px; line-height: 1; letter-spacing: 0; text-transform: uppercase; }
+:focus-visible { outline: 2px solid var(--led); outline-offset: 3px; }
+
+/* ---- top bar */
+.top { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 20px; }
+.top .home { color: var(--dim); text-decoration: none; font-family: var(--wide); text-transform: none; font-size: 14px; letter-spacing: .02em; }
+.top .home:hover { color: var(--ink); }
+.top nav { display: flex; align-items: center; gap: 18px; }
+.top nav > a { color: var(--dim); text-decoration: none; }
+.top nav > a:hover { color: var(--ink); }
+
+/* ---- Support: a quiet pill, a small card on tap (its options one list: another is one more <li>) */
+.support { position: relative; }
+.support summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 10px;
+    border: 1px solid var(--line); border-radius: 999px; color: var(--dim); font: 500 13px/1 var(--wide); letter-spacing: .02em; }
+.support summary::-webkit-details-marker { display: none; }
+.support summary:hover, .support[open] summary { color: var(--ink); border-color: #3a3e46; }
+.support svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.support[open] svg { fill: var(--lred); stroke: var(--lred); }
+.support .card { position: absolute; right: 0; top: calc(100% + 10px); width: min(280px, calc(100vw - 32px)); padding: 16px; background: var(--raised);
+    border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 40px rgba(0,0,0,.5); font-size: 14px; line-height: 1.45; color: var(--dim); }
+.support .card p { margin: 0 0 12px; }
+.support .card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.support .card a { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 7px; background: #181b20;
+    color: var(--ink); text-decoration: none; font-weight: 600; }
+.support .card a:hover { background: #1f232a; }
+
+/* ---- hero */
+.hero { position: relative; overflow: hidden; margin-top: -72px; }
+.hero picture img { display: block; width: 100%; height: auto; }
+.hero-copy { position: relative; z-index: 2; padding-block: 0 48px; }
+.kicker { color: var(--dim); }
+.logo { font-family: var(--pixel); font-size: 96px; line-height: 1; margin: 18px 0 14px; letter-spacing: 0; font-weight: 400; }
+.logo .p { color: var(--lred); } .logo .t { color: var(--lcyan); } .logo .s { color: var(--yellow); } .logo .f { color: var(--lgreen); } .logo .m { color: var(--lmagenta); }
+.sub { font: 650 15px/1.2 var(--wide); font-stretch: 125%; letter-spacing: .22em; text-transform: uppercase; margin: 0 0 22px; }
+.pitch { font-size: 20px; line-height: 1.5; max-width: 30ch; margin: 0 0 30px; color: #d8d7d2; text-wrap: pretty; }
+.cta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 420px; }
+.btn { display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 18px; border-radius: 8px; text-decoration: none;
+    font: 700 14px/1 var(--wide); font-stretch: 125%; letter-spacing: .14em; text-transform: uppercase; border: 1px solid #3a3e46; color: var(--ink);
+    transition: border-color .15s, background .15s; }
+.btn:hover { border-color: var(--ink); background: #15171b; }
+.btn.go { background: var(--led); border-color: var(--led); color: #04140a; box-shadow: 0 0 28px rgba(93,255,122,.28); }
+.btn.go:hover { background: #8dffa3; }
+.fine { margin-top: 18px; color: var(--dim); font-size: 16px; }
+
+@media (min-width: 900px) {
+    .hero { min-height: 640px; }
+    .hero picture { position: absolute; right: 0; top: 10px; width: 76%;
+        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22%), linear-gradient(to bottom, #000 72%, transparent);
+        -webkit-mask-composite: source-in; mask-image: linear-gradient(to right, transparent 0, #000 22%), linear-gradient(to bottom, #000 72%, transparent); mask-composite: intersect; }
+    .hero-copy { padding-top: 150px; padding-bottom: 90px; max-width: var(--max); margin: 0 auto; }
+    .hero-copy > * { max-width: 470px; }
+}
+@media (max-width: 899px) {
+    .hero { margin-top: -8px; }
+    .hero picture { display: block; -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+    .hero picture img { width: 118%; margin-left: -9%; }
+    .logo { font-size: 64px; margin-top: 6px; }
+}
+
+/* ---- sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+h2 { font: 800 clamp(28px, 4vw, 44px)/1.08 var(--wide); font-stretch: 112%; letter-spacing: -.01em; margin: 0 0 18px; text-wrap: balance; }
+.label { color: var(--dim); margin-bottom: 14px; display: block; }
+.what { display: grid; grid-template-columns: 1fr; gap: 32px; align-items: start; }
+.what p { margin: 0; max-width: 62ch; color: #cfcec9; }
+.specs { list-style: none; padding: 0; margin: 40px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.specs li { background: var(--ground); padding: 18px 16px; }
+.specs b { display: block; font: 400 32px/1 var(--pixel); color: var(--ink); margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.specs span { font-size: 13px; color: var(--dim); letter-spacing: .02em; }
+@media (min-width: 900px) { .what { grid-template-columns: 5fr 7fr; gap: 64px; } }
+
+.features { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 40px 28px; margin-top: 36px; }
+.feat { display: grid; gap: 14px; align-content: start; }
+.lcd { position: relative; aspect-ratio: 1; max-width: 100%; border-radius: 10px; padding: 14px; border: 1px solid #1e2126;
+    background: linear-gradient(160deg, #15171b, #07080a 60%); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+.lcd img { display: block; width: 100%; height: auto; image-rendering: pixelated; border-radius: 2px; box-shadow: 0 0 34px rgba(120,160,255,.08); }
+.feat h3 { font: 750 18px/1.2 var(--wide); font-stretch: 112%; margin: 4px 0 0; }
+.feat p { margin: 0; color: #b9bcc3; font-size: 15.5px; line-height: 1.55; }
+.feat p a { color: var(--ink); text-underline-offset: 3px; }
+
+.tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 36px; }
+.tool { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
+.tool.main { border-color: rgba(93,255,122,.45); box-shadow: 0 0 0 1px rgba(93,255,122,.12), 0 20px 50px rgba(93,255,122,.05); }
+.tool h3 { margin: 0; font: 800 20px/1 var(--wide); font-stretch: 125%; letter-spacing: .1em; }
+.tool p { margin: 0; color: #c2c4c9; font-size: 15.5px; }
+.tool small { display: block; margin-top: 8px; color: var(--dim); font-size: 13.5px; }
+.tool .btn { min-height: 46px; font-stretch: 100%; letter-spacing: .08em; }
+
+footer { border-top: 1px solid var(--line); padding-block: 36px 48px; color: var(--dim); font-size: 14px; }
+footer .row { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; justify-content: space-between; }
+footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
+footer a { color: var(--ink); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+footer p { margin: 18px 0 0; max-width: 70ch; }
+@media (prefers-reduced-motion: no-preference) {
+    .hero picture { animation: rise 1.2s cubic-bezier(.2,.7,.2,1) both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+}
+</style>
+</head>
+<body>
+<div class="wrap top">
+  <a class="home" href="/">&larr; hitosu</a>
+  <nav>
+    <a class="pix" href="https://github.com/hitosu/ptfm">GitHub</a>
+    <details class="support" id="support">
+      <summary><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>Support</summary>
+      <div class="card">
+        <p>If you'd like to support PT/FM:</p>
+        <ul><li><a href="https://github.com/sponsors/hitosu">GitHub Sponsors <span aria-hidden="true">&rarr;</span></a></li></ul>
+      </div>
+    </details>
+  </nav>
+</div>
+
+<header class="hero">
+  <picture>
+    <source media="(max-width: 899px)" srcset="img/hero-phone.webp">
+    <img src="img/hero.webp" width="2400" height="1350" alt="An FM-1 running PT/FM, its pattern editor on the screen and the PLAY light on">
+  </picture>
+  <div class="hero-copy wrap">
+    <span class="kicker pix">Firmware for the M-VAVE FM-1</span>
+    <h1 class="logo" aria-label="PT/FM"><span class="p">P</span><span class="t">T</span><span class="s">/</span><span class="f">F</span><span class="m">M</span></h1>
+    <p class="sub">Pocket Tracker / Fusion Machine</p>
+    <p class="pitch">PT/FM turns the FM-1 into a complete music workstation. Write songs in a tracker, play them live, and keep everything on the device.</p>
+    <div class="cta">
+      <a class="btn go" href="install/">Install</a>
+      <a class="btn" href="emulator/">Emulator</a>
+      <a class="btn" href="manual/">Manual</a>
+      <a class="btn" href="editor/">Editor</a>
+    </div>
+    <div class="fine pix">Free &middot; GPL-3.0 &middot; Version @VERSION@</div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <span class="label pix">What it is</span>
+    <div class="what">
+      <h2>A tracker in the ProTracker tradition, in your pocket.</h2>
+      <p>Music is written as patterns: a grid of up to 16 tracks across and 128 rows down, one row a step in time. A cell holds a note, its instrument, a volume and up to four commands. Any track plays any instrument, so FM, analogue, acid, chip and sampled sounds share one song. You write it, play it, and play over it, all on the FM-1.</p>
+    </div>
+    <ul class="specs">
+      <li><b>16</b><span>voices at once</span></li>
+      <li><b>16&times;128</b><span>tracks &times; rows a pattern</span></li>
+      <li><b>6</b><span>kinds of instrument</span></li>
+      <li><b>9+16</b><span>effects + punch-ins</span></li>
+      <li><b>USB</b><span>MIDI and audio, one cable</span></li>
+      <li><b>500+</b><span>instruments built in</span></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="label pix">Features</span>
+    <h2>Everything happens on the FM-1.</h2>
+    <div class="features">
+      <article class="feat"><div class="lcd"><img src="screens/instruments-all.png" width="240" height="240" alt="The INSTRUMENTS screen: cartridges of all six kinds"></div><h3>Six kinds of instrument</h3><p>DX7 6-operator FM, JUNO-106 analogue, TB-303 acid bass, CHIP for 8-bit sound, a sampler, and FUSION, where one key plays a whole row: a chord, a layer or a drum kit.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/visual-voices16.png" width="240" height="240" alt="The VISUAL screen: a scope for each of 16 voices"></div><h3>16 voices</h3><p>Up to 16 notes at once from the songs, the loops and the keys together, spread over the FM-1's two processor cores.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/fx-live-punch.png" width="240" height="240" alt="The FX screen: punch-in effects"></div><h3>Effects and punch-ins</h3><p>GATE, FILTER, DRIVE, LO-FI, CHORUS, DELAY, REVERB, LIMITER and DUCK, set per song. On FX LIVE the white keys become 16 punch-in effects, each heard while its key is held.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/loops-full.png" width="240" height="240" alt="The LOOPS screen with 16 loops"></div><h3>LOOPS</h3><p>A loop station: layer up to 16 loops, mute and solo them from the keys, and record the whole performance as a new song.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/dj-decks.png" width="240" height="240" alt="The DJ screen: two decks"></div><h3>DJ</h3><p>Two songs on two decks, kept in time, mixed with a crossfader, filters, pads and an LFO.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/settings-midi.png" width="240" height="240" alt="The SETTINGS screen: MIDI"></div><h3>MIDI and sync</h3><p>Play it from a keyboard over USB or the MIDI IN jack, follow or send MIDI clock, use the FM-1 as a controller, and record it over USB audio.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/status-storage.png" width="240" height="240" alt="The STATUS screen: storage"></div><h3>Kept on the FM-1</h3><p>SAVE writes songs, patterns, instruments and settings into the FM-1's own memory. They survive power-off and firmware updates.</p></article>
+      <article class="feat"><div class="lcd"><img src="screens/songs-list.png" width="240" height="240" alt="The SONGS screen: the demo songs"></div><h3>Music included</h3><p>Over 500 synth instruments are built in. The <a href="install/">demo disk</a> adds samples, a drum kit, demo songs and DJ loops.</p></article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="label pix">Get started</span>
+    <h2>Install it, try it, read it, edit it.</h2>
+    <div class="tools">
+      <div class="tool main"><h3>Install</h3><p>Install PT/FM over USB from this site, then upload the demo disk from the same page. USB RESCUE stays, and so does the way back to another firmware.<small>Chrome or Edge, on a computer or an Android phone.</small></p><a class="btn go" href="install/">Install PT/FM</a></div>
+      <div class="tool"><h3>Emulator</h3><p>The real PT/FM firmware running in your browser, with sound. Try every screen before you install.</p><a class="btn" href="emulator/">Open the emulator</a></div>
+      <div class="tool"><h3>Manual</h3><p>Every screen, shortcut and message, on the web or as a PDF to print.</p><a class="btn" href="manual/">Read the manual</a></div>
+      <div class="tool"><h3>Editor</h3><p>PT/FM's page for your computer. Back up the FM-1, bring in tracker modules, MIDI files, DX7 cartridges and sounds, and edit them with the FM-1's own pictures.<small>A beta. Chrome or Edge on a computer.</small></p><a class="btn" href="editor/">Open the editor</a></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <span class="pix">PT/FM by hitosu</span>
+      <nav><a href="https://github.com/hitosu/ptfm">GitHub</a><a href="https://github.com/hitosu/ptfm/blob/main/LICENSE">GPL-3.0</a><a href="/">hitosu</a></nav>
+    </div>
+    <p>PT/FM is free software. Custom firmware is installed at your own risk. PT/FM is not affiliated with M-VAVE; M-VAVE and FM-1 are trademarks of their owners.</p>
+  </div>
+</footer>
+<script>
+/* Support's card closes on a click elsewhere or Escape */
+(() => {
+    const s = document.getElementById("support");
+    document.addEventListener("click", e => { if (s.open && !s.contains(e.target)) s.open = false; });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && s.open) { s.open = false; s.querySelector("summary").focus(); } });
+})();
+</script>
+</body>
+</html>

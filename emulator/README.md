@@ -10,7 +10,9 @@ time, with `plat_web.c` in place of the device's hardware layer.
 ## Using it
 
 - **Build:** `python3 -I emulator/build.py` (from `ptfm/`) makes a dev build, `build/fw/web/ptfm.wasm.js`;
-  `--release` makes `dist/emulator/ptfm.wasm.js`. Beside it, `demo.ptfmdsk.js`: the demo disk for the DEMO DISK button.
+  `--release` makes `dist/emulator/ptfm.wasm.js`. Beside it, `demo.ptfmdsk.js`: the demo disk for the DEMO DISK button,
+  and `emulator.html`: the whole emulator in one file, the firmware and the demo disk inside, to pass on
+  (`--page` writes only it, from what `dist/emulator/` holds).
   `--debug --out DIR` builds the debug build's figures and state in (a dev build only): what
   `fw/tests/run_autotest.sh` runs the debug page's autotests against.
   Needs clang and lld with the wasm32 target.
@@ -26,7 +28,8 @@ time, with `plat_web.c` in place of the device's hardware layer.
   playground (`../panel/midi.js`).
 - **IN / OUT:** the emulated FM-1's own USB MIDI (`../specs/connections.md`): a keyboard or a sequencer picked
   as IN plays as its keys and drives its clock; OUT gets what its MIDI OUT sends (SETTINGS' MIDI page says
-  what). The ports picked are remembered in this browser.
+  what). The ports picked are remembered in this browser. MIDI is asked for when a list is first opened (or at
+  once where the browser allows it already), never at load.
 
 ## Files
 

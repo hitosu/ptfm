@@ -1,0 +1,89 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="glance" data-kind="basics">
+<h2>PT/FM at a glance</h2>
+<p class="lead">PT/FM stands for Pocket Tracker / Fusion Machine. It is a complete music workstation in the FM-1:
+write songs, play them, play over them live, and keep everything on the FM-1 itself.</p>
+
+<section class="topic" id="glance-what">
+<h3>What it does</h3>
+<ul>
+<li><b>A tracker.</b> Music is written as patterns: a grid of up to 16 tracks across and up to 128 rows down, each
+row a step in time. A cell holds a note, the instrument that plays it, a volume and up to 4 commands (a slide, an
+arpeggio, a tempo change ...). A song plays patterns in an order of your choice. The EDITOR writes patterns; SONGS
+arranges them.</li>
+<li><b>Six kinds of instrument</b>, sharing one pool of voices; INSTRUMENTS picks, tries and edits them:
+<ul>
+<li><b>DX7:</b> 6-operator FM, the classic digital synth.</li>
+<li><b>JUNO-106:</b> the classic analogue polysynth.</li>
+<li><b>TB-303:</b> the acid bass line, with slide and accent.</li>
+<li><b>CHIP:</b> the sound chips of 8-bit computers and consoles.</li>
+<li><b>Sampler:</b> recorded sounds, with loops and an envelope.</li>
+<li><b>FUSION:</b> an instrument made of a pattern, where <b>one note is one pattern row</b>. Each key plays its own
+row of the pattern (C-4 plays row 3C), every note written in that row at once, each on its own instrument: one key
+can play a chord, a layered sound, or a different drum on every key, a kit. The row's commands play as well, so a key
+can also start an arpeggio or a short riff (<a href="#instruments-fusion">chapter 8</a>).</li>
+</ul></li>
+<li><b>Up to 16 notes at once</b> (SETTINGS' VOICES: 8, 12 or 16), from the songs, the loops and the keys together.
+</li>
+<li><b>Effects:</b> GATE, FILTER, DRIVE, LO-FI, CHORUS, DELAY, REVERB, LIMITER and DUCK, each song with its own
+setup, plus a METRONOME. Held on the white keys, sixteen <b>punch-in effects</b> play over everything for as long as
+a key is down (FX).</li>
+<li><b>LOOPS,</b> a loop station: record up to 16 loops of one length on top of each other, mute and solo them from
+the keys, and record the whole performance as a new song (RECORD LIVE).</li>
+<li><b>DJ:</b> two songs on two decks, kept in time, mixed with a crossfader, with filters, pads and an LFO.</li>
+<li><b>MIDI:</b> play PT/FM from a keyboard or a computer (USB, or the TRS MIDI IN jack), learn an outside
+controller's knobs and pads onto the FM-1's own, send the keys and everything that plays out over USB, or make the
+FM-1 a controller for the computer (MIDI CONTROLLER).</li>
+<li><b>Sync</b> with other gear, three ways (<a href="#midi-out">chapter 16</a>):
+<ul>
+<li><b>MIDI clock in</b> (SETTINGS' SYNC EXTERNAL): PT/FM follows a sequencer's or a drum machine's clock, from USB
+or the MIDI IN jack, with its START, STOP, CONTINUE and song position, locked to it so nothing drifts.</li>
+<li><b>MIDI clock out</b> (CLOCK OUT ON): PT/FM leads, sending the clock, START / STOP / CONTINUE and the song position
+over USB.</li>
+<li><b>Audio sync pulse</b> (SETTINGS' OUTPUT SYNC PULSE L or R): a click on one side of the output every half beat,
+for instruments that follow a sync pulse, the music in mono on the other side. It works while PT/FM leads (SYNC
+INTERNAL).</li>
+</ul></li>
+<li><b>USB audio:</b> a computer connected by USB hears PT/FM as a sound card and can record it.</li>
+<li><b>Everything stays on the FM-1:</b> SAVE writes your songs, patterns, instruments and settings into its own
+memory, where they survive power-off and firmware updates.</li>
+</ul>
+</section>
+
+<section class="topic" id="glance-sounds">
+<h3>What comes with it</h3>
+<p><b>Built into the firmware</b> are 11 synth cartridges, numbered F0 to FA: eight DX7 cartridges (F0 KEYS/ORGANS to
+F7 PERC/FX), F8 JUNO-106 (128 sounds), F9 CHIPTUNE (128 sounds) and FA TB-303 (64 sounds). They are always there,
+even on an empty FM-1. You can edit them like anything else; SAVE keeps your changes, and the originals come back
+with BACK TO BUILT-IN.</p>
+<p><b>The demo disk</b> is uploaded from the install page (<a href="#install">chapter 2</a>). It adds five sampler
+cartridges (a drum kit, percussion, band and orchestra instruments, voices, basses), the FUSION cartridge, six demo
+songs and twelve DJ loops. <a href="#data">Appendix D</a> lists them all.</p>
+</section>
+
+<section class="topic" id="glance-screens">
+<h3>The screens</h3>
+<p>PT/FM has ten screens. Each black key opens one (press <kbd>HOME</kbd>, then the black key), and FX has a
+button of its own:</p>
+<table class="keys">
+<thead><tr><th>Key</th><th>Screen</th><th>For</th></tr></thead>
+<tbody>
+<tr><td><kbd class="b">OP1</kbd></td><td><a href="#songs">SONGS</a></td><td>your songs: the list, and each song's
+order of patterns</td></tr>
+<tr><td><kbd class="b">OP2</kbd></td><td><a href="#editor">EDITOR</a></td><td>writing patterns</td></tr>
+<tr><td><kbd class="b">OP3</kbd></td><td><a href="#instruments">INSTRUMENTS</a></td><td>cartridges and instruments:
+choose, try, edit</td></tr>
+<tr><td><kbd class="b">OP4</kbd></td><td><a href="#playback">PLAYBACK</a></td><td>following what plays</td></tr>
+<tr><td><kbd class="b">OP5</kbd></td><td><a href="#dj">DJ</a></td><td>two songs mixed live</td></tr>
+<tr><td><kbd class="b">PIT</kbd></td><td><a href="#visual">VISUAL</a></td><td>the sound made visible</td></tr>
+<tr><td><kbd class="b">GLO</kbd></td><td><a href="#status">STATUS</a></td><td>the start screen: version, help,
+performance, storage</td></tr>
+<tr><td><kbd class="b">MONO</kbd></td><td><a href="#settings">SETTINGS</a></td><td>settings and tools</td></tr>
+<tr><td><kbd class="b">POLY</kbd></td><td><a href="#loops">LOOPS</a></td><td>the loop station</td></tr>
+<tr><td><kbd>FX</kbd></td><td><a href="#fx">FX</a></td><td>effects, punch-ins, the metronome, the mixer</td></tr>
+</tbody>
+</table>
+<p>The black key OP6 and the blank key have no screen yet.</p>
+</section>
+</section>

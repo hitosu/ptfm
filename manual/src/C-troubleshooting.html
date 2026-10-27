@@ -1,0 +1,105 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="troubleshooting" data-kind="appendix">
+<h2>When something is wrong</h2>
+<p class="lead">What to look at first when the FM-1 does not do what you expect, from the sound to the flash. Each
+answer points to the chapter that tells the whole story.</p>
+
+<section class="topic" id="troubleshooting-sound">
+<h3>The sound</h3>
+<table>
+<thead><tr><th>What happens</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>No sound at all.</td><td>Turn <kbd>MASTER</kbd> up. A cable in the output jack mutes the speaker: unplug it
+to hear the speaker. SETTINGS' LINE GAIN sets the level of both (<a href="#settings-sound">chapter 13</a>).</td></tr>
+<tr><td>On the speaker, some parts are missing.</td><td>The speaker plays one channel only, so a part panned to the
+other side is not heard. Set SETTINGS' OUTPUT to MONO while you use the speaker, back to STEREO for headphones
+(<a href="#settings-sound">chapter 13</a>).</td></tr>
+<tr><td>A track is silent.</td><td>It may be muted, or another track soloed: <span class="combo"><kbd>HOME</kbd> +
+<kbd class="w">white key</kbd></span> switches a track's mute. While HOME's combination is open the white keys
+show the tracks: dim while a track plays, dark while it is muted, bright while it is soloed
+(<a href="#basics-home">chapter 4</a>).</td></tr>
+<tr><td>A note or a whole part plays nothing, and its instrument or pattern is drawn in red.</td><td>It refers to
+something that is gone (an instrument, a pattern, a sample deleted or moved). SETTINGS, TOOLS, CHECK REFERENCES lists
+every such place (<a href="#basics-references">chapter 4</a>).</td></tr>
+<tr><td>The keys are too quiet or too loud against a song.</td><td>SETTINGS' KEYS GAIN sets how loud the keys sound;
+KEYS VOLUME sets the volume of the notes they write (<a href="#settings-keys-items">chapter 13</a>).</td></tr>
+<tr><td>Crackles or clicks in a busy part.</td><td>Too much is asked of the FM-1 at once: many notes on heavy
+instruments with several effects on. Set SETTINGS' VOICES to 12 or 8, keep SECOND CORE on, or switch off an effect
+you do not need (<a href="#settings-sound">chapter 13</a>). STATUS shows how busy each processor is
+(<a href="#status-pages">chapter 12</a>).</td></tr>
+<tr><td>A computer records the FM-1 too quietly or too loud.</td><td>SETTINGS' USB GAIN sets USB audio's level;
+MASTER does not touch it (<a href="#usb-audio">chapter 16</a>).</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="troubleshooting-start">
+<h3>Starting and installing</h3>
+<table>
+<thead><tr><th>What happens</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>The screen says <b>PT/FM CRASH</b>.</td><td>PT/FM stopped on an error. The FM-1 restarts by itself after a
+few seconds; what was saved is kept, edits not saved are lost. Until you switch the FM-1 off and on, it runs on one
+processor (VOICES 16 plays 12 voices at most; STATUS' DEVICE says STOPPED: AFTER A CRASH). If it happens again,
+note the numbers on the red screen.</td></tr>
+<tr><td>The FM-1 does not start, or starts in <b>USB RESCUE</b>.</td><td>After two failed starts in a row the FM-1
+waits in USB RESCUE for an install. Install the firmware again from the install page
+(<a href="#install-rescue">chapter 2</a>). To reach USB RESCUE yourself, hold <kbd>OCT-</kbd> while switching on.</td></tr>
+<tr><td>An install was cut short (a cable pulled, the power lost).</td><td>It does not go on by itself. Press INSTALL
+FIRMWARE again, from USB RESCUE if need be (<a href="#install-rescue">chapter 2</a>).</td></tr>
+<tr><td>The install page finds no FM-1.</td><td>Close whatever else uses its MIDI port (a music program, another
+installer, another browser tab) and try again; use a USB cable that carries data (<a href="#install-trouble">chapter
+2</a>).</td></tr>
+<tr><td>An upload is refused with <b>SAVE OR REVERT FIRST</b>.</td><td>The FM-1 has edits not saved: press
+<kbd>SAVE</kbd> (or revert them), then upload again (<a href="#install-demo">chapter 2</a>).</td></tr>
+<tr><td>The FM-1 shows <samp class="msg">DATA NOT RECEIVED: TRY AGAIN</samp> after an upload.</td><td>The upload
+stopped half way. What was there before is whole, unless a nearly full FM-1's library was being replaced; either
+way, upload again.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="troubleshooting-saving">
+<h3>Saving and storage</h3>
+<table>
+<thead><tr><th>What happens</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>Work is gone after switching off.</td><td>Only what <kbd>SAVE</kbd> wrote survives power-off. The SAVE light
+is dim while something is not saved (<a href="#basics-saving">chapter 4</a>).</td></tr>
+<tr><td><samp class="msg">MEMORY FOR EDITS IS FULL</samp></td><td>The working memory for changes is full. Answer SAVE
+NOW (<kbd>OCT+</kbd>), then make the edit again. STATUS' EDITS FREE shows the room left
+(<a href="#status-pages">chapter 12</a>).</td></tr>
+<tr><td><samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp></td><td>The flash is full. Answer CLEAN UP
+(<kbd>OCT+</kbd>) to delete what nothing uses, or delete songs, patterns or samples yourself, then save again;
+nothing is lost meanwhile. STATUS' FLASH FREE shows the room left (<a href="#settings-tools">chapter 13</a>).</td></tr>
+<tr><td><samp class="msg">SAVE FAILED</samp></td><td>Save again. If it keeps failing, run SETTINGS, TOOLS, CHECK
+STORAGE, which lists anything damaged (<a href="#settings-tools">chapter 13</a>).</td></tr>
+<tr><td>You want to start from nothing.</td><td>SETTINGS, TOOLS, FACTORY RESET erases everything you saved or
+uploaded; the built-in instruments stay. Download a disk first on the editor page to keep a copy
+(<a href="#settings-tools">chapter 13</a>, <a href="#editor-page-fm1">chapter 17</a>).</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="troubleshooting-midi">
+<h3>MIDI and sync</h3>
+<table>
+<thead><tr><th>What happens</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>A keyboard plays nothing.</td><td>Check SETTINGS' MIDI IN CHANNEL: ALL hears every channel, a number only
+that one. A keyboard's DIN cable goes into the MIDI IN jack through a TRS-to-DIN adapter, of type A or B
+(<a href="#midi-in">chapter 16</a>).</td></tr>
+<tr><td>An outside knob does nothing.</td><td>Only notes, program change, bank select, pitch bend and the sustain
+pedal work by themselves; learn any other control onto an FM-1 control first (<a href="#midi-learn">chapter
+16</a>).</td></tr>
+<tr><td>PT/FM does not follow a sequencer's clock.</td><td>Set SETTINGS' SYNC to EXTERNAL, and let the sequencer send
+its clock to the FM-1, over USB or the jack (<a href="#midi-out">chapter 16</a>).</td></tr>
+<tr><td><samp class="msg">CLOCK LOST</samp></td><td>The outside clock stopped for half a second; PT/FM plays on at
+the last tempo. Start the clock again (<a href="#midi-out">chapter 16</a>).</td></tr>
+<tr><td>A computer gets no notes from the FM-1.</td><td>Set SETTINGS' MIDI OUT to KEYS or ALL; MIDI out goes over USB
+only (<a href="#midi-out">chapter 16</a>).</td></tr>
+</tbody>
+</table>
+</section>
+</section>

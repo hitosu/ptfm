@@ -327,6 +327,12 @@ void plat_fault(const char *why)
     __builtin_trap();
 }
 
+/* FACTORY RESET's restart: asked here, made by the page (web_restart, then the power switch, the flash kept); the
+ * firmware waits silent meanwhile */
+static uint32_t web_restart_asked;
+void plat_restart(void) { web_restart_asked = 1; }
+WEB_EXPORT("web_restart") uint32_t web_restart(void) { return web_restart_asked; }
+
 /* ------------------------------------------------- the debug build's figures --- */
 #ifdef PTFM_DEBUG
 #include "dbg.h"

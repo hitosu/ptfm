@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Vasily Kazantsev */
-/* The platform calls (plat.h) a platform may leave out, as no-ops: the store's long-work and lock calls, MIDI's
- * and the second core's (the host tests' fakes link these; the FM-1's and the emulator's own take over: weak).
+/* The platform calls (plat.h) a platform may leave out, as no-ops: the store's long-work and lock calls, the
+ * restart, MIDI's and the second core's (the host tests' fakes link these; the FM-1's and the emulator's own take over: weak).
  *
  * They live alone in this unit on purpose, and no other unit may define a weak function it calls itself: the
  * FM-1's compiler, seeing a weak body in the calling unit, keeps values across the call in the registers that
@@ -17,6 +17,7 @@ __attribute__((weak)) uint32_t plat_spare_room(void) { return 0; } /* (the spare
 __attribute__((weak)) void plat_ram(plat_ram_t *r) { r->total = 512u * 1024u; r->ram_text = 4096u; r->variables = 0; r->screen = 0; }
 __attribute__((weak)) uint32_t plat_lock(void) { return 0; }
 __attribute__((weak)) void plat_unlock(uint32_t was) { (void)was; }
+__attribute__((weak)) void plat_restart(void) {}  /* (returns: the caller waits, silent, as for the emulator's page) */
 
 __attribute__((weak)) int plat_midi_rx(plat_midi_t *e) { (void)e; return 0; }
 __attribute__((weak)) int plat_midi_tx(const uint8_t m[3]) { (void)m; return -1; }

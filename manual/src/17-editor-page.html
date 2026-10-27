@@ -1,0 +1,134 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="editor-page" data-kind="basics">
+<h2>The EDITOR page</h2>
+<p class="lead">The EDITOR page, <b>editor.html</b>, is PT/FM's page for the computer (Chrome or Edge, offline). It
+comes with PT/FM, as install.html does: get it from PT/FM's home,
+<a href="https://hitosu.github.io/ptfm" target="_blank" rel="noopener">hitosu.github.io/ptfm</a>. It backs up the FM-1, brings new content to it (tracker modules, MIDI files,
+DX7 cartridges, sounds), and edits it with the FM-1's own pictures. It is a beta: its two panels are finished, its
+edit tabs work with plain controls.</p>
+
+<section class="topic" id="editor-page-panels">
+<h3>Two panels</h3>
+<ul>
+<li><b>TABLE</b> (left): everything you drop on the page, kept in the browser. Its items have no numbers, so it holds
+any number of songs, patterns and cartridges, and two imported modules never clash.</li>
+<li><b>FM-1</b> (right): an image of what an FM-1 holds, with its numbers.</li>
+<li>Drag items between the panels (or use the arrows): an item moves with everything it uses (a song with its
+patterns, their instruments, their samples), and numbers are given as it lands on the FM-1 panel. DELETE removes
+items; UNDO takes back any step.</li>
+<li>Both panels group their items by kind: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES and SYSTEM (the settings,
+the MIDI map, the loops, DJ's setup, the EDITOR's own pattern and the keys' song). A click on a group's header folds
+or opens it. Each panel shows its items as DETAILS (a row each, with sizes and what uses them), LIST or ICONS.</li>
+<li>Picking works as in a file manager: a click picks one item, Ctrl adds one, Shift a range, Ctrl+A all. A
+double-click (or Enter) opens the item's tab, Space plays it, Delete deletes it, F2 renames it; the right-click
+menu has the rest.</li>
+<li><b>The space bar</b> under the FM-1 panel shows the FM-1's room: 103 blocks of 4 KB, as data, audio and free.
+Keep at least 16 blocks free for the FM-1's own saves: with fewer than 10 free, the FM-1 cannot save new things
+(it can still delete), and with fewer than 3 it cannot save at all until a WRITE frees room.</li>
+</ul>
+</section>
+
+<section class="topic" id="editor-page-tabs">
+<h3>An item's tab</h3>
+<p>Every item opens in a tab of its own: double-click it, or EDIT IN A TAB in its menu. The tab edits a copy:
+<b>SAVE</b> puts the changes into the item, on its panel, and closes the tab; closing a tab with changes not saved
+asks SAVE, DISCARD or KEEP EDITING. A change saved on the FM-1 panel reaches the FM-1 only with WRITE. The pictures
+in a tab are the FM-1's own, drawn by PT/FM's own code exactly as the FM-1's screen shows them, and they follow the
+controls as you move them.</p>
+<dl class="params">
+<dt>Song</dt><dd>Its properties (NAME, TEMPO, TICKS A ROW, ROWS A BEAT, SWING, AT THE END), its order (each position's
+pattern from a list, moved, removed or added), TRIM (tick the positions to keep), the MIXER (each track's LEVEL, PAN,
+DUCK and SENDS) and the FX setup (the chain's order by dragging, each effect on or off, its knobs).</dd>
+<dt>Pattern</dt><dd>The grid, made for the mouse and the finger: a click picks a cell, a drag marks a block. The
+cell's panel has a keyboard of the FM-1's 27 keys with NOTE OFF and NO NOTE, the instrument picked from a list of the
+cartridges by name, the volume, and up to four commands, each with its meaning in words. On the computer's keyboard,
+the arrows, Page Up / Page Down, Home, End and Tab move; the letter keys write notes as the FM-1's keys play them
+(Z S X D C F V ... from F-3); <b>=</b> writes a note off; Delete clears; Ctrl+C, Ctrl+X and Ctrl+V copy, cut and
+paste; Space plays.</dd>
+<dt>Instrument</dt><dd>Its NAME, LEVEL (AUTO LEVEL measures it as the FM-1 does) and its engine's parameters, each
+page beside the FM-1's picture of it. Every instrument page has a keyboard of the FM-1's 27 keys, played by mouse,
+touch, the computer's keys, or a MIDI keyboard picked from the computer's inputs. With VIRTUAL MIDI KEYBOARD picked,
+the computer's keys play anywhere in the tab (Z S X D C ... from F-3 as the FM-1's keys; <b>[</b> and <b>]</b> change
+the octave).</dd>
+<dt>Sample</dt><dd>Its waveform with START and END to drag (or drag across it for a new cut), PLAY THE CUT, CHANNELS
+(both mixed, left or right of a stereo sound), RATE, DEPTH (8 or 16 bits), TRIM SILENCE, WHOLE SAMPLE, the sizes
+before and after, and the instruments that play it. Their START, END and loop points follow a cut when you SAVE.
+OPTIMIZE (below) makes it smaller.</dd>
+<dt>SETTINGS, MIDI MAP, LOOPS, DJ SETUP</dt><dd>Every setting (and your 16 GATE patterns as rows of steps), each MIDI
+mapping, each loop's instrument and notes, and DJ's crossfader, filter, decks and effects.</dd>
+</dl>
+</section>
+
+<section class="topic" id="editor-page-sounds">
+<h3>Your own sounds</h3>
+<p>A sound dropped on the page becomes a <i>sample</i>, a recording. To play it from the FM-1's keys it also needs
+an <i>instrument</i> that plays it: the instrument sets its note, loop and envelope. The page does not make one for
+you. On the page:</p>
+<ol class="steps">
+<li>Drop the sound (WAV, FLAC, MP3, OGG ...) on the TABLE.</li>
+<li>Drag it onto a sampler cartridge of the FM-1 panel: it joins that cartridge. (Dragged onto the panel anywhere
+else, it gets a new sampler cartridge of its own.)</li>
+<li>Open the sampler cartridge's tab: beside the sample, <b>NEW INSTRUMENT FOR IT</b> makes the instrument. Set its
+BASE NOTE (the note the recording plays at its own pitch) and its loop, then SAVE.</li>
+<li>WRITE.</li>
+</ol>
+<p>Or make the instrument on the FM-1, after the WRITE: INSTRUMENTS, the sampler cartridge, an empty slot;
+<kbd>SEL</kbd>, INIT makes a plain instrument there; <kbd>EDIT</kbd>, and on its SAMPLE row <kbd>ENV</kbd> lists the
+cartridge's samples (the keys play the one highlighted, <kbd>ENV</kbd> picks it). Set its BASE NOTE and loop, then
+<kbd>SAVE</kbd> (<a href="#instruments-sampler">chapter 8</a>).</p>
+</section>
+
+<section class="topic" id="editor-page-room">
+<h3>Making room</h3>
+<p>Samples take most of the FM-1's room. The page can make them smaller: in a sample's tab, <b>OPTIMIZE</b> offers
+three levels, each with its size and what it saves, heard before you SAVE:</p>
+<dl class="params">
+<dt>LOSSLESS</dt><dd>Changes nothing you hear: it cuts what no instrument plays (before the first START, after the last
+END or LOOP END) and the silent tail.</dd>
+<dt>SMALLER</dt><dd>Adds the rate the page proposes for the sound (the lowest that loses nothing heard).</dd>
+<dt>SMALLEST</dt><dd>Adds 8 bits, a softer top, and a level 6 dB lower, made up by the instruments' LEVEL.</dd>
+</dl>
+<p>On the TABLE, <b>OPTIMIZE SAMPLES</b> does the same to every sample picked (and every sample of a picked sampler)
+at once, listing each level's size before and after. UNDO takes it back.</p>
+</section>
+
+<section class="topic" id="editor-page-fm1">
+<h3>Reading, writing and backing up</h3>
+<p>Connect the FM-1 by USB with PT/FM running. Nothing stays connected: each action finds the FM-1, does its work and
+lets go.</p>
+<dl class="params">
+<dt>READ</dt><dd>Reads what the FM-1 holds into the FM-1 panel (after the first time, only what changed).</dd>
+<dt>WRITE</dt><dd>Makes the FM-1 hold exactly the panel. Before writing it shows what it writes and what it removes (in
+red), warns when the FM-1 saved something since the last READ (READ FIRST, WRITE ANYWAY or CANCEL) and when fewer
+than the 16 advised blocks would stay free, and offers to back up first: what the write would
+replace goes onto the TABLE (BACKUP and the time). The FM-1's sound stops while it writes. With unsaved edits on the
+FM-1 it is refused: SAVE OR REVERT FIRST.</dd>
+<dt>REVERT</dt><dd>Puts back what the panel showed after the last READ or WRITE.</dd>
+<dt>DOWNLOAD DISK</dt><dd>Saves the FM-1 panel as a disk file (ptfm-2026-10-26.ptfmdsk). <b>This is the backup:</b>
+READ, then DOWNLOAD DISK.</dd>
+<dt>UPLOAD DISK</dt><dd>Puts a disk file in the FM-1 panel, numbers kept; WRITE then puts it on the FM-1. A backup put
+back is exactly as it was.</dd>
+</dl>
+<aside class="note">Before installing another FM-1 firmware, READ and DOWNLOAD DISK: other firmwares erase PT/FM's
+memory.</aside>
+</section>
+
+<section class="topic" id="editor-page-import">
+<h3>Bringing content in</h3>
+<p>Drop files on the TABLE (or <b>+ ADD FILES</b>):</p>
+<dl class="params">
+<dt>Disks</dt><dd>.ptfmdsk files: their items as they are.</dd>
+<dt>Tracker modules</dt><dd>MOD, S3M and XM: the song, its patterns (a channel a track, 16 at most), a sampler
+cartridge with every instrument and sample. IT is not read; XM's envelopes are not kept.</dd>
+<dt>MIDI files</dt><dd>A song: each channel's notes become tracks, notes on the nearest row, the tempo kept, patterns
+of 4 bars; each channel's instrument mapped onto a built-in sound (all 128 General MIDI programs have one), the drums
+onto FM DRUM KIT. Pitch bend and controllers are left out.</dd>
+<dt>DX7 cartridges</dt><dd>.syx, the 32-voice dump: a DX7 cartridge, exactly; a single voice's dump: a cartridge of
+one.</dd>
+<dt>Sounds</dt><dd>WAV, FLAC, MP3, OGG and the rest: a sample, at the lowest rate that loses nothing heard.</dd>
+</dl>
+<p>Take only a part (some patterns, a cut of a sound) in the item's tab, then move it to the FM-1 panel and
+WRITE.</p>
+</section>
+</section>

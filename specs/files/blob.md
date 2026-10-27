@@ -97,7 +97,9 @@ number.
   install the uploader writes every block of the user area empty (all 0xFF: the device erases it), and no
   record. Nothing that was there stays, damaged records included; the device then holds an empty user area,
   the firmware's built-ins alone. The demo disk is UPLOAD DEMO DISK's, a button of its own. The debug page's
-  CLEAR USER DATA writes the same empty blocks without an install, PT/FM running.
+  CLEAR USER DATA writes the same empty blocks without an install, PT/FM running. On the FM-1 alone,
+  SETTINGS' FACTORY RESET erases them and restarts ([../ui/screens/settings.md](../ui/screens/settings.md));
+  while it erases, the seeding's commands are answered busy.
 - **The device refuses to be seeded with edits not saved:** `SAVE OR REVERT FIRST`.
 
 **Messages:** SysEx `F0 7D 50 54 cmd payload F7`.

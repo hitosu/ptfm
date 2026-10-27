@@ -21,7 +21,7 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
 | OUTPUT | the analog out's, not USB audio's: STEREO; MONO (for the internal speaker, or a mono jack); SYNC PULSE L or SYNC PULSE R: a click on that side at every half beat, for instruments that follow a sync pulse (Volca, Pocket Operator), the music in mono on the other side; with SYNC INTERNAL ([../../connections.md](../../connections.md#clock)) | **STEREO** |
 | LINE GAIN | the level of the analog out, the speaker and the jack, with MASTER: −24 to +12 dB, in 1 dB steps | 0 dB |
 | USB GAIN | the level of USB audio, which MASTER does not touch: −24 to +12 dB, in 1 dB steps | 0 dB |
-| VOICES | 8 / 12 / 16: the notes heard at once, everywhere (DJ too); 16 with the second core (4 of them on it), 12 while it does not run ([VOICES](#voices)) | 16 |
+| VOICES | 8 / 12 / 16: the notes heard at once, everywhere (DJ too); 16 with the second core (6 of them on it, voices 11-16), 12 while it does not run ([VOICES](#voices)) | 16 |
 | SECOND CORE | ON / OFF: the effects and the output stage worked out on the chip's second core, beside the voices on the first ([../../second-core.md](../../second-core.md)); OFF: one core does it all. Applies from the next audio half, both ways; STATUS shows each core's load and, on DEVICE, why the second stopped if it did | ON |
 | THEME | DEFAULT, EGA, PASTEL, NEON, SUNSET, ICE, CLEAR, GREEN, AMBER, WHITE, DAYLIGHT, PAPER, MANUAL, SILVER, LCD, COMMANDER ([../colours.md](../colours.md)) | DEFAULT |
 | KEYS VOLUME | the volume of notes from the keys (the keys have no velocity): `01`-`7F` | `60` |
@@ -39,7 +39,7 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
 | ARP LATCH | how many notes the arpeggiator keeps once their keys are let go: OFF (a note stops with its key) or 1-8 NOTES (the oldest goes past it; a key pressed with none held starts a new set); ARP held + K1 changes it too ([../controls.md](../controls.md)) | 4 NOTES |
 | POWER-ON SCREEN | STATUS, LAST, or any screen: SONGS, EDITOR, INSTRUMENTS, PLAYBACK, FX, VISUAL, SETTINGS, LOOPS, DJ | STATUS |
 | TUNING | A4 = 430-450 Hz | 440 Hz |
-| TOOLS | CHECK REFERENCES, CHECK STORAGE, CLEAN UP, AUTO LEVEL ALL, REVERT ALL | |
+| TOOLS | CHECK REFERENCES, CHECK STORAGE, CLEAN UP, AUTO LEVEL ALL, REVERT ALL, FACTORY RESET | |
 | ABOUT | version, licences | |
 
 - **K1 takes one step a click** and stops at both ends.
@@ -90,6 +90,20 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
     (`AUTO LEVEL 486 SOUNDS?`, `EACH ONE'S LEVEL SET AGAIN`, OCT+ `LEVEL`, OCT- `KEEP`).
   - **REVERT ALL** drops every unsaved change after a question, as SAVE + OCT- does; its question and
     texts are REVERT TO SAVED's as before ([../saving.md](../saving.md)).
+  - **FACTORY RESET** erases the user area ([../../files/store.md](../../files/store.md)): every song,
+    pattern, loop, sampler cartridge and sample, the user's instruments and the built-ins' edits, DJ's
+    stand, the settings and the MIDI map, saved or uploaded; the firmware and its built-in instruments
+    stay. The FM-1 is then as after a first install, before any upload. Two questions first, both answered
+    by taps: `FACTORY RESET?` (RESET / KEEP), then `ERASE IT ALL NOW?` (ERASE / KEEP), which also counts the
+    changes not saved, lost with the rest. While a save runs it is refused (`A SAVE IS UNDER WAY`).
+    - It erases every block of the user area, one at a time, the sound silent from the first (~1.8 s, a
+      progress bar, every control waiting; a block already erased is skipped). Then the FM-1 restarts, to
+      the screen POWER-ON SCREEN's default names, with the settings' defaults.
+    - A power cut midway leaves the blocks not yet erased: what they hold is read at the next power-on as
+      after any power cut ([../../files/store.md](../../files/store.md#power-on)). FACTORY RESET again
+      finishes the job.
+    - The install page's CLEAN INSTALL does the same from a computer, with an install
+      ([../../files/blob.md](../../files/blob.md)).
   - K1 picks the tool on the TOOLS line and **EDIT runs it**; EDIT on ABOUT opens it, and
     EDIT closes it.
 - **The footer's right side:** the selected item's default (`DEFAULT STEREO`); on TOOLS and ABOUT,
@@ -421,7 +435,7 @@ come first, as every question ([../dialogs.md](../dialogs.md)):
 - **The values:** `STEREO`, `MONO`, `SYNC PULSE L`, `SYNC PULSE R`; ` DB`; `8`, `12`, `16`; `ON`, `OFF`; the themes' names; `THROUGH FX`, `DRY`; `OFF`, `LOW`, `HIGH`; `ROWS`,
   `PAGES`; `OFF`, `1 BAR`, `2 BARS`, `KEY`; `2 ROWS`, `3 ROWS`, `4 ROWS`, `ROW`, `REAL TIME`; the rhythms (`#___`); `UP`, `DOWN`, `UP-DOWN`, `RANDOM`,
   `AS PLAYED`; `OFF`, `1 NOTE`, `2 NOTES` … `8 NOTES`; `STATUS`, `LAST` and the screens' names; ` MS`, ` HZ`; `CHECK REFERENCES`, `CHECK STORAGE`,
-  `CLEAN UP`, `AUTO LEVEL ALL`, `REVERT ALL`; `VERSION, LICENCES`.
+  `CLEAN UP`, `AUTO LEVEL ALL`, `REVERT ALL`, `FACTORY RESET`; `VERSION, LICENCES`.
 - **SEL's menu:** `SETTINGS`, `MIDI`; `REVERT`; its question `REVERT THE SETTINGS TO SAVED?`
   (`REVERT THE MIDI MAP TO SAVED?`), REVERT / KEEP; the toasts `REVERTED`, `NOTHING TO REVERT`.
 - **The footer's right side:** `DEFAULT ` and the default value; `EDIT: RUN`; on MIDI `EDIT: LEARN`,
@@ -456,6 +470,10 @@ come first, as every question ([../dialogs.md](../dialogs.md)):
   | `REVERT TO SAVED?`, `DROP 3 UNSAVED CHANGES`, `AND RELOAD FROM FLASH`; REVERT / KEEP | REVERT ALL's question ([../saving.md](../saving.md)) |
   | `RELOADING`, then `REVERTED TO SAVED` | it runs, then its toast |
   | `NOTHING TO REVERT` | REVERT ALL with nothing unsaved |
+  | `FACTORY RESET?`, `ERASES ALL YOU SAVED OR UPLOADED`, `ONLY THE BUILT-IN INSTRUMENTS STAY`; RESET / KEEP | FACTORY RESET's first question |
+  | `ERASE IT ALL NOW?`, `THERE IS NO WAY BACK`, and with changes not saved `3 UNSAVED CHANGES LOST TOO` (`1 UNSAVED CHANGE LOST TOO`); ERASE / KEEP | its second |
+  | `ERASING` | it runs (a progress bar), then the restart |
+  | `A SAVE IS UNDER WAY` | FACTORY RESET while a save runs |
   | `SWITCH TO MIDI CONTROLLER?`, `PT/FM STOPS UNTIL THE FM-1`, `IS SWITCHED OFF AND ON`; SWITCH / BACK | MIDI CONTROLLER's question |
   | `SAVE BEFORE SWITCHING?`, `3 UNSAVED CHANGES` (`1 UNSAVED CHANGE`), `DROP: THEY ARE LOST`; SAVE / DROP | its second, with unsaved changes |
   | `A SAVE IS UNDER WAY` | its toast while a save runs |
@@ -517,6 +535,7 @@ TOOLS: {K1} PICKS ONE, {EDIT} RUNS IT
   CLEAN UP: DELETE WHAT NOTHING USES
   AUTO LEVEL ALL: EVEN OUT YOUR SOUNDS
   REVERT ALL: DROP EVERY UNSAVED EDIT
+  FACTORY RESET: ERASE ALL YOU SAVED
 ABOUT, {EDIT}: VERSION AND LICENCES
 {SEL}, REVERT: THE SETTINGS AS SAVED
 ```

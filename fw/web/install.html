@@ -33,7 +33,7 @@ body { margin: 0; background: var(--bg); color: var(--muted); font: 16px/1.5 var
 
 /* the name: PT/FM's letters in the start screen's colours */
 .intro { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 18px; margin-bottom: 22px; }
-.intro .mark { font: 700 44px/1 var(--sans); letter-spacing: .02em; }
+.intro .mark { font: 700 44px/1 var(--sans); letter-spacing: .02em; text-decoration: none; }   /* a link to PT/FM's page */
 .intro .mark b { font-weight: inherit; }
 .intro .c-p { color: var(--lred); } .intro .c-t { color: var(--lcyan); } .intro .c-s { color: var(--yellow); }
 .intro .c-f { color: var(--lgreen); } .intro .c-m { color: var(--lmagenta); }
@@ -137,7 +137,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
 <body>
 <div class="wrap">
   <div class="intro">
-    <div class="mark" role="img" aria-label="PT/FM"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b></div>
+    <a class="mark" href="https://hitosu.github.io/ptfm/" title="PT/FM's page" aria-label="PT/FM's page"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b></a>
     <div class="naming">
       <p class="tagline">POCKET TRACKER / FUSION MACHINE</p>
       <p class="for">A tracker for the M-VAVE FM-1</p>

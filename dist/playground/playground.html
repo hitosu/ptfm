@@ -1912,7 +1912,7 @@ PTFM.model = (function () {
         { k: "ARP LATCH", list: M.ARP_LATCHES, def: "4 NOTES" },
         { k: "POWER-ON SCREEN", list: ["STATUS", "LAST", "SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "FX", "VISUAL", "SETTINGS", "LOOPS", "DJ"], def: "STATUS" },
         { k: "TUNING", min: 430, max: 450, def: 440, unit: " HZ" },
-        { k: "TOOLS", list: ["CHECK REFERENCES", "CHECK STORAGE", "CLEAN UP", "AUTO LEVEL ALL", "REVERT ALL"], def: "CHECK REFERENCES" },
+        { k: "TOOLS", list: ["CHECK REFERENCES", "CHECK STORAGE", "CLEAN UP", "AUTO LEVEL ALL", "REVERT ALL", "FACTORY RESET"], def: "CHECK REFERENCES" },
         { k: "ABOUT", list: ["VERSION, LICENCES"], def: "VERSION, LICENCES" },
     ];
     /* SETTINGS' MIDI page (specs/connections.md): MIDI in and out, the clock; LEARN adds to the MIDI map */
@@ -3306,6 +3306,7 @@ PTFM.help = (function () {
             "  CLEAN UP: DELETE WHAT NOTHING USES",
             "  AUTO LEVEL ALL: EVEN OUT YOUR SOUNDS",
             "  REVERT ALL: DROP EVERY UNSAVED EDIT",
+            "  FACTORY RESET: ERASE ALL YOU SAVED",
             "ABOUT, {EDIT}: VERSION AND LICENCES",
             "{SEL}, REVERT: THE SETTINGS AS SAVED",
         ], [
@@ -6305,7 +6306,8 @@ PTFM.audio = (function () {
     }
     setInterval(() => { if (node && out.length) { node.port.postMessage({ t: "batch", list: out }); out = []; } }, 10);
 
-    /* SETTINGS' MIDI CONTROLLER: the sound fades as CUT's (12 ms), then stops for good (only reloading brings it) */
+    /* SETTINGS' MIDI CONTROLLER and FACTORY RESET: the sound fades as CUT's (12 ms), then stops for good (only reloading
+     * brings it) */
     A.end = function () {
         A.ended = true;
         A.hush(true);
@@ -9960,6 +9962,27 @@ PTFM.ui = (function () {
             });
         });
     };
+    /* SETTINGS' FACTORY RESET (specs/ui/screens/settings.md): two questions, the second counting the changes not saved
+     * (lost with the rest); then the user area erased under a progress bar, the sound silent from the first and every
+     * control waiting (the FM-1 erases a block in use in ~17 ms and skips an empty one), and the restart: here this
+     * browser's kept user area dropped and the page loaded again (U.restart) */
+    U.factoryReset = function () {
+        if (U.saving) { U.toast("A SAVE IS UNDER WAY"); return; }
+        U.ask(["FACTORY RESET?", "ERASES ALL YOU SAVED OR UPLOADED", "ONLY THE BUILT-IN INSTRUMENTS STAY"], ["RESET", "KEEP"], a => {
+            if (a !== "RESET") return;
+            const n = U.unsavedCount(), lines = ["ERASE IT ALL NOW?", "THERE IS NO WAY BACK"];
+            if (n) lines.push(n + " UNSAVED CHANGE" + (n === 1 ? "" : "S") + " LOST TOO");
+            U.ask(lines, ["ERASE", "KEEP"], b => {
+                if (b !== "ERASE") return;
+                if (U.saving) { U.toast("A SAVE IS UNDER WAY"); return; }
+                const st = M.storage(), blocks = Math.ceil((st.userUsed - M.FLASH.reserve) / 4096);
+                PTFM.player.allSoundOff();
+                PTFM.audio.end();
+                U.progress("ERASING", 100 + 17 * blocks, () => U.restart());
+            });
+        });
+    };
+    U.restart = () => M.eraseKept().then(() => location.reload(), () => location.reload());
     /* what plays paused: the screens told (LOOPS: a song's recording ends there), then a SAVE waiting for it */
     U.pausedHook = () => {
         for (const k in U.screens) if (U.screens[k].paused) U.screens[k].paused();
@@ -18084,6 +18107,7 @@ PTFM.ui = (function () {
             });
         }
         if (t === "REVERT ALL") U.revert();                  /* (SAVE + OCT-'s question) */
+        if (t === "FACTORY RESET") U.factoryReset();
     }
     const ABOUT = ["PT/FM " + U.version + " DEV", "POCKET TRACKER / FUSION MACHINE", "",
                    "GPL-3.0-ONLY, (C) 2026 HITOSU", "",

@@ -1,0 +1,171 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="settings" data-kind="screen">
+<h2>SETTINGS</h2>
+<p class="lead">SETTINGS holds the FM-1's global settings and the tools that look after your storage. It has two
+pages: the list, and MIDI. Open it with <span class="combo"><kbd>HOME</kbd> + <kbd class="b">MONO</kbd></span> (or
+EDIT on STATUS).</p>
+
+<section class="topic" id="settings-using">
+<h3>Changing a setting</h3>
+<ol class="steps">
+<li><kbd>SELECT</kbd> picks a setting; the footer shows its default (<b>DEFAULT STEREO</b>).</li>
+<li><kbd>K1</kbd> changes it, a step a click. It applies at once.</li>
+<li><kbd>LFO</kbd> puts it back to its default.</li>
+<li><kbd>SAVE</kbd> keeps the settings after power-off, as every change.</li>
+</ol>
+<p><kbd>SEQ</kbd> or <kbd>ALGORITHM</kbd> turns to the MIDI page and back. <kbd>SEL</kbd>, REVERT takes the page back
+to what was saved, after a question (<samp class="msg">REVERT THE SETTINGS TO SAVED?</samp>); with nothing unsaved,
+<samp class="msg">NOTHING TO REVERT</samp>.</p>
+<figure data-shot="settings-list"><figcaption>SETTINGS, the list's top.</figcaption></figure>
+<figure data-shot="settings-list-end"><figcaption>The list's end: ARP, POWER-ON SCREEN, TUNING, TOOLS and ABOUT.
+</figcaption></figure>
+</section>
+
+<section class="topic" id="settings-sound">
+<h3>Sound and output</h3>
+<dl class="params">
+<dt>OUTPUT</dt><dd>What the jack and the speaker get. STEREO for headphones and a mixer. MONO for the FM-1's own
+speaker, which plays one channel only (and for a mono cable). SYNC PULSE L or R: a click on that side every half beat,
+for instruments that follow a sync pulse, the music in mono on the other side (with SYNC INTERNAL only; with SYNC
+EXTERNAL the output stays stereo, no clicks). A cable in the jack mutes the speaker,
+and the FM-1 cannot tell, so set this yourself. <span class="range">STEREO, MONO, SYNC PULSE L, SYNC PULSE R; STEREO at
+first</span></dd>
+<dt>LINE GAIN</dt><dd>The level of the speaker and the jack, with MASTER. <span class="range">-24 to +12 dB, 0 dB at
+first</span></dd>
+<dt>USB GAIN</dt><dd>The level of USB audio, the sound a computer records; MASTER does not touch it.
+<span class="range">-24 to +12 dB, 0 dB at first</span></dd>
+<dt>VOICES</dt><dd>How many notes are heard at once, everywhere. 16 needs the second processor (SECOND CORE); while it
+does not run, 16 counts as 12 (<samp class="msg">16 VOICES: 12 WITHOUT CPU 2</samp>). When all are busy, a new note
+takes the voice least missed: a ringing tail first, then the quietest held note; the keys' notes go last. A held note
+pushed out comes back when a voice frees. <span class="range">8, 12, 16; 16 at first</span></dd>
+<dt>SECOND CORE</dt><dd>The FM-1's chip has two processors: ON works the effects and voices 11-16 out on the second.
+OFF: one does it all (12 voices at most). <span class="range">ON, OFF; ON at first</span></dd>
+<dt>TUNING</dt><dd>The pitch of A4. <span class="range">430-450 Hz, 440 at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="settings-keys-items">
+<h3>The keys, the knobs and the look</h3>
+<dl class="params">
+<dt>THEME</dt><dd>The screen's colours. <span class="range">DEFAULT, EGA, PASTEL, NEON, SUNSET, ICE, CLEAR, GREEN,
+AMBER, WHITE, DAYLIGHT, PAPER, MANUAL, SILVER, LCD, COMMANDER; DEFAULT at first</span></dd>
+<dt>KEYS VOLUME</dt><dd>The volume of the notes the keys play and write (the keys have no velocity).
+<span class="range">01-7F, 60 at first</span></dd>
+<dt>KEYS GAIN</dt><dd>How loud you hear the keys while playing them (the FM-1's and MIDI's), not how they are
+recorded. <span class="range">-24 to +12 dB, 0 dB at first</span></dd>
+<dt>KEYS</dt><dd>THROUGH FX: the keys go through the effects as everything else. DRY: past every effect, straight
+to the output. <span class="range">THROUGH FX, DRY; THROUGH FX at first</span></dd>
+<dt>KEYS OCTAVE</dt><dd>The keys' octave at power-on. <span class="range">-4 to +4, 0 at first</span></dd>
+<dt>KNOB SPEED</dt><dd>Bigger steps when a knob is turned fast. <span class="range">OFF, LOW, HIGH; LOW at
+first</span></dd>
+<dt>HOLD DELAY</dt><dd>How long a button must be held to count as held. <span class="range">300-1500 ms, 500 at
+first</span></dd>
+<dt>COMBO GRACE</dt><dd>How long a button let go still counts for a combination. <span class="range">0-250 ms, 100 at
+first</span></dd>
+<dt>PLAYBACK SCROLL</dt><dd>PLAYBACK scrolls by ROWS (the playing row stays in the middle) or by PAGES.
+<span class="range">ROWS, PAGES; ROWS at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="settings-takes">
+<h3>Recording and the arpeggiator</h3>
+<dl class="params">
+<dt>COUNT-IN</dt><dd>Before an EDITOR take: 1 or 2 bars of clicks, none, or KEY (your first note starts the take).
+LOOPS has its own. <span class="range">OFF, 1 BAR, 2 BARS, KEY; 1 BAR at first</span></dd>
+<dt>QUANTIZE</dt><dd>Where an EDITOR take puts a note: on the nearest line of 2, 3 or 4 rows, the nearest row, or REAL
+TIME (the row it falls in, its exact time kept with a note delay). The keys sound exactly as written.
+<span class="range">2 ROWS, 3 ROWS, 4 ROWS, ROW, REAL TIME; ROW at first</span></dd>
+<dt>ARP RHYTHM</dt><dd>The arpeggiator's rhythm and the EDITOR's row preview, a row a step: # plays, _ rests.
+<span class="range">#, #_, #__, #___, ##_, ###_, ##__, #_##_, and two slow ones; #___ at first</span></dd>
+<dt>ARP PATTERN</dt><dd>The order the arpeggiator's notes take turns in. <span class="range">UP, DOWN, UP-DOWN,
+RANDOM, AS PLAYED; UP at first</span></dd>
+<dt>ARP LATCH</dt><dd>How many notes go on playing after you let go of their keys. <span class="range">OFF, 1-8 NOTES;
+4 NOTES at first</span></dd>
+<dt>POWER-ON SCREEN</dt><dd>The screen the FM-1 starts on. <span class="range">STATUS, LAST, or any screen; STATUS at first</span></dd>
+</dl>
+</section>
+
+<section class="topic" id="settings-tools">
+<h3>TOOLS and ABOUT</h3>
+<p>On TOOLS, <kbd>K1</kbd> picks a tool and <kbd>EDIT</kbd> runs it:</p>
+<dl class="params">
+<dt>TOOLS</dt><dd>The line of tools below.</dd>
+<dt>CHECK REFERENCES</dt><dd>Lists the references to things that are missing (a note's instrument gone, a song's
+pattern deleted): <samp class="msg" data-t="MISSING REFERENCES: #">MISSING REFERENCES: 3</samp>, or
+<samp class="msg">NO MISSING REFERENCES</samp>.</dd>
+<dt>CHECK STORAGE</dt><dd>Reads every saved record and checks it is whole (<samp class="msg">CHECKING STORAGE</samp>):
+<samp class="msg">STORAGE OK</samp>, or a list of problems (<samp class="msg" data-t="STORAGE PROBLEMS: #">STORAGE
+PROBLEMS: 2</samp>). It writes nothing.</dd>
+<dt>CLEAN UP</dt><dd>Finds what nothing uses and asks what goes, as a checklist
+(<samp class="msg" data-t="CLEAN UP: FREES #">CLEAN UP: FREES 1.3K</samp>): UNUSED PATTERNS, UNUSED SAMPLES (ticked at first), UNUSED INSTRUMENTS (not:
+most of a bank is a library, not leftovers). SELECT picks a line, K1 ticks it, OCT+ cleans up
+(<samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>; nothing to do:
+<samp class="msg">NOTHING TO CLEAN UP</samp>). Built-in things are never listed.
+<figure data-shot="settings-cleanup"><figcaption>CLEAN UP's checklist.</figcaption></figure></dd>
+<dt>AUTO LEVEL ALL</dt><dd>Measures every sound you have and sets its level, after a question; the built-in
+cartridges keep theirs.</dd>
+<dt>REVERT ALL</dt><dd>Drops every unsaved change, after a question, as SAVE + OCT- does.</dd>
+<dt>FACTORY RESET</dt><dd>Erases everything you saved or uploaded: songs, patterns, loops, your cartridges and samples,
+your edits of the built-in instruments, DJ's decks, the settings and the MIDI map. PT/FM itself and its built-in
+instruments stay, so the FM-1 is as it was after its first install, before the demo disk.
+<p>It asks twice. First <samp class="msg">FACTORY RESET?</samp> with <samp class="msg">ERASES ALL YOU SAVED OR
+UPLOADED</samp> and <samp class="msg">ONLY THE BUILT-IN INSTRUMENTS STAY</samp>: <kbd>OCT+</kbd> answers RESET. Then
+<samp class="msg">ERASE IT ALL NOW?</samp> with <samp class="msg">THERE IS NO WAY BACK</samp>, and, if you have changes
+not saved yet, how many go with the rest (<samp class="msg" data-t="# UNSAVED CHANGES LOST TOO">3 UNSAVED CHANGES LOST
+TOO</samp>): <kbd>OCT+</kbd> answers ERASE. <kbd>OCT-</kbd> (KEEP) or <kbd>HOME</kbd> at either question leaves
+everything as it was.</p>
+<p>Then <samp class="msg">ERASING</samp> shows a bar for up to two seconds, the sound silent and every control
+waiting, and the FM-1 restarts on its power-on screen with the settings as they come.</p>
+<p>To keep a copy first, read the FM-1 on the editor page and download a disk (<a href="#editor-page-fm1">chapter
+17</a>). The demo songs come back with the install page's UPLOAD DEMO DISK (<a href="#install-demo">chapter 2</a>).
+A power cut while it erases leaves part of your work: run FACTORY RESET again.</p>
+<figure data-shot="settings-factory-reset"><figcaption>FACTORY RESET's first question.</figcaption></figure></dd>
+<dt>ABOUT</dt><dd><kbd>EDIT</kbd> opens it: the version and the licences. EDIT closes it.
+<figure data-shot="settings-about"><figcaption>ABOUT.</figcaption></figure></dd>
+</dl>
+</section>
+
+<section class="topic" id="settings-midi">
+<h3>The MIDI page</h3>
+<p>The second page (SEQ), the same kind of list (<a href="#midi-usb">chapter 16</a> explains MIDI in full):</p>
+<figure data-shot="settings-midi"><figcaption>SETTINGS MIDI.</figcaption></figure>
+<dl class="params">
+<dt>MIDI IN CHANNEL</dt><dd>The channel MIDI in listens to, on USB and the jack. <span class="range">ALL, 1-16; ALL at
+first</span></dd>
+<dt>MIDI OUT</dt><dd>What goes out over USB: OFF, KEYS (the FM-1's keys as played) or ALL (the keys and everything that
+plays: track 0 on channel 1 ... track 15 on channel 16). <span class="range">OFF, KEYS, ALL; KEYS at first</span></dd>
+<dt>MIDI OUT CHANNEL</dt><dd>The keys' channel out. <span class="range">1-16; 1 at first</span></dd>
+<dt>SYNC</dt><dd>INTERNAL: PT/FM's own tempo. EXTERNAL: an outside MIDI clock leads (USB or the jack).
+<span class="range">INTERNAL, EXTERNAL; INTERNAL at first</span></dd>
+<dt>CLOCK OUT</dt><dd>Sends the clock, START / STOP / CONTINUE and the song position out, with SYNC INTERNAL.
+<span class="range">OFF, ON; OFF at first</span></dd>
+<dt>MIDI CONTROLLER</dt><dd><kbd>EDIT</kbd> turns the FM-1 into a MIDI controller for a computer until it is switched
+off and on, after a question (<a href="#midi-controller">chapter 16</a>).</dd>
+<dt>LEARN</dt><dd>How many mappings of 64 (<b>3 OF 64</b>). <kbd>EDIT</kbd> learns one: touch an FM-1 control, then
+move the MIDI control that should drive it (<samp class="msg">TOUCH AN FM-1 CONTROL</samp>,
+<samp class="msg">MOVE THE MIDI CONTROL</samp>). The mappings are listed below; <kbd>LFO</kbd> deletes the one
+picked.</dd>
+</dl>
+</section>
+
+<section class="topic" id="settings-keys">
+<h3>Keys on SETTINGS</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Picks a setting (on MIDI, then the mappings).</td></tr>
+<tr><td><kbd>K1</kbd></td><td>Changes it, at once; on TOOLS, picks the tool.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Puts it back to its default; on a mapping, deletes it.</td></tr>
+<tr><td><kbd>SEQ</kbd> or <kbd>ALGORITHM</kbd></td><td>Turns to the MIDI page and back.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>Runs the tool picked; opens and closes ABOUT; on MIDI CONTROLLER, switches; on LEARN,
+learns.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>REVERT: the page's own back as saved (the settings; on MIDI, the mappings).</td></tr>
+<tr><td><kbd>SAVE</kbd></td><td>Keeps the settings after power-off.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch (also set
+here: ARP RHYTHM, ARP PATTERN, ARP LATCH).</td></tr>
+</tbody>
+</table>
+</section>
+</section>

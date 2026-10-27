@@ -17,7 +17,8 @@
  *               {t: "flash?"}                       the flash now, whatever its writes
  * Messages out: {t: "ready", fwEnd} {t: "frame", y0, y1, px} {t: "leds", leds} {t: "sysex", bytes}
  *               {t: "midi", bytes}                  MIDI OUT: messages one after another
- *               {t: "flash", image} {t: "fault", text} */
+ *               {t: "flash", image} {t: "fault", text}
+ *               {t: "restart"}                      the firmware asks for a restart (FACTORY RESET), once */
 window.PTFM = window.PTFM || {};
 
 PTFM.emuWorklet = function () {
@@ -165,6 +166,10 @@ PTFM.emuWorklet = function () {
             const gen = ex.web_flash_gen();
             if (gen !== this.gen) { this.gen = gen; this.genAt = currentTime; }
             else if (gen !== this.savedGen && currentTime - this.genAt >= 1) this.sendFlash();
+            if (!this.restarting && ex.web_restart && ex.web_restart()) {   /* FACTORY RESET's restart: the page switches it off and on */
+                this.restarting = true;
+                this.port.postMessage({ t: "restart" });
+            }
             if (currentTime - this.sentAt < 1 / 60) return;
             this.sentAt = currentTime;
             const d = ex.web_fb_dirty();

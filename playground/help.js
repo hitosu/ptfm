@@ -695,6 +695,7 @@ PTFM.help = (function () {
             "  CLEAN UP: DELETE WHAT NOTHING USES",
             "  AUTO LEVEL ALL: EVEN OUT YOUR SOUNDS",
             "  REVERT ALL: DROP EVERY UNSAVED EDIT",
+            "  FACTORY RESET: ERASE ALL YOU SAVED",
             "ABOUT, {EDIT}: VERSION AND LICENCES",
             "{SEL}, REVERT: THE SETTINGS AS SAVED",
         ], [

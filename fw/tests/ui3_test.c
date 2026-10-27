@@ -12,6 +12,7 @@
 #include "app.h"
 #include "store/store.h"
 #include "store/crc.h"
+#include "store/seed.h"
 #include "ui/ui_core.h"
 #include "ui/ui_priv.h"
 #include "ui/gfx.h"
@@ -5958,6 +5959,62 @@ static void test_question_leds(void)
     check(!ui_top() && asked_answer != 1 && leds[B_OCTP] == 0, "HOME cancels it; OCT+ back to its own rule (OCT 0: dark)");
 }
 
+/* ------------------------------------------------------------- FACTORY RESET --- */
+/* specs/ui/screens/settings.md: SETTINGS' TOOLS -> FACTORY RESET asks twice (KEEP and HOME leave all as it was), the
+ * second counting the changes not saved; ERASE: every block of the user area erased, a block a pass under the ERASING
+ * bar (the sound silent, the keys and the seeding's commands waiting), then the restart, asked once. Last: it erases */
+static int restarts;
+void plat_restart(void) { restarts++; }
+static int user_erased(void)
+{
+    for (uint32_t a = STORE_U1_START; a < STORE_U2_END; a++) if (user(a, 1) && flash[a] != 0xFF) return 0;
+    return 1;
+}
+static void test_factory_reset(void)
+{
+    char msg[200];
+    for (int i = 0; i < 3 && ui_top(); i++) tap(B_HOME);
+    home_key(20);
+    turn(K_SELECT, 20); turn(K_SELECT, -1);             /* TOOLS */
+    turn(K_K1, 9);                                      /* FACTORY RESET, the last */
+    check(screen_is("SETTINGS") && ui_set[S_TOOLS] == 5 && !user_erased(), "FACTORY RESET: TOOLS' last, the user area holds records");
+    tap(B_EDIT);
+    check(!strcmp(asking(), "FACTORY RESET?"), "FACTORY RESET asks first");
+    shot("settings_factory_reset");
+    tap(B_OCTM);
+    check(!ui_top() && !seed_active() && !user_erased(), "FACTORY RESET: KEEP, nothing");
+    tap(B_EDIT); tap(B_OCTP);
+    check(!strcmp(asking(), "ERASE IT ALL NOW?"), "FACTORY RESET: RESET, then ERASE IT ALL NOW?");
+    tap(B_HOME);
+    check(!ui_top() && !seed_active() && !user_erased(), "FACTORY RESET: HOME on the second, nothing");
+    turn(K_SELECT, -1); turn(K_K1, 1); turn(K_SELECT, 1);   /* (TUNING 441 HZ: a change not saved) */
+    uint32_t unsaved = ui_unsaved;
+    tap(B_EDIT); tap(B_OCTP);
+    shot("settings_factory_reset_2");
+    check(!strcmp(asking(), "ERASE IT ALL NOW?") && unsaved >= 1, "FACTORY RESET: a change not saved, counted (the shot)");
+    press(B_OCTP);                                      /* ERASE */
+    if (!seed_wiping()) release(B_OCTP);                /* (taken at the press, or at the let-go) */
+    energy = 0;
+    seed_info_t si;
+    seed_info(&si);
+    int mid = si.done > 0 && si.done < si.total && !restarts;   /* (here a pass a ms: an erase takes no time) */
+    snprintf(msg, sizeof msg, "FACTORY RESET: ERASE, the ERASING bar on SETTINGS, a block a pass (%s, wiping %d, %u of %u)",
+             ui_top() && ui_top()->kind == OV_PROGRESS ? "a bar" : "no bar", seed_wiping(), si.done, si.total);
+    check(ui_top() && ui_top()->kind == OV_PROGRESS && seed_wiping() && seed_active() && screen_is("SETTINGS") && mid, msg);
+    shot("settings_factory_reset_erasing");
+    static const uint8_t hello[] = {0xF0, 0x7D, 0x50, 0x54, 0x01, 0x00, 0x01, 0xF7};
+    app_sysex(hello, sizeof hello);                     /* (answered busy: nothing begins) */
+    release(B_OCTP); key(12, 1); tap(B_HOME); turn(K_SELECT, 3); key(12, 0);
+    for (int i = 0; i < 400 && !restarts; i++) run(10);
+    seed_info(&si);
+    snprintf(msg, sizeof msg, "FACTORY RESET: %u of %u blocks a pass at a time, the user area erased, the restart asked "
+             "(mid-way %d, restarts %d, energy %lld, %s)", si.done, si.total, mid, restarts, (long long)energy,
+             ui_top() && ui_top()->kind == OV_PROGRESS ? "the bar still up" : "no bar");
+    check(mid && si.total == 103 && si.done == si.total && user_erased() && restarts == 1 && !energy && seed_wiping(), msg);
+    run(500);
+    check(restarts == 1 && seed_active() && !energy, "FACTORY RESET: the restart asked once; meanwhile silent, waiting");
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3) { fprintf(stderr, "usage: ui3_test DISK.ptfmdsk|- OUTDIR\n"); return 1; }
@@ -6046,7 +6103,8 @@ int main(int argc, char **argv)
     test_song_delete();                                 /* (REVERT ALL after each) */
     test_editor_own_full();                             /* (fills the user area) */
     test_clone_samples();                               /* (deletes a sampler to make room) */
-    test_plist_delete_fusion();                         /* (last: deletes the DRUM KIT's pattern, saved) */
+    test_plist_delete_fusion();                         /* (deletes the DRUM KIT's pattern, saved) */
+    test_factory_reset();                               /* (last: erases the user area) */
 #endif
     (void)combo; (void)listen;
     printf(fails ? "ui3_test: %d of %d checks FAILED\n" : "ui3_test: %d checks passed\n", fails ? fails : checks, checks);

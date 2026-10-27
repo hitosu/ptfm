@@ -16,6 +16,12 @@ void seed_sysex(const uint8_t *msg, uint32_t n);    /* a PT/FM SysEx: F0 7D 50 5
  * or while this says edits wait unsaved elsewhere (the UI's own; none: only the store's count). */
 void seed_set_unsaved(int (*edits_unsaved)(void));
 
+/* SETTINGS' FACTORY RESET (specs/ui/screens/settings.md): every block of the user area erased, a block each
+ * seed_poll, as seeding with no files leaves it (seed_active meanwhile: the sound silent, the store locked, the
+ * seeding's commands answered busy), then plat_restart. 0 started; -1 refused (a seeding or a save under way). */
+int seed_wipe(void);
+int seed_wiping(void);                  /* FACTORY RESET erasing, or waiting for its restart */
+
 /* For the UI's seeding screen. */
 enum {
     SEED_OK = 0, SEED_BAD_MSG = 1, SEED_BAD_BLOCK = 2, SEED_UNSAVED = 3, SEED_BAD_CRC = 4, SEED_FLASH = 5,

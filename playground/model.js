@@ -334,7 +334,7 @@ PTFM.model = (function () {
         { k: "ARP LATCH", list: M.ARP_LATCHES, def: "4 NOTES" },
         { k: "POWER-ON SCREEN", list: ["STATUS", "LAST", "SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "FX", "VISUAL", "SETTINGS", "LOOPS", "DJ"], def: "STATUS" },
         { k: "TUNING", min: 430, max: 450, def: 440, unit: " HZ" },
-        { k: "TOOLS", list: ["CHECK REFERENCES", "CHECK STORAGE", "CLEAN UP", "AUTO LEVEL ALL", "REVERT ALL"], def: "CHECK REFERENCES" },
+        { k: "TOOLS", list: ["CHECK REFERENCES", "CHECK STORAGE", "CLEAN UP", "AUTO LEVEL ALL", "REVERT ALL", "FACTORY RESET"], def: "CHECK REFERENCES" },
         { k: "ABOUT", list: ["VERSION, LICENCES"], def: "VERSION, LICENCES" },
     ];
     /* SETTINGS' MIDI page (specs/connections.md): MIDI in and out, the clock; LEARN adds to the MIDI map */

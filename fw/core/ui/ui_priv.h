@@ -38,6 +38,7 @@ void ui_save_refs(int uses);            /* YES to UPDATE REFERENCES?: playback p
 void ui_ask_storage_full(void);         /* NOT ENOUGH STORAGE TO SAVE, CLEAN UP or BACK */
 void ui_revert_all(void);               /* REVERT ALL: the changes dropped, all read again */
 void ui_revert_all_ask(void);           /* REVERT ALL's question (SAVE + OCT-, SETTINGS' TOOLS), then ui_revert_all */
+void ui_factory_reset_ask(void);        /* SETTINGS' TOOLS: FACTORY RESET's two questions, the erase, the restart */
 void ui_save_answer(int a);             /* MEMORY FOR EDITS IS FULL's answer: SAVE NOW (1) */
 void ui_save_again(void);               /* SAVE as its tap does (after a CLEAN UP) */
 void ui_controller_ask(void);           /* SETTINGS' MIDI CONTROLLER: its questions, then the switch (ui.h) */

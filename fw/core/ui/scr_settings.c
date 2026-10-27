@@ -171,12 +171,13 @@ static int tap(int b)
     }
     if (b == B_EDIT) {
         if (set.sel == S_TOOLS) {
-            /* (TOOLS: CHECK REFERENCES, CHECK STORAGE, CLEAN UP, AUTO LEVEL ALL, REVERT ALL) */
+            /* (TOOLS: CHECK REFERENCES, CHECK STORAGE, CLEAN UP, AUTO LEVEL ALL, REVERT ALL, FACTORY RESET) */
             if (ui_set[S_TOOLS] == 0) { ui_check_references(); return 1; }
             if (ui_set[S_TOOLS] == 1) { ui_check_storage(); return 1; }
             if (ui_set[S_TOOLS] == 2) { ui_clean_up(0); return 1; }
             if (ui_set[S_TOOLS] == 3) { ui_auto_level_all(-1, 0); return 1; }
             if (ui_set[S_TOOLS] == 4) ui_revert_all_ask();     /* REVERT ALL: SAVE + OCT-'s question */
+            if (ui_set[S_TOOLS] == 5) ui_factory_reset_ask();
             return 1;
         }
         if (set.sel == S_ABOUT) {

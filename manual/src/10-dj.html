@@ -1,0 +1,302 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="dj" data-kind="screen">
+<h2>DJ</h2>
+<p class="lead">DJ turns the FM-1 into a DJ stand: two songs on two decks, kept in time, mixed with a crossfader, with a
+filter, loops, cue points and stops on each deck. It is only for performing: nothing done on DJ changes a song. Open
+it with <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP5</kbd></span>.</p>
+
+<section class="topic" id="dj-screen">
+<h3>The stand</h3>
+<figure data-shot="dj-empty"><figcaption>DJ with both decks empty: the left deck, the right deck, the crossfader, and
+the song list below.</figcaption></figure>
+<figure data-shot="dj-decks"><figcaption>Two loops playing in sync: each deck's song, BPM and change, position and
+bar, its overview with the time left, its filter and its loop; the crossfader under them.</figcaption></figure>
+<ul>
+<li><b>The left deck is the main:</b> its tempo is the set's tempo, and the right deck can follow it (SYNC).</li>
+<li>Each deck shows its song, its BPM and the change from the song's own tempo, its position and bar, an overview of
+the song with the time left, its filter, and its loop or repeat.</li>
+<li><b>The crossfader</b> (<kbd>ALGORITHM</kbd>) blends the two: all the way left, only the main is heard (as at
+first).</li>
+<li><b>The song list</b> below: <kbd>SELECT</kbd> moves its highlight; L, R or LR mark the songs on the decks.</li>
+</ul>
+<aside class="memo">DJ stays apart until it plays. Opening DJ changes nothing of what plays: you can set up the decks
+in silence and leave. DJ's first start (a deck's PLAY key, say) stops what was playing and cuts its sound, so the
+decks start dry. PLAY on DJ while something else plays first pauses it (<samp class="msg">PAUSED: PLAY AGAIN FOR
+DJ</samp>); the next PLAY plays the decks. Once DJ plays, the decks play on outside DJ until a song, a pattern or
+the loops start.</aside>
+</section>
+
+<section class="topic" id="dj-load-play">
+<h3>Loading and playing</h3>
+<ol class="steps">
+<li>Turn <kbd>SELECT</kbd> to a song in the list.</li>
+<li>Press <kbd class="b">OP4</kbd> to load it on the left deck, or <kbd class="b">OP5</kbd> on the right
+(<b>LEFT: CITY LIGHTS</b>). A song with no positions is refused
+(<samp class="msg" data-t="SONG # IS EMPTY">SONG 0A IS EMPTY</samp>).</li>
+<li>Press <kbd class="b">OP1</kbd> to play or pause the left deck, <kbd class="b">OP6</kbd> the right. Held, the deck
+goes back to its song's start, paused (<samp class="msg" data-t="%s: BACK TO THE START">LEFT: BACK TO THE
+START</samp>).</li>
+<li><kbd>PLAY</kbd> plays or pauses both decks at once; held, both go back to their cue points
+(<samp class="msg">BACK TO THE CUES</samp>).</li>
+</ol>
+<ul>
+<li><b>Loading onto a playing deck</b> waits for its next bar line
+(<samp class="msg" data-t="%s: %s AT THE BAR">LEFT: CITY LIGHTS AT THE BAR</samp>; the LOAD key blinks): the new song takes over at the bar, at the BPM the
+deck was playing, so the beat goes on. Hold the LOAD key instead to have it start at its own tempo
+(<samp class="msg" data-t="%s: %s AT ITS TEMPO">LEFT: CITY LIGHTS AT ITS TEMPO</samp>). Tap LOAD again before the bar
+line to cancel (<samp class="msg" data-t="%s: LOAD CANCELLED">LEFT: LOAD CANCELLED</samp>).</li>
+<li>The same song can be on both decks, to fade from one part of it to another.</li>
+<li>At a song's end it loops or stops, as the song says. Stopped, its PLAY has nothing more to play
+(<samp class="msg">THE END: CUE GOES BACK</samp>). Through the last 8 bars of a song that stops, the time left turns
+red and the deck's PLAY key blinks on the beat.</li>
+<li>An empty deck refuses PLAY, CUE, SYNC, HOLD and FILTER: <samp class="msg">NO SONG ON THE DECK</samp>.</li>
+</ul>
+<p><b>SWAP:</b> <kbd>SEQ</kbd> exchanges the decks (<samp class="msg">DECKS SWAPPED</samp>; both empty:
+<samp class="msg">NO SONGS TO SWAP</samp>): songs, places, cue points, tempos, filters, loops and mutes. Nothing
+heard changes. The usual flow: the main plays; you load the next song on the right, start it in time and bring it
+in with the crossfader; SWAP; the right deck is free for the next one.</p>
+</section>
+
+<section class="topic" id="dj-tempo">
+<h3>Tempo and SYNC</h3>
+<ul>
+<li><kbd>K1</kbd> is the left deck's tempo (the set's), <kbd>K4</kbd> the right's: shown as the BPM it plays and the
+change (<b>TEMPO L 124.0 BPM +3.2%</b>), 3 to 600 BPM in steps of 0.1 (SEL held: 1 BPM). The song's own tempo
+commands still act, scaled. <kbd>SEL</kbd> after a turn sets it back to the song's own
+(<samp class="msg" data-t="TEMPO # BPM: THE SONG'S">TEMPO 120.0 BPM: THE SONG'S</samp>).</li>
+<li><kbd class="b">MONO</kbd> is <b>SYNC</b> (on at first): the right deck follows the main's tempo (or its half or
+double, whichever is nearest its own song's) and its beats fall on the main's. A synced right deck starts on the
+main's next bar line; its tempo knob then does nothing (<samp class="msg">SYNC: TEMPO ON THE MAIN DECK</samp>).
+<samp class="msg">SYNC ON</samp>, <samp class="msg">SYNC OFF</samp>.</li>
+<li>With SETTINGS' SYNC set to EXTERNAL, an outside MIDI clock leads the main deck
+(<samp class="msg">SYNC EXTERNAL: THE CLOCK'S TEMPO</samp>); START plays it from its cue point, STOP pauses it.</li>
+<li>Two decks at one BPM never drift apart.</li>
+</ul>
+</section>
+
+<section class="topic" id="dj-sound">
+<h3>Filters, volumes and effects</h3>
+<ul>
+<li><kbd>K2</kbd> is the left deck's DJ FILTER, <kbd>K3</kbd> the right's: one way a low-pass (LP, darker), the other a
+high-pass (HP, thinner), OFF in the middle (<b>FILTER L LP 2.4K</b>).</li>
+<li><kbd class="b">OP3</kbd> (the left) and the black key <kbd class="b">GLO</kbd> (the right) switch the filter off
+and back on, sliding there while the key is held (<samp class="msg" data-t="FILTER %c OFF">FILTER L OFF</samp>,
+<samp class="msg" data-t="FILTER %c ON %s">FILTER L ON LP 2.4K</samp>). With the filter off, the knob sets the filter
+silently, ready for the key to bring it in on the beat.</li>
+<li><kbd>ENV</kbd> switches K2 and K3 to the decks' <b>VOLUME</b> and back (<samp class="msg">K2 K3: VOLUME</samp>,
+<samp class="msg">K2 K3: FILTER</samp>): +6 dB down to -24 dB and OFF, a dB a click (<b>VOLUME L -3 DB</b>).</li>
+<li><kbd>SEL</kbd> tapped puts the last knob turned back: a tempo to the song's own, a filter to OFF, the crossfader to
+the middle, a volume to 0 dB, a KEY to 0.</li>
+<li>Each deck plays its song's mixer and its own GATE, FILTER, DRIVE, LO-FI and DUCK. <b>CHORUS, DELAY and REVERB are
+DJ's own,</b> shared by both decks, with DJ's settings: <kbd>FX</kbd> on DJ edits them, with the LIMITER and the
+METRONOME, and FX again comes back to DJ.</li>
+<li><span class="combo"><kbd>FX</kbd> + <kbd class="w">white key</kbd></span> held plays a punch-in over the mix, as
+everywhere.</li>
+<li>When all 16 voices are busy, the deck the crossfader favours less gives way.</li>
+</ul>
+<figure data-shot="dj-fx-live"><figcaption>FX on DJ: LIVE, the punch-ins and DJ's own shared effects.</figcaption></figure>
+<figure data-shot="dj-fx-edit"><figcaption>FX on DJ: EDIT, the CHORUS's knobs and picture.</figcaption></figure>
+</section>
+
+<section class="topic" id="dj-hold">
+<h3>A hand on the record: HOLD</h3>
+<p><kbd class="b">OP2</kbd> is the left deck's HOLD, <kbd class="b">PIT</kbd> the right's:</p>
+<ul>
+<li>Held down, the deck stops where it is, as a hand on the record.</li>
+<li>Turn the deck's tempo knob meanwhile (<kbd>K1</kbd> left, <kbd>K4</kbd> right): it moves by hand, a row a click,
+heard. Its filter knob (<kbd>K2</kbd>, <kbd>K3</kbd>) moves it silently, a beat a click, for the long way.</li>
+<li>Let go: a deck that was playing plays on from there at once. So a tap holds a deck back by that much, to nudge it
+against the other.</li>
+</ul>
+</section>
+
+<section class="topic" id="dj-pads">
+<h3>The pads</h3>
+<p>The white keys are each deck's pads: keys 1-8 the left deck's, 9-16 the right's. The <kbd class="b">BLANK</kbd> key
+turns their mode between PLAY pads and LOOP pads (<samp class="msg" data-t="PADS: #">PADS: PLAY</samp>,
+<samp class="msg" data-t="PADS: #">PADS: LOOPS</samp>); <kbd>LFO</kbd> brings in the LFO pads.</p>
+<table class="keys">
+<thead><tr><th>Pad (left, right)</th><th>PLAY pads</th></tr></thead>
+<tbody>
+<tr><td><kbd class="w">1</kbd> <kbd class="w">9</kbd></td><td><b>SET CUE:</b> sets the cue point on the bar line
+nearest the tap, while the deck plays on (<samp class="msg" data-t="CUE: POS %s BAR %X">CUE: POS 02 BAR 4</samp>).
+Held a quarter second, on the beat instead.</td></tr>
+<tr><td><kbd class="w">2</kbd> <kbd class="w">10</kbd></td><td><b>CUE:</b> as a DJ player's CUE. Paused, sets the cue
+point. Playing, plays from the cue point while held, and pauses there when let go. Press the deck's PLAY key while
+CUE is held, and it plays on when you let go.</td></tr>
+<tr><td><kbd class="w">3</kbd> <kbd class="w">11</kbd></td><td><b>JUMP:</b> back to the cue point, playing on; held,
+the jump lands on the next beat.</td></tr>
+<tr><td><kbd class="w">4</kbd> <kbd class="w">12</kbd></td><td><b>MOVE:</b> held, the deck's knobs move a cursor:
+<kbd>K1</kbd> (the left deck's; <kbd>K4</kbd> the right's) a bar a click, and <kbd>K2</kbd> (<kbd>K3</kbd>) a pattern
+a click (<b>MOVE L POS 03 BAR 2</b>); let go, the deck moves there on the
+next beat, in phase, playing on.</td></tr>
+<tr><td><kbd class="w">5</kbd> <kbd class="w">13</kbd></td><td><b>BRAKE:</b> held, the deck slows and its pitch falls,
+a turntable's stop.</td></tr>
+<tr><td><kbd class="w">6</kbd> <kbd class="w">14</kbd></td><td><b>BACKSPIN:</b> held, the record spun back by
+hand.</td></tr>
+<tr><td><kbd class="w">7</kbd> <kbd class="w">15</kbd></td><td><b>ECHO OUT:</b> held, the deck's sound goes into the
+delay and stops on the next beat, the echoes ringing on.</td></tr>
+<tr><td><kbd class="w">8</kbd> <kbd class="w">16</kbd></td><td><b>REVERB OUT:</b> the same into the reverb.</td></tr>
+</tbody>
+</table>
+<p><b>The stops</b> (pads 5-8) work while held: let go, the deck plays on where it would have been, in time, as if it
+had never stopped; a tap is a dip. Press the deck's PLAY key while a stop is held and the deck stays stopped when you
+let go.</p>
+<figure data-shot="dj-cue-play"><figcaption>CUE held on the left deck, its PLAY key pressed: letting go plays on.
+</figcaption></figure>
+<figure data-shot="dj-move"><figcaption>MOVE held, K1 turned: the cursor two bars on; let go, the deck moves there on
+the beat.</figcaption></figure>
+<figure data-shot="dj-brake"><figcaption>BRAKE held on the left deck.</figcaption></figure>
+<table class="keys">
+<thead><tr><th>Pad (left, right)</th><th>LOOP pads</th></tr></thead>
+<tbody>
+<tr><td><kbd class="w">1</kbd> <kbd class="w">9</kbd></td><td><b>PATTERN:</b> the deck's current pattern over and over,
+on or off (<samp class="msg" data-t="%s: REPEAT PATTERN %s">LEFT: REPEAT PATTERN ON</samp>).</td></tr>
+<tr><td><kbd class="w">2</kbd> <kbd class="w">3</kbd> <kbd class="w">4</kbd></td><td><b>REPEAT 4, 2, 1 BARS</b> (the left
+deck; 10-12 the right's): the block of bars the deck is in, round and round until tapped again.</td></tr>
+<tr><td><kbd class="w">5</kbd> <kbd class="w">6</kbd> <kbd class="w">7</kbd> <kbd class="w">8</kbd></td><td><b>A free
+LOOP</b> of 2 bars, 1 bar, 1/2 bar, 1/4 bar from the last beat (13-16 the right's).</td></tr>
+<tr><td><kbd class="w">white key</kbd> held</td><td><b>A ROLL:</b> any loop pad held is a loop for as long as it is
+held; let go, the deck plays on from where the loop is.</td></tr>
+</tbody>
+</table>
+<p>A loop stays through a pause; a pad that cannot act (a stop on a paused deck, say) blinks fast.</p>
+</section>
+
+<section class="topic" id="dj-lfo">
+<h3>The LFO pads</h3>
+<p><kbd>LFO</kbd> brings in the LFO pads (<samp class="msg" data-t="PADS: #">PADS: LFO</samp>), and LFO again goes back. They make things
+swing by themselves, each at a note length of the tempo (1/2 at first). Hold LFO to see which pad does what.</p>
+<figure data-shot="dj-lfo-layer"><figcaption>LFO held: the map of the LFO pads.</figcaption></figure>
+<table class="keys">
+<thead><tr><th>Pad</th><th>LFO pads</th></tr></thead>
+<tbody>
+<tr><td><kbd class="w">1</kbd></td><td>The crossfader's LFO on / off (<samp class="msg" data-t="FADER LFO: %s %s">FADER
+LFO: TRIANGLE 1/2</samp>, <samp class="msg" data-t="%s LFO OFF">FADER LFO OFF</samp>).</td></tr>
+<tr><td><kbd class="w">2</kbd></td><td>Its shape: SINE, SQUARE, TRIANGLE, SAW UP, SAW DOWN, RANDOM.</td></tr>
+<tr><td><kbd class="w">3</kbd></td><td>Its range: MIRROR (through the middle), L TO HERE, L TO R, SWING.</td></tr>
+<tr><td><kbd class="w">4</kbd></td><td>Reverse: HERE TO R, R TO L.</td></tr>
+<tr><td><kbd class="w">5</kbd> <kbd class="w">6</kbd> <kbd class="w">7</kbd></td><td>The left deck's filter LFO: on /
+off, shape, range (OFF TO HERE, OFF TO FULL, HERE TO FULL, SWING).</td></tr>
+<tr><td><kbd class="w">8</kbd></td><td>Held: <kbd>K1</kbd> turns the left deck's KEY a semitone a click, -6 to +6, its
+tempo kept (<b>KEY L +1</b>), to mix in key.</td></tr>
+<tr><td><kbd class="w">9</kbd> <kbd class="w">10</kbd> <kbd class="w">11</kbd></td><td>The right deck's filter LFO, the
+same.</td></tr>
+<tr><td><kbd class="w">12</kbd></td><td>Held: <kbd>K4</kbd> turns the right deck's KEY.</td></tr>
+<tr><td><kbd class="w">13</kbd> <kbd class="w">14</kbd> <kbd class="w">15</kbd></td><td>The FX LFO, swinging DJ's
+REVERB MIX (or DELAY, CHORUS: GLO's FX LFO): on / off, shape, range.</td></tr>
+<tr><td><kbd class="w">16</kbd></td><td>Every LFO off (<samp class="msg">ALL LFOS OFF</samp>).</td></tr>
+<tr><td><kbd class="w">1</kbd> <kbd class="w">5</kbd> <kbd class="w">9</kbd> <kbd class="w">13</kbd> held</td><td>Hold
+an LFO's on / off pad and turn <kbd>ALGORITHM</kbd>: its speed, from 32 BARS to 1/8 (<b>FADER LFO 1/4</b>). SEL
+after: back to 1/2.</td></tr>
+</tbody>
+</table>
+<figure data-shot="dj-lfo"><figcaption>The LFO pads: the reverb and the right filter swinging.</figcaption></figure>
+<figure data-shot="dj-lfo-speed"><figcaption>An LFO's speed turned with ALGORITHM while its pad is held.
+</figcaption></figure>
+</section>
+
+<section class="topic" id="dj-mutes">
+<h3>Mutes, the CUT, saving</h3>
+<ul>
+<li><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> mutes a deck's track: keys 1-8 the left
+deck's tracks 00-07, keys 9-16 the right deck's (<samp class="msg" data-t="%s TRACK %s %s">LEFT TRACK 02
+MUTED</samp>). SEQ first, or the key held: solo (<samp class="msg" data-t="%s TRACK %s SOLO">LEFT TRACK 02
+SOLO</samp>).</li>
+<li><span class="combo"><kbd>HOME</kbd> + <kbd>OCT+</kbd></span> takes those keys to tracks 08-0F
+(<samp class="msg">MUTES: TRACKS 08-0F</samp>); <span class="combo"><kbd>HOME</kbd> + <kbd>OCT-</kbd></span> back
+(<samp class="msg">MUTES: TRACKS 00-07</samp>). Alone, OCT does nothing on DJ.</li>
+<li><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span> takes both decks back to their cue points;
+<span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span> cuts the sound while the decks play on.</li>
+<li><kbd>SAVE</kbd> keeps the whole stand (the decks as they stand, the crossfader, SYNC, the LFOs): at power-on the
+decks are back, paused, and PLAY goes on from the same point.</li>
+</ul>
+<figure data-shot="dj-home"><figcaption>HOME's combination on DJ: the white keys mute the decks' tracks.</figcaption></figure>
+</section>
+
+<section class="topic" id="dj-props">
+<h3>DJ's properties</h3>
+<p><kbd>GLO</kbd> opens DJ PROPERTIES:</p>
+<figure data-shot="dj-props"><figcaption>DJ's properties.</figcaption></figure>
+<dl class="params">
+<dt>CROSSFADER</dt><dd>SMOOTH (each deck at -3 dB in the middle, as loud through the blend) or SHARP (both full
+until the last 2 clicks at either end, for cuts).</dd>
+<dt>FILTER RESONANCE</dt><dd>The DJ filters' resonance. <span class="range">0-100 %</span></dd>
+<dt>FILTER THE SENDS</dt><dd>ON: a deck's filter also filters what it sends to the shared effects, so a sweep takes
+its echoes along. OFF saves some processor time. <span class="range">ON, OFF</span></dd>
+<dt>FX LFO</dt><dd>What the FX LFO swings. <span class="range">REVERB MIX, DELAY MIX, CHORUS MIX</span></dd>
+<dt>RESET DJ</dt><dd>EDIT, after a question (<samp class="msg">RESET DJ?</samp>, <samp class="msg">BOTH DECKS EMPTIED,
+ALL AS AT FIRST</samp>): both decks emptied, everything as at first (<samp class="msg">DJ RESET</samp>).</dd>
+</dl>
+</section>
+
+<section class="topic" id="dj-keys">
+<h3>Keys on DJ</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>The decks</th></tr></thead>
+<tbody>
+<tr><td><kbd class="b">OP1</kbd></td><td>Plays or pauses the left deck.</td></tr>
+<tr><td><kbd class="b">OP1</kbd> held</td><td>Takes the left deck back to its song's start, paused.</td></tr>
+<tr><td><kbd class="b">OP2</kbd> held</td><td>HOLD: the left deck stops while held; turn K1 to move it by hand, K2 to
+move it silently.</td></tr>
+<tr><td><kbd class="b">OP3</kbd></td><td>Switches the left deck's filter off and back on, sliding.</td></tr>
+<tr><td><kbd class="b">OP4</kbd></td><td>Loads the highlighted song on the left deck.</td></tr>
+<tr><td><kbd class="b">OP5</kbd></td><td>Loads it on the right deck.</td></tr>
+<tr><td><kbd class="b">OP4</kbd> <kbd class="b">OP5</kbd></td><td>The two LOAD keys: on a playing deck the song comes in
+at the next bar line; held, at its own tempo.</td></tr>
+<tr><td><kbd class="b">OP6</kbd></td><td>Plays or pauses the right deck.</td></tr>
+<tr><td><kbd class="b">OP6</kbd> held</td><td>Takes the right deck back to its song's start, paused.</td></tr>
+<tr><td><kbd class="b">PIT</kbd> held</td><td>HOLD: the right deck stops while held; turn K4 to move it by hand, K3 to
+move it silently.</td></tr>
+<tr><td><kbd class="b">GLO</kbd></td><td>Switches the right deck's filter off and back on, sliding.</td></tr>
+<tr><td><kbd class="b">OP3</kbd> <kbd class="b">GLO</kbd></td><td>The two FILTER keys: a quick press switches at once, a
+held one slides over up to half a second.</td></tr>
+<tr><td><kbd class="b">MONO</kbd></td><td>SYNC on / off: the right deck follows the left.</td></tr>
+<tr><td><kbd class="b">POLY</kbd></td><td>Nothing on DJ.</td></tr>
+<tr><td><kbd class="b">BLANK</kbd></td><td>Turns the pads between PLAY pads and LOOP pads.</td></tr>
+<tr><td><kbd class="b">OP1</kbd> <kbd class="b">OP6</kbd></td><td>The two decks' PLAY keys, each over its deck's
+pads: play or pause each deck on its own (PLAY plays both).</td></tr>
+<tr><td><kbd class="b">OP1</kbd> <kbd class="b">OP6</kbd>, with CUE or a stop held</td><td>The deck's PLAY key
+pressed while its CUE pad or a stop is held changes what letting go does: play on, or stay.</td></tr>
+</tbody>
+<thead><tr><th>Key</th><th>Knobs and buttons</th></tr></thead>
+<tbody>
+<tr><td><kbd>SELECT</kbd></td><td>Moves the song list's highlight.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>The crossfader, left to right. With an LFO's on / off pad held: that LFO's
+speed.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>The left deck's tempo (the set's). With HOLD held: the deck by hand, a row a click. With
+MOVE held: a bar a click. With the KEY pad held: its key.</td></tr>
+<tr><td><kbd>K4</kbd></td><td>The right deck's tempo (nothing while synced). With HOLD, MOVE or KEY held: as K1 for the
+right deck.</td></tr>
+<tr><td><kbd>K2</kbd></td><td>The left deck's filter, or its volume (after ENV). With HOLD held: the deck silently, a
+beat a click. With MOVE held: a pattern a click.</td></tr>
+<tr><td><kbd>K3</kbd></td><td>The same for the right deck.</td></tr>
+<tr><td><kbd>K2</kbd> <kbd>K3</kbd></td><td>The left and right filters, side by side.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Plays or pauses both decks at once.</td></tr>
+<tr><td><kbd>PLAY</kbd> held</td><td>Both decks back to their cue points.</td></tr>
+<tr><td><kbd>SEQ</kbd></td><td>SWAP: the decks exchanged.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>Switches what K2 and K3 turn: the filters or the volumes.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>Puts the last knob turned back: tempo, filter, crossfader, volume, KEY.</td></tr>
+<tr><td><kbd>SEL</kbd> held</td><td>With a knob: big steps.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>The LFO pads; again, back.</td></tr>
+<tr><td><kbd>LFO</kbd> held</td><td>Shows which LFO pad does what.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>DJ's properties: crossfader, filter, FX LFO, RESET DJ.</td></tr>
+<tr><td><kbd>FX</kbd></td><td>DJ's own CHORUS, DELAY, REVERB, LIMITER and METRONOME.</td></tr>
+<tr><td><span class="combo"><kbd>FX</kbd> + <kbd class="w">white key</kbd></span> held</td><td>A punch-in over the
+mix.</td></tr>
+<tr><td><kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>Nothing alone on DJ.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>OCT+</kbd></span> <span class="combo"><kbd>HOME</kbd> +
+<kbd>OCT-</kbd></span></td><td>HOME's mutes reach tracks 08-0F, or back to 00-07.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes a deck's track: 1-8
+the left's, 9-16 the right's.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span></td><td>Both decks back to their cue
+points.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span></td><td>Sound off while the decks play on.</td></tr>
+<tr><td><kbd>SAVE</kbd></td><td>Keeps the decks as they stand.</td></tr>
+<tr><td><kbd>REC</kbd> <kbd>EDIT</kbd> <kbd>ARP</kbd> <kbd>PRESETS</kbd></td><td>Nothing on DJ: no key plays an
+instrument here.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

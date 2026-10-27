@@ -166,6 +166,7 @@
         else if (m.t === "sysex") emu.sysex.forEach(fn => fn(m.bytes));
         else if (m.t === "midi") { if (emu.midiOut) emu.midiOut(m.bytes); }
         else if (m.t === "flash") flashSave(m.image);
+        else if (m.t === "restart") cycle(true, "SWITCHING OFF AND ON");   /* (FACTORY RESET: the flash erased, kept) */
         else if (m.t === "ready") {
             emu.on = true;
             power();
@@ -322,8 +323,22 @@
         }
         selIn.addEventListener("change", () => { save("in", selIn.value); pick(); });
         selOut.addEventListener("change", () => { save("out", selOut.value); pick(); });
-        navigator.requestMIDIAccess({ sysex: false }).then(a => { access = a; a.onstatechange = fill; fill(); },
-            () => { selIn.disabled = selOut.disabled = true; });
+        /* MIDI is asked for when a list is first opened, not at load (the browser's question comes when the user
+         * wants MIDI); a browser that allows it already fills the lists at once */
+        let asked = false;
+        function ask() {
+            if (asked) return;
+            asked = true;
+            navigator.requestMIDIAccess({ sysex: false }).then(a => { access = a; a.onstatechange = fill; fill(); },
+                () => { selIn.disabled = selOut.disabled = true; });
+        }
+        for (const sel of [selIn, selOut]) {
+            sel.addEventListener("pointerdown", ask);
+            sel.addEventListener("focus", ask);
+        }
+        if (navigator.permissions && navigator.permissions.query)
+            navigator.permissions.query({ name: "midi", sysex: false })
+                .then(s => { if (s.state === "granted") ask(); }, () => { /* (unknown: asked when a list opens) */ });
         /* MIDI OUT: the firmware's messages, one after another, a message as its status byte says */
         emu.midiOut = bytes => {
             if (!output) return;

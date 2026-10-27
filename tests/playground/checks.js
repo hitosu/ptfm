@@ -2427,10 +2427,11 @@ module.exports = async t => {
         ok(!t.top() && U.toastNow() === "NOTHING TO REVERT", "the MIDI page, its map as saved: SEL refused, NOTHING TO REVERT");
         await t.tap("SEQ");
         const tl = M.SETTINGS.findIndex(s => s.k === "TOOLS");
-        ok(M.SETTINGS[tl].list.join() === "CHECK REFERENCES,CHECK STORAGE,CLEAN UP,AUTO LEVEL ALL,REVERT ALL", "TOOLS: ... AUTO LEVEL ALL, REVERT ALL");
+        ok(M.SETTINGS[tl].list.join() === "CHECK REFERENCES,CHECK STORAGE,CLEAN UP,AUTO LEVEL ALL,REVERT ALL,FACTORY RESET",
+           "TOOLS: ... AUTO LEVEL ALL, REVERT ALL, FACTORY RESET");
         await t.turn("SELECT", -40); await t.turn("SELECT", tl);
         const un0 = M.unsaved, v0 = M.version;
-        await t.turn("K1", 9); await t.turn("K1", -1);
+        await t.turn("K1", 9); await t.turn("K1", -2);
         ok(U.tool() === "AUTO LEVEL ALL" && M.unsaved === un0 && M.version === v0, "K1 on TOOLS: AUTO LEVEL ALL picked, no change made");
         await t.tap("LFO");
         ok(U.tool() === "AUTO LEVEL ALL" && M.unsaved === un0 && M.version === v0, "LFO on TOOLS: nothing (no default to go back to)");
@@ -2452,6 +2453,36 @@ module.exports = async t => {
         const lay = U.layers.length ? U.layers[U.layers.length - 1] : null, layText = lay && lay.lines ? (typeof lay.lines === "function" ? lay.lines() : lay.lines) : null;
         t.up("SAVE"); await t.sleep(150);
         ok(layText && layText.join() === "OCT+: SAVE,OCT-: REVERT ALL", "SAVE held, its layer: OCT+: SAVE, OCT-: REVERT ALL (" + (layText && layText.join(" | ")) + ")");
+        /* FACTORY RESET, TOOLS' last (before the MIDI CONTROLLER's checks: it ends the sound too): two questions, KEEP
+         * and HOME leaving all as it was, the second counting the changes not saved; ERASE: the sound stopped, the
+         * ERASING bar, then the restart (the page's reload: a stand-in here) */
+        await t.turn("SELECT", -40); await t.turn("SELECT", tl); await t.turn("K1", 9);
+        ok(U.tool() === "FACTORY RESET", "K1 on TOOLS: FACTORY RESET, the last");
+        await t.tap("EDIT");
+        ok(t.top() === "question" && U.top().lines.join("|") === "FACTORY RESET?|ERASES ALL YOU SAVED OR UPLOADED|ONLY THE BUILT-IN INSTRUMENTS STAY" &&
+           U.top().answers.join() === "RESET,KEEP", "FACTORY RESET asks first: " + U.top().lines.join(" / "));
+        t.shot("settings_factory_reset");
+        await t.tap("OCT-");
+        ok(!t.top(), "... KEEP: nothing");
+        await t.tap("EDIT"); await t.tap("OCT+");
+        ok(t.top() === "question" && U.top().lines.join("|") === "ERASE IT ALL NOW?|THERE IS NO WAY BACK" && U.top().answers.join() === "ERASE,KEEP",
+           "... RESET: ERASE IT ALL NOW?, nothing unsaved: two lines (" + U.top().lines.join(" / ") + ")");
+        await t.tap("HOME");
+        ok(!t.top(), "... HOME: nothing");
+        await t.turn("SELECT", tun - tl); await t.turn("K1", 1); await t.turn("SELECT", tl - tun);
+        await t.tap("EDIT"); await t.tap("OCT+");
+        ok(t.top() === "question" && U.top().lines.join("|") === "ERASE IT ALL NOW?|THERE IS NO WAY BACK|1 UNSAVED CHANGE LOST TOO",
+           "... with a change unsaved, counted: " + U.top().lines.join(" / "));
+        t.shot("settings_factory_reset_2");
+        const restart = U.restart;
+        let restarted = 0;
+        U.restart = () => { restarted++; };
+        await t.tap("OCT+"); await t.sleep(100);
+        ok(t.top() === "progress" && U.top().text === "ERASING" && t.PTFM.audio.ended && !restarted,
+           "... ERASE: the sound stopped, the ERASING bar, every control waiting");
+        await t.sleep(2500);
+        ok(!t.top() && restarted === 1, "... then the restart");
+        U.restart = restart;
     }
     /* SETTINGS' MIDI CONTROLLER (the MIDI page's line after its items), the last (the tracker ends): its question,
      * BACK; SWITCH with a change unsaved: the save question, DROP; the controller's start (REC, HOME lit); REC:

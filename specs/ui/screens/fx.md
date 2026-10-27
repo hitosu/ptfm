@@ -214,7 +214,8 @@ each audio block, summed, the footer's figure the average of the last quarter se
 second; only while the FX screen is open. The playground, whose audio worklet has no fine timer, shows
 these figures as estimates (GATE 0.4 … REVERB 7.5, [Texts](#texts)).
 
-A knob shown with only a default runs 0-100 %. At power-on and in a new song, only LIMITER is on.
+A knob shown with only a default runs 0-100 %. In a new song, only LIMITER is on; THE KEYS' setup, which the keys
+play through at power-on, has the REVERB on too ([above](#the-fx-setup)).
 
 - **DUCK and the METRONOME are not part of the chain.** EDIT lists them after it, apart, and MOVE
   does not reach them.

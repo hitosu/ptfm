@@ -215,5 +215,9 @@ void plat_unlock(uint32_t was);
 /* ---- the rest ---- */
 int plat_battery(void);                 /* 0..100 %, or -1 not known */
 void plat_fault(const char *why);       /* a dev build's assertion: the crash screen; never returns */
+/* a restart as the power switch's, the flash kept (SETTINGS' FACTORY RESET, once the user area is erased): the
+ * FM-1 never returns; the emulator returns and its page switches it off and on; plat_weak.c's returns (the host
+ * tests). Main loop only. */
+void plat_restart(void);
 
 #endif

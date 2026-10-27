@@ -12,6 +12,9 @@ ptfm/
   fw/           the firmware's sources: the engine only, no data
   emulator/     the emulator's sources: the web hardware layer (C), the page, the audio worklet
   panel/        the virtual FM-1's controls (panel.md): screen, knobs, buttons, keys; shared by emulator/ and playground/
+  manual/       the manual's sources (manual.md): the chapters, the page's and the PDF's stylesheets, the page's script
+  site/         the web site, hitosu.github.io/ptfm (site.md): the landing, its pictures and their tools, assemble.sh
+  .github/      the workflow that publishes the site
   playground/   the UI playground: no build; the UI and the sound in plain JS
   demo-disk/    the demo disk's sources: patches, samples and songs under free licences
   assets/       sources of built-in assets (fonts)
@@ -53,8 +56,15 @@ ptfm/
   and the help: [ui/texts.md](ui/texts.md)) and the converters (for example MOD / S3M to PT/FM's formats).
 - **`tests/`** holds the host tests. Tests that compare with reference code outside this repository
   skip themselves when that code is missing. *(proposed)*
+- **`manual/`** holds the manual's sources ([manual.md](manual.md)): `manual/src/` the chapters,
+  `web.css` and `manual.js` the page's, `print.css` the PDF's; `tools/build_manual.py` makes
+  `dist/manual/`; its tests are `tests/manual/`, run by `fw/tests/run_manual.sh`.
+- **`site/`** holds the web site's landing, `site/index.html`, with its pictures (`img/`, `screens/`), its pixel
+  fonts (`fonts/`) and the tools that make them (`tools/`); `site/assemble.sh` puts the landing and the pages it
+  links together, and `.github/workflows/pages.yml` publishes that on every push to `main` ([site.md](site.md)).
 - **`assets/fonts/`** holds the Terminus fonts (SIL OFL 1.1). Tools turn them into C tables for the
-  firmware and JS for the pages.
+  firmware and JS for the pages. Beside them the pages' font, Iosevka Aile, and the PDF manual's,
+  Archivo (both SIL OFL 1.1), cut once from their releases by `fw/tools/webfont.py`.
 
 ## The built files (`dist/`, committed)
 
@@ -73,8 +83,12 @@ A folder for each kind of build; the pages are self-contained and open from the 
 | **`emulator/`** | **what the emulator loads** (`emulator/index.html`, [emulator.md](emulator.md)) |
 | `emulator/ptfm.wasm.js` | the firmware built for the emulator, as a script |
 | `emulator/demo.ptfmdsk.js` | the demo disk as a script, for the emulator's DEMO DISK (a page from `file://` cannot read a file next to it) |
+| `emulator/emulator.html` | the emulator in one file, to pass on: `emulator/index.html` with its stylesheets, scripts, the firmware and the demo disk written in (`emulator/build.py --release`, or `--page` alone) |
 | **`editor/`** | **the editor** ([editor.md](editor.md)) |
 | `editor/editor.html` | the editor in one file, the firmware's WebAssembly inside (`editor/build.py`) |
+| **`manual/`** | **the manual** ([manual.md](manual.md)) |
+| `manual/manual.html` | the manual as a page, in one file (`tools/build_manual.py`) |
+| `manual/ptfm-manual.pdf` | the manual as a PDF (`tools/build_manual.py --pdf`) |
 | **`playground/`** | **the playground to pass on** |
 | `playground/playground.html` | the playground as one page, a single file to share: `playground/index.html` with every stylesheet and script written in, made by `tools/build_playground.py` (`--check`: whether it is current); the playground itself still needs no build |
 

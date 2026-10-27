@@ -20,7 +20,7 @@ FM-1").
   their page, `specs/debug.md`, whose autotests play any build through MIRROR and the state query,
   `specs/connections.md`) and production (`fw/build.sh --release`: `dist/firmware/ptfm.fwsc`,
   `dist/firmware/install.html` with INSTALL FIRMWARE (the firmware alone; CLEAN INSTALL also empties the user
-  area) and UPLOAD DEMO DISK; copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
+  area, as SETTINGS' FACTORY RESET does on the FM-1 alone) and UPLOAD DEMO DISK; copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
   is one 439 KB data region (with core 2's 40 KB room above it) and nearly full: every part keeps to `specs/files/ram.md`, and the build prints each
   object's share. The playground stays the UI's fast reference, and the firmware follows it.
 - **The emulator is built** (`emulator/`, `dist/emulator/ptfm.wasm.js`): the playground's page and panel, with the
@@ -141,10 +141,13 @@ The layout in full, with what is committed: `specs/layout.md`.
 | `editor/` | the editor, a page for the computer: EDITOR [beta] (`specs/editor.md`: TABLE and FM-1 side by side, items moved with what they use, READ / WRITE / UPLOAD DISK / DOWNLOAD DISK, an item's tab to edit it, the FM-1's own pictures from `fw/core/ui` built in under `PTFM_EDITOR`); `editor/build.py` makes `dist/editor/editor.html`; tests `tests/editor/run_tests.sh` (Node) and `tests/editor/run_page.sh` (the page in a headless Chrome) |
 | `playground/` | the UI playground: the UI, the transport and the sound in plain JS; no build |
 | `demo-disk/` | the demo disk's sources: patches, samples and songs under free licences (`demo-disk/README.md`, `CREDITS.md`) |
-| `assets/fonts/` | Terminus (SIL OFL 1.1), from which the tools make the fonts |
+| `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual is the one document that names the version |
+| `site/` | the web site, hitosu.github.io/ptfm (`specs/site.md`): `index.html` the landing (`@VERSION@` filled in from `fw/VERSION`), `img/` its picture, `screens/` real screens (`tools/shots.sh`), `fonts/` the FM-1's Terminus as webfonts (`tools/pixfont.py`), `tools/hero.html` + `tools/images.py` the 3D picture; `site/assemble.sh OUT` puts the landing and the four pages together (nothing built), `.github/workflows/pages.yml` publishes it on every push to `main`. Its texts name no count that changes with the contents |
+| `assets/fonts/` | Terminus (SIL OFL 1.1), from which the tools make the fonts; Iosevka Aile (the pages') and Archivo (the PDF manual's), both SIL OFL 1.1, cut once by `fw/tools/webfont.py` |
 | `tools/` | the data packer (`pack.py`: `dist/firmware/demo.ptfmdsk`, the built-in instruments, `--check` against the playground; `ptfm_records.py`: every record's bytes both ways), `gen_fonts.py` (JS; C with `--c` for the device's own screens, `--fw` for the firmware's UI), `gen_playground.py`, `build_playground.py` (`dist/playground/playground.html`) |
 | `tests/` | the playground's host tests (`tests/run_playground.sh`, Node; it runs `controller_page.js` too); the firmware's are `fw/tests/` |
-| `dist/` | the built files, a folder for each kind of build, **committed** (`specs/layout.md`): `firmware/` (`install.html`: the firmware and the demo disk; `ptfm.fwsc`, `demo.ptfmdsk`), `debug/` (`install.html`: the debug build and its figures; `ptfm-debug.fwsc`), `emulator/` (`ptfm.wasm.js`, `demo.ptfmdsk.js`), `playground/` (`playground.html`: the playground in one file, to share: `python3 -I tools/build_playground.py`), `editor/` (`editor.html`) |
+| `dist/` | the built files, a folder for each kind of build, **committed** (`specs/layout.md`): `firmware/` (`install.html`: the firmware and the demo disk; `ptfm.fwsc`, `demo.ptfmdsk`), `debug/` (`install.html`: the debug build and its figures; `ptfm-debug.fwsc`), `emulator/` (`ptfm.wasm.js`, `demo.ptfmdsk.js`; `emulator.html`: the emulator in one file, to share: `python3 -I
+emulator/build.py --release`, or `--page` alone), `playground/` (`playground.html`: the playground in one file, to share: `python3 -I tools/build_playground.py`), `editor/` (`editor.html`), `manual/` (`manual.html`, `ptfm-manual.pdf`) |
 | `build/` | intermediate files, ignored by git |
 
 This folder is its own git repository; the parent is not one.
@@ -186,7 +189,8 @@ This folder is its own git repository; the parent is not one.
 - **No other firmware is named in the sources** but in credits (the licence headers, the install page's and
   README's credits): a fact taken from one is stated plainly, without where it came from. The device's VERSION,
   LICENCES page lists licences only, no credits.
-- **Third-party parts keep their licences:** Terminus (OFL-1.1; `playground/fonts.js` is tagged so);
+- **Third-party parts keep their licences:** Terminus (OFL-1.1; `playground/fonts.js` is tagged so); Archivo
+  (OFL-1.1, `assets/fonts/Archivo-LICENSE.txt`; inlined into the PDF manual);
   JieLi's 3 SDK files in every package (Apache-2.0, named on the install pages); later MSFA
   (Apache-2.0), Open303 (MIT), IBXM (BSD-3-Clause).
 - **A release** carries every notice and the complete source.
@@ -324,9 +328,10 @@ the file system in Chrome or Edge.
   and S3M through an IBXM port, and global effects; CHIP, our own virtual retro sound chip
   (`specs/chip.md`), has no outside reference: its firmware and playground versions are tested equal sample
   for sample (`fw/tests/run_chip.sh`).
-- **Voices:** one pool of 8, 12 or 16 for every engine and the keys, 16 the default: 12 on core 1 and
-  4 on core 2, counted as 12 while core 2 does not run (`specs/second-core.md`). 16 on core 1 alone
-  overran on the FM-1; 16 over both cores is not measured on the FM-1 yet.
+- **Voices:** one pool of 8, 12 or 16 for every engine and the keys, 16 the default: 10 on core 1 and
+  6 on core 2 (`PL_VOICES_MOST`, `fw/core/play/player.h`), counted as 12 while core 2 does not run
+  (`specs/second-core.md`). 16 on core 1 alone overran on the FM-1; 12 + 4 ran on the FM-1, 10 + 6 is not
+  measured there yet.
 - **Storage and song data:** the files specs (`specs/files/`).
 
 ## Later, not now

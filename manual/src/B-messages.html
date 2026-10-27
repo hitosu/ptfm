@@ -1,0 +1,363 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="messages" data-kind="appendix">
+<h2>Every message</h2>
+<p class="lead">The messages the FM-1 shows, in the header for two seconds (toasts) or in a question, grouped by where
+they come up, with what each means and what to do. Numbers and names in them change with the case.</p>
+
+<section class="topic" id="messages-everywhere">
+<h3>On every screen</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg" data-t="OCT #">OCT +3</samp></td><td>The keys' octave changed (OCT- / OCT+).</td></tr>
+<tr><td><samp class="msg" data-t="TRACK # MUTED">TRACK 02 MUTED</samp></td><td>HOME + a white key muted that track.</td></tr>
+<tr><td><samp class="msg" data-t="TRACK # ON">TRACK 02 ON</samp></td><td>... and unmuted it.</td></tr>
+<tr><td><samp class="msg" data-t="TRACK # SOLO">TRACK 02 SOLO</samp></td><td>The track is soloed (HOME + white key held, or
+SEQ first).</td></tr>
+<tr><td><samp class="msg">SOLO OFF</samp></td><td>The solo ended: every track plays again.</td></tr>
+<tr><td><samp class="msg">BACK TO THE START</samp></td><td>HOME + PLAY, or PLAY held: back to the start.</td></tr>
+<tr><td><samp class="msg">NO SONG TO PLAY</samp></td><td>PLAY with no song (or a song with no positions): make one on
+SONGS, or upload the demo disk.</td></tr>
+<tr><td><samp class="msg">SOUND CUT: LET GO OF REC</samp></td><td>HOME + REC: all sound is off while REC is held.</td></tr>
+<tr><td><samp class="msg">SOUND CUT, EFFECTS OFF</samp></td><td>REC held 2 s: every effect of what plays switched off
+(SAVE keeps it, REVERT undoes it).</td></tr>
+<tr><td><samp class="msg">ALL SOUND OFF</samp></td><td>Every note and effect tail stopped at once.</td></tr>
+<tr><td><samp class="msg">CHANGES DROPPED</samp></td><td>HOME left an edit, throwing its changes away.</td></tr>
+<tr><td><samp class="msg">SELECT MOVES IT, SEL PUTS IT DOWN</samp></td><td>A MOVE started: carry the thing with SELECT,
+put it down with SEL, HOME takes it back.</td></tr>
+<tr><td><samp class="msg">NOT MOVED</samp></td><td>HOME during a MOVE: it is back where it was.</td></tr>
+<tr><td><samp class="msg">SELECT, ALG: MARK  SEL: ITS MENU</samp></td><td>MARK started: stretch the mark with SELECT and
+ALGORITHM, then SEL for its menu.</td></tr>
+<tr><td><samp class="msg">OCT+</samp> <samp class="msg">OCT-</samp></td><td>Over a question's answers: the key that gives
+that answer (OCT+ yes, OCT- no).</td></tr>
+<tr><td><samp class="msg" data-t="ARP #">ARP UP C-4</samp></td><td>The arpeggiator on, with its pattern (and, on FX
+LIVE, the note it plays hands free).</td></tr>
+<tr><td><samp class="msg">ARP OFF</samp></td><td>The arpeggiator off.</td></tr>
+<tr><td><samp class="msg" data-t="LATCH #">LATCH 4 NOTES</samp></td><td>ARP held + K1: how many notes go on after you let
+go.</td></tr>
+<tr><td><samp class="msg">LATCHED NOTES LET GO</samp></td><td>ARP held + LFO: the latched notes stopped.</td></tr>
+<tr><td><samp class="msg">SECOND CORE STOPPED</samp></td><td>The second processor stopped and one core does it all
+(VOICES 16 counts as 12). It comes back at the next power-on; STATUS' DEVICE says why.</td></tr>
+<tr><td><samp class="msg">NOT NOW: THE FLASH IS BUSY</samp></td><td>The FM-1 is writing its memory: try again in a
+moment.</td></tr>
+<tr><td><samp class="msg">TOO BIG FOR ONE RECORD</samp></td><td>The thing would be too big to keep in one piece: make it
+smaller (fewer tracks or rows).</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-saving">
+<h3>Saving and reverting</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg" data-t="SAVING # CHANGES">SAVING 3 CHANGES</samp></td><td>A save is being written.</td></tr>
+<tr><td><samp class="msg">SAVED</samp></td><td>Everything is saved.</td></tr>
+<tr><td><samp class="msg">NOTHING TO SAVE</samp></td><td>SAVE with nothing changed.</td></tr>
+<tr><td><samp class="msg">SAVE WAITS FOR A PAUSE</samp></td><td>SAVE while playing: it is written when the music pauses
+(SAVE blinks meanwhile). Pause, or it is lost at power-off.</td></tr>
+<tr><td><samp class="msg">SAVE FAILED</samp></td><td>The save could not be written: try again; if it keeps failing, run
+SETTINGS' CHECK STORAGE.</td></tr>
+<tr><td><samp class="msg">SAVE: THE STORE IS BUSY</samp></td><td>Something else is being written: SAVE again in a
+moment.</td></tr>
+<tr><td><samp class="msg">A SAVE IS UNDER WAY</samp></td><td>A save is still running: wait for it.</td></tr>
+<tr><td><samp class="msg">MEMORY FOR EDITS IS FULL</samp> <samp class="msg">SAVE BEFORE MAKING MORE EDITS</samp>
+<samp class="msg" data-t="# UNSAVED CHANGES">23 UNSAVED CHANGES</samp></td><td>The memory for unsaved edits is full: OCT+
+(SAVE NOW) saves, then make the edit again; OCT- goes back.</td></tr>
+<tr><td><b>SAVE CHANGES TO FREE MEMORY</b></td><td>The memory for unsaved edits is three quarters full: a SAVE empties
+it. Shown at most once a minute.</td></tr>
+<tr><td><samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp> <samp class="msg" data-t="# KB MORE NEEDED">12 KB MORE
+NEEDED</samp> <samp class="msg" data-t="CLEAN UP FREES # KB">CLEAN UP FREES 30 KB</samp></td><td>The save does not fit:
+OCT+ runs CLEAN UP; or delete something and save again. Nothing is lost meanwhile.</td></tr>
+<tr><td><samp class="msg">REVERT TO SAVED?</samp> <samp class="msg" data-t="DROP # UNSAVED CHANGES">DROP 3 UNSAVED
+CHANGES</samp> <samp class="msg">AND RELOAD FROM FLASH</samp></td><td>REVERT ALL asks: OCT+ drops every change since the
+last save.</td></tr>
+<tr><td><samp class="msg">REVERTED TO SAVED</samp></td><td>REVERT ALL done.</td></tr>
+<tr><td><samp class="msg">NOTHING TO REVERT</samp></td><td>Nothing has changed since the last save.</td></tr>
+<tr><td><samp class="msg">FACTORY RESET?</samp> <samp class="msg">ERASES ALL YOU SAVED OR UPLOADED</samp>
+<samp class="msg">ONLY THE BUILT-IN INSTRUMENTS STAY</samp></td><td>SETTINGS' FACTORY RESET asks first: OCT+ (RESET)
+goes on to the second question, OCT- keeps everything.</td></tr>
+<tr><td><samp class="msg">ERASE IT ALL NOW?</samp> <samp class="msg">THERE IS NO WAY BACK</samp>
+<samp class="msg" data-t="# UNSAVED CHANGES LOST TOO">3 UNSAVED CHANGES LOST TOO</samp></td><td>FACTORY RESET's last
+question (the third line only with changes not saved): OCT+ (ERASE) erases everything you saved or uploaded and
+restarts the FM-1.</td></tr>
+<tr><td><samp class="msg">ERASING</samp></td><td>FACTORY RESET is erasing: up to two seconds, then the FM-1
+restarts.</td></tr>
+<tr><td><samp class="msg" data-t="REVERT PATTERN %02X TO SAVED?">REVERT PATTERN 0A TO SAVED?</samp></td><td>A screen's
+REVERT asks (also for a slot, a cartridge, a song, the loops, the settings): OCT+ REVERT, OCT- KEEP.</td></tr>
+<tr><td><samp class="msg">REVERT THE EFFECTS TO SAVED?</samp> <samp class="msg" data-t="FOR %s">FOR CITY
+LIGHTS</samp></td><td>FX's REVERT asks, naming whose effects.</td></tr>
+<tr><td><samp class="msg">REVERTED</samp></td><td>The thing is back as saved.</td></tr>
+<tr><td><samp class="msg" data-t="%s IS USED %d TIMES">PATTERN 1A IS USED 3 TIMES</samp>
+<samp class="msg">UPDATE REFERENCES?</samp></td><td>You move or delete something in use: YES makes what uses it follow
+(and saves everything), NO leaves the old numbers, HOME cancels.</td></tr>
+<tr><td><samp class="msg" data-t="UPDATING # REFERENCES">UPDATING 3 REFERENCES</samp></td><td>The references are being
+updated and saved.</td></tr>
+<tr><td><samp class="msg">REFERENCES UPDATED, SAVED</samp></td><td>Done: everything that used it follows, all saved.</td></tr>
+<tr><td><samp class="msg" data-t="# BUILT-IN AGAIN">CARTRIDGE F0 BUILT-IN AGAIN</samp></td><td>BACK TO BUILT-IN: your
+changes to a built-in cartridge are gone.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-songs-editor">
+<h3>SONGS, patterns and the EDITOR</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg">ONE PLAY</samp> <samp class="msg">REPEAT SONG</samp> <samp class="msg">PLAY NEXT</samp></td>
+<td>SONGS' play mode (SEQ).</td></tr>
+<tr><td><samp class="msg" data-t="SONG MOVED TO #">SONG MOVED TO 02</samp></td><td>A song put down at its new place.</td></tr>
+<tr><td><samp class="msg" data-t="SONG # DELETED, # PATTERNS TOO">SONG 00 DELETED, 4 PATTERNS TOO</samp>
+<samp class="msg" data-t="SONG # DELETED, 1 PATTERN TOO">SONG 00 DELETED, 1 PATTERN TOO</samp></td><td>The song is
+deleted with the patterns only it used.</td></tr>
+<tr><td><samp class="msg">NO FREE SONG NUMBER</samp></td><td>No song number left (00-FD): delete a song first.</td></tr>
+<tr><td><samp class="msg">SONG UNLOADED</samp></td><td>Everything stopped, as at power-on.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # FOR THE EDITOR">PATTERN 0A FOR THE EDITOR</samp></td><td>The pattern picked
+in SONGS' list opens in the EDITOR.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # COPIED">PATTERN 03 COPIED</samp></td><td>A position's pattern number copied.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN %02X MADE">PATTERN 13 MADE</samp> <samp class="msg" data-t="PATTERN # MADE">PATTERN
+13 MADE</samp></td><td>A new empty pattern.</td></tr>
+<tr><td><samp class="msg" data-t="%02X CLONED TO %02X">12 CLONED TO 13</samp> <samp class="msg" data-t="# CLONED TO #">12
+CLONED TO 13</samp></td><td>A copy at a new number.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN %02X MOVED TO %02X">PATTERN 12 MOVED TO 20</samp></td><td>A pattern moved to
+another number.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN %02X DELETED">PATTERN 12 DELETED</samp></td><td>A pattern deleted.</td></tr>
+<tr><td><samp class="msg">ALL 240 PATTERNS USED</samp> <samp class="msg">NO FREE PATTERN</samp>
+<samp class="msg">NO FREE NUMBER</samp></td><td>All 240 pattern numbers (00-EF) are used: delete or CLEAN UP some.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # LOADED">PATTERN 1A LOADED</samp></td><td>A pattern copied into the EDITOR's own.</td></tr>
+<tr><td><samp class="msg" data-t="STORED IN PATTERN #">STORED IN PATTERN 1A</samp></td><td>The EDITOR's pattern given a
+number.</td></tr>
+<tr><td><samp class="msg" data-t="%d TRACKS">8 TRACKS</samp> <samp class="msg">1 TRACK</samp></td><td>The EDITOR's or
+PLAYBACK's view (SEQ).</td></tr>
+<tr><td><samp class="msg">REC ON: KEYS WRITE</samp> <samp class="msg">REC OFF: KEYS PLAY</samp></td><td>The EDITOR's
+writing switched on or off.</td></tr>
+<tr><td><samp class="msg">SONG PAUSED: WRITING</samp></td><td>REC while a song plays: the song pauses.</td></tr>
+<tr><td><samp class="msg">LOOP STOPPED: PLAY FOR A TAKE</samp></td><td>PLAY with REC on paused the pattern loop; the next
+PLAY records a take.</td></tr>
+<tr><td><samp class="msg">TAKE STOPPED</samp> <samp class="msg">TAKE CANCELLED</samp></td><td>A take ended; an armed take
+called off.</td></tr>
+<tr><td><samp class="msg" data-t="ROW PREVIEW #">ROW PREVIEW #___</samp> <samp class="msg">ROW PREVIEW OFF</samp></td>
+<td>ARP's row preview on (with its rhythm) or off.</td></tr>
+<tr><td><samp class="msg" data-t="COPIED %d X %d">COPIED 4 X 1</samp></td><td>A block copied: rows x tracks.</td></tr>
+<tr><td><samp class="msg">NOTHING COPIED</samp></td><td>PASTE with nothing copied yet.</td></tr>
+<tr><td><samp class="msg">BLOCK TOO BIG TO COPY</samp></td><td>The block is bigger than the clipboard (2 KB): copy a
+smaller one.</td></tr>
+<tr><td><samp class="msg">MOVE: SEL PUTS IT DOWN</samp> <samp class="msg">SWAP: SEL PUTS IT DOWN</samp></td><td>A block
+is carried: SEL puts it down, HOME cancels.</td></tr>
+<tr><td><samp class="msg">CANCELLED</samp></td><td>Called off (a carried block, an armed loop take, a count-in).</td></tr>
+<tr><td><samp class="msg">K1: TRANSPOSE, SEL: DONE</samp></td><td>TRANSPOSE: turn K1, SEL ends it.</td></tr>
+<tr><td><samp class="msg" data-t="TRANSPOSED %s%02X">TRANSPOSED +02</samp></td><td>The block moved by that many
+semitones.</td></tr>
+<tr><td><samp class="msg">NO INSTRUMENT HERE</samp></td><td>The pipette found no instrument on the cell or its track.</td></tr>
+<tr><td><samp class="msg">SELECT, ALG: CELLS</samp> <samp class="msg">SELECT, ALG: FIELDS</samp></td><td>The note editor:
+the knobs move to other cells, or back to the fields.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN: # NOTES">PATTERN: 12 NOTES</samp> <samp class="msg" data-t="PATTERN: # NOTE">PATTERN:
+1 NOTE</samp></td><td>RECORD PATTERN wrote that many notes.</td></tr>
+<tr><td><samp class="msg">KEYS: THE NOTE</samp> <samp class="msg">KEYS: THE STEPS</samp></td><td>The pattern recorder:
+the next key sets the row's note, or the keys switch steps again.</td></tr>
+<tr><td><samp class="msg" data-t="NOTE %s">NOTE C-5</samp> <samp class="msg" data-t="NOTE #">NOTE C-5</samp></td><td>The
+pattern recorder's row note, moved with OCT.</td></tr>
+<tr><td><samp class="msg">NO STEPS ON</samp></td><td>REC in the pattern recorder with no step on: switch some on
+first.</td></tr>
+<tr><td><samp class="msg">THIS: NOT IN THIS FIRMWARE YET</samp> <samp class="msg">EDITOR: NOT IN THIS FIRMWARE YET</samp>
+<samp class="msg">FX: NOT IN THIS FIRMWARE YET</samp></td><td>That part is not in this version of PT/FM.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-instruments">
+<h3>INSTRUMENTS</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg" data-t="COPIED %d">COPIED 3</samp></td><td>That many sounds copied.</td></tr>
+<tr><td><samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 0C DELETED</samp></td><td>A sampler's sample deleted: its
+audio gone, its place in the list kept, empty, and the instruments that played it emptied.</td></tr>
+<tr><td><samp class="msg" data-t="COPIED FROM #: NOT HERE">COPIED FROM DX7: NOT HERE</samp></td><td>The copied sound is of
+another type than this cartridge: paste it into a cartridge of its own type.</td></tr>
+<tr><td><samp class="msg">NO EMPTY SLOT: SWAP INSTEAD</samp></td><td>MOVE in a full cartridge: use SWAP.</td></tr>
+<tr><td><samp class="msg">EMPTY SLOT: SEL, INIT</samp></td><td>EDIT on an empty slot: SEL, INIT makes a sound to start
+from.</td></tr>
+<tr><td><samp class="msg" data-t="LEVEL SET TO #">LEVEL SET TO -1.5 DB</samp></td><td>AUTO LEVEL set the sound's level.</td></tr>
+<tr><td><samp class="msg">NO SOUND TO MEASURE</samp></td><td>AUTO LEVEL on a silent sound: its level is kept.</td></tr>
+<tr><td><samp class="msg">LEVELS SET</samp></td><td>AUTO LEVEL ALL done.</td></tr>
+<tr><td><samp class="msg" data-t="CARTRIDGE %02X MADE">CARTRIDGE 11 MADE</samp></td><td>A new cartridge.</td></tr>
+<tr><td><samp class="msg">ALL CARTRIDGE NUMBERS USED</samp></td><td>No cartridge number left: delete one first.</td></tr>
+<tr><td><samp class="msg">SAVE IT FIRST</samp></td><td>MOVE of a sampler cartridge with unsaved changes: SAVE, then
+move it.</td></tr>
+<tr><td><samp class="msg">NO ROOM IN THE USER AREA</samp></td><td>No room for a copy of the cartridge's samples: free
+some storage first.</td></tr>
+<tr><td><samp class="msg">CLONE FAILED: FLASH ERROR</samp></td><td>Copying the samples failed; nothing changed. Run CHECK
+STORAGE.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-loops">
+<h3>LOOPS</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><b>LOOP 00: 4 BARS</b></td><td>The first loop closed: its length.</td></tr>
+<tr><td><samp class="msg">NOTHING PLAYED: NO LOOP</samp></td><td>The first loop closed with no notes: play something
+next time.</td></tr>
+<tr><td><samp class="msg">REC, THEN PLAY: THE FIRST LOOP</samp></td><td>PLAY with no loops: press REC first.</td></tr>
+<tr><td><samp class="msg" data-t="# RE-RECORDING">LOOP 03 RE-RECORDING</samp></td><td>The loop is being recorded again;
+its old notes are gone.</td></tr>
+<tr><td><samp class="msg" data-t="# PEELED">LOOP 03 PEELED</samp></td><td>LFO removed the loop.</td></tr>
+<tr><td><samp class="msg">KEYS: CONTROL</samp> <samp class="msg">KEYS: PLAY</samp></td><td>SEQ: the keys mute and solo
+loops, or play notes.</td></tr>
+<tr><td><samp class="msg" data-t="# MUTED">LOOP 03 MUTED</samp> <samp class="msg" data-t="# ON">LOOP 03 ON</samp></td><td>A
+loop muted or back on.</td></tr>
+<tr><td><samp class="msg" data-t="# MUTED AT THE BAR">LOOP 03 MUTED AT THE BAR</samp>
+<samp class="msg" data-t="# ON AT THE BAR">LOOP 03 ON AT THE BAR</samp></td><td>... at the next bar line (the key was
+held).</td></tr>
+<tr><td><samp class="msg" data-t="# SOLO">LOOP 03 SOLO</samp> <samp class="msg" data-t="# SOLO OFF">LOOP 03 SOLO OFF</samp>
+</td><td>A loop soloed, or its solo ended.</td></tr>
+<tr><td><samp class="msg" data-t="# SOLO AT THE BAR">LOOP 03 SOLO AT THE BAR</samp>
+<samp class="msg" data-t="# SOLO OFF AT THE BAR">LOOP 03 SOLO OFF AT THE BAR</samp></td><td>... at the next bar line.</td></tr>
+<tr><td><samp class="msg">ALL LOOPS ON</samp></td><td>Every mute and the solo cleared.</td></tr>
+<tr><td><samp class="msg">SEQ: MUTE</samp> <samp class="msg">SEQ: SOLO</samp></td><td>CONTROL mode's white keys mute, or
+solo.</td></tr>
+<tr><td><samp class="msg" data-t="QUANTIZE: #">QUANTIZE: 2 ROWS</samp></td><td>Where the next notes land.</td></tr>
+<tr><td><samp class="msg">NEXT LOOPS: MONO</samp> <samp class="msg">NEXT LOOPS: POLY</samp></td><td>How the next loops
+record.</td></tr>
+<tr><td><samp class="msg">NO LOOPS YET</samp></td><td>The action needs a loop: record one first.</td></tr>
+<tr><td><samp class="msg">GRID: ONLY BEFORE THE FIRST LOOP</samp></td><td>GRID can change only with no loops (CLEAR
+LOOPS first).</td></tr>
+<tr><td><samp class="msg" data-t="DOUBLED: # BARS">DOUBLED: 8 BARS</samp></td><td>The length doubled.</td></tr>
+<tr><td><samp class="msg" data-t="DOUBLE: AT MOST # BARS">DOUBLE: AT MOST 8 BARS</samp></td><td>The length cannot double
+further (128 rows at most).</td></tr>
+<tr><td><samp class="msg">LOOPS CLEARED</samp></td><td>Every loop gone.</td></tr>
+<tr><td><samp class="msg">NOTES RING TO THE NEXT</samp> <samp class="msg">NOTES A STEP LONG</samp></td><td>The pattern
+recorder's note length.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN: %s, %s">PATTERN: LOOP 06, 4 BARS</samp></td><td>The pattern recorder made a
+new loop.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN INTO #">PATTERN INTO LOOP 03</samp></td><td>... or replaced a loop's notes.</td></tr>
+<tr><td><samp class="msg">RECORDING A SONG</samp></td><td>RECORD LIVE runs: the loops cannot change until it ends (REC).</td></tr>
+<tr><td><samp class="msg" data-t="SONG # RECORDED: #, # PATTERNS">SONG 12 RECORDED: 1:23, 5 PATTERNS</samp></td><td>RECORD
+LIVE wrote the song (SAVE keeps it).</td></tr>
+<tr><td><samp class="msg" data-t="SONG #: # NOTES LEFT OUT">SONG 12: 3 NOTES LEFT OUT</samp></td><td>Notes that did not fit
+16 tracks were left out.</td></tr>
+<tr><td><samp class="msg" data-t="SONG # STOPPED: MEMORY FOR EDITS IS FULL">SONG 12 STOPPED: MEMORY FOR EDITS IS
+FULL</samp> <samp class="msg" data-t="SONG # STOPPED: ALL 240 PATTERNS USED">SONG 12 STOPPED: ALL 240 PATTERNS USED</samp>
+<samp class="msg" data-t="SONG # STOPPED: 256 POSITIONS">SONG 12 STOPPED: 256 POSITIONS</samp></td><td>RECORD LIVE stopped
+by itself, keeping what was written: SAVE, or free patterns.</td></tr>
+<tr><td><samp class="msg">NO SONG NUMBER FREE</samp></td><td>RECORD LIVE needs a free song number.</td></tr>
+<tr><td><samp class="msg" data-t="LOOPS STORED IN PATTERN #">LOOPS STORED IN PATTERN 2A</samp>
+<samp class="msg" data-t="PATTERN #: # NOTES LEFT OUT">PATTERN 2A: 3 NOTES LEFT OUT</samp></td><td>SAVE TO PATTERN done
+(notes past 16 tracks left out).</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # IN LOOPS: # LOOPS">PATTERN 2A IN LOOPS: 3 LOOPS</samp>
+<samp class="msg" data-t="PATTERN # IN LOOPS: # INSTRUMENTS LEFT OUT">PATTERN 2A IN LOOPS: 3 INSTRUMENTS LEFT OUT</samp>
+<samp class="msg" data-t="PATTERN # IN LOOPS: # COMMANDS LEFT OUT">PATTERN 2A IN LOOPS: 12 COMMANDS LEFT OUT</samp></td>
+<td>LOAD FROM PATTERN done, and what did not fit.</td></tr>
+<tr><td><samp class="msg" data-t="CARTRIDGE # IS EMPTY">CARTRIDGE 0A IS EMPTY</samp></td><td>ENV picked a cartridge with no
+sounds.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-dj">
+<h3>DJ</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg">PAUSED: PLAY AGAIN FOR DJ</samp></td><td>PLAY on DJ paused what was playing; PLAY again plays
+the decks.</td></tr>
+<tr><td><samp class="msg" data-t="%s: %s AT THE BAR">LEFT: CITY LIGHTS AT THE BAR</samp>
+<samp class="msg" data-t="%s: %s AT ITS TEMPO">LEFT: CITY LIGHTS AT ITS TEMPO</samp></td><td>A load waits for the playing
+deck's next bar line (held: at the song's own tempo).</td></tr>
+<tr><td><samp class="msg" data-t="%s: LOAD CANCELLED">LEFT: LOAD CANCELLED</samp></td><td>LOAD again before the bar line.</td></tr>
+<tr><td><samp class="msg" data-t="SONG # IS EMPTY">SONG 0A IS EMPTY</samp></td><td>The song has no positions: it cannot be
+loaded.</td></tr>
+<tr><td><samp class="msg">NO SONG ON THE DECK</samp></td><td>The deck is empty: load a song first.</td></tr>
+<tr><td><samp class="msg" data-t="%s: BACK TO THE START">LEFT: BACK TO THE START</samp></td><td>A deck's PLAY key held.</td></tr>
+<tr><td><samp class="msg">BACK TO THE CUES</samp></td><td>PLAY held (or HOME + PLAY): both decks at their cue points.</td></tr>
+<tr><td><samp class="msg">THE END: CUE GOES BACK</samp></td><td>The deck stopped at its song's end: CUE takes it back.</td></tr>
+<tr><td><samp class="msg" data-t="CUE: POS %s BAR %X">CUE: POS 02 BAR 0</samp>
+<samp class="msg" data-t="CUE: POS %s BAR %X BEAT %d">CUE: POS 02 BAR 4 BEAT 2</samp></td><td>The cue point set there.</td></tr>
+<tr><td><samp class="msg">DECKS SWAPPED</samp> <samp class="msg">NO SONGS TO SWAP</samp></td><td>SEQ swapped the decks
+(both empty: nothing to swap).</td></tr>
+<tr><td><samp class="msg">SYNC ON</samp> <samp class="msg">SYNC OFF</samp></td><td>The right deck follows the main, or
+not.</td></tr>
+<tr><td><samp class="msg">SYNC: TEMPO ON THE MAIN DECK</samp></td><td>K4 does nothing while synced: turn K1.</td></tr>
+<tr><td><samp class="msg">SYNC EXTERNAL: THE CLOCK'S TEMPO</samp></td><td>An outside clock leads the main deck.</td></tr>
+<tr><td><samp class="msg" data-t="TEMPO # BPM: THE SONG'S">TEMPO 120.0 BPM: THE SONG'S</samp></td><td>SEL put the tempo
+back to the song's own.</td></tr>
+<tr><td><samp class="msg" data-t="FILTER %c ON %s">FILTER L ON LP 2.4K</samp> <samp class="msg" data-t="FILTER %c OFF">FILTER
+L OFF</samp></td><td>A deck's FILTER key.</td></tr>
+<tr><td><samp class="msg">K2 K3: VOLUME</samp> <samp class="msg">K2 K3: FILTER</samp></td><td>ENV: what K2 and K3 turn.</td></tr>
+<tr><td><samp class="msg" data-t="KEY %c">KEY 0</samp></td><td>SEL put a deck's KEY back to 0.</td></tr>
+<tr><td><samp class="msg" data-t="PADS: #">PADS: LOOPS</samp></td><td>The pads' mode: PLAY, LOOPS or LFO.</td></tr>
+<tr><td><samp class="msg" data-t="%s: REPEAT PATTERN %s">LEFT: REPEAT PATTERN ON</samp></td><td>LOOPS' PATTERN pad.</td></tr>
+<tr><td><samp class="msg" data-t="%s TRACK %s %s">LEFT TRACK 02 MUTED</samp> <samp class="msg" data-t="%s TRACK %s SOLO">LEFT
+TRACK 02 SOLO</samp></td><td>A deck's track muted or soloed (HOME + white key).</td></tr>
+<tr><td><samp class="msg">MUTES: TRACKS 08-0F</samp> <samp class="msg">MUTES: TRACKS 00-07</samp></td><td>HOME + OCT:
+which tracks the white keys mute.</td></tr>
+<tr><td><samp class="msg" data-t="FADER LFO: %s %s">FADER LFO: TRIANGLE 1/2</samp> <samp class="msg" data-t="%s LFO OFF">FADER
+LFO OFF</samp></td><td>An LFO pad: on (its shape and speed) or off.</td></tr>
+<tr><td><samp class="msg" data-t="FILTER %c">FILTER L: OFF TO HERE</samp></td><td>A filter LFO's range pad.</td></tr>
+<tr><td><samp class="msg">SINE</samp> <samp class="msg">SQUARE</samp> <samp class="msg">TRIANGLE</samp> <samp class="msg">SAW
+UP</samp> <samp class="msg">SAW DOWN</samp> <samp class="msg">RANDOM</samp></td><td>An LFO's shape pad (after the LFO's
+name: FADER: SINE).</td></tr>
+<tr><td><samp class="msg" data-t="%s LFO: ITS FILTER IS OFF">FILTER L LFO: ITS FILTER IS OFF</samp>
+<samp class="msg" data-t="%s LFO: %s IS OFF">REVERB LFO: REVERB IS OFF</samp></td><td>The LFO runs, but what it moves is
+off: switch the filter (or the effect on FX) on.</td></tr>
+<tr><td><samp class="msg">ALL LFOS OFF</samp></td><td>Pad 16: every LFO off.</td></tr>
+<tr><td><samp class="msg">DJ RESET</samp></td><td>GLO's RESET DJ: both decks emptied, everything as at first.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-fx">
+<h3>FX</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg" data-t="# ON">GATE ON</samp> <samp class="msg" data-t="%s OFF">GATE OFF</samp>
+<samp class="msg" data-t="# OFF">GATE OFF</samp></td><td>OCT+ / OCT- switched the effect.</td></tr>
+<tr><td><samp class="msg" data-t="# HELD ON: ITS KEY STOPS IT">LOOP 1/4 HELD ON: ITS KEY STOPS IT</samp></td><td>ARP holds
+the punch-in on: press its key again to stop it.</td></tr>
+<tr><td><samp class="msg">ROUTING GLOBAL</samp> <samp class="msg">ROUTING SENDS</samp></td><td>GLO's ROUTING changed.</td></tr>
+<tr><td><samp class="msg">KEYS THROUGH FX</samp> <samp class="msg">KEYS DRY</samp></td><td>The keys through the effects, or
+dry.</td></tr>
+<tr><td><samp class="msg">MOVED</samp></td><td>The effect put down at its new place in the chain.</td></tr>
+<tr><td><samp class="msg" data-t="# DOES NOT MOVE">LIMITER DOES NOT MOVE</samp></td><td>That effect has a fixed place.</td></tr>
+<tr><td><samp class="msg" data-t="%s COPIED TO %s">STRAIGHT COPIED TO MY GATE 11</samp></td><td>A built-in gate pattern
+copied into yours to edit.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="topic" id="messages-settings">
+<h3>SETTINGS, MIDI and data</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg">16 VOICES: 12 WITHOUT CPU 2</samp></td><td>VOICES 16 picked while the second processor does not
+run: 12 sound until it does.</td></tr>
+<tr><td><samp class="msg">COUNTS ZEROED</samp></td><td>STATUS: MAX, HALF, LATE and STEALS back to zero.</td></tr>
+<tr><td><samp class="msg">NO MISSING REFERENCES</samp></td><td>CHECK REFERENCES found nothing missing.</td></tr>
+<tr><td><samp class="msg">STORAGE OK</samp></td><td>CHECK STORAGE found every record whole.</td></tr>
+<tr><td><samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>
+<samp class="msg">NOTHING TO CLEAN UP</samp></td><td>CLEAN UP's result.</td></tr>
+<tr><td><samp class="msg">64 MAPPINGS: DELETE ONE FIRST</samp></td><td>LEARN is full: delete a mapping (LFO) first.</td></tr>
+<tr><td><b>K1: CC 74, CH 1</b> (<b>PLAY: NOTE 36, CH 10</b>)</td><td>MIDI learn done: the FM-1 control, and the MIDI
+control now working it.</td></tr>
+<tr><td><b>K1: CC 74 CH 1 DELETED</b></td><td>LFO on the MIDI page deleted that mapping.</td></tr>
+<tr><td><samp class="msg">CLOCK LOST</samp></td><td>SYNC EXTERNAL: the outside clock stopped; PT/FM plays on at the last
+tempo.</td></tr>
+<tr><td><samp class="msg">MIRROR ON</samp> <samp class="msg">MIRROR OFF</samp></td><td>A PT/FM web page took the panel over
+MIDI, or let it go.</td></tr>
+<tr><td><samp class="msg" data-t="DATA RECEIVED: # RECORDS">DATA RECEIVED: 52 RECORDS</samp></td><td>An upload (the
+install page, the EDITOR page) arrived whole.</td></tr>
+<tr><td><samp class="msg" data-t="DATA RECEIVED, # BAD RECORDS">DATA RECEIVED, 2 BAD RECORDS</samp></td><td>Some records
+arrived damaged and were left out: upload again.</td></tr>
+<tr><td><samp class="msg">DATA NOT RECEIVED: TRY AGAIN</samp></td><td>The upload failed; what was there is whole. Upload
+again.</td></tr>
+</tbody>
+</table>
+</section>
+</section>
