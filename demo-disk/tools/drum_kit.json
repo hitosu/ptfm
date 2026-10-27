@@ -1,0 +1,1715 @@
+{
+ "what": "DRUM KIT (fusion.py): a drum, or a combo of drums, on every key from F-2 to G-8; each key's layers, a track each (4 at most): cartridge, instrument, note, volume (0-127), commands in compose.py's notation (at most 4 a cell); the keys not listed are silent",
+ "level": 0,
+ "tracks": 4,
+ "keys": [
+  {
+   "key": "F-3",
+   "name": "LOW CONGA",
+   "why": "a real conga: the PERCUSSION cartridge's CONGA LO (an open tone near 138 Hz ringing about 0.45 s, its stroke building over 20 ms), with FM's conga 3 dB under it at nearly its pitch (G-3, 147 Hz) for the hand's slap at the start (its first 5 ms 6 dB under the stroke's peak); FM CONGA alone is a short tone (0.15 s) (no R4 command for its operator 2: none is heard)",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "CONGA LO",
+     "note": "C-4",
+     "volume": 66,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM CONGA",
+     "note": "G-3",
+     "volume": 47,
+     "commands": [
+      "*47:42"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#3",
+   "name": "SHAKER",
+   "why": "the DRUM KIT cartridge's egg shaker (its grains up near 8-10 kHz) over the console's noise swelling in and out (CHIPTUNE's SHAKER, its SHAKE volume table, 3 dB under): alone the 8-bit shaker measures as the 8BIT HAT's twin (the same noise); the egg's grain sets it apart",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SHAKER",
+     "note": "C-4",
+     "volume": 92,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "SHAKER",
+     "note": "C-4",
+     "volume": 65,
+     "commands": [
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-3",
+   "name": "HIGH CONGA",
+   "why": "the real conga's high drum (CONGA HI, near 216 Hz) with FM's conga at its pitch 6 dB under, for the slap",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "CONGA HI",
+     "note": "C-4",
+     "volume": 103,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM CONGA",
+     "note": "C-4",
+     "volume": 51,
+     "commands": [
+      "*47:42"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#3",
+   "name": "COWBELL",
+   "why": "FM's cowbell, the 808's own recipe: two tones at 538 and 797 Hz (the 808's 540 and 800, ratio 1.48) at a fixed pitch, band-limited (its brightness centred near 950 Hz), struck hard; its two carriers' R2 slowed from 88 to 60 (*45, *55: the first, bright stage of its decay longer), so it rings about 0.3 s to -40 dB and reaches the percussion's loudness (as stored it falls away in 0.15 s, 6 dB short at full volume); the 8-bit COWBELL is a raw pulse (root and fifth alternating every frame, centred near 4.6 kHz), JUNO's Cowbell one tone (522 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "COWBELL",
+     "note": "C-4",
+     "volume": 64,
+     "commands": [
+      "*47:3A",
+      "*57:3A",
+      "*45:3C",
+      "*55:3C"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-3",
+   "name": "8BIT SNARE",
+   "why": "snare 3, the console's snare as its sound drivers make it: mid-clock noise with a short triangle drop under it for the body (two CHIP layers)",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT SNARE",
+     "note": "C-4",
+     "volume": 81,
+     "commands": [
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI TOM",
+     "note": "E-4",
+     "volume": 45,
+     "commands": [
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#3",
+   "name": "8BIT KICK",
+   "why": "kick 3, the console's kick as its sound drivers make it, noise layered over a triangle: the triangle's fast fall (from F-3 it ends near 87 Hz) and a low noise burst a tick later (21 ms, heard as one hit: at once their attacks stack and the peak ceiling would take 3 dB off the kick); the noise burst has no RELEASE command (it is over before any note ends)",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI KICK",
+     "note": "F-3",
+     "volume": 124,
+     "commands": [
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "NOISE KICK",
+     "note": "C-4",
+     "volume": 62,
+     "commands": [
+      "ED1"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-3",
+   "name": "808 KICK",
+   "why": "kick 2 (GM 35, the acoustic bass drum): JUNO's 808 Kick, the long boom (its 0.85 s ring), with the DRUM KIT cartridge's acoustic kick 6 dB under it for the beater's thump the 808 lacks (its first 20 ms: alone a soft swell, centred near 0.2 kHz; with the kick, near 0.6 kHz and 1.5 dB harder)",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "808 Kick",
+     "note": "C-4",
+     "volume": 121,
+     "commands": []
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "KICK",
+     "note": "C-4",
+     "volume": 61,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-4",
+   "name": "909 KICK",
+   "why": "kick 1 (GM 36), the kit's reference: JUNO's 909 Kick with a CHIP click, the console's hat noise cut after one tick (21 ms): the 909's own kick mixes in a noise click the Juno's filter kick lacks, and the click is what the FM-1's small speaker plays of a kick (the click has no RELEASE command: its cut always comes first)",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 127,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 40,
+     "commands": [
+      "EC1"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#4",
+   "name": "SIDE STICK",
+   "why": "GM 37: JUNO's Rim, the 808's rim click",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Rim",
+     "note": "C-4",
+     "volume": 127,
+     "commands": []
+    }
+   ]
+  },
+  {
+   "key": "D-4",
+   "name": "SNARE",
+   "why": "snare 1 (GM 38, the acoustic snare): the DRUM KIT cartridge's real snare (its shell's body near 200 Hz and the wires) over JUNO's analog snare 3 dB under it (its tone and noise): fuller, and nearer the drums' loudness (alone the Juno snare stops 1.7 dB short at the peak ceiling)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "C-4",
+     "volume": 84,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Snare",
+     "note": "C-4",
+     "volume": 59,
+     "commands": []
+    }
+   ]
+  },
+  {
+   "key": "D#4",
+   "name": "CLAP",
+   "why": "GM 39: the handheld's clap, three separate bursts of noise (the hands not quite together: its CLAP volume table, on and off a frame at a time, so 33 ms apart, each dip 25 dB deep) and then a tail of about 0.15 s, its NOISE RATE 5 (*4A:05, its own 2) for a darker noise (centred near 5.6 kHz, not 9.3); JUNO's Clap is one burst of filtered noise with no gaps in it (its 1 ms envelope moves 3 dB at most in its first 60 ms)",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "BRK CLAP",
+     "note": "C-4",
+     "volume": 71,
+     "commands": [
+      "*57:0F",
+      "*4A:05"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-4",
+   "name": "FM SNARE",
+   "why": "snare 2 (GM 40): FM's snare (its crack and body), then the handheld's noise a tick later for the wires' rattle: FM SNARE's own noise is gone in 100 ms and alone, at its peak's limit, it sits 4 dB under the kick; with the noise it reaches the kick's loudness (a tick late, the two attacks do not stack) (no R4 command for its operator 4: none is heard)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM SNARE",
+     "note": "C-4",
+     "volume": 126,
+     "commands": [
+      "*67:3E",
+      "*57:42",
+      "*47:44"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "BRK SNARE",
+     "note": "C-4",
+     "volume": 63,
+     "commands": [
+      "ED1",
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-4",
+   "name": "FLOOR TOM 1",
+   "why": "GM 41: FM TOM, the six toms tuned in thirds, each with the DRUM KIT cartridge's tom 6 dB under it at the FM tom's own pitch (here TOM LO at A-3, 89 Hz): the stick and the skin's overtones the FM tom's sine lacks (its octaves over 250 Hz are 60 dB under its body)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "F-3",
+     "volume": 86,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM LO",
+     "note": "A-3",
+     "volume": 43,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#4",
+   "name": "CLOSED HAT",
+   "why": "GM 42: JUNO's closed hat (its tight tick), with the DRUM KIT cartridge's real closed hat 3 dB under it: the cymbals' metal and a short ring (to 60 dB under at 0.18 s, not 0.06); nearer the hats' loudness (alone the Juno hat stops 2.5 dB short at the peak ceiling)",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Hat Closed",
+     "note": "C-4",
+     "volume": 110,
+     "commands": []
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT",
+     "note": "C-4",
+     "volume": 78,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-4",
+   "name": "FLOOR TOM 2",
+   "why": "GM 43: FM TOM at A-3, TOM LO at C#4 (111 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "A-3",
+     "volume": 98,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM LO",
+     "note": "C#4",
+     "volume": 49,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#4",
+   "name": "8BIT HAT",
+   "why": "GM 44's pedal hat as the console's closed hat (a short tick of high noise): the 8-bit hat beside the analog ones (FM HAT is 10 dB too quiet and very short)",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 127,
+     "commands": [
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-4",
+   "name": "LOW TOM",
+   "why": "GM 45: FM TOM at C-4, TOM MID at C-4 (134 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "C-4",
+     "volume": 84,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM MID",
+     "note": "C-4",
+     "volume": 42,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#4",
+   "name": "OPEN HAT",
+   "why": "GM 46: JUNO's open hat with the DRUM KIT cartridge's real open hat at its side: the cymbals' metal (alone the Juno's open hat measures as the TAMBOURINE's twin, the same noise with a longer fall)",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Hat Open",
+     "note": "C-4",
+     "volume": 43,
+     "commands": []
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT OPEN",
+     "note": "C-4",
+     "volume": 43,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-4",
+   "name": "LOW-MID TOM",
+   "why": "GM 47: FM TOM at E-4, TOM MID at E-4 (168 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "E-4",
+     "volume": 102,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM MID",
+     "note": "E-4",
+     "volume": 51,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-5",
+   "name": "HI-MID TOM",
+   "why": "GM 48: FM TOM at G-4, TOM HI at E-4 (203 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "G-4",
+     "volume": 91,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM HI",
+     "note": "E-4",
+     "volume": 46,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#5",
+   "name": "CRASH",
+   "why": "GM 49: the DRUM KIT cartridge's real crash for the strike (the sample ends at 0.85 s) over JUNO's crash 4 dB under it for the wash after (its ENV DECAY and RELEASE 45: 2.2 s to -60 dB); alone the Juno crash has no strike at all (its first 300 ms within 5 dB, the loudest 5 ms 1.0 dB over the loudest 50); 4 dB under the drums",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRASH",
+     "note": "C-4",
+     "volume": 58,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Crash",
+     "note": "C-4",
+     "volume": 37,
+     "commands": [
+      "*4C:2D",
+      "*4E:2D"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D-5",
+   "name": "HIGH TOM",
+   "why": "GM 50: FM TOM at B-4, TOM HI at G#4 (252 Hz)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "B-4",
+     "volume": 100,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM HI",
+     "note": "G#4",
+     "volume": 50,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D#5",
+   "name": "RIDE",
+   "why": "GM 51: FM's ride, under the drums (no R4 command for its operator 5: none is heard)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM RIDE",
+     "note": "C-4",
+     "volume": 44,
+     "commands": [
+      "*47:34",
+      "*57:36",
+      "*5F:34"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-5",
+   "name": "8BIT CRASH",
+   "why": "GM 52's china slot (an acoustic kit's extension no drum machine has; GM2's electronic kit puts a reverse cymbal there) as the console's crash: high noise falling over half a second, 4 dB under the drums (at full volume it is about 5 dB over the kick)",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT CRASH",
+     "note": "C-4",
+     "volume": 46,
+     "commands": [
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-5",
+   "name": "RIDE BELL",
+   "why": "GM 53: FM's METAL HIT two octaves up (C-6): a bell's ring, its inharmonic partials from 1 to 5 kHz, 0.7 s to -60 dB, 4 dB under the drums (no R4 command for its operator 4: none is heard); the handheld's 7-bit noise (CHIPTUNE's METAL) measures as a 0.2 s chink centred near 12 kHz, no bell tone in it",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "METAL HIT",
+     "note": "C-6",
+     "volume": 54,
+     "commands": [
+      "*57:34",
+      "*47:36",
+      "*4F:3C"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#5",
+   "name": "TAMBOURINE",
+   "why": "GM 54: JUNO's tambourine (its noise), with FM's open hat at its side for the jingles: FM's inharmonic metal (fixed partials high up, a sharp strike centred near 9.4 kHz) over the noise; alone the Juno tambourine measures as the open hat's twin (the same noise, a shorter fall), and as a noise it has no ring of metal in it",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Tambourine",
+     "note": "C-4",
+     "volume": 54,
+     "commands": [
+      "*4E:14"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM HAT OPN",
+     "note": "C-4",
+     "volume": 54,
+     "commands": [
+      "*57:3F",
+      "*67:40",
+      "*5F:3F",
+      "*6F:3F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-5",
+   "name": "SPLASH",
+   "why": "GM 55: FM's crash (its shimmer, 1 s) with the DRUM KIT cartridge's CRSH CHOKE (the crash sample grabbed: 0.14 s) for a real cymbal's strike at its front: a splash's quick, bright hit; under the drums",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRSH CHOKE",
+     "note": "C-4",
+     "volume": 111,
+     "commands": [
+      "*4B:42"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM CRASH",
+     "note": "C-4",
+     "volume": 44,
+     "commands": [
+      "*67:30",
+      "*57:32",
+      "*5F:30",
+      "*6F:30"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-2",
+   "name": "TOM FILL",
+   "why": "down the four rack toms in 32nds (0, 3, 6, 9 ticks): a fill on one key, held 0.2 s; their FM layers alone (four cells: the pattern's four tracks)",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "B-4",
+     "volume": 100,
+     "commands": [
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "G-4",
+     "volume": 91,
+     "commands": [
+      "ED3",
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "E-4",
+     "volume": 102,
+     "commands": [
+      "ED6",
+      "*47:37"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM TOM",
+     "note": "C-4",
+     "volume": 84,
+     "commands": [
+      "ED9",
+      "*47:37"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#2",
+   "name": "HAT ROLL",
+   "why": "the closed hat again every 3 ticks (E93: 32nds) for as long as the key is held: a trap roll",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Hat Closed",
+     "note": "C-4",
+     "volume": 109,
+     "commands": [
+      "E93"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT",
+     "note": "C-4",
+     "volume": 77,
+     "commands": [
+      "E93",
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-2",
+   "name": "8BIT TOMS",
+   "why": "the console's tom fill: the triangle's tom drop four times down in 32nds",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI TOM",
+     "note": "G-4",
+     "volume": 106,
+     "commands": [
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI TOM",
+     "note": "E-4",
+     "volume": 107,
+     "commands": [
+      "ED3",
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI TOM",
+     "note": "C-4",
+     "volume": 108,
+     "commands": [
+      "ED6",
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI TOM",
+     "note": "G-3",
+     "volume": 110,
+     "commands": [
+      "ED9",
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#2",
+   "name": "8BIT DUM-TS",
+   "why": "the 8-bit kick, then the 8-bit hat a 16th later",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "TRI KICK",
+     "note": "F-3",
+     "volume": 124,
+     "commands": [
+      "*57:0F"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "NOISE KICK",
+     "note": "C-4",
+     "volume": 62,
+     "commands": [
+      "ED1"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 127,
+     "commands": [
+      "ED6",
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-2",
+   "name": "8BIT ROLL",
+   "why": "the console's snare again every 2 ticks (E92) while held, each hit cutting the last as the one noise channel does: a roll in one voice",
+   "layers": [
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT SNARE",
+     "note": "C-4",
+     "volume": 43,
+     "commands": [
+      "E92"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#2",
+   "name": "DUM-TSS",
+   "why": "the kick, then the open hat an 8th later: played on every beat it is the house groove (the key held 0.25 s)",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 127,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 40,
+     "commands": [
+      "EC1"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Hat Open",
+     "note": "C-4",
+     "volume": 43,
+     "commands": [
+      "EDC"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT OPEN",
+     "note": "C-4",
+     "volume": 43,
+     "commands": [
+      "EDC",
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-2",
+   "name": "DOUBLE KICK",
+   "why": "two kicks a 16th apart, the second a little softer",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 127,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 40,
+     "commands": [
+      "EC1"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 90,
+     "commands": [
+      "ED6"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 28,
+     "commands": [
+      "ED6",
+      "EC7"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-3",
+   "name": "DUM-TS",
+   "why": "the kick, then the closed hat a 16th later",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 116,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 37,
+     "commands": [
+      "EC1"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Hat Closed",
+     "note": "C-4",
+     "volume": 100,
+     "commands": [
+      "ED6"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT",
+     "note": "C-4",
+     "volume": 71,
+     "commands": [
+      "ED6",
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#3",
+   "name": "KICK+CRASH",
+   "why": "kick and crash at once: the accent on a section's first beat",
+   "layers": [
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "909 Kick",
+     "note": "C-4",
+     "volume": 127,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "8BIT HAT",
+     "note": "C-4",
+     "volume": 40,
+     "commands": [
+      "EC1"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRASH",
+     "note": "C-4",
+     "volume": 58,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Crash",
+     "note": "C-4",
+     "volume": 37,
+     "commands": [
+      "*4C:2D",
+      "*4E:2D"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D-3",
+   "name": "FLAM",
+   "why": "the snare with a soft grace stroke 2 ticks (42 ms) before it (the grace its real snare alone: a voice less)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "C-4",
+     "volume": 37,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "C-4",
+     "volume": 83,
+     "commands": [
+      "ED2",
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Snare",
+     "note": "C-4",
+     "volume": 58,
+     "commands": [
+      "ED2"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D#3",
+   "name": "SNARE+CLAP",
+   "why": "snare and clap, the backbeat of much dance music, the clap a tick after the snare (21 ms: one wide hit; at once their attacks stack and the peak ceiling would take 5 dB off both)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "C-4",
+     "volume": 73,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "JUNO-106",
+     "instrument": "Snare",
+     "note": "C-4",
+     "volume": 51,
+     "commands": []
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "BRK CLAP",
+     "note": "C-4",
+     "volume": 62,
+     "commands": [
+      "ED1",
+      "*57:0F",
+      "*4A:05"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-3",
+   "name": "DRAG",
+   "why": "the FM snare with two soft grace strokes before it (2 ticks apart, the FM layer alone): a drag, or ruff",
+   "layers": [
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM SNARE",
+     "note": "C-4",
+     "volume": 50,
+     "commands": [
+      "*67:3E",
+      "*57:42",
+      "*47:44"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM SNARE",
+     "note": "C-4",
+     "volume": 50,
+     "commands": [
+      "ED2",
+      "*67:3E",
+      "*57:42",
+      "*47:44"
+     ]
+    },
+    {
+     "cartridge": "FM DRUM KIT",
+     "instrument": "FM SNARE",
+     "note": "C-4",
+     "volume": 124,
+     "commands": [
+      "ED4",
+      "*67:3E",
+      "*57:42",
+      "*47:44"
+     ]
+    },
+    {
+     "cartridge": "CHIPTUNE",
+     "instrument": "BRK SNARE",
+     "note": "C-4",
+     "volume": 62,
+     "commands": [
+      "ED5",
+      "*57:0F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#5",
+   "name": "SHAKER",
+   "why": "the DRUM KIT cartridge's egg shaker alone (its grains up near 8-10 kHz), on GM's pedal hat letter: a short tss of its own",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SHAKER",
+     "note": "C-4",
+     "volume": 127,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-5",
+   "name": "TOM FLOOR",
+   "why": "the DRUM KIT cartridge's low tom a fourth down (G-3): the floor tom an acoustic kit has under its rack toms, the lowest of the octave's four",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM LO",
+     "note": "G-3",
+     "volume": 99,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#5",
+   "name": "HAT OPEN",
+   "why": "the DRUM KIT cartridge's open hat alone, on the open hat's letter (GM 46)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT OPEN",
+     "note": "C-4",
+     "volume": 57,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-5",
+   "name": "TOM LO",
+   "why": "the DRUM KIT cartridge's low tom at its own pitch",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM LO",
+     "note": "C-4",
+     "volume": 103,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-6",
+   "name": "KICK",
+   "why": "the DRUM KIT cartridge's acoustic kick alone, on the kick's letter: the beater and the shell, no 808 under it; two of it at once, in step (6 dB more: one, at volume 127, falls 2.4 dB short of the drums' loudness)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "KICK",
+     "note": "C-4",
+     "volume": 83,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "KICK",
+     "note": "C-4",
+     "volume": 83,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#6",
+   "name": "CRASH",
+   "why": "the DRUM KIT cartridge's crash alone (the sample ends at 0.85 s), on the crash's letter (GM 49)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRASH",
+     "note": "C-4",
+     "volume": 77,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D-6",
+   "name": "SNARE",
+   "why": "the DRUM KIT cartridge's snare alone (its shell's body near 200 Hz and the wires), on the snare's letter (GM 38)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "C-4",
+     "volume": 116,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D#6",
+   "name": "CRSH CHOKE",
+   "why": "the DRUM KIT cartridge's crash grabbed (its envelope falling to nothing in 0.14 s): a choked cymbal's quick hit; two of it at once, in step (one, at volume 127, falls 6.1 dB short of the cymbals' loudness; two are held under it by the peak rule)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRSH CHOKE",
+     "note": "C-4",
+     "volume": 107,
+     "commands": [
+      "*4B:42"
+     ]
+    },
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "CRSH CHOKE",
+     "note": "C-4",
+     "volume": 107,
+     "commands": [
+      "*4B:42"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-6",
+   "name": "SNARE LO",
+   "why": "the DRUM KIT cartridge's snare three semitones down (A-3): a deeper, looser second snare, on snare 2's letter (GM 40)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "SNARE",
+     "note": "A-3",
+     "volume": 109,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-6",
+   "name": "TOM MID",
+   "why": "the DRUM KIT cartridge's middle tom at its own pitch",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM MID",
+     "note": "C-4",
+     "volume": 112,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#6",
+   "name": "HAT",
+   "why": "the DRUM KIT cartridge's closed hat alone, on the closed hat's letter (GM 42)",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "HAT",
+     "note": "C-4",
+     "volume": 126,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-6",
+   "name": "TOM HI",
+   "why": "the DRUM KIT cartridge's high tom at its own pitch, the highest of the four",
+   "layers": [
+    {
+     "cartridge": "DRUM KIT",
+     "instrument": "TOM HI",
+     "note": "C-4",
+     "volume": 121,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#6",
+   "name": "303 BELL",
+   "why": "a cowbell of two 303 squares a fifth apart (554 and 831 Hz, ratio 1.50: the 808's cowbell is two squares at 540 and 800 Hz), Mid Sq's filter (resonance 85) leaving their lower harmonics: brighter and harder-edged than the kit's FM cowbell (centred near 1.8 kHz, not 0.95), gated after 5 ticks (0.1 s) as a 303 note is",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Mid Sq",
+     "note": "C#5",
+     "volume": 29,
+     "commands": [
+      "EC5",
+      "ACC"
+     ]
+    },
+    {
+     "cartridge": "TB-303",
+     "instrument": "Mid Sq",
+     "note": "G#5",
+     "volume": 29,
+     "commands": [
+      "EC5",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-6",
+   "name": "303 TOM LO",
+   "why": "a tom whose pitch seems to fall with the filter: Res Sq (resonance 122) on G-2, its CUTOFF to 0 and ENV MOD to 110 so the resonant peak sweeps down onto the note (the brightness falls from 1.25 kHz in the first 30 ms to 0.71 kHz at 60-100 ms); 76 % of it under 200 Hz",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Res Sq",
+     "note": "G-2",
+     "volume": 70,
+     "commands": [
+      "EC6",
+      "ACC",
+      "*41:00",
+      "*43:6E"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#6",
+   "name": "303 PING",
+   "why": "a resonant ping, the ride's place: Res Sq on E-7 (2.6 kHz) with its CUTOFF at 75 and ENV MOD 20, so the resonant peak sits on the note: it swells for 20 ms and the closing filter rings it out, 32 dB down by its cut (of the 303 sounds here the one that dies away almost wholly by itself)",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Res Sq",
+     "note": "E-7",
+     "volume": 5,
+     "commands": [
+      "EC6",
+      "ACC",
+      "*43:14",
+      "*41:4B"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-6",
+   "name": "303 SUB",
+   "why": "a sub boom, the second kick's place: Round Bs (a half-square, its filter low) on G-1 (49 Hz) for a row: 97 % of it under 200 Hz, its brightness 250 Hz; dull beside the 303 KICK's snap",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Round Bs",
+     "note": "G-1",
+     "volume": 127,
+     "commands": [
+      "EC6",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-7",
+   "name": "303 KICK",
+   "why": "a squelchy kick: Zap Acid (resonance 125, ENV MOD 127) as a square (WAVE 127: its fundamental strongest) on C-2 (65 Hz), cut after 4 ticks (83 ms): the filter's snap on top (centred near 1.8 kHz in the first 30 ms, 1.0 kHz after), 89 % of it under 200 Hz",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Zap Acid",
+     "note": "C-2",
+     "volume": 75,
+     "commands": [
+      "EC4",
+      "ACC",
+      "*40:7F"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#7",
+   "name": "303 TICK",
+   "why": "the side stick's place: the Tick preset (DECAY 3, ENV MOD 127) on C-6, cut after a tick (21 ms): a bright click (centred near 5.3 kHz)",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Tick",
+     "note": "C-6",
+     "volume": 64,
+     "commands": [
+      "EC1",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D-7",
+   "name": "303 STAB",
+   "why": "the acid stab, the snare's place: Stab Acid (accent 127) on C-4 for 3 ticks (62 ms), the filter thrown open and shut (centred near 3.3 kHz, then 2.1 kHz)",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Stab Acid",
+     "note": "C-4",
+     "volume": 59,
+     "commands": [
+      "EC3",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D#7",
+   "name": "303 ZAP",
+   "why": "a laser zap, the clap's place: Screamer (resonance and ENV MOD 127) on C-6, its resonant peak sweeping down from 9.4 kHz to 2.1 kHz over the row, 15 dB down by its cut",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Screamer",
+     "note": "C-6",
+     "volume": 13,
+     "commands": [
+      "EC6",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-7",
+   "name": "303 ACID",
+   "why": "the acid squelch for a row: Squelch (resonance 120, ENV MOD 110) on C-3 (centred near 2.3 kHz, then 1.4 kHz); longer and lower than the STAB",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Squelch",
+     "note": "C-3",
+     "volume": 35,
+     "commands": [
+      "EC6",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-7",
+   "name": "303 WAH",
+   "why": "the 303's 'yow': Long Res (resonance 125) on C-5, its resonant peak walking down the note's harmonics (3.6, 3.1, 2.6, 2.1, 1.5, 1.0 kHz) through the row, a vowel's sweep",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Long Res",
+     "note": "C-5",
+     "volume": 30,
+     "commands": [
+      "EC6",
+      "ACC"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#7",
+   "name": "303 BLIP",
+   "why": "the closed hat's place: Blip Sq on C-7 for 2 ticks (42 ms), its CUTOFF to 60: a 6.3 kHz chirp falling onto the 2.1 kHz note, 11 dB down by its cut",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Blip Sq",
+     "note": "C-7",
+     "volume": 17,
+     "commands": [
+      "EC2",
+      "ACC",
+      "*41:3C"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-7",
+   "name": "303 TOM HI",
+   "why": "the low tom an octave up (G-3): the resonant peak sweeping down onto the note (1.46 kHz to 0.93 kHz)",
+   "layers": [
+    {
+     "cartridge": "TB-303",
+     "instrument": "Res Sq",
+     "note": "G-3",
+     "volume": 67,
+     "commands": [
+      "EC6",
+      "ACC",
+      "*41:00",
+      "*43:6E"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G#7",
+   "name": "WIND CHIME",
+   "why": "the PERCUSSION cartridge's mark tree: a run of small bells (centred near 5 kHz) rising to its loudest at 0.8 s and gone at 1.4 s; it plays on to its end however short the tap",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "WIND CHIME",
+     "note": "C-4",
+     "volume": 53,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A-7",
+   "name": "TIMPANI",
+   "why": "the PERCUSSION cartridge's timpani: a kettle drum's boom near 100 Hz ringing 0.9 s, at the toms' loudness",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TIMPANI",
+     "note": "C-4",
+     "volume": 119,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "A#7",
+   "name": "TIMP ROLL",
+   "why": "the timpani again every 4 ticks (E94: 12 a second at 120 BPM) while the key is held: a roll, each stroke letting the last ring down a little (R4 60, *4B:3C) rather than to the sample's end, so it holds three or four voices, not ten",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TIMPANI",
+     "note": "C-4",
+     "volume": 119,
+     "commands": [
+      "E94",
+      "*4B:3C"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "B-7",
+   "name": "DARBUKA",
+   "why": "the PERCUSSION cartridge's darbuka: its deep stroke (doum) near 145 Hz, 0.3 s",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "DARBUKA",
+     "note": "C-4",
+     "volume": 81,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C-8",
+   "name": "CONGA",
+   "why": "the PERCUSSION cartridge's conga at its middle pitch (165 Hz), between the kit's LOW CONGA and HIGH CONGA (its CONGA LO and CONGA HI)",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "CONGA",
+     "note": "C-4",
+     "volume": 80,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "C#8",
+   "name": "CHIME RISE",
+   "why": "the mark tree swelling in (the PERCUSSION cartridge's CHIME RISE: its attack takes about 0.5 s): a sound for holding, into a downbeat; let go, it fades by its own release (no one-shot command: a tap would freeze its swell near silence)",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "CHIME RISE",
+     "note": "C-4",
+     "volume": 53,
+     "commands": []
+    }
+   ]
+  },
+  {
+   "key": "D-8",
+   "name": "BONGO LO",
+   "why": "the PERCUSSION cartridge's low bongo: a short, high-skinned slap (its tone near 130 Hz and its strongest overtone near 500), 0.3 s",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "BONGO LO",
+     "note": "C-4",
+     "volume": 82,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "D#8",
+   "name": "BONGO HI",
+   "why": "the same bongo a fourth up (F-4), its pair's high drum, as GM's 60 and 61 (high and low bongo)",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "BONGO LO",
+     "note": "F-4",
+     "volume": 92,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "E-8",
+   "name": "TABLA GE",
+   "why": "the tabla's bass drum (the bayan): GE, its open, booming stroke near 135 Hz, 0.45 s",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TABLA GE",
+     "note": "C-4",
+     "volume": 88,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F-8",
+   "name": "TABLA TUN",
+   "why": "the treble drum's (the dayan's) TUN, struck on its centre: a ringing tone near 313 Hz, 0.5 s",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TABLA TUN",
+     "note": "C-4",
+     "volume": 75,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "F#8",
+   "name": "DHA",
+   "why": "the tabla's most common stroke, DHA: NA on the treble drum and GE on the bass drum together, two hands at once",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TABLA GE",
+     "note": "C-4",
+     "volume": 74,
+     "commands": [
+      "*4B:00"
+     ]
+    },
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TABLA NA",
+     "note": "C-4",
+     "volume": 93,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  },
+  {
+   "key": "G-8",
+   "name": "TABLA NA",
+   "why": "the treble drum's NA, struck at its rim: a bright, ringing tone (its strongest partial near 1 kHz), 0.3 s",
+   "layers": [
+    {
+     "cartridge": "PERCUSSION",
+     "instrument": "TABLA NA",
+     "note": "C-4",
+     "volume": 110,
+     "commands": [
+      "*4B:00"
+     ]
+    }
+   ]
+  }
+ ]
+}

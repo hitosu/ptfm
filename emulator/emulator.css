@@ -1,0 +1,97 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Vasily Kazantsev */
+/* PT/FM emulator: the page's own parts, over the panel (panel.css) and the pages' frame (page.css, the
+ * playground's too): the seeding plan and the firmware's picker, boxes over the page in the install and debug
+ * pages' look */
+
+.dlg {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, .72);
+    touch-action: pan-y;
+}
+
+.dlg[hidden] {
+    display: none;
+}
+
+.dlg .box {
+    width: min(640px, 100%);
+    max-height: calc(100dvh - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 14px 12px;
+    background: #000;
+    border: 1px solid var(--lgrey);
+}
+
+.dlg h2 {
+    margin: 0;
+    font: 16px/20px var(--sans);
+    color: var(--cyan);
+}
+
+.dlg p {
+    margin: 0;
+    color: var(--lgrey);
+}
+
+.dlg p b {
+    font-weight: normal;
+    color: var(--white);
+}
+
+#seed-lines {
+    margin: 0;
+    padding: 6px 8px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font: 12px/15px ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+    color: var(--lgrey);
+    background: #000;
+    border: 1px solid var(--line);
+    min-height: 6em;
+}
+
+#seed-lines .warn { color: var(--yellow); }
+#seed-lines .bad { color: var(--lred); }
+
+#seed-bar {
+    height: 8px;
+    background: #1b1b1b;
+    overflow: hidden;
+}
+
+#seed-bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--green);
+}
+
+.dlg .buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.dlg button {
+    font: 16px/20px var(--sans);
+    color: var(--yellow);
+    background: #000;
+    border: 1px solid var(--dgrey);
+    border-radius: 0;
+    padding: 5px 12px;
+    cursor: pointer;
+}
+
+.dlg button:hover:not(:disabled) { border-color: var(--lgrey); }
+.dlg button:disabled { color: var(--dgrey); border-color: var(--line); cursor: default; }
+.dlg button.go:not(:disabled) { color: var(--lgreen); border-color: var(--green); }
+.dlg button[hidden] { display: none; }

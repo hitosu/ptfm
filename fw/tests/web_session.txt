@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Vasily Kazantsev
+# The emulator's session (run_web.sh): run on the native build (web_native.c) and on the WebAssembly
+# (web_test.js) from the same flash (the demo disk seeded); both must print the same lines.
+#   at_ms  what  args      btn ID DOWN (B_*: 0-13), note N DOWN (0-26: F3-G5; the black keys OP1 1,
+#                          OP2 3, OP3 5, OP4 8, OP5 10, OP6 13, PIT 15, GLO 17, MONO 20, POLY 22),
+#                          knob ID CLICKS (K_*: 0-6), master 0-1023, shot (the audio since the last
+#                          shot: its hash and peak; the screen and the LEDs, hashed)
+800    shot
+# HOME + OP1: SONGS
+1000   btn 8 1
+1100   note 1 1
+1150   note 1 0
+1200   btn 8 0
+1600   shot
+# PLAY: the first song plays
+1700   btn 12 1
+1780   btn 12 0
+4000   shot
+# a key on top (the song's instrument or the keys' own)
+4100   note 12 1
+4600   shot
+4700   note 12 0
+# SELECT: the next song in the list; PLAY stops
+5000   knob 0 1
+5300   shot
+5400   btn 12 1
+5480   btn 12 0
+6500   shot
+# HOME + GLO: STATUS
+6600   btn 8 1
+6700   note 17 1
+6750   note 17 0
+6800   btn 8 0
+7200   shot
+# the knobs on STATUS, then HOME + LFO: the help
+7300   knob 0 2
+7400   knob 1 -1
+7600   shot
+7700   btn 8 1
+7800   btn 5 1
+7850   btn 5 0
+7900   btn 8 0
+8300   shot

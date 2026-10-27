@@ -1,0 +1,65 @@
+{
+  "about": "MIDI CONTROLLER's mirror-mode protocol, one table for both sides: fw/tests/ctl_test.c checks the firmware against it (event -> midi, midi -> fm1), tests/controller_page.js checks panel/midi.js (midi -> panel, panel -> midi). specs/controller.md has the protocol. Mirror mode on its own channel, 16: status 0x9F Note On, 0x8F Note Off, 0xBF CC. The answer (version 2) ends with the channel (0-15) before F7; mirror_channel_5 is the same session on channel 5.",
+  "protocol": 2,
+  "handshake": {
+    "ask": [240, 125, 80, 84, 67, 1, 247],
+    "answer": {
+      "mirror": [240, 125, 80, 84, 67, 2, 0, 2, 15, 247],
+      "general": [240, 125, 80, 84, 67, 2, 1, 2, 0, 247],
+      "mirror_channel_5": [240, 125, 80, 84, 67, 2, 0, 2, 4, 247]
+    }
+  },
+  "mirror_channel_5": [
+    {"event": {"key": 7, "down": true}, "midi": [148, 60, 127], "panel": {"press": 21}},
+    {"event": {"button": 12, "down": true}, "midi": [180, 114, 127], "panel": {"press": 12}},
+    {"event": {"knob": 2, "clicks": -1}, "midi": [180, 22, 127], "panel": {"turn": 2, "clicks": -1}},
+    {"event": {"master": 96}, "midi": [180, 7, 96], "panel": {"master": 96}},
+    {"panel": {"led": 14, "level": 1}, "midi": [148, 53, 127], "fm1": {"led": 14, "state": "lit"}},
+    {"panel": {"led": 41, "level": 1}, "midi": [180, 116, 127], "fm1": {"led": 41, "state": "lit"}}
+  ],
+  "mirror_out": [
+    {"event": {"key": 0, "down": true}, "midi": [159, 53, 127], "panel": {"press": 14}},
+    {"event": {"key": 0, "down": false}, "midi": [143, 53, 0], "panel": {"release": 14}},
+    {"event": {"key": 7, "down": true}, "midi": [159, 60, 127], "panel": {"press": 21}},
+    {"event": {"key": 7, "down": false}, "midi": [143, 60, 0], "panel": {"release": 21}},
+    {"event": {"key": 26, "down": true}, "midi": [159, 79, 127], "panel": {"press": 40}},
+    {"event": {"key": 26, "down": false}, "midi": [143, 79, 0], "panel": {"release": 40}},
+    {"event": {"button": 0, "down": true}, "midi": [191, 102, 127], "panel": {"press": 0}},
+    {"event": {"button": 0, "down": false}, "midi": [191, 102, 0], "panel": {"release": 0}},
+    {"event": {"button": 1, "down": true}, "midi": [191, 103, 127], "panel": {"press": 1}},
+    {"event": {"button": 3, "down": true}, "midi": [191, 105, 127], "panel": {"press": 3}},
+    {"event": {"button": 12, "down": true}, "midi": [191, 114, 127], "panel": {"press": 12}},
+    {"event": {"button": 12, "down": false}, "midi": [191, 114, 0], "panel": {"release": 12}},
+    {"event": {"button": 13, "down": true}, "midi": [191, 115, 127], "panel": {"press": 13}},
+    {"event": {"button": 13, "down": false}, "midi": [191, 115, 0], "panel": {"release": 13}},
+    {"event": {"knob": 0, "clicks": 1}, "midi": [191, 20, 1], "panel": {"turn": 0, "clicks": 1}},
+    {"event": {"knob": 0, "clicks": -1}, "midi": [191, 20, 127], "panel": {"turn": 0, "clicks": -1}},
+    {"event": {"knob": 1, "clicks": 3}, "midi": [191, 21, 3], "panel": {"turn": 1, "clicks": 3}},
+    {"event": {"knob": 2, "clicks": 1}, "midi": [191, 22, 1], "panel": {"turn": 2, "clicks": 1}},
+    {"event": {"knob": 5, "clicks": -5}, "midi": [191, 25, 123], "panel": {"turn": 5, "clicks": -5}},
+    {"event": {"knob": 6, "clicks": 63}, "midi": [191, 26, 63], "panel": {"turn": 6, "clicks": 63}},
+    {"event": {"knob": 6, "clicks": -63}, "midi": [191, 26, 65], "panel": {"turn": 6, "clicks": -63}},
+    {"event": {"master": 0}, "midi": [191, 7, 0], "panel": {"master": 0}},
+    {"event": {"master": 96}, "midi": [191, 7, 96], "panel": {"master": 96}},
+    {"event": {"master": 127}, "midi": [191, 7, 127], "panel": {"master": 127}}
+  ],
+  "mirror_leds": [
+    {"panel": {"led": 14, "level": 1}, "midi": [159, 53, 127], "fm1": {"led": 14, "state": "lit"}},
+    {"panel": {"led": 14, "level": 0.25}, "midi": [159, 53, 32], "fm1": {"led": 14, "state": "dim"}},
+    {"panel": {"led": 14, "level": 0}, "midi": [159, 53, 0], "fm1": {"led": 14, "state": "off"}},
+    {"panel": {"led": 40, "level": 1}, "midi": [159, 79, 127], "fm1": {"led": 40, "state": "lit"}},
+    {"panel": {"led": 0, "level": 1}, "midi": [191, 102, 127], "fm1": {"led": 0, "state": "lit"}},
+    {"panel": {"led": 9, "level": 0.25}, "midi": [191, 111, 32], "fm1": {"led": 9, "state": "dim"}},
+    {"panel": {"led": 12, "level": 1}, "midi": [191, 114, 127], "fm1": {"led": 12, "state": "lit"}},
+    {"panel": {"led": 13, "level": 0}, "midi": [191, 115, 0], "fm1": {"led": 13, "state": "off"}},
+    {"panel": {"led": 41, "level": 1}, "midi": [191, 116, 127], "fm1": {"led": 41, "state": "lit"}},
+    {"panel": {"led": 41, "level": 0}, "midi": [191, 116, 0], "fm1": {"led": 41, "state": "off"}}
+  ],
+  "mirror_led_levels": [
+    {"midi": [159, 60, 1], "fm1": {"led": 21, "state": "dim"}},
+    {"midi": [159, 60, 63], "fm1": {"led": 21, "state": "dim"}},
+    {"midi": [159, 60, 64], "fm1": {"led": 21, "state": "lit"}},
+    {"midi": [143, 60, 100], "fm1": {"led": 21, "state": "off"}},
+    {"midi": [191, 116, 40], "fm1": {"led": 41, "state": "dim"}}
+  ]
+}

@@ -1,0 +1,4 @@
+# Intermediate files: objects, generated headers, logs. The built files that are kept go to dist/.
+build/
+__pycache__/
+*.pyc

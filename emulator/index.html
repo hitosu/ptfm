@@ -1,0 +1,114 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>PT/FM · emulator</title>
+<link rel="stylesheet" href="../panel/panel.css">
+<link rel="stylesheet" href="../panel/page.css">
+<link rel="stylesheet" href="emulator.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="the page's tools">
+    <div class="brand">
+      <div class="logo"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b> <span>EMULATOR</span></div>
+      <div class="who">PT/FM's own firmware, compiled for the browser: the FM-1 on this page</div>
+      <button class="mini close" id="side-close">CLOSE</button>
+    </div>
+    <section class="grp">
+      <h3>POWER</h3>
+      <p class="state warn" id="sound-state">OFF: A CLICK ON THE PAGE SWITCHES IT ON</p>
+      <div class="two"><button id="power-reset" title="switch the emulated FM-1 off and on again, as its power switch; its flash kept">RESET</button><button id="erase-saved" title="erase what this page keeps in the browser (the emulated FM-1's flash, the page's settings), then a new FM-1">ERASE DATA</button></div>
+      <p class="hint">RESET: off and on again, its flash kept. ERASE DATA: the flash and the page's settings gone from this browser, a new FM-1 (tap it twice).</p>
+    </section>
+    <section class="grp" id="disks" aria-label="disks for the emulated FM-1">
+      <h3>DISKS</h3>
+      <div class="two"><button id="seed-file" title="seed a disk (.ptfmdsk) or a data blob into the emulated FM-1">SEED</button><button id="seed-demo" title="seed the demo disk into the emulated FM-1" disabled>DEMO DISK</button></div>
+      <p class="hint">A disk into the emulated FM-1, as the install page seeds the real one: its plan first, then WRITE. The flash is kept in this browser.</p>
+    </section>
+    <section class="grp" id="ports" aria-label="MIDI in and out of the emulated FM-1, as its USB MIDI">
+      <h3>ITS USB MIDI</h3>
+      <label class="port" title="a keyboard or a sequencer: its notes play as the keys, its clock syncs (SETTINGS' MIDI page)">IN <select id="midi-in"><option value="">OFF</option></select></label>
+      <label class="port" title="MIDI OUT: the keys, or all that plays (SETTINGS' MIDI page), and the clock">OUT <select id="midi-out"><option value="">OFF</option></select></label>
+    </section>
+    <section class="grp" id="midi" aria-label="the FM-1 as the controller, over MIDI">
+      <h3>THE FM-1 OVER MIDI</h3>
+      <button id="midi-on" aria-pressed="false" title="the real FM-1 works this one (its MIDI CONTROLLER, mirror mode)">CONNECT</button>
+      <p class="state" id="midi-state" data-state="off">MIDI: OFF</p>
+      <p class="hint">The real FM-1 as this one's controls: SETTINGS → MIDI → MIDI CONTROLLER, mirror mode (REC at its start). Its LEDs follow the page.</p>
+    </section>
+    <section class="grp" aria-label="the screen's size">
+      <h3>SCREEN</h3>
+      <div class="four" id="sizes"><button data-zoom="1">1×</button><button data-zoom="2">2×</button><button data-zoom="3">3×</button><button data-zoom="fit" title="as big as the window holds">FIT</button></div>
+      <p class="hint" id="sizes-hint">FIT: as big as the window holds</p>
+    </section>
+    <section class="grp">
+      <h3>FIRMWARE</h3>
+      <p class="hint" id="fw-info">looking for it</p>
+    </section>
+    <section class="grp">
+      <h3>HOW TO PLAY</h3>
+      <ul class="keys">
+        <li><b>BUTTONS, KEYS</b>: click or touch; several fingers hold several; <b>SHIFT</b>+click holds one</li>
+        <li><b>SLIDE ALONG THE KEYS</b>: each key the finger reaches plays (buttons stay held)</li>
+        <li><b>KNOBS</b>: − / + (held: repeats, faster), drag, the wheel</li>
+        <li><b>MASTER</b>: drag the bar; a double-click: half</li>
+        <li><b>KEYBOARD</b>: Z … / F3-A4 (S D F H J L ; ' the black), Q … Y B4-G5 (3 4 6)</li>
+        <li><b>HOME + LFO</b>: the help for the screen shown</li>
+        <li><b>RIGHT-CLICK THE SCREEN</b>: save or copy it</li>
+      </ul>
+    </section>
+  </aside>
+  <header class="top">
+    <div class="hbar">
+      <button class="mini" id="menu" aria-expanded="false" aria-controls="side">MENU</button>
+      <span class="hlogo"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b></span>
+      <span class="scr">EMULATOR</span>
+      <span class="tip" id="fw-tip">the firmware: looking for it</span>
+      <span id="sound-off" data-touch="TAP TO SWITCH THE FM-1 ON">CLICK ANYWHERE TO SWITCH THE FM-1 ON</span>
+    </div>
+  </header>
+  <main id="stage"><div id="fm1"></div></main>
+  <footer class="foot">
+    <span id="status">HELD: NOTHING</span>
+    <span class="chip" data-k="FLASH">kept in this browser</span>
+  </footer>
+</div>
+<div id="scrim"></div>
+<input type="file" id="seed-pick" hidden>
+<div id="seed" class="dlg" hidden>
+  <div class="box" role="dialog" aria-labelledby="seed-title">
+    <h2 id="seed-title">SEED</h2>
+    <pre id="seed-lines"></pre>
+    <div id="seed-bar"><span></span></div>
+    <div class="buttons"><button id="seed-cancel">CANCEL</button><button id="seed-go" class="go" disabled>WRITE</button></div>
+  </div>
+</div>
+<div id="firmware" class="dlg" hidden>
+  <div class="box" role="dialog" aria-labelledby="firmware-title">
+    <h2 id="firmware-title">NO FIRMWARE FOUND</h2>
+    <p>The emulator runs PT/FM's firmware built for it: <b>../dist/emulator/ptfm.wasm.js</b>, or a dev build's
+      <b>../build/fw/web/ptfm.wasm.js</b> (<b>python3 -I emulator/build.py</b>). Neither loaded; pick a
+      <b>.wasm.js</b> or <b>.wasm</b> file instead.</p>
+    <div class="buttons"><button id="fw-pick-btn">PICK A FILE</button></div>
+    <input type="file" id="fw-pick" accept=".js,.wasm" hidden>
+  </div>
+</div>
+<!-- classic scripts, not modules: Chrome refuses module scripts from file://. The panel (the virtual
+     FM-1's controls: specs/panel.md) and the page's frame are the playground's too: ../panel/. Everything the
+     FM-1 shows, lights and plays comes from the firmware (ptfm.wasm.js, loaded by main.js), run by the audio
+     worklet (worklet.js). Seeding is the install page's module: ../fw/web/seed.js. -->
+<script src="../panel/layout.js"></script>
+<script src="../panel/device.js"></script>
+<script src="../panel/keyboard.js"></script>
+<script src="../panel/midi.js"></script>
+<script src="../panel/page.js"></script>
+<script src="../fw/web/seed.js"></script>
+<script src="worklet.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,441 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Vasily Kazantsev */
+/* PT/FM panel: the virtual FM-1's controls (device.js builds them), for the playground and the emulator:
+ * made to be easy to use, not to look like the device (specs/panel.md). Three views: WIDE (the knobs and
+ * buttons beside the screen, the keys below), PORTRAIT (a phone held upright) and SIDEWAYS (a phone held
+ * sideways). The page around it is page.css's. */
+
+html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+}
+
+body {
+    font: 12px/1.5 Consolas, "DejaVu Sans Mono", monospace;
+    color: #5e5e5e;
+    touch-action: none;                  /* no pinch or double-tap zoom: the page is one screen of controls */
+}
+
+/* nothing on the page selects, and a long press opens no menu (a phone buzzes and starts selecting) */
+html, body, * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+#fm1 {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;    /* Chrome's grey patch on a touched element */
+}
+
+.panel {
+    --mint: #98dec9;
+    --face: #151918;
+    --edge: #2a3532;
+    --text: #6f8f86;
+    display: grid;
+    font: 11px/1 Consolas, "DejaVu Sans Mono", monospace;
+    color: var(--text);
+}
+
+.area {
+    display: grid;
+    gap: 6px;
+}
+
+/* ------------------------------------------------------------------------- the screen --- */
+.area.scr {
+    position: relative;
+    width: var(--scr);
+    height: var(--scr);
+    display: block;
+    background: #000;
+    outline: 1px solid #1d2422;
+}
+
+.area.scr .lcd, .area.scr .shot {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.area.scr .shot {
+    opacity: 0;                      /* there only to be right-clicked: save or copy the screen */
+}
+
+@media (pointer: coarse) {
+    .area.scr .shot {
+        display: none;               /* a touch screen has no right-click: a long press gets no image menu */
+    }
+}
+
+/* --------------------------------------------------------------- buttons and keys --- */
+/* An LED lights its button or key: --led its colour, --level 0-1 (the firmware's dim is 1/4) */
+.button, .key {
+    --level: 0;
+    --led: #f4fffa;
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: var(--face);
+    color: color-mix(in srgb, var(--led) calc(var(--level) * 100%), var(--text));
+    box-shadow: inset 0 0 calc(var(--level) * 14px) color-mix(in srgb, var(--led) calc(var(--level) * 55%), transparent);
+    cursor: pointer;
+}
+
+.button {
+    height: 30px;
+    font-weight: bold;
+    letter-spacing: .04em;
+}
+
+.button.down, .key.down {
+    border-color: var(--mint);
+    background: #1f2a27;
+    transform: translateY(1px);
+}
+
+.button.latched, .key.latched {
+    outline: 2px dashed var(--mint);
+    outline-offset: 2px;
+}
+
+/* the keys: 16 white in two rows of 8, the black ones over the gaps between them */
+.area.kb {
+    display: flex;
+    gap: 0;
+}
+
+.keyrow {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.blacks {
+    position: relative;
+    height: 38px;
+}
+
+.whites {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 3px;
+}
+
+.key.white {
+    height: 46px;
+    border-radius: 6px 6px 10px 10px;
+    background: color-mix(in srgb, var(--led) calc(var(--level) * 45%), #1d2321);
+}
+
+.key.black {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 9.5%;
+    left: calc((var(--wh) + 1) * 12.5% - 4.75%);
+    border-radius: 10px 10px 6px 6px;
+    background: color-mix(in srgb, var(--led) calc(var(--level) * 40%), #0f1312);
+    font-size: 9px;
+}
+
+.key.black.edge {
+    left: calc(100% - 4.75%);    /* OP6: on the line between F4 and G4 */
+}
+
+/* ------------------------------------------------------------------------ the knobs --- */
+.knob {
+    display: flex;
+    height: 30px;
+    border: 1px solid var(--edge);
+    border-radius: 15px;
+    background: var(--face);
+    overflow: hidden;
+}
+
+.knob .step {
+    flex: 0 0 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: var(--mint);
+    cursor: pointer;
+}
+
+.knob .step.held {
+    background: #1f2a27;
+}
+
+.knob .mid {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid #202826;
+    border-right: 1px solid #202826;
+    cursor: ns-resize;
+    white-space: nowrap;
+}
+
+.knob .label {
+    color: #a9c9bf;
+    letter-spacing: .03em;
+}
+
+.knob .val {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: var(--mint);
+    color: #0b1814;
+    font-weight: bold;
+}
+
+.knob.turning .val {
+    display: flex;
+}
+
+.knob.held .mid {
+    background: #1f2a27;
+}
+
+/* MASTER: a bar */
+.master {
+    position: relative;
+    height: 26px;
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    background: var(--face);
+    overflow: hidden;
+    cursor: ew-resize;
+}
+
+.master .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: #24413a;
+}
+
+.master .label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #a9c9bf;
+}
+
+/* ----------------------------------------------------------------- WIDE: a computer --- */
+/* the knobs, MASTER and OCT left of the screen, as on the FM-1; K1-K4 and the 12 buttons right of it
+ * (the panel's columns as rows: FX beside HOME); the keys below */
+.panel.wide {
+    grid-template-columns: 150px var(--scr) 150px;
+    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas:
+        "nav scr kn"
+        "mst scr btn"
+        "oct scr btn"
+        ".   scr btn"
+        "kb  kb  kb";
+    gap: 10px 18px;
+    align-items: start;
+}
+
+.panel.wide .area.btn {
+    grid-template-columns: 1fr 1fr;
+}
+
+.panel.wide .area.oct {
+    grid-template-columns: 1fr 1fr;
+}
+
+.panel.wide .area.kb {
+    margin-top: 8px;
+}
+
+.area.scr { grid-area: scr; }
+.area.nav { grid-area: nav; }
+.area.mst { grid-area: mst; }
+.area.oct { grid-area: oct; }
+.area.kn { grid-area: kn; }
+.area.btn { grid-area: btn; }
+.area.kb { grid-area: kb; }
+.area.pg { grid-area: pg; }
+
+/* the page's own key in the panel (its menu): SIDEWAYS only, where the page has no header */
+.panel:not(.sideways) .area.pg {
+    display: none;
+}
+
+/* ------------------------------------------------------- PORTRAIT: a phone held upright --- */
+/* the screen across the top (it gives up the height the rest needs); under it the knobs, OCT- over OCT+
+ * beside the buttons as the panel has them (FX ... GLO over HOME ... REC), MASTER a thin bar, then the
+ * keys in two rows (G4-G5 over F3-F4), big for fingers; the bottom 28 px left free for the phone's own
+ * gestures (Android's bar takes a press held there) */
+.panel.portrait {
+    grid-template-columns: 1fr 6fr;
+    grid-template-areas:
+        "scr scr"
+        "nav nav"
+        "kn  kn"
+        "oct btn"
+        "mst mst"
+        "kb  kb";
+    gap: 6px;
+    width: calc(100% - 12px);
+    justify-items: center;
+    padding-bottom: max(28px, env(safe-area-inset-bottom, 0px));
+}
+
+.panel.portrait .area:not(.scr) {
+    width: 100%;
+}
+
+.panel.portrait .area.nav {
+    grid-template-columns: 1fr 1.2fr 1fr;    /* ALGORITHM's name is the longest */
+}
+
+.panel.portrait .area.nav .knob .step {
+    flex-basis: 26px;
+}
+
+.panel.portrait .area.kn {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.panel.portrait .area.btn {
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+}
+
+.panel.portrait .area.oct {
+    grid-template-rows: 1fr 1fr;
+}
+
+.panel.portrait .knob {
+    height: 36px;
+    border-radius: 18px;
+}
+
+.panel.portrait .knob .step {
+    flex-basis: 32px;
+    font-size: 18px;
+}
+
+.panel.portrait .button {
+    height: 36px;
+}
+
+.panel.portrait .master {
+    height: 24px;
+}
+
+.panel.portrait .area.kb {
+    flex-direction: column;
+    gap: 8px;
+}
+
+.panel.portrait .blacks {
+    height: var(--black-h, 44px);        /* (device.js grows the keys into the room left below) */
+}
+
+.panel.portrait .key.white {
+    height: var(--white-h, 58px);
+}
+
+.panel.portrait .key.black.edge {
+    left: calc(100% - 9.5%);             /* OP6: at the lower row's end */
+}
+
+/* --------------------------------------------------- SIDEWAYS: a phone held sideways --- */
+/* the keys in one row along the bottom, the screen above them as high as they leave; left of it SELECT,
+ * ALGORITHM, PRESETS, MASTER, OCT- beside OCT+ and the page's menu; right of it K1-K4 (two a row) and the 12
+ * buttons as the panel has them, FX ... GLO over HOME ... REC, as big as the room there allows (a touch screen
+ * held in both hands: the thumbs reach the sides) */
+.panel.sideways {
+    grid-template-columns: 128px var(--scr) minmax(var(--side-right, 264px), 1fr);
+    grid-template-rows: auto auto auto 1fr auto;
+    grid-template-areas:
+        "nav scr kn"
+        "mst scr btn"
+        "oct scr btn"
+        "pg  scr btn"
+        "kb  kb  kb";
+    gap: 8px 10px;
+    width: calc(100% - 12px);
+    align-items: start;
+}
+
+.panel.sideways .area.kn {
+    grid-template-columns: 1fr 1fr;
+}
+
+.panel.sideways .area.oct {
+    grid-template-columns: 1fr 1fr;
+}
+
+.panel.sideways .area.btn {
+    grid-template-rows: repeat(2, minmax(36px, 56px));
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    align-self: stretch;
+    align-content: start;
+}
+
+.panel.sideways .button {
+    height: auto;
+    min-height: 34px;
+}
+
+.panel.sideways .area.oct .button {
+    height: 34px;
+}
+
+.panel.sideways .knob {
+    height: 34px;
+    border-radius: 17px;
+}
+
+.panel.sideways .knob .step {
+    flex-basis: 30px;
+    font-size: 17px;
+}
+
+.panel.sideways .area.kb {
+    margin-top: 0;
+}
+
+.panel.sideways .blacks {
+    height: var(--black-h, 30px);        /* (device.js grows the keys into the room the screen leaves) */
+}
+
+.panel.sideways .key.white {
+    height: var(--white-h, 40px);
+}
+
+/* WIDE and SIDEWAYS: the two rows side by side, one keyboard (F3-F4 left, G4-G5 right) */
+.panel.wide .area.kb, .panel.sideways .area.kb {
+    flex-direction: row-reverse;
+}
+
+.panel.wide .keyrow.high .whites, .panel.sideways .keyrow.high .whites {
+    padding-left: 3px;
+}

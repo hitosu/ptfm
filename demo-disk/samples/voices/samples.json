@@ -1,0 +1,207 @@
+{
+  "format": "demo-disk/sampler",
+  "version": 2,
+  "name": "VOICES",
+  "samples": [
+    {
+      "id": "PS01",
+      "file": "PS01.flac",
+      "name": "HERE COMES",
+      "kind": "voice",
+      "length": 11840,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Dance Vocal Shouts 2: Here Comes the Drop",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Dance Vocal Shouts 2/DVSV2 - Here Comes the Drop 1.wav",
+        "sha256": "f0a48e38ebc90f683dcbb48a7427428d7a6dec0eb24b35be2af85a7ea0cd3a8d"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "PS02",
+      "file": "PS02.flac",
+      "name": "R U READY",
+      "kind": "voice",
+      "length": 12800,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Dance Vocal Shouts 2: Are You Ready for This",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Dance Vocal Shouts 2/DVSV2 - Are You Ready for This 1.wav",
+        "sha256": "fe058370f430e58bc578d75e9c820ed086dda0af4fcf1cf60e172b10e7d0b288"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "PS10",
+      "file": "PS10.flac",
+      "name": "WARNING",
+      "kind": "voice",
+      "length": 6160,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Computer World: Warning",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Computer World/CW - Warning.wav",
+        "sha256": "51797beb84c0e19b05b94f4fd4045c3cad58c290fb952371207d548bf3fe72aa"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "PS15",
+      "file": "PS15.flac",
+      "name": "THREE",
+      "kind": "voice",
+      "length": 5610,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Computer World: 3",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Computer World/CW - 3.wav",
+        "sha256": "ed7f01e0eb7e84184d1b012f309d4c6973a575acb235c93c7f058f9deaca52d6"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "PS16",
+      "file": "PS16.flac",
+      "name": "TWO",
+      "kind": "voice",
+      "length": 5500,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Computer World: 2",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Computer World/CW - 2.wav",
+        "sha256": "ace307c3d8b28aa9475849e5c811f2750ad69798cf3007e97cad3cb68b22b681"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "PS17",
+      "file": "PS17.flac",
+      "name": "ONE",
+      "kind": "voice",
+      "length": 5390,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Producer Space's CC0 sample library (producerspace.com, Creative Nevada): Computer World: 1",
+        "url": "https://archive.org/details/producer-space-cc0-sample-library"
+      },
+      "source": {
+        "file": "producer-space/Producer Space/Packs/Computer World/CW - 1.wav",
+        "sha256": "79dcfeb300b86be1983558fb7354b9061b5fca5c26512d2819526f2273a8d8ae"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    }
+  ],
+  "instruments": [
+    {
+      "name": "HERE COMES",
+      "sample": "PS01",
+      "start": 0,
+      "end": 11840,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 7,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "R U READY",
+      "sample": "PS02",
+      "start": 0,
+      "end": 12800,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 6.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "WARNING",
+      "sample": "PS10",
+      "start": 0,
+      "end": 6160,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 7.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "THREE",
+      "sample": "PS15",
+      "start": 0,
+      "end": 5610,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 7,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TWO",
+      "sample": "PS16",
+      "start": 0,
+      "end": 5500,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 7.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "ONE",
+      "sample": "PS17",
+      "start": 0,
+      "end": 5390,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 8.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 70], "levels": [99, 99, 99, 0]}
+    }
+  ]
+}

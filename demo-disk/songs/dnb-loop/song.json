@@ -1,0 +1,47 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "DNB LOOP",
+  "what": "Drum and bass, A minor, 172 BPM. A DJ loop of the samplers: the DRUM KIT's two-step, hats and a shaker, the BASS cartridge's DNB BASS, a JUNO-106 Space Pad. It loops over two patterns, this one and a bridge: the same break and bass, the BASS cartridge's WOBBLE 140 as the pad for six bars, low, opening slowly, then the Space Pad finishing; double HIP-HOP LOOP's tempo. An intro first, played once: the hats and the pad, then the break, R U READY at its end; no bass",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 172,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "loop",
+  "loop_from": 1,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 64,
+  "positions": [47, 48, 49],
+  "mixer": [
+    {"level": 127, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 42, "pan": 158, "duck": 0, "chorus": 0, "delay": 10, "reverb": 0},
+    {"level": 80, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 25, "pan": 100, "duck": 0, "chorus": 0, "delay": 35, "reverb": 55},
+    {"level": 93, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 77, "pan": 158, "duck": 0, "chorus": 0, "delay": 10, "reverb": 0},
+    {"level": 60, "pan": 158, "duck": 0, "chorus": 0, "delay": 10, "reverb": 0},
+    {"level": 33, "pan": 100, "duck": 0, "chorus": 0, "delay": 35, "reverb": 55},
+    {"level": 100, "pan": 100, "duck": 0, "chorus": 0, "delay": 35, "reverb": 55}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": true, "mode": "I+II", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/4.", "feedback": 40, "tone": 40, "ping_pong": true, "mix": 30},
+    "reverb": {"on": true, "size": 75, "damp": 45, "pre_delay": 10, "mix": 35},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

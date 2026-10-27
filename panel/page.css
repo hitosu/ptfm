@@ -1,0 +1,339 @@
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Vasily Kazantsev */
+/* PT/FM's pages around the panel (the playground, the emulator): their frame, in the look of the install and
+ * debug pages (specs/panel.md#the-page): the FM-1 screen's colours on black, the system's own sans-serif, a
+ * sidebar with the page's tools, a header, the panel in the middle, a footer. On a computer the sidebar stands
+ * left; narrower, and on a phone, it is a drawer the header's MENU opens (SIDEWAYS: the panel's own MENU key,
+ * the header gone). page.js does the frame's behaviour. */
+
+:root {
+    --k: #000000; --blue: #4C5CD0; --green: #4AAA4A; --cyan: #3AA8A8; --red: #C84C44; --magenta: #B054B0;
+    --brown: #C87C34; --lgrey: #B4B4AC; --dgrey: #5C5C5C; --lblue: #7C8CF8; --lgreen: #84E884; --lcyan: #84E8E8;
+    --lred: #F87C74; --lmagenta: #E884E8; --yellow: #F0E074; --white: #F4F4EC;
+    --green-d: #163316; --yellow-d: #484322; --line: #2E2E2E;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --side-w: 264px;
+    color-scheme: dark;
+}
+
+body {
+    font: 16px/20px var(--sans);
+    color: var(--lgrey);
+    font-variant-numeric: tabular-nums;
+}
+
+body ::selection { background: var(--blue); color: var(--white); }
+body * { scrollbar-width: thin; scrollbar-color: var(--dgrey) #000; }
+.app *, .app *::before, .app *::after { box-sizing: border-box; }
+
+/* ---- the frame: the sidebar left, then the header, the panel, the footer ---- */
+.app {
+    display: grid;
+    grid-template-columns: var(--side-w) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: 100vh;
+    height: 100dvh;
+}
+
+.side {
+    grid-row: 1 / 4;
+    border-right: 1px solid var(--dgrey);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;                 /* (the page itself takes no touch gestures: the panel's) */
+    padding: 8px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #000;
+}
+
+.top {
+    grid-column: 2;
+    border-bottom: 1px solid var(--dgrey);
+    min-width: 0;
+}
+
+#stage {
+    grid-column: 2;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#fm1 {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.foot {
+    grid-column: 2;
+    border-top: 1px solid var(--dgrey);
+    padding: 4px 12px 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px 18px;
+    min-height: 30px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.foot #status {
+    color: var(--white);
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.foot .chip {
+    font: 12px/15px var(--sans);
+    color: var(--lgrey);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 50%;
+}
+
+.foot .chip::before {
+    content: attr(data-k) " ";
+    color: var(--cyan);
+}
+
+/* ---- the sidebar ---- */
+.brand {
+    display: grid;
+    gap: 2px;
+    position: relative;
+}
+
+.brand .logo {
+    font: 24px/28px var(--sans);
+    color: var(--white);
+}
+
+.brand .logo b { font-weight: normal; }
+.brand .logo span { color: var(--magenta); }
+/* the logo's letters in the start screen's colours */
+.brand .logo .c-p { color: var(--lred); }
+.brand .logo .c-t { color: var(--lcyan); }
+.brand .logo .c-s { color: var(--yellow); }
+.brand .logo .c-f { color: var(--lgreen); }
+.brand .logo .c-m { color: var(--lmagenta); }
+
+.brand .who {
+    font: 12px/15px var(--sans);
+    color: var(--lgrey);
+}
+
+.brand .close {
+    position: absolute;
+    top: 2px;
+    right: 0;
+}
+
+.grp {
+    display: grid;
+    gap: 6px;
+}
+
+.grp > h3 {
+    margin: 0 0 2px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--dgrey);
+    font: 16px/20px var(--sans);
+    color: var(--cyan);
+}
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.hint { margin: 0; font: 12px/15px var(--sans); color: var(--lgrey); }
+.state { margin: 0; color: var(--white); }
+.state.off { color: var(--lgrey); }
+.state.ok { color: var(--lgreen); }
+.state.warn { color: var(--yellow); }
+.state.bad { color: var(--lred); }
+
+/* MIDI's state (panel/midi.js): off and looking light grey, paired in mirror mode green, a general-mode FM-1
+ * yellow (it plays notes, it does not work the panel) */
+#midi-state[data-state="off"], #midi-state[data-state="looking"] { color: var(--lgrey); }
+#midi-state[data-state="mirror"] { color: var(--lgreen); }
+#midi-state[data-state="general"] { color: var(--yellow); }
+
+.keys {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+    font: 12px/15px var(--sans);
+    color: var(--lgrey);
+}
+
+.keys b {
+    font-weight: normal;
+    color: var(--yellow);
+}
+
+/* keys: a button is a key, its name yellow as the help draws keys; on (CONNECTED, the zoom picked) green */
+.app button, .app select {
+    font: 16px/20px var(--sans);
+    color: var(--yellow);
+    background: #000;
+    border: 1px solid var(--dgrey);
+    border-radius: 0;
+    padding: 5px 8px;
+    cursor: pointer;
+    text-align: center;
+    min-width: 0;
+    touch-action: manipulation;
+}
+
+.app select {
+    text-align: left;
+    width: 100%;
+    padding: 4px 6px;
+    color: var(--white);
+}
+
+.app button:hover:not(:disabled), .app select:hover:not(:disabled) { border-color: var(--lgrey); }
+.app button:active:not(:disabled) { background: var(--yellow-d); }
+.app button:focus-visible, .app select:focus-visible { outline: 1px solid var(--white); outline-offset: 1px; }
+.app button:disabled, .app select:disabled { color: var(--dgrey); border-color: var(--line); cursor: default; }
+.app button[aria-pressed="true"] { color: var(--lgreen); border-color: var(--green); }
+.app button.mini { font: 12px/15px var(--sans); padding: 2px 8px; }
+.app button.armed { color: var(--lred); border-color: var(--lred); }   /* (ERASE DATA asking for its second tap) */
+
+.app label.port {
+    display: grid;
+    grid-template-columns: 3em minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    color: var(--cyan);
+    font: 12px/15px var(--sans);
+}
+
+/* ---- the header: the page's name, the sound's state; MENU when the sidebar is a drawer ---- */
+.hbar {
+    display: flex;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 4px 12px;
+    min-height: 32px;
+    min-width: 0;
+}
+
+.hbar .scr { color: var(--magenta); white-space: nowrap; }
+.hbar .tip { font: 12px/15px var(--sans); color: var(--lgrey); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#menu, .pgmenu, .hlogo { display: none; }
+#menu { flex: none; }
+/* the header's own logo, where the sidebar (which has one) is a drawer */
+.hlogo { white-space: nowrap; font-size: 18px; }
+.hlogo b { font-weight: normal; }
+.hlogo .c-p { color: var(--lred); }
+.hlogo .c-t { color: var(--lcyan); }
+.hlogo .c-s { color: var(--yellow); }
+.hlogo .c-f { color: var(--lgreen); }
+.hlogo .c-m { color: var(--lmagenta); }
+
+/* the sound off until a click (a browser's rule); it blinks when PLAY or a key asks for sound */
+#sound-off {
+    margin-left: auto;
+    color: var(--yellow);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    pointer-events: none;
+}
+
+#sound-off.ask {
+    animation: ask-for-sound .3s steps(1) 6;
+}
+
+@keyframes ask-for-sound {
+    50% {
+        color: #000;
+        background: var(--yellow);
+    }
+}
+
+/* ---- narrower than the panel and the sidebar together, or a phone: the sidebar a drawer ---- */
+#scrim {
+    display: none;
+}
+
+@media (max-width: 999px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .top, #stage, .foot { grid-column: 1; }
+    .side {
+        position: fixed;
+        z-index: 20;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: min(300px, 86vw);
+        padding-top: max(8px, env(safe-area-inset-top, 0px));
+        padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));
+        border-right: 1px solid var(--lgrey);
+        transform: translateX(-105%);
+        visibility: hidden;
+        transition: transform .16s ease-out, visibility 0s .16s;
+    }
+    .brand { padding-right: 68px; }             /* (CLOSE beside the logo, which wraps before it) */
+    body.drawer .side {
+        transform: none;
+        visibility: visible;
+        transition: transform .16s ease-out;
+    }
+    body.drawer #scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 19;
+        background: rgba(0, 0, 0, .6);
+    }
+    #menu, .hlogo { display: inline-block; }
+}
+
+@media (min-width: 1000px) {
+    .brand .close { display: none; }
+}
+
+/* PORTRAIT (a phone held upright): no footer (the room is the keys'), the header a slim bar */
+body.portrait .foot { display: none; }
+body.portrait .hbar .tip, body.portrait .hbar .scr { display: none; }
+body.portrait #sound-off { font-size: 14px; }
+
+/* SIDEWAYS (a phone held sideways): no header and no footer, every pixel of height the panel's; MENU is the
+ * panel's own key (page.js puts it in dev.slot), the sound's sign over the screen's top until the sound starts */
+body.sideways .foot { display: none; }
+body.sideways .top { border: 0; height: 0; overflow: visible; }
+body.sideways .hbar { padding: 0; min-height: 0; }
+body.sideways .hbar > :not(#sound-off) { display: none; }
+body.sideways #sound-off:not([hidden]) {
+    position: fixed;
+    z-index: 5;
+    top: 50%;                            /* (over the screen's middle: page.js sets left and the width to it) */
+    left: 50%;
+    transform: translate(-50%, -50%);
+    max-width: calc(100vw - 16px);
+    padding: 6px 10px;
+    white-space: normal;
+    text-align: center;
+    font-size: 14px;
+    line-height: 18px;
+    background: #000;
+    border: 1px solid var(--yellow);
+}
+body.sideways .pgmenu {
+    display: block;
+    width: 100%;
+    height: 34px;
+    font: 12px/15px var(--sans);
+    padding: 0 8px;
+}

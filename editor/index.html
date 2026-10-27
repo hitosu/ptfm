@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev
+     PT/FM's editor, EDITOR [beta] (specs/editor.md). Opened as it is, it loads its scripts from beside it and the
+     firmware's WebAssembly from build/editor (editor/build.py makes it); editor/build.py writes all of it into one
+     file, dist/editor/editor.html. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PT/FM EDITOR</title>
+<style>/*FONTS*/</style>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="brand" id="brand" title="FILES"><b><span class="ptfm"><span class="l-p">P</span><span class="l-t">T</span><span class="l-s">/</span><span class="l-f">F</span><span class="l-m">M</span></span> EDITOR</b><span class="chip beta">BETA</span></button>
+    <nav class="tabs" id="tabs" aria-label="Tabs"></nav>
+    <div class="topr">
+      <button class="btn small" id="undo" title="UNDO (CTRL+Z)" disabled>UNDO</button>
+      <button class="btn small" id="redo" title="REDO (CTRL+Y)" disabled>REDO</button>
+    </div>
+  </header>
+  <main id="main">
+    <section class="files" id="files" data-show="L">
+      <div class="narrowsw" id="narrowsw"></div>
+    </section>
+  </main>
+  <footer class="foot">
+    <div class="player">
+      <button class="pbtn" id="pbtn" title="PLAY THE SELECTED ITEM (SPACE)">▶</button>
+      <button class="pskip" id="pprev" title="THE PREVIOUS INSTRUMENT" hidden>◀</button>
+      <button class="pskip" id="pnext" title="THE NEXT INSTRUMENT" hidden>▶</button>
+      <span class="plabel idle" id="plabel">NOTHING PLAYING</span>
+      <div class="prog" id="prog" title="CLICK TO JUMP THERE"><i id="pfill"></i></div>
+      <span class="ptime" id="ptime"></span>
+      <label class="pvol" title="THE PREVIEW'S VOLUME"><span>VOL</span><input type="range" id="pvol" min="-24" max="24" step="1" value="0" aria-label="The preview's volume"><output id="pvolv">0 DB</output></label>
+    </div>
+    <div class="status" id="status"></div>
+  </footer>
+</div>
+<div class="dlgwrap" id="dlg" hidden></div>
+<input type="file" id="filepick" multiple hidden>
+<input type="file" id="diskpick" accept=".ptfmdsk,.ptd" hidden>
+
+<script src="../fw/web/seed.js"></script>
+<script src="js/util.js"></script>
+<script src="js/defs.js"></script>
+<script src="js/records.js"></script>
+<script src="js/cmds.js"></script>
+<script src="js/model.js"></script>
+<script src="js/flash.js"></script>
+<script src="js/conv_syx.js"></script>
+<script src="js/conv_sound.js"></script>
+<script src="js/optimize.js"></script>
+<script src="js/ibxm_load.js"></script>
+<script src="js/conv_mod.js"></script>
+<script src="js/conv_midi.js"></script>
+<script src="js/keep.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/files.js"></script>
+<script src="js/fm1.js"></script>
+<script src="js/drops.js"></script>
+<script src="js/player.js"></script>
+<script src="js/pics.js"></script>
+<script src="js/tabs.js"></script>
+<script src="js/tab_pattern.js"></script>
+<script src="js/tab_song.js"></script>
+<script src="js/tab_sample.js"></script>
+<script src="js/tab_cart.js"></script>
+<script src="js/tab_system.js"></script>
+<script src="../build/editor/ed_wasm.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

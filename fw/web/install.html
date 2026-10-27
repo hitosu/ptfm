@@ -1,0 +1,449 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev
+     PT/FM's install page (fw/tools/make_installer.py fills in the firmware package, the demo disk, PT/FM's
+     seeding module seed.js, and SLOOP's installer scripts, fm1pkg.js and fm1ota.js: GPL-3.0-only, Leo
+     Kuroshita, Hügelton Instruments; the debug build's page: debug.html's FIGURES too). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PT/FM: install</title>
+<style>
+/* The FM-1 screen's look, as the debug page has it: black, the EGA's sixteen colours, square boxes, the keys' names
+   yellow, headings cyan. The browser's own fonts (nothing embedded, nothing fetched: the page works offline). The
+   debug build's page (debug.html) keeps these ids and classes and sets its own look over them. */
+:root {
+  --k: #000000; --blue: #4C5CD0; --green: #4AAA4A; --cyan: #3AA8A8; --red: #C84C44; --magenta: #B054B0;
+  --lgrey: #B4B4AC; --dgrey: #5C5C5C; --lblue: #7C8CF8; --lgreen: #84E884; --lcyan: #84E8E8; --lred: #F87C74;
+  --lmagenta: #E884E8; --yellow: #F0E074; --white: #F4F4EC;
+  --green-d: #163316; --red-d: #3C1614; --yellow-d: #484322; --line: #2E2E2E;
+  /* the page's parts by their jobs (debug.html sets the same names) */
+  --bg: #000000; --panel: #000000; --panel2: #000000; --text: var(--white); --muted: var(--lgrey); --faint: var(--dgrey);
+  --mint: var(--green); --mint-ink: #000000; --amber: var(--yellow);
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--muted); font: 16px/1.5 var(--sans); }
+::selection { background: var(--blue); color: var(--white); }
+.wrap { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+
+/* the name: PT/FM's letters in the start screen's colours */
+.intro { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 18px; margin-bottom: 22px; }
+.intro .mark { font: 700 44px/1 var(--sans); letter-spacing: .02em; }
+.intro .mark b { font-weight: inherit; }
+.intro .c-p { color: var(--lred); } .intro .c-t { color: var(--lcyan); } .intro .c-s { color: var(--yellow); }
+.intro .c-f { color: var(--lgreen); } .intro .c-m { color: var(--lmagenta); }
+.intro .naming { flex: 1 1 260px; min-width: 0; }
+.intro p { margin: 0; }
+.intro .tagline { color: var(--cyan); font-size: 14px; letter-spacing: .1em; }
+.intro .for { color: var(--lgrey); font-size: 14px; }
+.intro .idline { display: flex; gap: 4px 14px; flex-wrap: wrap; }
+.chip { font: 13px/1.5 var(--mono); color: var(--lgrey); white-space: nowrap; }
+.chip b { color: var(--white); font-weight: 400; }
+.chip.ok { color: var(--lgreen); }
+.chip.warn { color: var(--yellow); }
+.chip.bad { color: var(--lred); }
+
+/* boxes: square, a grey line */
+.card { background: var(--bg); border: 1px solid var(--dgrey); padding: 18px 16px; }
+.card + .card { margin-top: 16px; }
+h2 { margin: 0 0 10px; font: 400 15px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--cyan); }
+body:not(.dbg) h2 { padding-bottom: 5px; border-bottom: 1px solid var(--dgrey); }
+body:not(.dbg) * + h2 { margin-top: 24px; }
+
+/* the keys: a button is a key, its name yellow; pressed, the yellow's dark shade */
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+button { font: inherit; cursor: pointer; }
+.big { min-height: 72px; padding: 10px 12px; background: var(--bg); color: var(--yellow); border: 1px solid var(--dgrey);
+  border-radius: 0; font: 600 17px/1.25 var(--sans); letter-spacing: .08em; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.big small { font: 400 13px/1.35 var(--sans); letter-spacing: 0; color: var(--lgrey); }
+.big:hover:not(:disabled) { border-color: var(--lgrey); }
+.big:active:not(:disabled) { background: var(--yellow-d); }
+.big:disabled { color: var(--dgrey); border-color: var(--line); cursor: not-allowed; }
+.big:disabled small { color: var(--dgrey); }
+.big:focus-visible, .small:focus-visible { outline: 1px solid var(--white); outline-offset: 2px; }
+#go:not(:disabled) { border-color: var(--green); }
+/* CLEAN INSTALL: a switch (a checkbox drawn as one); on is red: it erases */
+.switch { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; cursor: pointer; color: var(--lgrey);
+  font-size: 14px; position: relative; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.switch .track { flex: none; position: relative; width: 36px; height: 18px; margin-top: 2px; background: var(--bg);
+  border: 1px solid var(--dgrey); }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 10px; height: 10px; background: var(--dgrey); }
+.switch input:checked + .track { background: var(--red-d); border-color: var(--red); }
+.switch input:checked + .track::after { transform: translateX(18px); background: var(--lred); }
+.switch input:focus-visible + .track { outline: 1px solid var(--white); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .45; }
+.switch b { font-weight: 600; letter-spacing: .08em; color: var(--white); margin-right: 8px; }
+.switch input:checked ~ span b { color: var(--lred); }
+
+/* what is under way: a line, a bar */
+.status { margin-top: 16px; min-height: 1.5em; color: var(--white); overflow-wrap: anywhere; }
+.status.err { color: var(--lred); }
+.status.done { color: var(--lgreen); }
+progress { display: block; width: 100%; height: 8px; margin-top: 10px; appearance: none; border: 0; border-radius: 0;
+  background: #1B1B1B; }
+progress::-webkit-progress-bar { background: #1B1B1B; border-radius: 0; }
+progress::-webkit-progress-value { background: var(--green); border-radius: 0; }
+progress::-moz-progress-bar { background: var(--green); }
+.facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 14px; }
+.small { min-height: 40px; padding: 8px 14px; border: 1px solid var(--dgrey); border-radius: 0; background: var(--bg);
+  color: var(--yellow); font: 600 14px/1.4 var(--sans); letter-spacing: .06em; }
+.small:hover:not(:disabled) { border-color: var(--lgrey); }
+.small:active:not(:disabled) { background: var(--yellow-d); }
+.small:disabled { color: var(--dgrey); border-color: var(--line); cursor: not-allowed; }
+.small.primary { background: var(--mint); color: var(--mint-ink); border-color: var(--mint); }
+a.small { display: inline-block; text-decoration: none; }
+
+/* how to: the steps, the keys, then what can go wrong and the credits, opened on a tap */
+.steps { margin: 0; padding-left: 22px; }
+.steps li { margin: 4px 0; }
+.steps li::marker { color: var(--cyan); }
+.note { margin: 10px 0 0; color: var(--lgrey); font-size: 14px; }
+.keys { margin: 0; }
+.keys dt { margin-top: 12px; color: var(--yellow); font-weight: 600; letter-spacing: .06em; }
+.keys dt:first-child { margin-top: 0; }
+.keys dd { margin: 2px 0 0; }
+.help b, .keys b { color: var(--white); font-weight: 400; }
+details { border-top: 1px solid var(--dgrey); padding: 10px 0; }
+body:not(.dbg) details:first-of-type { margin-top: 24px; }
+body:not(.dbg) details:last-of-type { padding-bottom: 0; }
+summary { cursor: pointer; color: var(--white); letter-spacing: .06em; padding: 4px 0; }
+summary::marker { color: var(--cyan); }
+details p, details li { color: var(--lgrey); }
+details ul { padding-left: 20px; margin: 8px 0 0; }
+details li { margin: 6px 0; }
+details li b { color: var(--white); font-weight: 400; }
+pre.notes { max-height: 360px; overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: 0;
+  background: var(--bg); font: 12px/1.5 var(--mono); color: var(--lgrey); white-space: pre-wrap; overflow-wrap: anywhere; }
+kbd { font: inherit; color: var(--yellow); }
+code { font: 14px var(--mono); color: var(--white); }
+footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+[hidden] { display: none !important; }
+/* a phone: the keys one above the other */
+@media (max-width: 560px) {
+  .wrap { padding-top: 18px; }
+  .logo { font-size: 38px; }
+  .actions { grid-template-columns: 1fr; }
+  .card { padding: 14px 12px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <div class="mark" role="img" aria-label="PT/FM"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b></div>
+    <div class="naming">
+      <p class="tagline">POCKET TRACKER / FUSION MACHINE</p>
+      <p class="for">A tracker for the M-VAVE FM-1</p>
+    </div>
+    <p class="idline"><span class="chip" id="ident">FM-1</span><span class="chip" id="ver"></span></p>
+  </div>
+
+  <section class="card">
+    <div class="actions">
+      <button class="big" id="go" disabled>INSTALL FIRMWARE<small id="gosub">PT/FM onto the FM-1, your work kept</small></button>
+      <button class="big" id="disk" disabled>UPLOAD DEMO DISK<small>the demo songs onto the FM-1, replacing your work</small></button>
+    </div>
+    <label class="switch" id="cleanrow" hidden>
+      <input type="checkbox" id="clean" role="switch">
+      <span class="track" aria-hidden="true"></span>
+      <span><b>CLEAN INSTALL</b>INSTALL FIRMWARE writes PT/FM, then erases everything the FM-1 holds: an empty user area</span>
+    </label>
+    <div class="status" id="status" role="status">Checking the package…</div>
+    <progress id="bar" max="100" value="0" hidden></progress>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <section class="card help">
+    <h2>BEFORE YOU START</h2>
+    <ol class="steps">
+      <li>Open this page in <b>Chrome</b> or <b>Edge</b>, on a computer or an Android phone. Safari and iPhones have no MIDI for web pages.</li>
+      <li>Connect the FM-1 by USB and switch it on. Keep it connected until the page says <b>Done</b>.</li>
+      <li>When the browser asks, allow MIDI devices, SysEx included: everything goes through it.</li>
+    </ol>
+    <p class="note">The firmware and the demo disk are inside this page: it works offline and sends nothing anywhere else.</p>
+    <h2>WHAT THE KEYS DO</h2>
+    <dl class="keys">
+      <dt>INSTALL FIRMWARE</dt>
+      <dd>Writes PT/FM over whatever firmware the FM-1 runs. Over PT/FM, your songs, patterns, samples and settings stay
+        where they are: the install writes nothing into the user area. Other firmwares erase it when they are installed:
+        keep a copy of your work first (the editor page saves the FM-1's library as a disk). Changes not saved on the
+        FM-1 are lost, as when it is switched off.</dd>
+      <dt>CLEAN INSTALL</dt>
+      <dd>A fresh start. With the switch on, INSTALL FIRMWARE writes PT/FM, then erases everything
+        the FM-1 holds (your work, the settings, damaged records too), leaving an empty user area. UPLOAD DEMO DISK
+        writes the demo disk after it, if you want it.</dd>
+      <dt>UPLOAD DEMO DISK</dt>
+      <dd>Needs PT/FM running. Afterwards the FM-1 holds exactly the demo disk: its songs, patterns and samples take the
+        place of yours, and what of yours is not on it is gone. If the FM-1 has edits not saved, it refuses: press
+        <kbd>SAVE</kbd> on it (or REVERT them), then upload again.</dd>
+    </dl>
+    <details>
+      <summary>IF SOMETHING GOES WRONG</summary>
+      <ul>
+        <li><b>No FM-1 found:</b> close what else uses its MIDI port (a DAW, another installer, another tab), then try again.</li>
+        <li><b>It does not start, or does not answer:</b> switch it off, hold <kbd>OCT−</kbd> and switch it on. The screen
+          says USB RESCUE (it starts so by itself after two failed starts); now press INSTALL FIRMWARE.</li>
+        <li><b>An install cut short:</b> press INSTALL FIRMWARE again. The FM-1 waits in update mode until an install
+          finishes.</li>
+        <li><b>An upload cut short:</b> upload again. What was there stays whole until the new files are all in; the FM-1
+          says what it found when it starts.</li>
+        <li><b>Back to another firmware:</b> PT/FM keeps the FM-1's update path, so another FM-1 firmware's installer
+          replaces it, from USB RESCUE if need be.</li>
+      </ul>
+    </details>
+    <details id="notesbox" hidden>
+      <summary>THE DEMO DISK: CREDITS AND LICENCES</summary>
+      <pre class="notes" id="notes"></pre>
+    </details>
+    <details>
+      <summary>WHAT IS INSIDE</summary>
+      <p>PT/FM is free software under the GPL-3.0-only, with its complete source in PT/FM's repository (<code>fw/</code>).
+        It runs on the device layer of SLOOP 2.4.1, after Felucca (Leo Kuroshita, Hügelton Instruments; GPL-3.0-only),
+        and this page installs through their installer scripts. The second core's start and hold follow work by Charles
+        Vestal, Kerem Kilic and zednaked (GPL-3.0-only). The DX7 follows MSFA (Apache-2.0), the Juno-106
+        Ultramaster KR-106 (GPL-3.0), the TB-303 Open303 (MIT), the replay IBXM (BSD-3-Clause). The package carries three
+        files of JieLi's AC79 SDK (Apache-2.0). The FM-1's screen draws Terminus (SIL OFL 1.1). Each work on the demo
+        disk carries its own licence, in its credits above. No warranty.</p>
+    </details>
+  </section>
+  <footer id="foot"></footer>
+</div>
+
+<script>/*LIB*/</script>
+<script>/*SEED*/</script>
+<script>
+(function () {
+  "use strict";
+  const meta = /*META*/;
+  const PKG = "/*PKG*/";
+  const DISK = "/*DISK*/";
+  const $ = (id) => document.getElementById(id);
+  const b64 = (s) => { const bin = atob(s), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; };
+
+  let image = null, disk = null, busy = false;
+  const status = (text, kind) => { $("status").textContent = text; $("status").className = "status" + (kind ? " " + kind : ""); };
+  const fact = (html, cls) => { const s = document.createElement("span"); s.className = "chip" + (cls ? " " + cls : ""); s.innerHTML = html; $("facts").appendChild(s); };
+  const lock = (on) => { busy = on; window.PTFM_busy = on; $("go").disabled = on || !image; $("disk").disabled = on || !disk; $("clean").disabled = on; };
+  const cleanOn = () => !!$("clean").checked;      /* CLEAN INSTALL */
+  function cleanLabel() {                            /* INSTALL FIRMWARE's line under it says which install it does */
+    $("gosub").textContent = cleanOn() ? "clean: PT/FM, then an empty user area" : "PT/FM onto the FM-1, your work kept";
+  }
+
+  async function checkPackage() {
+    if (!navigator.requestMIDIAccess) { status("This browser has no MIDI for web pages: open this page in Chrome or Edge.", "err"); return; }
+    try {
+      const pkg = b64(PKG), sha = await sha256hex(pkg);
+      fact(`<b>${Math.round(pkg.length / 1024)} KB</b> firmware`);
+      fact(`sha256 <b title="${meta.sha256}">${meta.sha256.slice(0, 12)}…</b>`);
+      if (pkg.length !== meta.size || sha !== meta.sha256 || productOf(pkg) !== meta.product) {
+        fact("damaged", "bad");
+        status("The firmware inside this page is damaged: get the page again.", "err");
+        return;
+      }
+      image = logicalImage(pkg);
+      if (meta.disk && typeof PTFM_seed !== "undefined") {
+        const d = b64(DISK), dsha = await sha256hex(d);
+        if (d.length !== meta.disk.size || dsha !== meta.disk.sha256) {
+          fact("demo disk damaged", "bad");
+        } else {
+          const parsed = PTFM_seed.parseData(d);
+          if (parsed.problems.length) fact("demo disk: " + parsed.problems[0], "bad");
+          else {
+            disk = parsed;
+            const bytes = parsed.files.reduce((n, f) => n + f.len, 0);
+            fact(`<b>${parsed.files.length}</b> files, <b>${Math.round(bytes / 1024)} KB</b> demo disk`);
+            if (parsed.notes) { $("notes").textContent = parsed.notes; $("notesbox").hidden = false; }
+          }
+        }
+      } else {
+        fact("no demo disk in this page", "warn");
+      }
+      fact("✓ verified here", "ok");
+      $("cleanrow").hidden = false;
+      $("clean").checked = !!meta.clean;             /* (the debug page: on at first) */
+      cleanLabel();
+      status("Ready: connect the FM-1 by USB, switch it on, then press a key.");
+      lock(false);
+    } catch (e) { status("The page's contents could not be read: " + e.message, "err"); }
+  }
+
+  /* ---- INSTALL FIRMWARE (the FM-1's update path) ---- */
+  const TOTAL = 74 + 1179;                           /* reads: step 1, step 2 (head + app area) */
+  const ERR = {
+    notfound: "No FM-1 found. Is it connected by USB and switched on? Close what else uses its MIDI port, then try again.",
+    model: "This is not an FM-1: ", stopped: "The FM-1 stopped answering, so nothing was written. Press INSTALL FIRMWARE again.",
+    lost: "The FM-1 was disconnected. Connect it again and press INSTALL FIRMWARE.",
+    noloader: "The FM-1 went into update mode but cannot be found now. Plug its USB cable in again and press INSTALL FIRMWARE: it waits in update mode until an install finishes.",
+    noreturn: "The FM-1 did not start again by itself: switch it off and on.",
+    mismatch: "Written, but the FM-1 now reports another firmware: ",
+    foreign: "The FM-1 waits in another firmware's update mode: finish that update with its own installer first. ",
+  };
+  function step(k, a) {
+    const bar = $("bar");
+    bar.hidden = false;
+    if (k === "start") status("Found " + a + ". Checking the package on the FM-1…");
+    if (k === "verify") { status("Checking the package on the FM-1…"); bar.value = Math.min(100, (a / TOTAL) * 100); }
+    if (k === "loader") status("Starting the update loader… (the FM-1 restarts)");
+    if (k === "write") { status("Writing PT/FM. Keep the FM-1 connected."); bar.value = Math.min(100, ((74 + a) / TOTAL) * 100); }
+    if (k === "reboot") status("Written. Waiting for the FM-1 to start PT/FM…");
+    if (k === "done") { bar.value = 100; status("Done: the FM-1 runs PT/FM (" + (a || meta.product) + ").", "done"); }
+  }
+  window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
+  $("go").addEventListener("click", async () => {
+    if (busy || !image) return;
+    const clean = cleanOn();                         /* (as switched at the press) */
+    lock(true);
+    let midi, installed = false;
+    try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+    catch (e) { status("MIDI was not allowed. Allow it for this page and press INSTALL FIRMWARE again.", "err"); lock(false); return; }
+    try {
+      const up = new Updater(midi, (t) => console.log(t));
+      const ota = await up.find((id) => /^ota-/i.test(id.model), true);   /* (a loader waiting, under any port name) */
+      if (ota) {
+        ota.link.close();
+        if (await up.resume(image, step)) { step("done"); installed = true; }
+        else status(ERR.stopped, "err");
+      } else {
+        await up.install(image, meta.product, step);
+        installed = true;
+      }
+    } catch (e) {
+      status((e && e.code && ERR[e.code] ? ERR[e.code] + (e.detail || "") : "Install failed: " + (e && e.message)), "err");
+      console.error(e);
+    }
+    if (installed && clean) await cleanErase(midi);
+    lock(false);
+  });
+
+  /* the FM-1 back on PT/FM after an install: a seeding session and its layout, or null */
+  async function ptfmBack(midi) {
+    for (let tries = 0; tries < 8; tries++) {
+      await new Promise((r) => setTimeout(r, tries ? 1500 : 500));
+      let s = null;
+      try { s = await ptfmSession(midi); if (s) return { s, L: await s.hello() }; }
+      catch (e) { if (s) s.close(); }
+    }
+    return null;
+  }
+
+  /* a clean install's second half (CLEAN INSTALL switched on): every block of the user area erased, no record left
+     (seed.js planClean with no files); the demo disk is UPLOAD DEMO DISK's */
+  async function cleanErase(midi) {
+    status("Installed. Waiting for PT/FM to erase the FM-1…");
+    const back = await ptfmBack(midi);
+    if (!back) {
+      status("Installed, but the FM-1 did not answer as PT/FM, so nothing was erased: switch it off and on, then press INSTALL FIRMWARE again.", "err");
+      return;
+    }
+    try {
+      const w = await writeDisk(back.s, back.L, PTFM_seed.planClean, "Erasing the FM-1", { files: [], problems: [] });
+      if (w.problem) status("Installed, but the FM-1 could not be erased: " + w.problem + ".", "err");
+      else status(`Done: a clean FM-1, PT/FM (${meta.product}), its user area empty.` +
+        (w.r && w.r.bad ? ` The FM-1 still counts ${w.r.bad} damaged records: press INSTALL FIRMWARE again.` : ""), w.r && w.r.bad ? "err" : "done");
+    } catch (e) {
+      status(e && e.timeout
+        ? "Installed, but erasing stopped: the FM-1 did not answer. Switch the FM-1 off and on, then press INSTALL FIRMWARE again."
+        : "Installed, but erasing stopped: " + (e && e.message) + ". Press INSTALL FIRMWARE again.", "err");
+      try { await back.s.abort(); } catch (_) { /* the FM-1 mounts by itself after 10 s */ }
+      console.error(e);
+    }
+    back.s.close();
+  }
+
+  async function ptfmSession(midi) {                 /* a seeding session with PT/FM on the FM-1, or null */
+    const { input, output } = ports(midi);
+    if (!input || !output) return null;
+    await input.open(); await output.open();
+    return PTFM_seed.session(PTFM_seed.midiTransport(input, output), { log: (t) => console.log(t) });
+  }
+
+  /* ---- UPLOAD DEMO DISK (seeding: seed.js, specs/files/blob.md) ---- */
+  function ports(midi) {                             /* the FM-1's MIDI ports, PT/FM's by name first */
+    const pick = (list) => {
+      const all = [...list.values()].filter((p) => /FM-1/i.test(p.name || "") && p.state !== "disconnected");
+      return all.find((p) => /PT\/FM/i.test(p.name)) || all[0] || null;
+    };
+    return { input: pick(midi.inputs), output: pick(midi.outputs) };
+  }
+  /* (every block written is read back and checked: records the FM-1 still counts as damaged are older ones the
+     plan did not need, left where they were) */
+  const oldBad = (r) => r.bad ? ` The FM-1 also found ${r.bad} damaged record${r.bad === 1 ? "" : "s"} from before, which ` +
+    `this did not need (SETTINGS > TOOLS > CHECK STORAGE names them).` : "";
+
+  /* the demo disk planned on the layout L by planFn and written at once, the progress in the status line;
+     planned again if the FM-1 saved meanwhile (CHANGED). -> { r } written, { upToDate }, { problem }; throws
+     what writing threw (the caller aborts) */
+  async function writeDisk(s, L, planFn, what, data) {
+    const bar = $("bar");
+    for (let tries = 0; ; tries++) {
+      const plan = planFn(L, data || disk);
+      if (!plan.ok) return { problem: plan.problems[0] || "it cannot be written" };
+      if (plan.upToDate) return { upToDate: true };
+      bar.hidden = false;
+      bar.value = 0;
+      status(`${what}. Keep the FM-1 connected.`);
+      try {
+        const r = await s.write(plan, (p) => { bar.value = (p.done / p.total) * 100; status(`${what}: block ${p.done} of ${p.total}. Keep the FM-1 connected.`); });
+        bar.value = 100;
+        return { r };
+      } catch (e) {
+        if (!(e && e.code === PTFM_seed.RESULT.CHANGED) || tries >= 2) throw e;
+        L = await s.hello();                         /* (saved or moved on the FM-1 since its layout was read) */
+      }
+    }
+  }
+
+  /* UPLOAD DEMO DISK: one press, written at once */
+  $("disk").addEventListener("click", async () => {
+    if (busy || !disk) return;
+    lock(true);
+    $("bar").hidden = true;
+    let midi, s = null, asked = false;
+    try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+    catch (e) { status("MIDI was not allowed. Allow it for this page and press UPLOAD DEMO DISK again.", "err"); lock(false); return; }
+    try {
+      s = await ptfmSession(midi);
+      if (!s) { status(ERR.notfound, "err"); lock(false); return; }
+      status("Asking the FM-1 what it holds…");
+      const L = await s.hello();
+      asked = true;
+      const w = await writeDisk(s, L, PTFM_seed.plan, "Writing the demo disk");
+      if (w.problem) status("The demo disk cannot be written: " + w.problem + ".", "err");
+      else if (w.upToDate) status("The FM-1 already holds the demo disk, exactly.", "done");
+      else status(`Done: the FM-1 holds ${w.r.records} files.` + oldBad(w.r), "done");
+    } catch (e) {
+      if (!asked) {
+        const unsaved = e && e.code === PTFM_seed.RESULT.UNSAVED;
+        status(unsaved ? "The FM-1 has edits not saved: SAVE them (or REVERT) on the FM-1, then press UPLOAD DEMO DISK again."
+          : "The FM-1 did not answer as PT/FM (" + (e && e.message) + "). Is PT/FM installed and running? INSTALL FIRMWARE first.", "err");
+      } else {
+        status(e && e.timeout
+          ? "The upload stopped: the FM-1 did not answer. Switch the FM-1 off and on, then press UPLOAD DEMO DISK again. What was there before is kept."
+          : "The upload stopped: " + (e && e.message) + ". What was there before is kept; upload again.", "err");
+        try { await s.abort(); } catch (_) { /* the FM-1 mounts by itself after 10 s */ }
+      }
+      console.error(e);
+    }
+    if (s) s.close();
+    lock(false);
+  });
+
+  $("clean").addEventListener("change", cleanLabel);
+  $("ident").textContent = meta.product;
+  $("ver").textContent = meta.version || "";
+  $("ver").hidden = !meta.version;
+  $("foot").textContent = `PT/FM ${meta.version || ""}, package ${meta.product}, SHA-256 ${meta.sha256}` +
+    (meta.disk ? `; demo disk SHA-256 ${meta.disk.sha256}` : "") + ". Free software, GPL-3.0-only.";
+  checkPackage();
+})();
+</script>
+<!--DEBUG-->
+</body>
+</html>

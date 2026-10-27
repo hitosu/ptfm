@@ -1,0 +1,2467 @@
+{
+  "format": "demo-disk/dx7-bank",
+  "version": 1,
+  "name": "PADS/CHOIRS",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "voices": [
+    {
+      "name": "FM VOICES ",
+      "level": 0.5,
+      "algorithm": 1,
+      "feedback": 2,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 8,
+        "am_depth": 12,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [48, 99, 99, 50], "levels": [99, 99, 99, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [52, 99, 99, 50], "levels": [99, 92, 92, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [48, 99, 99, 50], "levels": [99, 99, 99, 0]},
+          "level": 92,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 54,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 50,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 40,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ]
+    },
+    {
+      "name": "CHOIR     ",
+      "level": 0.5,
+      "algorithm": 32,
+      "feedback": 4,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [74, 27, 99, 52], "levels": [99, 95, 95, 0]},
+          "level": 74,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": -6,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [74, 16, 99, 46], "levels": [99, 95, 95, 0]},
+          "level": 81,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 2,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [64, 16, 99, 41], "levels": [99, 95, 95, 0]},
+          "level": 98,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [86, 33, 99, 64], "levels": [99, 95, 95, 0]},
+          "level": 74,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 2,
+          "rate_scaling": 6,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "ym2612-patches by ulalume: Mega Drive patches, converted here from the YM2612's 4 operators",
+        "url": "https://github.com/ulalume/ym2612-patches/blob/693380920326ed3fd28c962843ecb4059e33f79f/LICENSE"
+      },
+      "source": {
+        "file": "ensemble/choir.dmp",
+        "commit": "693380920326ed3fd28c962843ecb4059e33f79f",
+        "sha256": "6341bb02f2d6c455b3496641ce76ad05bd51bded4a1c8690e9a55fac19c1e048"
+      }
+    },
+    {
+      "name": "CHOIR AAHS",
+      "level": 1.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 12,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 4
+      },
+      "ops": [
+        {
+          "eg": {"rates": [63, 99, 99, 49], "levels": [99, 99, 99, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 96], "levels": [99, 99, 99, 0]},
+          "level": 68,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [63, 99, 99, 49], "levels": [99, 99, 99, 0]},
+          "level": 96,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 83,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "052 Choir Aahs"
+      }
+    },
+    {
+      "name": "SYN CHOIR ",
+      "level": -0.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 12,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 4
+      },
+      "ops": [
+        {
+          "eg": {"rates": [63, 99, 99, 49], "levels": [99, 99, 99, 0]},
+          "level": 98,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 96], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [63, 99, 99, 55], "levels": [99, 99, 99, 0]},
+          "level": 94,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 96], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "054 Synth Choir"
+      }
+    },
+    {
+      "name": "VOICE LEAD",
+      "level": -5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 11,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 4
+      },
+      "ops": [
+        {
+          "eg": {"rates": [89, 99, 99, 80], "levels": [99, 99, 99, 0]},
+          "level": 92,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 96], "levels": [99, 99, 99, 0]},
+          "level": 83,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [89, 99, 99, 68], "levels": [99, 99, 99, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 83,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "085 Lead 6 Voice"
+      }
+    },
+    {
+      "name": "CHOIR PAD ",
+      "level": 7.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 7,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [63, 99, 99, 55], "levels": [99, 99, 99, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [63, 99, 99, 49], "levels": [99, 99, 99, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "091 Pad 4 Choir"
+      }
+    },
+    {
+      "name": "WARM PAD  ",
+      "level": 2,
+      "algorithm": 5,
+      "feedback": 3,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 22,
+        "delay": 0,
+        "pm_depth": 4,
+        "am_depth": 0,
+        "key_sync": false,
+        "wave": "sine",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [46, 40, 30, 44], "levels": [99, 96, 96, 0]},
+          "level": 94,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 1,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 40, 30, 44], "levels": [99, 94, 94, 0]},
+          "level": 72,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [44, 40, 30, 44], "levels": [99, 96, 96, 0]},
+          "level": 86,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -1,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 40, 30, 44], "levels": [99, 94, 94, 0]},
+          "level": 67,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [46, 40, 30, 44], "levels": [99, 96, 96, 0]},
+          "level": 90,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 40, 30, 44], "levels": [99, 94, 94, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "MIT",
+        "credit": "Lunar Modulator's DX7 voices, Copyright (c) 2026 ip2k",
+        "url": "https://github.com/ip2k/lunar-modulator/blob/c63b51a678a60b83a4a61985ce0e5eac51b123d4/LICENSE"
+      },
+      "source": {
+        "file": "engines/src/dx7_bank.h",
+        "commit": "c63b51a678a60b83a4a61985ce0e5eac51b123d4",
+        "sha256": "83a4160acd7cc0a4a7dae68c0b5269ab70ec4ecbf429e89c501cb423c4802da9",
+        "voice": "WARM PAD"
+      }
+    },
+    {
+      "name": "GLASS PAD ",
+      "level": 3.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 26,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 20,
+        "key_sync": false,
+        "wave": "sine",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [48, 40, 30, 46], "levels": [99, 96, 96, 0]},
+          "level": 94,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 40, 30, 46], "levels": [99, 91, 91, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 38,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [50, 40, 30, 46], "levels": [99, 96, 96, 0]},
+          "level": 84,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 2,
+          "rate_scaling": 1,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 40, 30, 46], "levels": [99, 91, 91, 0]},
+          "level": 67,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 41,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [46, 40, 30, 46], "levels": [99, 96, 96, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 1,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [44, 40, 30, 46], "levels": [99, 88, 88, 0]},
+          "level": 62,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 25,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "MIT",
+        "credit": "Lunar Modulator's DX7 voices, Copyright (c) 2026 ip2k",
+        "url": "https://github.com/ip2k/lunar-modulator/blob/c63b51a678a60b83a4a61985ce0e5eac51b123d4/LICENSE"
+      },
+      "source": {
+        "file": "engines/src/dx7_bank.h",
+        "commit": "c63b51a678a60b83a4a61985ce0e5eac51b123d4",
+        "sha256": "83a4160acd7cc0a4a7dae68c0b5269ab70ec4ecbf429e89c501cb423c4802da9",
+        "voice": "GLASS PAD"
+      }
+    },
+    {
+      "name": "SWEEP     ",
+      "level": -0.5,
+      "algorithm": 1,
+      "feedback": 6,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 12,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": false,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [60, 40, 30, 50], "levels": [99, 96, 96, 0]},
+          "level": 96,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [30, 20, 25, 50], "levels": [99, 60, 80, 0]},
+          "level": 82,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 2,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [60, 40, 30, 50], "levels": [99, 96, 96, 0]},
+          "level": 90,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 2,
+          "rate_scaling": 1,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [24, 22, 28, 50], "levels": [99, 50, 75, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 2,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [20, 30, 30, 50], "levels": [99, 60, 85, 0]},
+          "level": 74,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 30, 30, 50], "levels": [99, 70, 85, 0]},
+          "level": 74,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "MIT",
+        "credit": "Lunar Modulator's DX7 voices, Copyright (c) 2026 ip2k",
+        "url": "https://github.com/ip2k/lunar-modulator/blob/c63b51a678a60b83a4a61985ce0e5eac51b123d4/LICENSE"
+      },
+      "source": {
+        "file": "engines/src/dx7_bank.h",
+        "commit": "c63b51a678a60b83a4a61985ce0e5eac51b123d4",
+        "sha256": "83a4160acd7cc0a4a7dae68c0b5269ab70ec4ecbf429e89c501cb423c4802da9",
+        "voice": "SWEEP"
+      }
+    },
+    {
+      "name": "SOFT PAD  ",
+      "level": 5,
+      "algorithm": 5,
+      "feedback": 2,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 30,
+        "delay": 60,
+        "pm_depth": 4,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "sine",
+        "pitch_mod_sens": 2
+      },
+      "ops": [
+        {
+          "eg": {"rates": [40, 30, 40, 40], "levels": [99, 95, 90, 0]},
+          "level": 92,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [35, 30, 40, 40], "levels": [85, 90, 80, 0]},
+          "level": 60,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 30, 40, 40], "levels": [99, 95, 90, 0]},
+          "level": 92,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 3,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [30, 25, 40, 40], "levels": [80, 90, 85, 0]},
+          "level": 55,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 1,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [38, 30, 40, 40], "levels": [99, 95, 90, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [35, 30, 40, 40], "levels": [85, 90, 85, 0]},
+          "level": 50,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "Felucca's FM6 factory patches, Copyright (C) 2026 Leo Kuroshita (@kurogedelic), H\u00fcgelton Instruments",
+        "url": "https://github.com/hugelton/Felucca/blob/ac6bfcbd76ee3de79eb461719e8d123b5512aa3c/LICENSE"
+      },
+      "source": {
+        "file": "tools/gen_fm6_patches.py",
+        "commit": "ac6bfcbd76ee3de79eb461719e8d123b5512aa3c",
+        "sha256": "3956c375a86f63692f7ee55a4610362f428d9c001d03763b5183e9e37614d9f4",
+        "voice": "SOFT PAD"
+      }
+    },
+    {
+      "name": "GLASS 2   ",
+      "level": 2,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 22,
+        "delay": 50,
+        "pm_depth": 3,
+        "am_depth": 0,
+        "key_sync": false,
+        "wave": "sine",
+        "pitch_mod_sens": 2
+      },
+      "ops": [
+        {
+          "eg": {"rates": [40, 25, 25, 52], "levels": [99, 92, 90, 0]},
+          "level": 94,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -1,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [38, 25, 25, 52], "levels": [99, 85, 80, 0]},
+          "level": 58,
+          "mode": "ratio",
+          "coarse": 3,
+          "fine": 0,
+          "detune": 2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [42, 25, 25, 52], "levels": [99, 92, 90, 0]},
+          "level": 90,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 1,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 25, 25, 52], "levels": [99, 80, 75, 0]},
+          "level": 55,
+          "mode": "ratio",
+          "coarse": 5,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 25, 25, 52], "levels": [99, 92, 90, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 25, 25, 52], "levels": [99, 85, 80, 0]},
+          "level": 52,
+          "mode": "ratio",
+          "coarse": 7,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "sloopDX's factory voices, Copyright (C) 2026 Sven Trogus",
+        "url": "https://github.com/zvenson/dxsloop/blob/17e395b878f0e112d5192b9f0250dcaa11808674/LICENSING.md"
+      },
+      "source": {
+        "file": "tools/gen_dx7_bank.py",
+        "commit": "17e395b878f0e112d5192b9f0250dcaa11808674",
+        "sha256": "acf70730dd41a4a024e828e10bf7570623a340de518dba86c0e2b5092344b7f2",
+        "voice": "GLASS PAD"
+      }
+    },
+    {
+      "name": "DEEP PAD  ",
+      "level": 2,
+      "algorithm": 5,
+      "feedback": 2,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [43, 41, 99, 35], "levels": [99, 95, 95, 0]},
+          "level": 90,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 75,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [68, 52, 58, 64], "levels": [99, 75, 0, 0]},
+          "level": 61,
+          "mode": "ratio",
+          "coarse": 10,
+          "fine": 10,
+          "detune": -2,
+          "rate_scaling": 6,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [49, 40, 99, 46], "levels": [99, 99, 99, 0]},
+          "level": 95,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [49, 29, 0, 80], "levels": [99, 47, 0, 0]},
+          "level": 67,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "ym2612-patches by ulalume: Mega Drive patches, converted here from the YM2612's 4 operators",
+        "url": "https://github.com/ulalume/ym2612-patches/blob/693380920326ed3fd28c962843ecb4059e33f79f/LICENSE"
+      },
+      "source": {
+        "file": "synth pad/deep pad.dmp",
+        "commit": "693380920326ed3fd28c962843ecb4059e33f79f",
+        "sha256": "d9819101cbade1edd7058dab88a39e58f192624781d91a2129d94e1651e5d76d"
+      }
+    },
+    {
+      "name": "PAD       ",
+      "level": 10.5,
+      "algorithm": 5,
+      "feedback": 2,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [52, 16, 99, 41], "levels": [99, 91, 91, 0]},
+          "level": 84,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 41, 19, 46], "levels": [99, 79, 0, 0]},
+          "level": 95,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 2,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [36, 15, 99, 54], "levels": [99, 95, 95, 0]},
+          "level": 77,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [40, 15, 0, 41], "levels": [99, 91, 0, 0]},
+          "level": 91,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "ym2612-patches by ulalume: Mega Drive patches, converted here from the YM2612's 4 operators",
+        "url": "https://github.com/ulalume/ym2612-patches/blob/693380920326ed3fd28c962843ecb4059e33f79f/LICENSE"
+      },
+      "source": {
+        "file": "synth pad/pad.dmp",
+        "commit": "693380920326ed3fd28c962843ecb4059e33f79f",
+        "sha256": "4db4377b06475649c0484a6e5a5bd850edfd201ad55fadee104218a6fc1f723b"
+      }
+    },
+    {
+      "name": "PAD 2     ",
+      "level": 7,
+      "algorithm": 29,
+      "feedback": 2,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [52, 83, 33, 47], "levels": [99, 79, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [52, 83, 29, 54], "levels": [99, 79, 0, 0]},
+          "level": 96,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [52, 83, 22, 35], "levels": [99, 79, 0, 0]},
+          "level": 92,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 25,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [96, 52, 64, 96], "levels": [99, 0, 0, 0]},
+          "level": 98,
+          "mode": "ratio",
+          "coarse": 10,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 2,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "ym2612-patches by ulalume: Mega Drive patches, converted here from the YM2612's 4 operators",
+        "url": "https://github.com/ulalume/ym2612-patches/blob/693380920326ed3fd28c962843ecb4059e33f79f/LICENSE"
+      },
+      "source": {
+        "file": "synth pad/pad2.dmp",
+        "commit": "693380920326ed3fd28c962843ecb4059e33f79f",
+        "sha256": "1caa75cd18f2ab552ddc469b6120522b1b71063ecbe4d0436488244721675861"
+      }
+    },
+    {
+      "name": "SSG       ",
+      "level": 1.5,
+      "algorithm": 32,
+      "feedback": 4,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [99, 33, 33, 33], "levels": [99, 95, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 2,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 72, 40, 19], "levels": [99, 79, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 25,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 54, 40, 52], "levels": [99, 75, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 40, 47, 33], "levels": [99, 83, 0, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "ym2612-patches by ulalume: Mega Drive patches, converted here from the YM2612's 4 operators",
+        "url": "https://github.com/ulalume/ym2612-patches/blob/693380920326ed3fd28c962843ecb4059e33f79f/LICENSE"
+      },
+      "source": {
+        "file": "synth pad/ssg cocktail.dmp",
+        "commit": "693380920326ed3fd28c962843ecb4059e33f79f",
+        "sha256": "f56546da9e8133548f03c7ec530e2626085e0659979783918fb1a6b187e0ee8c"
+      }
+    },
+    {
+      "name": "FANTASIA  ",
+      "level": 1,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 7,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [60, 24, 99, 36], "levels": [99, 0, 0, 0]},
+          "level": 97,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [41, 20, 99, 30], "levels": [99, 55, 55, 0]},
+          "level": 91,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 52, 99, 55], "levels": [99, 0, 0, 0]},
+          "level": 97,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 33, 99, 30], "levels": [99, 0, 0, 0]},
+          "level": 65,
+          "mode": "ratio",
+          "coarse": 8,
+          "fine": 75,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "088 Pad 1 Fantasia"
+      }
+    },
+    {
+      "name": "WARM PAD 2",
+      "level": 2,
+      "algorithm": 8,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 7,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [60, 24, 99, 36], "levels": [99, 0, 0, 0]},
+          "level": 97,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [38, 33, 99, 30], "levels": [99, 0, 0, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 25,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [41, 20, 99, 30], "levels": [99, 55, 55, 0]},
+          "level": 91,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [54, 99, 99, 36], "levels": [99, 99, 99, 0]},
+          "level": 85,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "089 Pad 2 Warm"
+      }
+    },
+    {
+      "name": "POLY PAD  ",
+      "level": -2.5,
+      "algorithm": 5,
+      "feedback": 7,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 7,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 3
+      },
+      "ops": [
+        {
+          "eg": {"rates": [50, 99, 99, 61], "levels": [99, 99, 99, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [57, 99, 99, 68], "levels": [99, 99, 99, 0]},
+          "level": 79,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 36, 99, 61], "levels": [99, 99, 99, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 30, 99, 0], "levels": [99, 79, 79, 0]},
+          "level": 79,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "090 Pad 3 Poly"
+      }
+    },
+    {
+      "name": "BOWED PAD ",
+      "level": 6,
+      "algorithm": 29,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [60, 36, 99, 61], "levels": [99, 87, 87, 0]},
+          "level": 84,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [54, 36, 99, 68], "levels": [99, 87, 87, 0]},
+          "level": 85,
+          "mode": "ratio",
+          "coarse": 5,
+          "fine": 80,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [47, 30, 99, 68], "levels": [99, 71, 71, 0]},
+          "level": 93,
+          "mode": "ratio",
+          "coarse": 8,
+          "fine": 25,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [79, 36, 99, 18], "levels": [99, 99, 99, 0]},
+          "level": 73,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "092 Pad 5 Bowed"
+      }
+    },
+    {
+      "name": "METALLIC  ",
+      "level": 6.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [60, 43, 99, 52], "levels": [99, 0, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 0, 99, 18], "levels": [99, 79, 79, 0]},
+          "level": 83,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [72, 46, 99, 71], "levels": [99, 0, 0, 0]},
+          "level": 76,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 4,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 74, 99, 30], "levels": [99, 87, 87, 0]},
+          "level": 54,
+          "mode": "ratio",
+          "coarse": 5,
+          "fine": 80,
+          "detune": -2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "093 Pad 6 Metallic"
+      }
+    },
+    {
+      "name": "HALO PAD  ",
+      "level": 6.5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 11,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 4
+      },
+      "ops": [
+        {
+          "eg": {"rates": [63, 99, 99, 55], "levels": [99, 99, 99, 0]},
+          "level": 80,
+          "mode": "ratio",
+          "coarse": 0,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [63, 99, 99, 49], "levels": [99, 99, 99, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 70,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 50,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "094 Pad 7 Halo"
+      }
+    },
+    {
+      "name": "SWEEP PAD ",
+      "level": 5,
+      "algorithm": 5,
+      "feedback": 0,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 30,
+        "pm_depth": 12,
+        "am_depth": 10,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 4
+      },
+      "ops": [
+        {
+          "eg": {"rates": [72, 24, 15, 55], "levels": [99, 91, 0, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [47, 43, 18, 64], "levels": [99, 99, 0, 0]},
+          "level": 87,
+          "mode": "ratio",
+          "coarse": 4,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 2,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [79, 24, 15, 55], "levels": [99, 99, 0, 0]},
+          "level": 89,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": -4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [47, 43, 18, 71], "levels": [99, 99, 0, 0]},
+          "level": 87,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 2,
+          "amp_mod_sens": 1,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "095 Pad 8 Sweep"
+      }
+    },
+    {
+      "name": "ORCH HIT  ",
+      "level": 5,
+      "algorithm": 5,
+      "feedback": 7,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 34,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 0,
+        "key_sync": true,
+        "wave": "triangle",
+        "pitch_mod_sens": 0
+      },
+      "ops": [
+        {
+          "eg": {"rates": [99, 55, 99, 74], "levels": [99, 0, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [89, 71, 99, 86], "levels": [99, 0, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": -4,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 99], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 52, 99, 61], "levels": [99, 0, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 6,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [99, 99, 99, 0], "levels": [99, 99, 99, 0]},
+          "level": 96,
+          "mode": "ratio",
+          "coarse": 2,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 39, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "BSD-2-Clause",
+        "credit": "the Commander X16 ROM's FM patches (its audio library, X16Community), converted here from the YM2151's 4 operators",
+        "url": "https://github.com/X16Community/x16-rom/blob/fbe32a60704f555c0515fe8d3cb76857eb56d670/LICENSE.md"
+      },
+      "source": {
+        "file": "audio/fmpatches.s",
+        "commit": "fbe32a60704f555c0515fe8d3cb76857eb56d670",
+        "sha256": "11042d95bc2a1a43b729f6852aa70c15207fa17a3f4b13d9cef282207ecce1a9",
+        "voice": "055 Orch Hit"
+      }
+    },
+    {
+      "name": "SEMIGONGER",
+      "level": 5,
+      "algorithm": 3,
+      "feedback": 7,
+      "osc_key_sync": true,
+      "transpose": 0,
+      "pitch_eg": {"rates": [99, 99, 99, 99], "levels": [50, 50, 50, 50]},
+      "lfo": {
+        "speed": 35,
+        "delay": 0,
+        "pm_depth": 0,
+        "am_depth": 99,
+        "key_sync": true,
+        "wave": "square",
+        "pitch_mod_sens": 6
+      },
+      "ops": [
+        {
+          "eg": {"rates": [98, 99, 99, 90], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [98, 99, 99, 90], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [98, 99, 99, 90], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [80, 80, 30, 99], "levels": [88, 99, 0, 0]},
+          "level": 99,
+          "mode": "ratio",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 3,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [80, 99, 80, 90], "levels": [99, 50, 70, 77]},
+          "level": 99,
+          "mode": "fixed",
+          "coarse": 2,
+          "fine": 63,
+          "detune": 2,
+          "rate_scaling": 0,
+          "amp_mod_sens": 2,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        },
+        {
+          "eg": {"rates": [98, 99, 99, 90], "levels": [99, 99, 99, 0]},
+          "level": 0,
+          "mode": "fixed",
+          "coarse": 1,
+          "fine": 0,
+          "detune": 0,
+          "rate_scaling": 0,
+          "amp_mod_sens": 0,
+          "key_vel_sens": 0,
+          "kbd": {"break_point": 0, "left_depth": 0, "right_depth": 0, "left_curve": "-lin", "right_curve": "-lin"}
+        }
+      ],
+      "license": {
+        "id": "CC-BY-SA-4.0",
+        "credit": "classix, a DX7 bank by Idiomdrottning",
+        "url": "https://idiomdrottning.org/dx7-old"
+      },
+      "source": {
+        "file": "idiomdrottning-classix.dx7",
+        "sha256": "c4d8aef4d2186f26057eedc3e0dff8e2d3fdac1137a7914aa47432971828db93",
+        "voice": "semigonger"
+      }
+    }
+  ]
+}

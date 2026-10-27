@@ -1,0 +1,50 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "MIDNIGHT RUN",
+  "what": "Outrun synthwave, F# minor, 130 BPM (F#m D E Bm: i VI VII iv). Shows the JUNO-106: Night Bass galloping (an eighth and two sixteenths a beat), its VCF opened and closed by commands, pumped by DUCK from the four-on-the-floor kick; sixteenth hats, the Gated Room snare, hard Syn Tom fills across the kit; Arp Saw's sixteenths from side to side into a ping-pong DELAY, Strings 80 and the PWM Pad on CHORUS II; a Saw Lead gliding by TONE PORTA, a Super Saw hook of runs into held notes with the Juno's delayed vibrato, Poly Brass doubling it an octave down; the break a Glide Lead solo, gliding, then running in sixteenths",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 130,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "stop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 64,
+  "positions": [12, 13, 14, 15, 16, 17],
+  "mixer": [
+    {"level": 104, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 90, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 60},
+    {"level": 50, "pan": 168, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 49, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 35},
+    {"level": 127, "pan": 128, "duck": 90, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 28, "pan": 128, "duck": 60, "chorus": 0, "delay": 35, "reverb": 0},
+    {"level": 34, "pan": 72, "duck": 80, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 34, "pan": 128, "duck": 80, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 34, "pan": 184, "duck": 80, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 64, "pan": 128, "duck": 0, "chorus": 0, "delay": 30, "reverb": 35},
+    {"level": 67, "pan": 84, "duck": 40, "chorus": 0, "delay": 0, "reverb": 35},
+    {"level": 65, "pan": 144, "duck": 0, "chorus": 0, "delay": 0, "reverb": 40}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/8.", "feedback": 35, "tone": 60, "ping_pong": true, "mix": 28},
+    "reverb": {"on": true, "size": 75, "damp": 35, "pre_delay": 10, "mix": 35},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": true, "source": 1, "depth": 55, "release": 120},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

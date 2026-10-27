@@ -1,0 +1,43 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "HIP-HOP LOOP",
+  "what": "Hip-hop, A minor, 86 BPM. A DJ loop of the DRUM KIT and the DX7, swung and through the LO-FI: a boom-bap beat, the AC BASS after the kick, a TINE EP phrase; half DNB LOOP's tempo, so SYNC matches the two at half or double",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 86,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 58,
+  "at_the_end": "loop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 58,
+  "positions": [46],
+  "mixer": [
+    {"level": 127, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 64, "pan": 140, "duck": 0, "chorus": 0, "delay": 0, "reverb": 15},
+    {"level": 87, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 67, "pan": 110, "duck": 0, "chorus": 40, "delay": 25, "reverb": 35},
+    {"level": 100, "pan": 140, "duck": 0, "chorus": 0, "delay": 0, "reverb": 15}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": true, "bits": 11, "rate": 22, "dust": 30},
+    "chorus": {"on": true, "mode": "I", "rate": 30, "depth": 50, "mix": 40},
+    "delay": {"on": true, "time": "1/8.", "feedback": 30, "tone": 40, "ping_pong": true, "mix": 25},
+    "reverb": {"on": true, "size": 50, "damp": 55, "pre_delay": 10, "mix": 30},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

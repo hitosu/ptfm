@@ -1,0 +1,322 @@
+{
+  "format": "demo-disk/sampler",
+  "version": 2,
+  "name": "PERCUSSION",
+  "samples": [
+    {
+      "id": "VC38",
+      "file": "VC38.flac",
+      "name": "WIND CHIME",
+      "kind": "fx",
+      "length": 15400,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Versilian Community Sample Library (VCSL), Versilian Studios: Idiophones/Struck Idiophones/Mark Trees/Legacy",
+        "url": "https://github.com/sgossner/VCSL/blob/c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e/LICENSE"
+      },
+      "source": {
+        "file": "VCSL/Idiophones/Struck Idiophones/Mark Trees/Legacy/windchimes_asc1.wav",
+        "commit": "c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e",
+        "sha256": "4da1f0ec4ed2d94902a35995faef9ce2bd747a525761c0db7ace093359939693"
+      }
+    },
+    {
+      "id": "VC06",
+      "file": "VC06.flac",
+      "name": "DARBUKA",
+      "kind": "perc",
+      "length": 6600,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Versilian Community Sample Library (VCSL), Versilian Studios: Membranophones/Struck Membranophones/Darbuka",
+        "url": "https://github.com/sgossner/VCSL/blob/c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e/LICENSE"
+      },
+      "source": {
+        "file": "VCSL/Membranophones/Struck Membranophones/Darbuka/Darbuka_1_hit_vl2_rr1.wav",
+        "commit": "c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e",
+        "sha256": "9775c01e17a2713c239c552b63c3b6e9068f782c70128737390f8508f14cffb0"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "WP02",
+      "file": "WP02.flac",
+      "name": "CONGA",
+      "kind": "perc",
+      "length": 6386,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "World Percussion by Xavimart, Gonzalo and Roberto, FreePats",
+        "url": "https://github.com/freepats/world-percussion/blob/e54eb2912a0d6d4444ab205d52f778e27da0fc96/LICENSE.txt"
+      },
+      "source": {
+        "file": "world-percussion/samples/Conga/v3_01_01.flac",
+        "commit": "e54eb2912a0d6d4444ab205d52f778e27da0fc96",
+        "sha256": "1ddedeaa57605940f3cfd5e37542af0ea6f8c69eeafd0bd83d6e2c8a77a8aa48"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "WP05",
+      "file": "WP05.flac",
+      "name": "BONGO LO",
+      "kind": "perc",
+      "length": 3300,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "World Percussion by Xavimart, Gonzalo and Roberto, FreePats",
+        "url": "https://github.com/freepats/world-percussion/blob/e54eb2912a0d6d4444ab205d52f778e27da0fc96/LICENSE.txt"
+      },
+      "source": {
+        "file": "world-percussion/samples/Bongos/2_10.flac",
+        "commit": "e54eb2912a0d6d4444ab205d52f778e27da0fc96",
+        "sha256": "536cfe9f4542934a9d31b289fea9041cb949c8501a7baaf9870a378d46ef8420"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "SP17",
+      "file": "SP17.flac",
+      "name": "TABLA NA",
+      "kind": "perc",
+      "length": 6820,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "tabla_na by dio_333 (http://freesound.org/people/dio_333/sounds/130421/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/tabla_na.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "2cf51e38f5173d582d751c4333e5b658f02c01944a5b0d648ef83949edc92563"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "SP18",
+      "file": "SP18.flac",
+      "name": "TABLA GE",
+      "kind": "perc",
+      "length": 4950,
+      "rate": 11025,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "tabla_ghe1 by dio_333 (http://freesound.org/people/dio_333/sounds/130406/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/tabla_ghe1.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "ca96042eee5c10f4590da5e52f5f255210cc6e2c31e50e51d5fed62b2cc1f93a"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "SP19",
+      "file": "SP19.flac",
+      "name": "TABLA TUN",
+      "kind": "perc",
+      "length": 3991,
+      "rate": 8000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "tabla_tun1 by dio_333 (http://freesound.org/people/dio_333/sounds/130416/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/tabla_tun1.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "b86e20c4654a07c01524547b75600a73c19cb1ce826f5709e4f348e752246651"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "VS16",
+      "file": "VS16.flac",
+      "name": "TIMPANI",
+      "kind": "perc",
+      "length": 7597,
+      "rate": 8000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "VSCO 2 Community Edition, Versilian Studios: Percussion/Timpani",
+        "url": "https://github.com/sgossner/VSCO-2-CE/blob/440300901dfe9275fd84e0b7763af1f8443ae62e/LICENSE"
+      },
+      "source": {
+        "file": "VSCO-2-CE/Percussion/Timpani/Timpani1_Hit_v3_rr1_Sum.wav",
+        "commit": "440300901dfe9275fd84e0b7763af1f8443ae62e",
+        "sha256": "8b39a785901d08dee14dd89914bdf2201e16ee418965e4d903fdb8e280a14d24"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    }
+  ],
+  "instruments": [
+    {
+      "name": "WIND CHIME",
+      "sample": "VC38",
+      "start": 0,
+      "end": 15400,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 62], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CHIME RISE",
+      "sample": "VC38",
+      "start": 0,
+      "end": 15400,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [40, 99, 99, 60], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "DARBUKA",
+      "sample": "VC06",
+      "start": 0,
+      "end": 6600,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 8,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CONGA HI",
+      "sample": "WP02",
+      "start": 0,
+      "end": 6385,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "G-3",
+      "tune": -16,
+      "level": 10.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CONGA",
+      "sample": "WP02",
+      "start": 0,
+      "end": 6385,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 10.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CONGA LO",
+      "sample": "WP02",
+      "start": 0,
+      "end": 6385,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "D#4",
+      "tune": -4,
+      "level": 10.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "BONGO LO",
+      "sample": "WP05",
+      "start": 0,
+      "end": 3300,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 10.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TABLA NA",
+      "sample": "SP17",
+      "start": 0,
+      "end": 6820,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TABLA GE",
+      "sample": "SP18",
+      "start": 0,
+      "end": 4950,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TABLA TUN",
+      "sample": "SP19",
+      "start": 0,
+      "end": 3991,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 6,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TIMPANI",
+      "sample": "VS16",
+      "start": 0,
+      "end": 7597,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 5.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    }
+  ]
+}

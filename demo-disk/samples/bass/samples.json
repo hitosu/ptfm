@@ -1,0 +1,129 @@
+{
+  "format": "demo-disk/sampler",
+  "version": 2,
+  "name": "BASS",
+  "samples": [
+    {
+      "id": "FS01",
+      "file": "FS01.flac",
+      "name": "WOBBLE 140",
+      "kind": "bass",
+      "length": 27428,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Dubstep Wobble 140BPM by kasa90, Freesound",
+        "url": "https://freesound.org/s/162257/"
+      },
+      "source": {"file": "fs162257.mp3", "sha256": "04e291140b3384dcfe7f251bd13d2177d7339bdd13629daa38d22d4723c613c1"}
+    },
+    {
+      "id": "FS02",
+      "file": "FS02.flac",
+      "name": "YOI YOI",
+      "kind": "bass",
+      "length": 30000,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "YoiYoiYoi by Flammenzunge, Freesound",
+        "url": "https://freesound.org/s/164044/"
+      },
+      "source": {"file": "fs164044.mp3", "sha256": "c8b1c74f312022805ec355adb857b4e84a6b799763562f8e0eca14b101e69320"}
+    },
+    {
+      "id": "FS03",
+      "file": "FS03.flac",
+      "name": "GROWL",
+      "kind": "bass",
+      "length": 11200,
+      "rate": 16000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "Dubstep Growl by Poligonstudio, Freesound",
+        "url": "https://freesound.org/s/392696/"
+      },
+      "source": {"file": "fs392696.mp3", "sha256": "6a3038603768f9408222161a9d3108c334cf21bf74181d0cf43c41221ad29f6d"}
+    },
+    {
+      "id": "SP20",
+      "file": "SP20.flac",
+      "name": "DNB BASS",
+      "kind": "bass",
+      "length": 19184,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "bass_dnb_f by Exsomniel (http://freesound.org/people/Exsomniel/sounds/206134/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/bass_dnb_f.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "56a75b06105131ea5a81ca2c1f3a0e73b90e6cb88f7aabe3a55bcb07a8b3e0d6"
+      }
+    }
+  ],
+  "instruments": [
+    {
+      "name": "WOBBLE 140",
+      "sample": "FS01",
+      "start": 0,
+      "end": 27428,
+      "loop": "forward",
+      "loop_start": 0,
+      "loop_end": 27428,
+      "base_note": "C-1",
+      "tune": 0,
+      "level": 11.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 72], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "YOI YOI",
+      "sample": "FS02",
+      "start": 0,
+      "end": 30000,
+      "loop": "forward",
+      "loop_start": 0,
+      "loop_end": 30000,
+      "base_note": "F-1",
+      "tune": 0,
+      "level": 2,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 72], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "GROWL",
+      "sample": "FS03",
+      "start": 0,
+      "end": 11200,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "F-2",
+      "tune": 0,
+      "level": 6,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 72], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "DNB BASS",
+      "sample": "SP20",
+      "start": 0,
+      "end": 19184,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "F-1",
+      "tune": 0,
+      "level": 5.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 72], "levels": [99, 99, 99, 0]}
+    }
+  ]
+}

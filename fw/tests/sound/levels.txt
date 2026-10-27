@@ -1,0 +1,20 @@
+# The demo songs' first 30 s through the playground's replay and sound (tests/playground/sound.js: dB RMS of
+# the output, MASTER at its middle): the firmware's player renders the same within 1 dB (fw/tests/run_sound.sh).
+PUNCH IN|-28.6
+SPICE ROAD|-28.2
+MIDNIGHT RUN|-28.5
+CITY LIGHTS|-27.3
+ACID TEST|-26.3
+ADVENTURE|-26.4
+TRANCE LOOP|-28.4
+BREAKS LOOP|-27.1
+TECHNO LOOP|-28.5
+ACID LOOP|-28.9
+DISCO LOOP|-27.7
+CHIP LOOP|-28.3
+HIP-HOP LOOP|-28.9
+DNB LOOP|-28.7
+ROCK LOOP|-29.5
+METAL LOOP|-27.9
+ELECTRO LOOP|-27.8
+WORLD LOOP|-27.0

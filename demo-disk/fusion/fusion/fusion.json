@@ -1,0 +1,19 @@
+{
+  "format": "demo-disk/fusion",
+  "version": 1,
+  "name": "FUSION",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "slots": [
+    {"name": "SPACE PAD", "pattern": 224, "level": -4.0},
+    {"name": "DUB CHORDS", "pattern": 225, "level": -6.0},
+    {"name": "SPLIT", "pattern": 226, "level": -1.0},
+    {"name": "CHIPIN", "pattern": 227, "level": -2.0},
+    {"name": "COIN", "pattern": 228, "level": 0.0},
+    {"name": "DRUM KIT", "pattern": 229, "level": 0}
+  ],
+  "patterns": "patterns.json"
+}

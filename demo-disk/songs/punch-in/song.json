@@ -1,0 +1,50 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "PUNCH IN",
+  "what": "Dub techno into progressive house, F minor, 124 BPM. Shows PT/FM's effects: dub chords into a ping-pong DELAY, DUCK pumping them from the kick, the FILTER and GATE turned by commands, the punch-ins one at a time (ECHO THROW, LOOP, REVERB SWELL, TAPE STOP, BIT CRUSH, REVERSE, STUTTER), a 303 bubbling, the VOICES; a cut ending, a VINYL STOP on the full beat",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 124,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "stop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 64,
+  "positions": [0, 1, 2, 3, 4, 5],
+  "mixer": [
+    {"level": 108, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 87, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 35},
+    {"level": 42, "pan": 168, "duck": 40, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 127, "pan": 76, "duck": 0, "chorus": 0, "delay": 25, "reverb": 0},
+    {"level": 127, "pan": 128, "duck": 70, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 86, "pan": 100, "duck": 60, "chorus": 0, "delay": 25, "reverb": 0},
+    {"level": 36, "pan": 64, "duck": 90, "chorus": 0, "delay": 45, "reverb": 40},
+    {"level": 36, "pan": 128, "duck": 90, "chorus": 0, "delay": 45, "reverb": 40},
+    {"level": 36, "pan": 192, "duck": 90, "chorus": 0, "delay": 45, "reverb": 40},
+    {"level": 77, "pan": 176, "duck": 0, "chorus": 0, "delay": 35, "reverb": 50},
+    {"level": 52, "pan": 128, "duck": 0, "chorus": 0, "delay": 30, "reverb": 30},
+    {"level": 48, "pan": 140, "duck": 0, "chorus": 0, "delay": 0, "reverb": 40}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 2, "rate": "1/16", "depth": 70, "smooth": 25},
+    "filter": {"on": false, "cut": "OFF", "reso": 40},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/8.", "feedback": 40, "tone": 45, "ping_pong": true, "mix": 30},
+    "reverb": {"on": true, "size": 75, "damp": 40, "pre_delay": 10, "mix": 35},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": true, "source": 1, "depth": 65, "release": 160},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

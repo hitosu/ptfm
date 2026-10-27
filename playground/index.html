@@ -1,0 +1,108 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>PT/FM · UI playground</title>
+<link rel="stylesheet" href="../panel/panel.css">
+<link rel="stylesheet" href="../panel/page.css">
+<link rel="stylesheet" href="playground.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="the page's tools">
+    <div class="brand">
+      <div class="logo"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b> <span>PLAYGROUND</span></div>
+      <div class="who">The UI and its sound in plain JS, to try on a computer or a phone</div>
+      <button class="mini close" id="side-close">CLOSE</button>
+    </div>
+    <section class="grp">
+      <h3>SOUND</h3>
+      <p class="state warn" id="sound-state">OFF: A CLICK ON THE PAGE STARTS IT</p>
+      <button id="erase-saved" title="erase what this page keeps in the browser (the user area, its screen size, MIDI on), then start the page again">ERASE DATA</button>
+      <p class="hint">ERASE DATA: what this page keeps in the browser gone (the user area, its screen size, MIDI on), the page started again: a new FM-1 (tap it twice).</p>
+    </section>
+    <section class="grp" id="disks" aria-label="the demo disk for the playground's FM-1">
+      <h3>DISKS</h3>
+      <button id="demo-disk" title="write the demo disk into the user area, in place of what is there, then start again">DEMO DISK</button>
+      <p class="hint">The user area is kept in this browser: SAVE keeps it, a reload starts from it, changes not saved are gone. DEMO DISK writes the demo disk into it (SAVE or REVERT your changes first).</p>
+    </section>
+    <section class="grp" id="midi" aria-label="the FM-1 as the controller, over MIDI">
+      <h3>THE FM-1 OVER MIDI</h3>
+      <button id="midi-on" aria-pressed="false" title="the real FM-1 works this one (its MIDI CONTROLLER, mirror mode)">CONNECT</button>
+      <p class="state" id="midi-state" data-state="off">MIDI: OFF</p>
+      <p class="hint">The real FM-1 as this one's controls: SETTINGS → MIDI → MIDI CONTROLLER, mirror mode (REC at its start). Its LEDs follow the page.</p>
+    </section>
+    <section class="grp" aria-label="the screen's size">
+      <h3>SCREEN</h3>
+      <div class="four" id="sizes"><button data-zoom="1">1×</button><button data-zoom="2">2×</button><button data-zoom="3">3×</button><button data-zoom="fit" title="as big as the window holds">FIT</button></div>
+      <p class="hint" id="sizes-hint">FIT: as big as the window holds</p>
+    </section>
+    <section class="grp">
+      <h3>HOW TO PLAY</h3>
+      <ul class="keys">
+        <li><b>BUTTONS, KEYS</b>: click or touch; several fingers hold several; <b>SHIFT</b>+click holds one</li>
+        <li><b>SLIDE ALONG THE KEYS</b>: each key the finger reaches plays (buttons stay held)</li>
+        <li><b>KNOBS</b>: − / + (held: repeats, faster), drag, the wheel</li>
+        <li><b>MASTER</b>: drag the bar; a double-click: half</li>
+        <li><b>KEYBOARD</b>: Z … / F3-A4 (S D F H J L ; ' the black), Q … Y B4-G5 (3 4 6)</li>
+        <li><b>HOME + LFO</b>: the help for the screen shown</li>
+        <li><b>RIGHT-CLICK THE SCREEN</b>: save or copy it</li>
+      </ul>
+    </section>
+  </aside>
+  <header class="top">
+    <div class="hbar">
+      <button class="mini" id="menu" aria-expanded="false" aria-controls="side">MENU</button>
+      <span class="hlogo"><b class="c-p">P</b><b class="c-t">T</b><b class="c-s">/</b><b class="c-f">F</b><b class="c-m">M</b></span>
+      <span class="scr">PLAYGROUND</span>
+      <span class="tip">PT/FM's UI with sound, no build: the specs tried</span>
+      <span id="sound-off" data-touch="TAP TO START THE SOUND">CLICK ANYWHERE TO START THE SOUND</span>
+    </div>
+  </header>
+  <main id="stage"><div id="fm1"></div></main>
+  <footer class="foot">
+    <span id="status">HELD: NOTHING</span>
+  </footer>
+</div>
+<div id="scrim"></div>
+<!-- classic scripts, not modules: Chrome refuses module scripts from file://. The panel (the
+     virtual FM-1's controls: specs/panel.md) and the page's frame are shared with the emulator: ../panel/. The
+     sound's dsp-*.js run in an audio worklet, put together by audio.js when the sound starts. -->
+<script src="../panel/layout.js"></script>
+<script src="fonts.js"></script>
+<script src="lcd.js"></script>
+<script src="content.js"></script>
+<script src="draw.js"></script>
+<script src="model.js"></script>
+<script src="cmds.js"></script>
+<script src="help.js"></script>
+<script src="dsp-core.js"></script>
+<script src="dsp-dx7.js"></script>
+<script src="dsp-synth.js"></script>
+<script src="dsp-chip-tables.js"></script>
+<script src="dsp-chip.js"></script>
+<script src="dsp-fx.js"></script>
+<script src="audio.js"></script>
+<script src="player.js"></script>
+<script src="ui.js"></script>
+<script src="ctl.js"></script>
+<script src="scr-grid.js"></script>
+<script src="scr-songs.js"></script>
+<script src="scr-editor.js"></script>
+<script src="scr-instr.js"></script>
+<script src="fx-pics.js"></script>
+<script src="scr-play.js"></script>
+<script src="scr-loops.js"></script>
+<script src="scr-dj.js"></script>
+<script src="scr-hear.js"></script>
+<script src="../panel/device.js"></script>
+<script src="../panel/keyboard.js"></script>
+<script src="../panel/midi.js"></script>
+<script src="../panel/page.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

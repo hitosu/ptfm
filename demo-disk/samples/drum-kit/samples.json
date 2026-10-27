@@ -1,0 +1,284 @@
+{
+  "format": "demo-disk/sampler",
+  "version": 2,
+  "name": "DRUM KIT",
+  "samples": [
+    {
+      "id": "SP01",
+      "file": "SP01.flac",
+      "name": "KICK",
+      "kind": "kick",
+      "length": 3991,
+      "rate": 8000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_bass_hard by menegass (http://www.freesound.org/people/menegass/sounds/100051/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_bass_hard.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "ed3ac2187d679ca1c3fec533ea1c3576c840c81ba98b8d967eb12a8f27471bc1"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    },
+    {
+      "id": "SP03",
+      "file": "SP03.flac",
+      "name": "SNARE",
+      "kind": "snare",
+      "length": 7590,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_snare_hard by menegass (http://www.freesound.org/people/menegass/sounds/100058/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_snare_hard.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "1b2325523ed2a93da49df338ef861b4c35bfcbdc2e5e726ce1e873201883ffe4"
+      }
+    },
+    {
+      "id": "SP05",
+      "file": "SP05.flac",
+      "name": "HAT",
+      "kind": "hat",
+      "length": 4400,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_cymbal_closed by menegass (http://www.freesound.org/people/menegass/sounds/100053/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_cymbal_closed.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "f3b9d6bb14f75ba06ef633baf58b1f75f0e2ea5e07edd491f0a22aedb2480d62"
+      }
+    },
+    {
+      "id": "SP07",
+      "file": "SP07.flac",
+      "name": "HAT OPEN",
+      "kind": "hat",
+      "length": 9900,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_cymbal_open by menegass (http://www.freesound.org/people/menegass/sounds/100055/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_cymbal_open.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "3a9cf6aacab05003fe3edaa9a9150841e080ecd3b7e6383571bc3570c23c7118"
+      }
+    },
+    {
+      "id": "SP08",
+      "file": "SP08.flac",
+      "name": "CRASH",
+      "kind": "crash",
+      "length": 18734,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_cymbal_hard by menegass (http://www.freesound.org/people/menegass/sounds/100056/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_cymbal_hard.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "be18750e383d09d2c3776b98551db5f736a2bf420666788e2900b2b8bf7e530a"
+      }
+    },
+    {
+      "id": "WP06",
+      "file": "WP06.flac",
+      "name": "SHAKER",
+      "kind": "perc",
+      "length": 4400,
+      "rate": 22050,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "World Percussion by Xavimart, Gonzalo and Roberto, FreePats",
+        "url": "https://github.com/freepats/world-percussion/blob/e54eb2912a0d6d4444ab205d52f778e27da0fc96/LICENSE.txt"
+      },
+      "source": {
+        "file": "world-percussion/samples/EggShaker/fast_02.flac",
+        "commit": "e54eb2912a0d6d4444ab205d52f778e27da0fc96",
+        "sha256": "9e696defad497d57c85c51cc78ffdcf36639533f9a930b6786cec17f49986856"
+      }
+    },
+    {
+      "id": "SP11",
+      "file": "SP11.flac",
+      "name": "TOM MID",
+      "kind": "perc",
+      "length": 3193,
+      "rate": 8000,
+      "bits": 8,
+      "license": {
+        "id": "CC0-1.0",
+        "credit": "drum_tom_mid_hard by menegass (http://www.freesound.org/people/menegass/sounds/100066/), from Sonic Pi's samples",
+        "url": "https://github.com/sonic-pi-net/sonic-pi/blob/7ec6e5df11a5c13f383926e69c8f133e3a6cc34f/LICENSE.md"
+      },
+      "source": {
+        "file": "sonic-pi/etc/samples/drum_tom_mid_hard.flac",
+        "commit": "7ec6e5df11a5c13f383926e69c8f133e3a6cc34f",
+        "sha256": "712e960a8107edaf168e6c737eb5729e7c35cad8b0510c48aecf7e24357a2d06"
+      },
+      "optimize": {"soften": 0.25, "gain": -6}
+    }
+  ],
+  "instruments": [
+    {
+      "name": "KICK",
+      "sample": "SP01",
+      "start": 0,
+      "end": 3991,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 4.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "SNARE",
+      "sample": "SP03",
+      "start": 0,
+      "end": 7590,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 10,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "HAT",
+      "sample": "SP05",
+      "start": 0,
+      "end": 4400,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 12,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "HAT OPEN",
+      "sample": "SP07",
+      "start": 0,
+      "end": 9900,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CRASH",
+      "sample": "SP08",
+      "start": 0,
+      "end": 18734,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 62], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "CRSH CHOKE",
+      "sample": "SP08",
+      "start": 0,
+      "end": 18734,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 66, 99, 85], "levels": [99, 0, 0, 0]}
+    },
+    {
+      "name": "SHAKER",
+      "sample": "WP06",
+      "start": 0,
+      "end": 4400,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 11,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TOM LO",
+      "sample": "SP11",
+      "start": 0,
+      "end": 3193,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "F-4",
+      "tune": 39,
+      "level": 6.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TOM MID",
+      "sample": "SP11",
+      "start": 0,
+      "end": 3193,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "C-4",
+      "tune": 0,
+      "level": 6.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    },
+    {
+      "name": "TOM HI",
+      "sample": "SP11",
+      "start": 0,
+      "end": 3193,
+      "loop": "off",
+      "loop_start": 0,
+      "loop_end": 0,
+      "base_note": "G#3",
+      "tune": -57,
+      "level": 6.5,
+      "volume": 64,
+      "envelope": {"rates": [99, 99, 99, 85], "levels": [99, 99, 99, 0]}
+    }
+  ]
+}

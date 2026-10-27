@@ -1,0 +1,50 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "ACID TEST",
+  "what": "Acid techno into acid trance, A minor, 138 BPM. Shows the TB-303: its line alone first, relentless sixteenths with accents and slides through the DRIVE, CUTOFF, RESONANCE, ENV MOD and DECAY turned by commands, a second 303 answering an octave up from side to side; then the DRIVE off for acid trance on Am Am F G: a breakdown (Saw Pad, a sixteenth riff on a pluck, the 303 in a ping-pong DELAY, a snare roll, the Trance Ld's melody) and the drop (Trance Saw chords in the trance gate pumped by DUCK, the riff, the melody on the Super Saw, the 303 a rolling bass)",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 138,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "stop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 51,
+  "positions": [24, 25, 26, 27, 28, 29],
+  "mixer": [
+    {"level": 120, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 124, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 30},
+    {"level": 51, "pan": 168, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 127, "pan": 72, "duck": 0, "chorus": 0, "delay": 20, "reverb": 0},
+    {"level": 40, "pan": 100, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 85, "pan": 128, "duck": 0, "chorus": 0, "delay": 20, "reverb": 0},
+    {"level": 70, "pan": 128, "duck": 0, "chorus": 0, "delay": 35, "reverb": 20},
+    {"level": 55, "pan": 64, "duck": 90, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 55, "pan": 128, "duck": 90, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 55, "pan": 192, "duck": 90, "chorus": 0, "delay": 0, "reverb": 40},
+    {"level": 78, "pan": 128, "duck": 20, "chorus": 0, "delay": 30, "reverb": 40},
+    {"level": 57, "pan": 144, "duck": 0, "chorus": 0, "delay": 0, "reverb": 30}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": true, "drive": 25, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/8.", "feedback": 45, "tone": 60, "ping_pong": true, "mix": 32},
+    "reverb": {"on": true, "size": 70, "damp": 35, "pre_delay": 10, "mix": 30},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": true, "source": 1, "depth": 65, "release": 120},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

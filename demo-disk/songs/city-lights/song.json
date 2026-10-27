@@ -1,0 +1,50 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "CITY LIGHTS",
+  "what": "80s synthpop, D minor, 120 BPM. Shows the DX7 cartridges: FM BASS's sequenced octaves, a staccato SQUARE LD hook leaping octaves over Dm Bb C A, BRASS SECT stabs, a MARIMBA ostinato, VOICE LEAD singing the verse over POLY PAD, the FM DRUM KIT with FM TOM fills and claps; the break: FM VOICES, ORCH HITs and a TUBE BELL; the last chorus with SAW LEAD doubling the hook an octave down",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 120,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "stop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 64,
+  "positions": [18, 19, 20, 21, 22, 23],
+  "mixer": [
+    {"level": 85, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 106, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 74},
+    {"level": 62, "pan": 168, "duck": 0, "chorus": 0, "delay": 0, "reverb": 18},
+    {"level": 46, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 52},
+    {"level": 81, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 42, "pan": 72, "duck": 0, "chorus": 40, "delay": 0, "reverb": 56},
+    {"level": 42, "pan": 128, "duck": 0, "chorus": 40, "delay": 0, "reverb": 56},
+    {"level": 42, "pan": 184, "duck": 0, "chorus": 40, "delay": 0, "reverb": 56},
+    {"level": 104, "pan": 128, "duck": 0, "chorus": 0, "delay": 30, "reverb": 42},
+    {"level": 101, "pan": 150, "duck": 0, "chorus": 0, "delay": 30, "reverb": 50},
+    {"level": 91, "pan": 88, "duck": 0, "chorus": 0, "delay": 30, "reverb": 40},
+    {"level": 55, "pan": 110, "duck": 0, "chorus": 0, "delay": 0, "reverb": 62}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": true, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/8.", "feedback": 35, "tone": 60, "ping_pong": true, "mix": 30},
+    "reverb": {"on": true, "size": 82, "damp": 30, "pre_delay": 30, "mix": 42},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

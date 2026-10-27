@@ -1,0 +1,784 @@
+{
+  "format": "demo-disk/tb303-bank",
+  "version": 1,
+  "name": "TB-303",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "patches": [
+    {
+      "label": "TB01",
+      "name": "Classic",
+      "wave": 0,
+      "cutoff": 45,
+      "reso": 100,
+      "envmod": 70,
+      "decay": 45,
+      "accent": 80,
+      "level": 11.5
+    },
+    {
+      "label": "TB02",
+      "name": "Square",
+      "wave": 127,
+      "cutoff": 45,
+      "reso": 100,
+      "envmod": 70,
+      "decay": 45,
+      "accent": 80,
+      "level": 12.5
+    },
+    {
+      "label": "TB03",
+      "name": "Squelch",
+      "wave": 0,
+      "cutoff": 25,
+      "reso": 120,
+      "envmod": 110,
+      "decay": 30,
+      "accent": 110,
+      "level": 12
+    },
+    {
+      "label": "TB04",
+      "name": "Rubber",
+      "wave": 0,
+      "cutoff": 15,
+      "reso": 40,
+      "envmod": 30,
+      "decay": 70,
+      "accent": 50,
+      "level": 11
+    },
+    {
+      "label": "TB05",
+      "name": "Deep Sub",
+      "wave": 127,
+      "cutoff": 5,
+      "reso": 20,
+      "envmod": 10,
+      "decay": 90,
+      "accent": 30,
+      "level": 11
+    },
+    {
+      "label": "TB06",
+      "name": "Screamer",
+      "wave": 0,
+      "cutoff": 60,
+      "reso": 127,
+      "envmod": 127,
+      "decay": 40,
+      "accent": 127,
+      "level": 11.5
+    },
+    {
+      "label": "TB07",
+      "name": "Plucky",
+      "wave": 0,
+      "cutoff": 35,
+      "reso": 80,
+      "envmod": 90,
+      "decay": 10,
+      "accent": 60,
+      "level": 12.5
+    },
+    {
+      "label": "TB08",
+      "name": "Long Sweep",
+      "wave": 0,
+      "cutoff": 20,
+      "reso": 100,
+      "envmod": 100,
+      "decay": 127,
+      "accent": 70,
+      "level": 11
+    },
+    {
+      "label": "TB09",
+      "name": "Soft Acid",
+      "wave": 64,
+      "cutoff": 50,
+      "reso": 60,
+      "envmod": 50,
+      "decay": 60,
+      "accent": 40,
+      "level": 12
+    },
+    {
+      "label": "TB10",
+      "name": "Hard Acid",
+      "wave": 0,
+      "cutoff": 70,
+      "reso": 115,
+      "envmod": 90,
+      "decay": 35,
+      "accent": 127,
+      "level": 11.5
+    },
+    {
+      "label": "TB11",
+      "name": "Bubble",
+      "wave": 127,
+      "cutoff": 30,
+      "reso": 115,
+      "envmod": 80,
+      "decay": 25,
+      "accent": 90,
+      "level": 13
+    },
+    {
+      "label": "TB12",
+      "name": "Growl",
+      "wave": 0,
+      "cutoff": 10,
+      "reso": 90,
+      "envmod": 60,
+      "decay": 50,
+      "accent": 100,
+      "level": 12
+    },
+    {
+      "label": "TB13",
+      "name": "Bright Saw",
+      "wave": 0,
+      "cutoff": 100,
+      "reso": 60,
+      "envmod": 40,
+      "decay": 60,
+      "accent": 60,
+      "level": 11.5
+    },
+    {
+      "label": "TB14",
+      "name": "Dark Sq",
+      "wave": 127,
+      "cutoff": 20,
+      "reso": 70,
+      "envmod": 30,
+      "decay": 80,
+      "accent": 70,
+      "level": 12.5
+    },
+    {
+      "label": "TB15",
+      "name": "Wah Bass",
+      "wave": 32,
+      "cutoff": 30,
+      "reso": 110,
+      "envmod": 120,
+      "decay": 80,
+      "accent": 50,
+      "level": 11.5
+    },
+    {
+      "label": "TB16",
+      "name": "Phuture",
+      "wave": 0,
+      "cutoff": 40,
+      "reso": 110,
+      "envmod": 85,
+      "decay": 40,
+      "accent": 100,
+      "level": 11.5
+    },
+    {
+      "label": "TB17",
+      "name": "Squelch Ld",
+      "wave": 0,
+      "cutoff": 57,
+      "reso": 117,
+      "envmod": 95,
+      "decay": 44,
+      "accent": 102,
+      "level": 11.5,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Squelch Lead",
+        "not_kept": ["drive"]
+      }
+    },
+    {
+      "label": "TB18",
+      "name": "Deep Sub 2",
+      "wave": 127,
+      "cutoff": 13,
+      "reso": 19,
+      "envmod": 19,
+      "decay": 76,
+      "accent": 38,
+      "level": 10.5,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Deep Sub"
+      }
+    },
+    {
+      "label": "TB19",
+      "name": "Rubber Sq",
+      "wave": 127,
+      "cutoff": 32,
+      "reso": 76,
+      "envmod": 57,
+      "decay": 38,
+      "accent": 64,
+      "level": 13,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Rubber Square"
+      }
+    },
+    {
+      "label": "TB20",
+      "name": "Plucky Saw",
+      "wave": 0,
+      "cutoff": 25,
+      "reso": 51,
+      "envmod": 89,
+      "decay": 19,
+      "accent": 51,
+      "level": 12,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Plucky Saw"
+      }
+    },
+    {
+      "label": "TB21",
+      "name": "Long Swp 2",
+      "wave": 0,
+      "cutoff": 19,
+      "reso": 108,
+      "envmod": 114,
+      "decay": 114,
+      "accent": 64,
+      "level": 11,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Long Sweep"
+      }
+    },
+    {
+      "label": "TB22",
+      "name": "Soft Bass",
+      "wave": 0,
+      "cutoff": 38,
+      "reso": 38,
+      "envmod": 25,
+      "decay": 102,
+      "accent": 51,
+      "level": 10.5,
+      "license": {
+        "id": "GPL-3.0-only",
+        "credit": "mpc-vst-303's presets by saustin2010, for Robin Schmidt's Open303",
+        "url": "https://github.com/saustin2010/mpc-vst-303/blob/2abe95b797426a85ca50747badaf5a0e7cb17d30/LICENSE"
+      },
+      "source": {
+        "file": "presets.json",
+        "commit": "2abe95b797426a85ca50747badaf5a0e7cb17d30",
+        "sha256": "11c8676857c2f3288e6c6bab4e3d88c8e9c2860bfe29adabd886bee36156a284",
+        "preset": "Soft Attack Bass",
+        "not_kept": ["Devilfish"]
+      }
+    },
+    {
+      "label": "TB23",
+      "name": "Low Saw",
+      "wave": 0,
+      "cutoff": 18,
+      "reso": 70,
+      "envmod": 55,
+      "decay": 55,
+      "accent": 75,
+      "level": 11.5
+    },
+    {
+      "label": "TB24",
+      "name": "Mid Saw",
+      "wave": 0,
+      "cutoff": 60,
+      "reso": 70,
+      "envmod": 40,
+      "decay": 55,
+      "accent": 70,
+      "level": 11.5
+    },
+    {
+      "label": "TB25",
+      "name": "High Saw",
+      "wave": 0,
+      "cutoff": 88,
+      "reso": 75,
+      "envmod": 45,
+      "decay": 40,
+      "accent": 75,
+      "level": 11.5
+    },
+    {
+      "label": "TB26",
+      "name": "Res Saw",
+      "wave": 0,
+      "cutoff": 38,
+      "reso": 122,
+      "envmod": 65,
+      "decay": 45,
+      "accent": 90,
+      "level": 11.5
+    },
+    {
+      "label": "TB27",
+      "name": "Blip Saw",
+      "wave": 0,
+      "cutoff": 28,
+      "reso": 95,
+      "envmod": 110,
+      "decay": 8,
+      "accent": 95,
+      "level": 12.5
+    },
+    {
+      "label": "TB28",
+      "name": "Slow Saw",
+      "wave": 0,
+      "cutoff": 30,
+      "reso": 90,
+      "envmod": 80,
+      "decay": 120,
+      "accent": 70,
+      "level": 11
+    },
+    {
+      "label": "TB29",
+      "name": "Thin Saw",
+      "wave": 0,
+      "cutoff": 110,
+      "reso": 95,
+      "envmod": 25,
+      "decay": 30,
+      "accent": 60,
+      "level": 11.5
+    },
+    {
+      "label": "TB30",
+      "name": "Open Saw",
+      "wave": 0,
+      "cutoff": 127,
+      "reso": 20,
+      "envmod": 10,
+      "decay": 70,
+      "accent": 50,
+      "level": 10
+    },
+    {
+      "label": "TB31",
+      "name": "Low Sq",
+      "wave": 127,
+      "cutoff": 18,
+      "reso": 70,
+      "envmod": 55,
+      "decay": 55,
+      "accent": 75,
+      "level": 12.5
+    },
+    {
+      "label": "TB32",
+      "name": "Mid Sq",
+      "wave": 127,
+      "cutoff": 55,
+      "reso": 85,
+      "envmod": 60,
+      "decay": 50,
+      "accent": 80,
+      "level": 12.5
+    },
+    {
+      "label": "TB33",
+      "name": "High Sq",
+      "wave": 127,
+      "cutoff": 88,
+      "reso": 75,
+      "envmod": 45,
+      "decay": 40,
+      "accent": 75,
+      "level": 12.5
+    },
+    {
+      "label": "TB34",
+      "name": "Res Sq",
+      "wave": 127,
+      "cutoff": 38,
+      "reso": 122,
+      "envmod": 65,
+      "decay": 45,
+      "accent": 90,
+      "level": 12.5
+    },
+    {
+      "label": "TB35",
+      "name": "Blip Sq",
+      "wave": 127,
+      "cutoff": 28,
+      "reso": 95,
+      "envmod": 110,
+      "decay": 8,
+      "accent": 95,
+      "level": 13.5
+    },
+    {
+      "label": "TB36",
+      "name": "Slow Sq",
+      "wave": 127,
+      "cutoff": 30,
+      "reso": 90,
+      "envmod": 80,
+      "decay": 120,
+      "accent": 70,
+      "level": 12
+    },
+    {
+      "label": "TB37",
+      "name": "Hollow Sq",
+      "wave": 127,
+      "cutoff": 75,
+      "reso": 40,
+      "envmod": 30,
+      "decay": 70,
+      "accent": 60,
+      "level": 11.5
+    },
+    {
+      "label": "TB38",
+      "name": "Open Sq",
+      "wave": 127,
+      "cutoff": 127,
+      "reso": 20,
+      "envmod": 10,
+      "decay": 70,
+      "accent": 50,
+      "level": 11
+    },
+    {
+      "label": "TB39",
+      "name": "Squeak",
+      "wave": 0,
+      "cutoff": 55,
+      "reso": 127,
+      "envmod": 120,
+      "decay": 20,
+      "accent": 120,
+      "level": 12
+    },
+    {
+      "label": "TB40",
+      "name": "Chirp",
+      "wave": 0,
+      "cutoff": 70,
+      "reso": 110,
+      "envmod": 127,
+      "decay": 6,
+      "accent": 110,
+      "level": 12
+    },
+    {
+      "label": "TB41",
+      "name": "Wet Acid",
+      "wave": 0,
+      "cutoff": 35,
+      "reso": 118,
+      "envmod": 95,
+      "decay": 70,
+      "accent": 100,
+      "level": 11
+    },
+    {
+      "label": "TB42",
+      "name": "Rave Acid",
+      "wave": 0,
+      "cutoff": 50,
+      "reso": 112,
+      "envmod": 100,
+      "decay": 30,
+      "accent": 127,
+      "level": 11.5
+    },
+    {
+      "label": "TB43",
+      "name": "Acid Sq",
+      "wave": 127,
+      "cutoff": 40,
+      "reso": 118,
+      "envmod": 100,
+      "decay": 35,
+      "accent": 110,
+      "level": 12.5
+    },
+    {
+      "label": "TB44",
+      "name": "Zap Acid",
+      "wave": 0,
+      "cutoff": 15,
+      "reso": 125,
+      "envmod": 127,
+      "decay": 15,
+      "accent": 127,
+      "level": 12
+    },
+    {
+      "label": "TB45",
+      "name": "Talk Acid",
+      "wave": 64,
+      "cutoff": 30,
+      "reso": 120,
+      "envmod": 115,
+      "decay": 55,
+      "accent": 90,
+      "level": 12.5
+    },
+    {
+      "label": "TB46",
+      "name": "Mild Acid",
+      "wave": 32,
+      "cutoff": 45,
+      "reso": 90,
+      "envmod": 70,
+      "decay": 45,
+      "accent": 70,
+      "level": 12
+    },
+    {
+      "label": "TB47",
+      "name": "Sub Saw",
+      "wave": 0,
+      "cutoff": 8,
+      "reso": 25,
+      "envmod": 15,
+      "decay": 85,
+      "accent": 30,
+      "level": 10.5
+    },
+    {
+      "label": "TB48",
+      "name": "Fat Sq",
+      "wave": 127,
+      "cutoff": 25,
+      "reso": 50,
+      "envmod": 40,
+      "decay": 70,
+      "accent": 60,
+      "level": 12
+    },
+    {
+      "label": "TB49",
+      "name": "Round Bs",
+      "wave": 64,
+      "cutoff": 20,
+      "reso": 30,
+      "envmod": 35,
+      "decay": 75,
+      "accent": 50,
+      "level": 11.5
+    },
+    {
+      "label": "TB50",
+      "name": "Thump",
+      "wave": 0,
+      "cutoff": 12,
+      "reso": 60,
+      "envmod": 90,
+      "decay": 12,
+      "accent": 90,
+      "level": 12.5
+    },
+    {
+      "label": "TB51",
+      "name": "Dub Bass",
+      "wave": 127,
+      "cutoff": 15,
+      "reso": 85,
+      "envmod": 50,
+      "decay": 100,
+      "accent": 40,
+      "level": 12.5
+    },
+    {
+      "label": "TB52",
+      "name": "Funk Bass",
+      "wave": 0,
+      "cutoff": 30,
+      "reso": 70,
+      "envmod": 80,
+      "decay": 25,
+      "accent": 80,
+      "level": 12
+    },
+    {
+      "label": "TB53",
+      "name": "Saw Bass",
+      "wave": 0,
+      "cutoff": 25,
+      "reso": 45,
+      "envmod": 50,
+      "decay": 60,
+      "accent": 60,
+      "level": 11
+    },
+    {
+      "label": "TB54",
+      "name": "Mellow Bs",
+      "wave": 96,
+      "cutoff": 22,
+      "reso": 40,
+      "envmod": 30,
+      "decay": 80,
+      "accent": 40,
+      "level": 12
+    },
+    {
+      "label": "TB55",
+      "name": "Pluck Sq",
+      "wave": 127,
+      "cutoff": 35,
+      "reso": 80,
+      "envmod": 90,
+      "decay": 10,
+      "accent": 60,
+      "level": 13
+    },
+    {
+      "label": "TB56",
+      "name": "Tick",
+      "wave": 0,
+      "cutoff": 60,
+      "reso": 60,
+      "envmod": 127,
+      "decay": 3,
+      "accent": 100,
+      "level": 12.5
+    },
+    {
+      "label": "TB57",
+      "name": "Stab Acid",
+      "wave": 0,
+      "cutoff": 45,
+      "reso": 100,
+      "envmod": 100,
+      "decay": 15,
+      "accent": 127,
+      "level": 12
+    },
+    {
+      "label": "TB58",
+      "name": "Short Res",
+      "wave": 0,
+      "cutoff": 30,
+      "reso": 125,
+      "envmod": 80,
+      "decay": 12,
+      "accent": 80,
+      "level": 12.5
+    },
+    {
+      "label": "TB59",
+      "name": "Click Bs",
+      "wave": 127,
+      "cutoff": 20,
+      "reso": 40,
+      "envmod": 120,
+      "decay": 5,
+      "accent": 90,
+      "level": 13
+    },
+    {
+      "label": "TB60",
+      "name": "Pluck Mid",
+      "wave": 64,
+      "cutoff": 40,
+      "reso": 70,
+      "envmod": 100,
+      "decay": 15,
+      "accent": 70,
+      "level": 13
+    },
+    {
+      "label": "TB61",
+      "name": "Long Res",
+      "wave": 0,
+      "cutoff": 25,
+      "reso": 125,
+      "envmod": 110,
+      "decay": 127,
+      "accent": 80,
+      "level": 10.5
+    },
+    {
+      "label": "TB62",
+      "name": "Swell",
+      "wave": 64,
+      "cutoff": 10,
+      "reso": 100,
+      "envmod": 127,
+      "decay": 127,
+      "accent": 60,
+      "level": 12
+    },
+    {
+      "label": "TB63",
+      "name": "Long Sq",
+      "wave": 127,
+      "cutoff": 20,
+      "reso": 105,
+      "envmod": 100,
+      "decay": 127,
+      "accent": 70,
+      "level": 12
+    },
+    {
+      "label": "TB64",
+      "name": "Drone",
+      "wave": 0,
+      "cutoff": 40,
+      "reso": 80,
+      "envmod": 60,
+      "decay": 127,
+      "accent": 40,
+      "level": 11
+    }
+  ]
+}

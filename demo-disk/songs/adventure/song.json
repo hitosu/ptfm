@@ -1,0 +1,46 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "ADVENTURE",
+  "what": "Game music through time, 132 to 160 BPM. Shows the CHIPTUNE cartridge: one theme travelling through the eras of the sound chips, a pattern an era, each with its own chips, key, tempo and variation of the theme (1978 the PSG, 1983 the console, 1985 16BIT, 1989 the handheld, the 2000s all of them), a time machine between them (WHOOSH, WARP), and home again through every era, slowing down",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 132,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "stop",
+  "loop_from": 0,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 56,
+  "positions": [30, 31, 32, 33, 34, 35],
+  "mixer": [
+    {"level": 96, "pan": 120, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 59, "pan": 172, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 91, "pan": 84, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 103, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 109, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 94, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 93, "pan": 168, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 110, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0}
+  ],
+  "fx": {
+    "routing": "global",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": false, "time": "1/8.", "feedback": 40, "tone": 60, "ping_pong": false, "mix": 30},
+    "reverb": {"on": false, "size": 60, "damp": 40, "pre_delay": 10, "mix": 25},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

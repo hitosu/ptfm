@@ -1,0 +1,44 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "TECHNO LOOP",
+  "what": "Techno, A minor, 126 BPM. A DJ loop of the DX7: the FM DRUM KIT, the FM BASS rolling after the kick, a PROG PLUCK in dotted eighths, its brightness turned by commands. An intro first, played once: the drums, then the pluck coming in dark; no bass",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 126,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "loop",
+  "loop_from": 1,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 55,
+  "positions": [38, 39],
+  "mixer": [
+    {"level": 127, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 127, "pan": 148, "duck": 0, "chorus": 0, "delay": 15, "reverb": 25},
+    {"level": 66, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 75, "pan": 104, "duck": 0, "chorus": 0, "delay": 50, "reverb": 35},
+    {"level": 58, "pan": 148, "duck": 0, "chorus": 0, "delay": 15, "reverb": 25},
+    {"level": 105, "pan": 148, "duck": 0, "chorus": 0, "delay": 15, "reverb": 25}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/8.", "feedback": 45, "tone": 45, "ping_pong": true, "mix": 30},
+    "reverb": {"on": true, "size": 65, "damp": 45, "pre_delay": 10, "mix": 30},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}

@@ -1,0 +1,48 @@
+{
+  "format": "demo-disk/song",
+  "version": 2,
+  "name": "ROCK LOOP",
+  "what": "Rock, A minor, 126 BPM. A DJ loop of the DRUM KIT and the guitars: a rock beat with tom fills, the DIST GTR's power chords and palm mutes in a riff, the DX7's DIST GTR on a hook with bends (TONE PORTA) and vibrato, played twice. It loops over two patterns, this verse and a bridge: power chords ringing on C G D A, a half-time beat, the lead soaring. An intro first, played once: the beat, then the riff palm-muted; no lead",
+  "license": {
+    "id": "CC0-1.0",
+    "credit": "Vasily Kazantsev (PT/FM)",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "tempo": 126,
+  "ticks_a_row": 6,
+  "rows_a_beat": 4,
+  "swing": 50,
+  "at_the_end": "loop",
+  "loop_from": 1,
+  "slides": "linear",
+  "fast_volume_slides": false,
+  "global_volume": 50,
+  "positions": [50, 51, 52],
+  "mixer": [
+    {"level": 127, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 20},
+    {"level": 77, "pan": 156, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 96, "pan": 112, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 91, "pan": 144, "duck": 0, "chorus": 0, "delay": 30, "reverb": 30},
+    {"level": 93, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 20},
+    {"level": 57, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 20},
+    {"level": 57, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 20},
+    {"level": 57, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 20},
+    {"level": 65, "pan": 156, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
+    {"level": 118, "pan": 112, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0}
+  ],
+  "fx": {
+    "routing": "sends",
+    "chain": ["GATE", "FILTER", "LO-FI", "SENDS", "CHORUS", "DELAY", "REVERB", "DRIVE", "LIMITER"],
+    "gate": {"on": false, "pattern": 1, "rate": "1/16", "depth": 100, "smooth": 20},
+    "filter": {"on": false, "cut": "OFF", "reso": 30},
+    "drive": {"on": false, "drive": 30, "tone": 50},
+    "lofi": {"on": false, "bits": 8, "rate": 22, "dust": 20},
+    "chorus": {"on": false, "mode": "I", "rate": 30, "depth": 50, "mix": 50},
+    "delay": {"on": true, "time": "1/4.", "feedback": 35, "tone": 45, "ping_pong": true, "mix": 25},
+    "reverb": {"on": true, "size": 50, "damp": 45, "pre_delay": 10, "mix": 30},
+    "limiter": {"on": true, "ceiling": -1, "release": 100},
+    "duck": {"on": false, "source": 1, "depth": 60, "release": 150},
+    "metronome": {"on": false, "tempo": "FOLLOW", "beats_a_bar": 4, "sound": "BEEP", "level": 60}
+  },
+  "patterns": "patterns.json"
+}
