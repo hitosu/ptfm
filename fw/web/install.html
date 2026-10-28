@@ -59,6 +59,9 @@ body:not(.dbg) * + h2 { margin-top: 24px; }
 /* INSTALL FIRMWARE the whole width, CLEAN INSTALL under it, then the two uploads side by side, their own line */
 .actions { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .actions.uploads { grid-template-columns: 1fr 1fr; margin-top: 16px; }
+/* REPLACE ALL: offered under them when a disk fits the FM-1 only emptied; red, as it erases */
+.actions.uploads #replace { grid-column: 1 / -1; }
+.big.danger { color: var(--lred); }
 button { font: inherit; cursor: pointer; }
 .big { min-height: 72px; padding: 10px 12px; background: var(--bg); color: var(--yellow); border: 1px solid var(--dgrey);
   border-radius: 0; font: 600 17px/1.25 var(--sans); letter-spacing: .08em; text-align: center;
@@ -88,6 +91,7 @@ button { font: inherit; cursor: pointer; }
 .status { margin-top: 16px; min-height: 1.5em; color: var(--white); overflow-wrap: anywhere; }
 .status.err { color: var(--lred); }
 .status.done { color: var(--lgreen); }
+.status.warn { color: var(--yellow); }                 /* (done, but the FM-1 left with little room for its saves) */
 progress { display: block; width: 100%; height: 8px; margin-top: 10px; appearance: none; border: 0; border-radius: 0;
   background: #1B1B1B; }
 progress::-webkit-progress-bar { background: #1B1B1B; border-radius: 0; }
@@ -159,6 +163,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     <div class="actions uploads">
       <button class="big" id="disk" disabled>UPLOAD DEMO DISK<small>the demo songs onto the FM-1, replacing your work</small></button>
       <button class="big" id="upload" disabled>UPLOAD CUSTOM DISK<small>a disk file of yours onto the FM-1, replacing your work</small></button>
+      <button class="big danger" id="replace" hidden>REPLACE ALL<small>erase everything the FM-1 holds, then write the disk</small></button>
     </div>
     <input type="file" id="upload-pick" accept=".ptfmdsk" hidden>
     <div class="status" id="status" role="status">Checking the package…</div>
@@ -193,6 +198,9 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       <dt>UPLOAD CUSTOM DISK</dt>
       <dd>The same with a disk file you pick (<b>.ptfmdsk</b>: the editor page's DOWNLOAD DISK saves the FM-1's library as
         one, and so does the emulator's). Afterwards the FM-1 holds exactly that disk.</dd>
+      <dt>REPLACE ALL</dt>
+      <dd>Offered when a disk does not fit around what the FM-1 holds but fits it emptied: erases everything the FM-1
+        holds, then writes the disk. An upload cut short then leaves part of the disk: upload again.</dd>
     </dl>
     <details>
       <summary>IF SOMETHING GOES WRONG</summary>
@@ -241,7 +249,9 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   const status = (text, kind) => { $("status").textContent = text; $("status").className = "status" + (kind ? " " + kind : ""); };
   const fact = (html, cls) => { const s = document.createElement("span"); s.className = "chip" + (cls ? " " + cls : ""); s.innerHTML = html; $("facts").appendChild(s); };
   const lock = (on) => { busy = on; window.PTFM_busy = on; $("go").disabled = on || !image; $("disk").disabled = on || !disk;
-    $("upload").disabled = on || !image || typeof PTFM_seed === "undefined"; $("clean").disabled = on; };
+    $("upload").disabled = on || !image || typeof PTFM_seed === "undefined"; $("replace").disabled = on; $("clean").disabled = on; };
+  let replacing = null;                              /* REPLACE ALL's offer: { data, what, key }, or null */
+  const offerOff = () => { replacing = null; $("replace").hidden = true; };
   const cleanOn = () => !!$("clean").checked;      /* CLEAN INSTALL */
   function cleanLabel() {                            /* INSTALL FIRMWARE's line under it says which install it does */
     $("gosub").textContent = cleanOn() ? "clean: PT/FM, then an empty user area" : "PT/FM onto the FM-1, your work kept";
@@ -296,19 +306,28 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     mismatch: "Written, but the FM-1 now reports another firmware: ",
     foreign: "The FM-1 waits in another firmware's update mode: finish that update with its own installer first. ",
   };
-  function step(k, a) {
+  let wrote = 0;                                     /* (the install's progress: the image read up to there, bytes) */
+  function step(k, a, end) {                         /* (write: a the loader's reads so far, end the image read up to there) */
     const bar = $("bar");
     bar.hidden = false;
     if (k === "start") status("Found " + a + ". Checking the package on the FM-1…");
     if (k === "verify") { status("Checking the package on the FM-1…"); bar.value = Math.min(100, (a / TOTAL) * 100); }
     if (k === "loader") status("Starting the update loader… (the FM-1 restarts)");
-    if (k === "write") { status("Writing PT/FM. Keep the FM-1 connected."); bar.value = Math.min(100, ((74 + a) / TOTAL) * 100); }
+    if (k === "start" || k === "loader") wrote = 0;
+    if (k === "write") {
+      const kb = (n) => Math.round(Math.min(n, image.length) / 1024);
+      wrote = Math.max(wrote, end || 0);              /* (the furthest read: the loader reads its head first) */
+      status(wrote ? `Writing PT/FM: ${kb(wrote)} of ${kb(image.length)} KB. Keep the FM-1 connected.` : "Writing PT/FM. Keep the FM-1 connected.");
+      bar.value = Math.min(100, ((74 + a) / TOTAL) * 100);
+    }
     if (k === "reboot") status("Written. Waiting for the FM-1 to start PT/FM…");
     if (k === "done") { bar.value = 100; status("Done: the FM-1 runs PT/FM (" + (a || meta.product) + ").", "done"); }
   }
   window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
   $("go").addEventListener("click", async () => {
     if (busy || !image) return;
+    wrote = 0;
+    offerOff();
     const clean = cleanOn();                         /* (as switched at the press) */
     lock(true);
     let midi, installed = false;
@@ -403,7 +422,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       try {
         const r = await s.write(plan, (p) => { bar.value = (p.done / p.total) * 100; status(`${what}: block ${p.done} of ${p.total}. Keep the FM-1 connected.`); });
         bar.value = 100;
-        return { r };
+        return { r, low: plan.low };                 /* (low: fewer free blocks than advised, what that costs) */
       } catch (e) {
         if (!(e && e.code === PTFM_seed.RESULT.CHANGED) || tries >= 2) throw e;
         L = await s.hello();                         /* (saved or moved on the FM-1 since its layout was read) */
@@ -412,9 +431,12 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   }
 
   /* an upload, written at once: data (seed.js parseData's) planned on the FM-1's layout; what names it in the status
-     line ("the demo disk", a file's name), key is the button to press again */
-  async function upload(data, what, key) {
+     line ("the demo disk", a file's name), key is the button to press again. A disk that does not fit around what the
+     FM-1 holds, but fits it emptied, is not written: REPLACE ALL is offered, which uploads it again with clean (the
+     user area erased, the disk written anew: seed.js planClean) */
+  async function upload(data, what, key, clean) {
     const What = what[0].toUpperCase() + what.slice(1);
+    offerOff();
     lock(true);
     $("bar").hidden = true;
     let midi, s = null, asked = false;
@@ -426,10 +448,16 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       status("Asking the FM-1 what it holds…");
       const L = await s.hello();
       asked = true;
-      const w = await writeDisk(s, L, PTFM_seed.plan, "Writing " + what, data);
-      if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
+      const w = await writeDisk(s, L, clean ? PTFM_seed.planClean : PTFM_seed.plan, (clean ? "Erasing the FM-1 and writing " : "Writing ") + what, data);
+      if (w.problem && !clean && PTFM_seed.planClean(L, data).ok) {
+        replacing = { data, what, key };
+        $("replace").hidden = false;
+        status(`${What} does not fit around what the FM-1 holds, but it fits the FM-1 emptied: REPLACE ALL erases ` +
+               `everything the FM-1 holds and writes ${what} anew.`, "warn");
+      }
+      else if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
       else if (w.upToDate) status(`The FM-1 already holds ${what}, exactly.`, "done");
-      else status(`Done: the FM-1 holds ${w.r.records} files.` + oldBad(w.r), "done");
+      else status(`Done: the FM-1 holds ${w.r.records} files.` + (w.low ? ` But ${w.low}.` : "") + oldBad(w.r), w.low ? "warn" : "done");
     } catch (e) {
       if (!asked) {
         const unsaved = e && e.code === PTFM_seed.RESULT.UNSAVED;
@@ -449,6 +477,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
 
   /* UPLOAD DEMO DISK: one press, written at once */
   $("disk").addEventListener("click", () => { if (!busy && disk) upload(disk, "the demo disk", "UPLOAD DEMO DISK"); });
+  /* REPLACE ALL, offered: the upload again, the user area erased first */
+  $("replace").addEventListener("click", () => { if (!busy && replacing) upload(replacing.data, replacing.what, replacing.key, true); });
 
   /* UPLOAD CUSTOM DISK: a disk file picked (read here, never sent anywhere else), then as UPLOAD DEMO DISK; a file that is no
      disk, or a disk holding nothing (it would empty the user area: CLEAN INSTALL's job), is refused before MIDI */
@@ -457,6 +487,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     const f = $("upload-pick").files[0];
     $("upload-pick").value = "";
     if (!f || busy) return;
+    offerOff();
     const data = PTFM_seed.parseData(new Uint8Array(await f.arrayBuffer()));
     if (data.problems.length) status(`${f.name} cannot be uploaded: ${data.problems[0]}.`, "err");
     else if (!data.files.length) status(`${f.name} holds nothing to upload.`, "err");

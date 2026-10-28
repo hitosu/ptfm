@@ -15,6 +15,9 @@
 //   then holds every file of the disk as a record (specs/files/store.md: header, CRC, one save, its last
 //   flagged), in the user area only; pressed again, the device already holds it; a SAVE on the FM-1 right after
 //   its layout: BEGIN refused (CHANGED), planned again, written
+// - INSTALL FIRMWARE's progress in KB (the image read up to there)
+// - REPLACE ALL: a disk that does not fit around what the FM-1 holds but fits it emptied: offered, nothing written;
+//   pressed, the user area erased and the disk written
 // - UPLOAD CUSTOM DISK: a disk file picked, written as UPLOAD DEMO DISK's (the FM-1 then holds its files); again, nothing
 //   to write; a file that is no disk, and a disk holding nothing, refused before MIDI
 // - CLEAN INSTALL, a switch (off at first; on at first on a --clean page, the debug page's): INSTALL FIRMWARE
@@ -304,9 +307,13 @@ const parsed = SEED.parseData(disk);
   ok(!el("cleanrow").hidden && !el("clean").checked && /PT\/FM onto the FM-1, your work kept/.test(el("gosub").textContent),
      "page: the CLEAN INSTALL switch offered, off at first");
 
+  const lines = new Set(), watch = setInterval(() => lines.add(el("status").textContent), 2);   /* (the lines the install said) */
   el("go").on.click();
   const done = await until(() => /^Done/.test(el("status").textContent) || /err/.test(el("status").className), 60000);
+  clearInterval(watch);
   ok(done && el("status").textContent === "Done: the FM-1 runs PT/FM (FM-1_7101).", `INSTALL FIRMWARE: controller -> loader -> "${el("status").textContent}"`);
+  const kbLines = [...lines].filter((t) => /^Writing PT\/FM: \d+ of \d+ KB\./.test(t));
+  ok(kbLines.length > 1, `INSTALL FIRMWARE: its progress in KB ("${kbLines[kbLines.length - 1] || "none"}", ${kbLines.length} lines)`);
   ok(dev.bad === 0 && dev.served >= 10, `INSTALL FIRMWARE: every byte served == the package's image (${dev.served} reads, ${dev.bad} bad)`);
 
   await until(() => !el("disk").disabled, 5000);
@@ -357,6 +364,34 @@ const parsed = SEED.parseData(disk);
   await pick("MINE.ptfmdsk", SEED.makeDisk(mine));
   await until(() => /already holds/.test(el("status").textContent) || /err/.test(el("status").className), 10000);
   ok(el("status").textContent === "The FM-1 already holds MINE.ptfmdsk, exactly.", "UPLOAD CUSTOM DISK again: nothing written");
+}
+{ /* REPLACE ALL: a disk that does not fit around what the FM-1 holds (100 blocks pinned by deleted records' headers,
+     which a plan never writes over) but fits it emptied: the upload writes nothing and offers REPLACE ALL; pressed, the
+     user area is erased and the disk written: the FM-1 holds exactly it */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101" });
+  const at = [];
+  for (const [s, e] of [[0x093000, 0x0E0000], [0x0E5000, 0x0FF000]]) for (let a = s; a < e; a += 4096) at.push(a);
+  at.slice(0, 100).forEach((a, i) => {
+    const n = dev.put(a, 0x20, i, 0, 1, Uint8Array.from({ length: 100 }, (_, k) => k), 1, false);
+    dev.put(n, 0x21, i, 0, 1, null, 1, i === 99, true);
+  });
+  dev.lastSave = 1;
+  const el = runPage(html, dev.access);
+  await until(() => !el("upload").disabled, 5000);
+  Object.assign(el("status"), { textContent: "", className: "status" });
+  el("upload-pick").files = [{ name: "MINE.ptfmdsk", arrayBuffer: async () => Uint8Array.from(disk).buffer }];
+  await el("upload-pick").on.change();
+  await until(() => /REPLACE ALL|^Done|stopped/.test(el("status").textContent) || /err/.test(el("status").className), 30000);
+  ok(/does not fit around what the FM-1 holds, but it fits the FM-1 emptied: REPLACE ALL/.test(el("status").textContent) &&
+     !el("replace").hidden && dev.mounts === 0, `REPLACE ALL: offered, nothing written ("${el("status").textContent.slice(0, 70)}...")`);
+  Object.assign(el("status"), { textContent: "", className: "status" });
+  el("replace").on.click();
+  await until(() => /^Done|stopped/.test(el("status").textContent) || /err/.test(el("status").className), 60000);
+  const recs = dev.records();
+  const same = parsed.files.every((f) => recs.some((r) => r.ok && r.kind === f.kind && r.num === f.num && r.sub === f.sub &&
+    eq(Array.from(r.payload), Array.from(f.payload))));
+  ok(/^Done: the FM-1 holds/.test(el("status").textContent) && same && recs.length === parsed.files.length && el("replace").hidden,
+     `REPLACE ALL: the user area erased, the disk written; the FM-1 holds exactly it ("${el("status").textContent}", ${recs.length} records)`);
 }
 { /* a SAVE on the FM-1 between its layout and BEGIN: the device refuses BEGIN (CHANGED), the page plans again */
   const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101" });

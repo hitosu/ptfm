@@ -194,7 +194,7 @@ export class Updater {
         return { served, finished: false, lost: true };
       }
       served++;
-      if (onProgress) onProgress(served, r.addr);
+      if (onProgress) onProgress(served, r.addr + r.len);   // (the image read up to there)
     }
   }
 
@@ -231,7 +231,7 @@ export class Updater {
   async write(ota, image, step) {
     ota.link.send(UPGRADE);
     await sleep(2000);
-    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
+    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n, end) => step("write", n, end));
     ota.link.close();
     return s2;
   }

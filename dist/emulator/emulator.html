@@ -2124,9 +2124,11 @@ PTFM.LAYOUT = (function () {
  *   PTFM_seed.plan(layout, data)  -> plan, nothing sent:
  *       { ok, upToDate, problems: [text], keep: [rec], write: [rec], del: [rec], rewrites,
  *         blocks: [{ block, image: Uint8Array(4096), crc }] in the order to write, saveNumber,
- *         space: { blocks, free, used, after, reserve, need }, summary: [text lines] }
+ *         space: { blocks, free, used, after, reserve, need }, low, summary: [text lines] }
  *       ok false: problems says why (it does not fit, a kind or version the device does not take); nothing
  *       may be written then. A cartridge or pattern numbered F0-FF is a built-in thing's change: taken.
+ *       The device's reserve is kept when it can be, else the user area is filled to its last block: low then
+ *       says what fewer free blocks than advised cost the device's own saves (also a LOW SPACE line), else null.
  *   PTFM_seed.planClean(layout, data) -> a plan as plan()'s (clean: true) that erases everything the device
  *       holds in its user area (damaged records too), and writes data's files over the user area as if it
  *       were empty: the install page's clean install with no files (an empty user area)
@@ -2376,23 +2378,38 @@ function plan(layout, data) {
     }
 
     /* two tries: free blocks only, then also blocks whose every record is replaced or deleted (a cut then
-       leaves a part: seeding again mends it) */
+       leaves a part: seeding again mends it); each keeping the reserve, then (it does not fit so) without it, to
+       the user area's last block: the reserve is advice, and P.low says what fewer free blocks cost */
     let layoutTry = null;
-    for (const rewrite of [false, true]) {
-        const usable = blocks.filter(b => !occupied.has(b.block) ||
-            (rewrite && occupied.get(b.block).every(r => !r.deleted && goes(r))));   /* a deleted record stays: it hides an older version */
-        layoutTry = place(P, usable, layout.reserve, occupied);
-        if (layoutTry.fits) { P.rewrites = [...layoutTry.written].filter(b => occupied.has(b)).length; break; }
-    }
+    tries: for (const keep of [layout.reserve, 0])
+        for (const rewrite of [false, true]) {
+            const usable = blocks.filter(b => !occupied.has(b.block) ||
+                (rewrite && occupied.get(b.block).every(r => !r.deleted && goes(r))));   /* a deleted record stays: it hides an older version */
+            layoutTry = place(P, usable, keep, occupied);
+            if (layoutTry.fits) { P.rewrites = [...layoutTry.written].filter(b => occupied.has(b)).length; break tries; }
+        }
     P.space.need = layoutTry.blocksUsed;
     P.space.after = layoutTry.freeAfter;
     if (!layoutTry.fits) P.problems.push(layoutTry.why);
     if (!P.problems.length) {
         P.blocks = images(P, layoutTry);
         P.ok = true;
+        P.low = lowSpace(P.space.after, layout.reserve);
     }
     P.summary = summary(P, layout);
     return P;
+}
+
+/* what few free blocks leave the device's own saves (store.md): a SAVE keeps 2 free (compaction's) and a record
+   written needs one more, so under 3 it saves nothing, a delete included; new things keep 10 free (the EDITOR's
+   room); the reserve is what is advised. -> words, or null when there is enough */
+const SAVE_MIN_FREE = 3, SAVE_ROOM = 10;
+function lowSpace(free, reserve) {
+    const left = "only " + Math.max(0, free) * 4 + " KB will be free on the FM-1: ";
+    if (free < SAVE_MIN_FREE) return left + "it can save nothing, not even a delete, until something frees room";
+    if (free < SAVE_ROOM) return left + "it can't save new things (its saves keep " + SAVE_ROOM * 4 + " KB free); it can still delete";
+    if (free < reserve) return left + "less than the " + reserve * 4 + " KB advised for its own saves";
+    return null;
 }
 
 /* A clean seeding (the install page's CLEAN INSTALL, with no files: an empty user area): the data's files laid out
@@ -2408,7 +2425,8 @@ function planClean(layout, data) {
     const all = [];                          /* { block, region } in address order: the user area's */
     layout.regions.forEach((r, ri) => { if (r.area === "user") for (let a = r.start; a + BLOCK <= r.end; a += BLOCK) all.push({ block: a >>> 12, region: ri, area: r.area }); });
     const user = all;
-    const lay = P.write.length ? place(P, user, layout.reserve, new Map()) : { fits: true, at: [], blocksUsed: 0, freeAfter: user.length };
+    let lay = P.write.length ? place(P, user, layout.reserve, new Map()) : { fits: true, at: [], blocksUsed: 0, freeAfter: user.length };
+    if (!lay.fits) lay = place(P, user, 0, new Map());  /* (the reserve advised only, as plan()'s) */
     P.space = { blocks: user.length, free: user.length, used: 0, reserve: layout.reserve, need: lay.blocksUsed, after: lay.freeAfter,
         erase: 0 };
     if (!lay.fits) P.problems.push(lay.why);
@@ -2419,12 +2437,14 @@ function planClean(layout, data) {
         P.space.erase = erase.length;
         P.blocks = erase.concat(files);
         P.ok = true;
+        if (P.write.length) P.low = lowSpace(P.space.after, layout.reserve);
     }
     const s = P.summary;
     if (layout.fwText) s.push("THE FM-1: PT/FM " + layout.fwText + ".");
     s.push("ERASE: everything the FM-1 holds, its user area (" + kb(user.length * BLOCK) + ").");
     s.push("WRITE: " + P.write.length + " files, " + kb(P.write.reduce((n, f) => n + f.len, 0)) + ", into " +
         P.space.need + " blocks; " + P.space.after + " left free.");
+    if (P.low) s.push("LOW SPACE: " + P.low + ".");
     for (const p of P.problems) s.push("PROBLEM: " + p);
     return P;
 }
@@ -2524,7 +2544,7 @@ function summary(P, layout) {
     const s = [], S = P.space;
     if (layout.fwText) s.push("THE FM-1: PT/FM " + layout.fwText + ".");
     s.push("USER AREA: " + S.blocks + " blocks of 4 KB (" + kb(S.blocks * BLOCK) + "), " + S.free + " free now; " +
-        S.reserve + " kept free as the device's reserve.");
+        S.reserve + " advised free for the device's own saves.");
     if (P.upToDate) { s.push("The device already holds exactly this: nothing to write."); return s; }
     const bytes = P.write.reduce((n, f) => n + f.len, 0);
     s.push("WRITE: " + P.write.length + " files, " + kb(bytes) + " (" + P.write.filter(f => f.kind === AUDIO).length +
@@ -2533,6 +2553,7 @@ function summary(P, layout) {
     if (P.del.length) s.push("DELETE: " + P.del.length + " files the device holds and this does not: " +
         P.del.map(d => d.label).join(", ") + ".");
     if (P.rewrites) s.push("REWRITE: " + P.rewrites + " blocks of files being replaced are written over; a seeding cut short then leaves a part (seeding again mends it).");
+    if (P.low) s.push("LOW SPACE: " + P.low + ".");
     for (const p of P.problems) s.push("PROBLEM: " + p);
     return s;
 }
@@ -3361,6 +3382,7 @@ window.PTFM_DEMO = {"name":"demo.ptfmdsk","ptd":"UFRGTURJU0sBAAAAegAAAAQBAAELAgA
         bar.style.width = "0";
         go.disabled = true;
         go.hidden = false;
+        go.textContent = "WRITE";
         cancel.textContent = "CANCEL";
         let closed = false, writing = false, ses = null;
         const done = () => { go.hidden = true; cancel.textContent = "CLOSE"; };
@@ -3382,9 +3404,20 @@ window.PTFM_DEMO = {"name":"demo.ptfmdsk","ptd":"UFRGTURJU0sBAAAAegAAAAQBAAELAgA
             ses = S.session(transport);
             const layout = await ses.hello();
             if (closed) return;
-            const P = S.plan(layout, data);
-            const summary = P.summary.map(t => t.startsWith("PROBLEM") ? { text: t, kind: "bad" }
-                                              : t.startsWith("DELETE") || t.startsWith("REWRITE") ? { text: t, kind: "warn" } : t);
+            const lines = Q => Q.summary.map(t => t.startsWith("PROBLEM") ? { text: t, kind: "bad" }
+                : /^(DELETE|REWRITE|LOW SPACE|ERASE)/.test(t) ? { text: t, kind: "warn" } : t);
+            /* a disk that does not fit around what the FM-1 holds, but fits it emptied: REPLACE ALL offered, the user
+             * area erased and the disk written anew (seed.js planClean) */
+            let P = S.plan(layout, data), summary = lines(P);
+            if (!P.ok) {
+                const C = S.planClean(layout, data);
+                if (C.ok) {
+                    summary = summary.concat(["", { text: "It fits the FM-1 emptied: REPLACE ALL erases everything it holds and " +
+                        "writes the disk anew (an upload cut short then leaves a part: upload again).", kind: "warn" }], lines(C));
+                    P = C;
+                    go.textContent = "REPLACE ALL";
+                }
+            }
             show(summary);
             if (!P.ok || P.upToDate) { done(); return; }
             go.disabled = false;

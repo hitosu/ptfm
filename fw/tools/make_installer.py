@@ -4,7 +4,8 @@
 """PT/FM's install page: web/install.html with the installer scripts fm1pkg.js + fm1ota.js and seed.js (as
 classic scripts: pages open from file://, where Chrome refuses modules), the firmware package and the
 demo disk (base64) inlined. Three buttons: INSTALL FIRMWARE (the update path), UPLOAD DEMO DISK and
-UPLOAD CUSTOM DISK (a disk file picked; seeding, specs/files/blob.md). Nothing is fetched; the page checks what it
+UPLOAD CUSTOM DISK (a disk file picked; seeding, specs/files/blob.md), and REPLACE ALL, offered when a disk fits the
+FM-1 only emptied. Nothing is fetched; the page checks what it
 carries (sizes, SHA-256, the identity) before it offers them. The same inputs give the same page, byte for byte.
 
   fw/tools/make_installer.py PACKAGE.fwsc OUT.html [DISK.ptfmdsk] [--clean]   (fw/tools/build.py calls make())

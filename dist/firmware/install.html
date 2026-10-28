@@ -59,6 +59,9 @@ body:not(.dbg) * + h2 { margin-top: 24px; }
 /* INSTALL FIRMWARE the whole width, CLEAN INSTALL under it, then the two uploads side by side, their own line */
 .actions { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .actions.uploads { grid-template-columns: 1fr 1fr; margin-top: 16px; }
+/* REPLACE ALL: offered under them when a disk fits the FM-1 only emptied; red, as it erases */
+.actions.uploads #replace { grid-column: 1 / -1; }
+.big.danger { color: var(--lred); }
 button { font: inherit; cursor: pointer; }
 .big { min-height: 72px; padding: 10px 12px; background: var(--bg); color: var(--yellow); border: 1px solid var(--dgrey);
   border-radius: 0; font: 600 17px/1.25 var(--sans); letter-spacing: .08em; text-align: center;
@@ -88,6 +91,7 @@ button { font: inherit; cursor: pointer; }
 .status { margin-top: 16px; min-height: 1.5em; color: var(--white); overflow-wrap: anywhere; }
 .status.err { color: var(--lred); }
 .status.done { color: var(--lgreen); }
+.status.warn { color: var(--yellow); }                 /* (done, but the FM-1 left with little room for its saves) */
 progress { display: block; width: 100%; height: 8px; margin-top: 10px; appearance: none; border: 0; border-radius: 0;
   background: #1B1B1B; }
 progress::-webkit-progress-bar { background: #1B1B1B; border-radius: 0; }
@@ -159,6 +163,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     <div class="actions uploads">
       <button class="big" id="disk" disabled>UPLOAD DEMO DISK<small>the demo songs onto the FM-1, replacing your work</small></button>
       <button class="big" id="upload" disabled>UPLOAD CUSTOM DISK<small>a disk file of yours onto the FM-1, replacing your work</small></button>
+      <button class="big danger" id="replace" hidden>REPLACE ALL<small>erase everything the FM-1 holds, then write the disk</small></button>
     </div>
     <input type="file" id="upload-pick" accept=".ptfmdsk" hidden>
     <div class="status" id="status" role="status">Checking the package…</div>
@@ -193,6 +198,9 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       <dt>UPLOAD CUSTOM DISK</dt>
       <dd>The same with a disk file you pick (<b>.ptfmdsk</b>: the editor page's DOWNLOAD DISK saves the FM-1's library as
         one, and so does the emulator's). Afterwards the FM-1 holds exactly that disk.</dd>
+      <dt>REPLACE ALL</dt>
+      <dd>Offered when a disk does not fit around what the FM-1 holds but fits it emptied: erases everything the FM-1
+        holds, then writes the disk. An upload cut short then leaves part of the disk: upload again.</dd>
     </dl>
     <details>
       <summary>IF SOMETHING GOES WRONG</summary>
@@ -467,7 +475,7 @@ class Updater {
         return { served, finished: false, lost: true };
       }
       served++;
-      if (onProgress) onProgress(served, r.addr);
+      if (onProgress) onProgress(served, r.addr + r.len);   // (the image read up to there)
     }
   }
 
@@ -504,7 +512,7 @@ class Updater {
   async write(ota, image, step) {
     ota.link.send(UPGRADE);
     await sleep(2000);
-    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
+    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n, end) => step("write", n, end));
     ota.link.close();
     return s2;
   }
@@ -565,9 +573,11 @@ class Updater {
  *   PTFM_seed.plan(layout, data)  -> plan, nothing sent:
  *       { ok, upToDate, problems: [text], keep: [rec], write: [rec], del: [rec], rewrites,
  *         blocks: [{ block, image: Uint8Array(4096), crc }] in the order to write, saveNumber,
- *         space: { blocks, free, used, after, reserve, need }, summary: [text lines] }
+ *         space: { blocks, free, used, after, reserve, need }, low, summary: [text lines] }
  *       ok false: problems says why (it does not fit, a kind or version the device does not take); nothing
  *       may be written then. A cartridge or pattern numbered F0-FF is a built-in thing's change: taken.
+ *       The device's reserve is kept when it can be, else the user area is filled to its last block: low then
+ *       says what fewer free blocks than advised cost the device's own saves (also a LOW SPACE line), else null.
  *   PTFM_seed.planClean(layout, data) -> a plan as plan()'s (clean: true) that erases everything the device
  *       holds in its user area (damaged records too), and writes data's files over the user area as if it
  *       were empty: the install page's clean install with no files (an empty user area)
@@ -817,23 +827,38 @@ function plan(layout, data) {
     }
 
     /* two tries: free blocks only, then also blocks whose every record is replaced or deleted (a cut then
-       leaves a part: seeding again mends it) */
+       leaves a part: seeding again mends it); each keeping the reserve, then (it does not fit so) without it, to
+       the user area's last block: the reserve is advice, and P.low says what fewer free blocks cost */
     let layoutTry = null;
-    for (const rewrite of [false, true]) {
-        const usable = blocks.filter(b => !occupied.has(b.block) ||
-            (rewrite && occupied.get(b.block).every(r => !r.deleted && goes(r))));   /* a deleted record stays: it hides an older version */
-        layoutTry = place(P, usable, layout.reserve, occupied);
-        if (layoutTry.fits) { P.rewrites = [...layoutTry.written].filter(b => occupied.has(b)).length; break; }
-    }
+    tries: for (const keep of [layout.reserve, 0])
+        for (const rewrite of [false, true]) {
+            const usable = blocks.filter(b => !occupied.has(b.block) ||
+                (rewrite && occupied.get(b.block).every(r => !r.deleted && goes(r))));   /* a deleted record stays: it hides an older version */
+            layoutTry = place(P, usable, keep, occupied);
+            if (layoutTry.fits) { P.rewrites = [...layoutTry.written].filter(b => occupied.has(b)).length; break tries; }
+        }
     P.space.need = layoutTry.blocksUsed;
     P.space.after = layoutTry.freeAfter;
     if (!layoutTry.fits) P.problems.push(layoutTry.why);
     if (!P.problems.length) {
         P.blocks = images(P, layoutTry);
         P.ok = true;
+        P.low = lowSpace(P.space.after, layout.reserve);
     }
     P.summary = summary(P, layout);
     return P;
+}
+
+/* what few free blocks leave the device's own saves (store.md): a SAVE keeps 2 free (compaction's) and a record
+   written needs one more, so under 3 it saves nothing, a delete included; new things keep 10 free (the EDITOR's
+   room); the reserve is what is advised. -> words, or null when there is enough */
+const SAVE_MIN_FREE = 3, SAVE_ROOM = 10;
+function lowSpace(free, reserve) {
+    const left = "only " + Math.max(0, free) * 4 + " KB will be free on the FM-1: ";
+    if (free < SAVE_MIN_FREE) return left + "it can save nothing, not even a delete, until something frees room";
+    if (free < SAVE_ROOM) return left + "it can't save new things (its saves keep " + SAVE_ROOM * 4 + " KB free); it can still delete";
+    if (free < reserve) return left + "less than the " + reserve * 4 + " KB advised for its own saves";
+    return null;
 }
 
 /* A clean seeding (the install page's CLEAN INSTALL, with no files: an empty user area): the data's files laid out
@@ -849,7 +874,8 @@ function planClean(layout, data) {
     const all = [];                          /* { block, region } in address order: the user area's */
     layout.regions.forEach((r, ri) => { if (r.area === "user") for (let a = r.start; a + BLOCK <= r.end; a += BLOCK) all.push({ block: a >>> 12, region: ri, area: r.area }); });
     const user = all;
-    const lay = P.write.length ? place(P, user, layout.reserve, new Map()) : { fits: true, at: [], blocksUsed: 0, freeAfter: user.length };
+    let lay = P.write.length ? place(P, user, layout.reserve, new Map()) : { fits: true, at: [], blocksUsed: 0, freeAfter: user.length };
+    if (!lay.fits) lay = place(P, user, 0, new Map());  /* (the reserve advised only, as plan()'s) */
     P.space = { blocks: user.length, free: user.length, used: 0, reserve: layout.reserve, need: lay.blocksUsed, after: lay.freeAfter,
         erase: 0 };
     if (!lay.fits) P.problems.push(lay.why);
@@ -860,12 +886,14 @@ function planClean(layout, data) {
         P.space.erase = erase.length;
         P.blocks = erase.concat(files);
         P.ok = true;
+        if (P.write.length) P.low = lowSpace(P.space.after, layout.reserve);
     }
     const s = P.summary;
     if (layout.fwText) s.push("THE FM-1: PT/FM " + layout.fwText + ".");
     s.push("ERASE: everything the FM-1 holds, its user area (" + kb(user.length * BLOCK) + ").");
     s.push("WRITE: " + P.write.length + " files, " + kb(P.write.reduce((n, f) => n + f.len, 0)) + ", into " +
         P.space.need + " blocks; " + P.space.after + " left free.");
+    if (P.low) s.push("LOW SPACE: " + P.low + ".");
     for (const p of P.problems) s.push("PROBLEM: " + p);
     return P;
 }
@@ -965,7 +993,7 @@ function summary(P, layout) {
     const s = [], S = P.space;
     if (layout.fwText) s.push("THE FM-1: PT/FM " + layout.fwText + ".");
     s.push("USER AREA: " + S.blocks + " blocks of 4 KB (" + kb(S.blocks * BLOCK) + "), " + S.free + " free now; " +
-        S.reserve + " kept free as the device's reserve.");
+        S.reserve + " advised free for the device's own saves.");
     if (P.upToDate) { s.push("The device already holds exactly this: nothing to write."); return s; }
     const bytes = P.write.reduce((n, f) => n + f.len, 0);
     s.push("WRITE: " + P.write.length + " files, " + kb(bytes) + " (" + P.write.filter(f => f.kind === AUDIO).length +
@@ -974,6 +1002,7 @@ function summary(P, layout) {
     if (P.del.length) s.push("DELETE: " + P.del.length + " files the device holds and this does not: " +
         P.del.map(d => d.label).join(", ") + ".");
     if (P.rewrites) s.push("REWRITE: " + P.rewrites + " blocks of files being replaced are written over; a seeding cut short then leaves a part (seeding again mends it).");
+    if (P.low) s.push("LOW SPACE: " + P.low + ".");
     for (const p of P.problems) s.push("PROBLEM: " + p);
     return s;
 }
@@ -1161,7 +1190,9 @@ else root.PTFM_seed = S;
   const status = (text, kind) => { $("status").textContent = text; $("status").className = "status" + (kind ? " " + kind : ""); };
   const fact = (html, cls) => { const s = document.createElement("span"); s.className = "chip" + (cls ? " " + cls : ""); s.innerHTML = html; $("facts").appendChild(s); };
   const lock = (on) => { busy = on; window.PTFM_busy = on; $("go").disabled = on || !image; $("disk").disabled = on || !disk;
-    $("upload").disabled = on || !image || typeof PTFM_seed === "undefined"; $("clean").disabled = on; };
+    $("upload").disabled = on || !image || typeof PTFM_seed === "undefined"; $("replace").disabled = on; $("clean").disabled = on; };
+  let replacing = null;                              /* REPLACE ALL's offer: { data, what, key }, or null */
+  const offerOff = () => { replacing = null; $("replace").hidden = true; };
   const cleanOn = () => !!$("clean").checked;      /* CLEAN INSTALL */
   function cleanLabel() {                            /* INSTALL FIRMWARE's line under it says which install it does */
     $("gosub").textContent = cleanOn() ? "clean: PT/FM, then an empty user area" : "PT/FM onto the FM-1, your work kept";
@@ -1216,19 +1247,28 @@ else root.PTFM_seed = S;
     mismatch: "Written, but the FM-1 now reports another firmware: ",
     foreign: "The FM-1 waits in another firmware's update mode: finish that update with its own installer first. ",
   };
-  function step(k, a) {
+  let wrote = 0;                                     /* (the install's progress: the image read up to there, bytes) */
+  function step(k, a, end) {                         /* (write: a the loader's reads so far, end the image read up to there) */
     const bar = $("bar");
     bar.hidden = false;
     if (k === "start") status("Found " + a + ". Checking the package on the FM-1…");
     if (k === "verify") { status("Checking the package on the FM-1…"); bar.value = Math.min(100, (a / TOTAL) * 100); }
     if (k === "loader") status("Starting the update loader… (the FM-1 restarts)");
-    if (k === "write") { status("Writing PT/FM. Keep the FM-1 connected."); bar.value = Math.min(100, ((74 + a) / TOTAL) * 100); }
+    if (k === "start" || k === "loader") wrote = 0;
+    if (k === "write") {
+      const kb = (n) => Math.round(Math.min(n, image.length) / 1024);
+      wrote = Math.max(wrote, end || 0);              /* (the furthest read: the loader reads its head first) */
+      status(wrote ? `Writing PT/FM: ${kb(wrote)} of ${kb(image.length)} KB. Keep the FM-1 connected.` : "Writing PT/FM. Keep the FM-1 connected.");
+      bar.value = Math.min(100, ((74 + a) / TOTAL) * 100);
+    }
     if (k === "reboot") status("Written. Waiting for the FM-1 to start PT/FM…");
     if (k === "done") { bar.value = 100; status("Done: the FM-1 runs PT/FM (" + (a || meta.product) + ").", "done"); }
   }
   window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
   $("go").addEventListener("click", async () => {
     if (busy || !image) return;
+    wrote = 0;
+    offerOff();
     const clean = cleanOn();                         /* (as switched at the press) */
     lock(true);
     let midi, installed = false;
@@ -1323,7 +1363,7 @@ else root.PTFM_seed = S;
       try {
         const r = await s.write(plan, (p) => { bar.value = (p.done / p.total) * 100; status(`${what}: block ${p.done} of ${p.total}. Keep the FM-1 connected.`); });
         bar.value = 100;
-        return { r };
+        return { r, low: plan.low };                 /* (low: fewer free blocks than advised, what that costs) */
       } catch (e) {
         if (!(e && e.code === PTFM_seed.RESULT.CHANGED) || tries >= 2) throw e;
         L = await s.hello();                         /* (saved or moved on the FM-1 since its layout was read) */
@@ -1332,9 +1372,12 @@ else root.PTFM_seed = S;
   }
 
   /* an upload, written at once: data (seed.js parseData's) planned on the FM-1's layout; what names it in the status
-     line ("the demo disk", a file's name), key is the button to press again */
-  async function upload(data, what, key) {
+     line ("the demo disk", a file's name), key is the button to press again. A disk that does not fit around what the
+     FM-1 holds, but fits it emptied, is not written: REPLACE ALL is offered, which uploads it again with clean (the
+     user area erased, the disk written anew: seed.js planClean) */
+  async function upload(data, what, key, clean) {
     const What = what[0].toUpperCase() + what.slice(1);
+    offerOff();
     lock(true);
     $("bar").hidden = true;
     let midi, s = null, asked = false;
@@ -1346,10 +1389,16 @@ else root.PTFM_seed = S;
       status("Asking the FM-1 what it holds…");
       const L = await s.hello();
       asked = true;
-      const w = await writeDisk(s, L, PTFM_seed.plan, "Writing " + what, data);
-      if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
+      const w = await writeDisk(s, L, clean ? PTFM_seed.planClean : PTFM_seed.plan, (clean ? "Erasing the FM-1 and writing " : "Writing ") + what, data);
+      if (w.problem && !clean && PTFM_seed.planClean(L, data).ok) {
+        replacing = { data, what, key };
+        $("replace").hidden = false;
+        status(`${What} does not fit around what the FM-1 holds, but it fits the FM-1 emptied: REPLACE ALL erases ` +
+               `everything the FM-1 holds and writes ${what} anew.`, "warn");
+      }
+      else if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
       else if (w.upToDate) status(`The FM-1 already holds ${what}, exactly.`, "done");
-      else status(`Done: the FM-1 holds ${w.r.records} files.` + oldBad(w.r), "done");
+      else status(`Done: the FM-1 holds ${w.r.records} files.` + (w.low ? ` But ${w.low}.` : "") + oldBad(w.r), w.low ? "warn" : "done");
     } catch (e) {
       if (!asked) {
         const unsaved = e && e.code === PTFM_seed.RESULT.UNSAVED;
@@ -1369,6 +1418,8 @@ else root.PTFM_seed = S;
 
   /* UPLOAD DEMO DISK: one press, written at once */
   $("disk").addEventListener("click", () => { if (!busy && disk) upload(disk, "the demo disk", "UPLOAD DEMO DISK"); });
+  /* REPLACE ALL, offered: the upload again, the user area erased first */
+  $("replace").addEventListener("click", () => { if (!busy && replacing) upload(replacing.data, replacing.what, replacing.key, true); });
 
   /* UPLOAD CUSTOM DISK: a disk file picked (read here, never sent anywhere else), then as UPLOAD DEMO DISK; a file that is no
      disk, or a disk holding nothing (it would empty the user area: CLEAN INSTALL's job), is refused before MIDI */
@@ -1377,6 +1428,7 @@ else root.PTFM_seed = S;
     const f = $("upload-pick").files[0];
     $("upload-pick").value = "";
     if (!f || busy) return;
+    offerOff();
     const data = PTFM_seed.parseData(new Uint8Array(await f.arrayBuffer()));
     if (data.problems.length) status(`${f.name} cannot be uploaded: ${data.problems[0]}.`, "err");
     else if (!data.files.length) status(`${f.name} holds nothing to upload.`, "err");

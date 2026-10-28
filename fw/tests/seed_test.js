@@ -248,11 +248,21 @@ async function main() {
     const v2 = { kind: "disk", files: [Object.assign({}, five.files[0], { ver: 9 })], problems: [] };
     P = S.plan(L, v2);
     check(!P.ok && P.problems.some(p => p.includes("version 9")), "a version the device does not take refused");
-    /* too much: the reserve */
-    const huge = { kind: "disk", files: five.files.slice(), problems: [] };
-    for (let i = 0; i < 40; i++) huge.files.push({ kind: 0x10, num: 0x40, sub: i, ver: 1, len: 8000,
-        crc: S.crc32(new Uint8Array(8000)), payload: new Uint8Array(8000), label: "SAMPLE" });
-    P = S.plan(L, huge);
+    /* more than the reserve leaves: planned to the user area's last block, LOW SPACE saying what fewer free blocks
+       cost the device's saves; more than the user area holds: refused */
+    const big = n => {
+        const d = { kind: "disk", files: five.files.slice(), problems: [] };
+        for (let i = 0; i < n; i++) d.files.push({ kind: 0x10, num: 0x40, sub: i, ver: 1, len: 8000,
+            crc: S.crc32(new Uint8Array(8000)), payload: new Uint8Array(8000), label: "SAMPLE" });
+        return d;
+    };
+    let n = 1;                                          /* (more till the reserve is not kept: ~2 blocks a sample, 16 kept) */
+    P = S.plan(L, big(n));
+    while (P.ok && !P.low && n < 120) P = S.plan(L, big(++n));
+    check(P.ok && P.low && P.space.after < L.reserve &&
+          P.summary.some(t => t.startsWith("LOW SPACE: only " + P.space.after * 4 + " KB will be free")),
+          n + " samples, more than the reserve leaves: planned to the last block, said (" + P.low + ")");
+    P = S.plan(L, big(n + 30));
     check(!P.ok && P.problems.some(p => p.includes("does not fit")), "too much for the user area: " + P.problems.join("; "));
 
     /* CLEAN INSTALL's seeding: no files, every block of the user area written empty; a region not the user area's

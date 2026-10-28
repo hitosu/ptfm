@@ -58,7 +58,11 @@ number.
    largest message it takes; and its records: kind, number, sub, version, CRC, place, save number.
 2. **The uploader plans:** a record already on the device with the same CRC stays where it is; new and
    changed ones go into free blocks of the user area, records packed together, audio in
-   blocks of its own; the reserve stays free; records the device has and the blob does not get
+   blocks of its own; the reserve stays free when it can (else the user area fills to its last block, and the
+   plan's LOW SPACE line says what fewer free blocks cost the device's saves; a blob that does not fit around what the
+   device holds, its blocks pinned by records kept and deleted records' headers, but fits it emptied: nothing is
+   written, and the uploaders offer REPLACE ALL, the user area erased and the blob written anew as a clean seeding
+   writes it, below); records the device has and the blob does not get
    deleted records, so the device ends up holding exactly the blob: **the device's own saved work not in
    it is deleted**, and keeping a copy of that work is the user's to do. The emulator shows the plan (each
    area's space, what goes where, what does not fit, what will be deleted) and writes once the user

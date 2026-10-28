@@ -81,23 +81,26 @@ body.dbg * { scrollbar-width: thin; scrollbar-color: var(--dgrey) #000; }
 .dbg button:disabled small { color: var(--dgrey); }
 .dbg button.small { font-size: 16px; font-weight: normal; }
 /* install.html's: INSTALL and UPLOAD as keys of the sidebar; CLEAR USER DATA the page's own, as they are */
-.dbg #go, .dbg #disk, .dbg #upload, .dbg #d-clear { width: 100%; display: block; padding: 6px 8px; font: 16px/20px var(--f16); font-weight: normal;
+.dbg #go, .dbg #disk, .dbg #upload, .dbg #replace, .dbg #d-clear { width: 100%; display: block; padding: 6px 8px; font: 16px/20px var(--f16); font-weight: normal;
   background: #000; color: var(--yellow); border: 1px solid var(--dgrey); border-radius: 0; letter-spacing: 0; }
-.dbg #go:disabled, .dbg #disk:disabled, .dbg #upload:disabled, .dbg #d-clear:disabled { color: var(--dgrey); border-color: var(--line); }
-.dbg #go:hover:not(:disabled), .dbg #disk:hover:not(:disabled), .dbg #upload:hover:not(:disabled), .dbg #d-clear:hover:not(:disabled) { border-color: var(--green); filter: none; }   /* (install.html's #go: only brighter) */.dbg #d-clear { margin-top: 6px; }
+.dbg #go:disabled, .dbg #disk:disabled, .dbg #upload:disabled, .dbg #replace:disabled, .dbg #d-clear:disabled { color: var(--dgrey); border-color: var(--line); }
+.dbg #go:hover:not(:disabled), .dbg #disk:hover:not(:disabled), .dbg #upload:hover:not(:disabled), .dbg #replace:hover:not(:disabled), .dbg #d-clear:hover:not(:disabled) { border-color: var(--green); filter: none; }   /* (install.html's #go: only brighter) */
+.dbg #replace:not(:disabled) { color: var(--lred); }   /* (REPLACE ALL, offered: it erases) */
+.dbg #d-clear { margin-top: 6px; }
 /* the one pressed: what it is doing on it (the footer's line and bar as well), the bar as its fill */
 /* their second line always two lines high, whatever it says (CLEAN INSTALL's words, a long message: the rest in
    the footer and the key's tooltip), so the sidebar never moves */
-.dbg #go small, .dbg #disk small, .dbg #upload small, .dbg #d-clear small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+.dbg #go small, .dbg #disk small, .dbg #upload small, .dbg #replace small, .dbg #d-clear small { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   height: 30px; overflow: hidden; }
-.dbg #go .prog, .dbg #disk .prog, .dbg #upload .prog, .dbg #d-clear .prog { display: none; }
-.dbg #go.told .prog, .dbg #disk.told .prog, .dbg #upload.told .prog, .dbg #d-clear.told .prog { display: -webkit-box; color: var(--lgrey); }
-.dbg #go.told > small:not(.prog), .dbg #disk.told > small:not(.prog), .dbg #upload.told > small:not(.prog), .dbg #d-clear.told > small:not(.prog) { display: none; }
-.dbg #go.told .prog.done, .dbg #disk.told .prog.done, .dbg #upload.told .prog.done, .dbg #d-clear.told .prog.done { color: var(--lgreen); }
-.dbg #go.told .prog.err, .dbg #disk.told .prog.err, .dbg #upload.told .prog.err, .dbg #d-clear.told .prog.err { color: var(--lred); }
-.dbg #go.busy:disabled, .dbg #disk.busy:disabled, .dbg #upload.busy:disabled, .dbg #d-clear.busy:disabled { color: var(--white); border-color: var(--green);
+.dbg #go .prog, .dbg #disk .prog, .dbg #upload .prog, .dbg #replace .prog, .dbg #d-clear .prog { display: none; }
+.dbg #go.told .prog, .dbg #disk.told .prog, .dbg #upload.told .prog, .dbg #replace.told .prog, .dbg #d-clear.told .prog { display: -webkit-box; color: var(--lgrey); }
+.dbg #go.told > small:not(.prog), .dbg #disk.told > small:not(.prog), .dbg #upload.told > small:not(.prog), .dbg #replace.told > small:not(.prog), .dbg #d-clear.told > small:not(.prog) { display: none; }
+.dbg #go.told .prog.done, .dbg #disk.told .prog.done, .dbg #upload.told .prog.done, .dbg #replace.told .prog.done, .dbg #d-clear.told .prog.done { color: var(--lgreen); }
+.dbg #go.told .prog.err, .dbg #disk.told .prog.err, .dbg #upload.told .prog.err, .dbg #replace.told .prog.err, .dbg #d-clear.told .prog.err { color: var(--lred); }
+.dbg #disk.told .prog.warn, .dbg #upload.told .prog.warn, .dbg #replace.told .prog.warn { color: var(--yellow); }   /* (done, the FM-1 left with little room) */
+.dbg #go.busy:disabled, .dbg #disk.busy:disabled, .dbg #upload.busy:disabled, .dbg #replace.busy:disabled, .dbg #d-clear.busy:disabled { color: var(--white); border-color: var(--green);
   background: linear-gradient(90deg, var(--green-d) calc(var(--p, 0) * 1%), #000 0); }
-.dbg #go.busy:disabled .prog, .dbg #disk.busy:disabled .prog, .dbg #upload.busy:disabled .prog, .dbg #d-clear.busy:disabled .prog { color: var(--white); }
+.dbg #go.busy:disabled .prog, .dbg #disk.busy:disabled .prog, .dbg #upload.busy:disabled .prog, .dbg #replace.busy:disabled .prog, .dbg #d-clear.busy:disabled .prog { color: var(--white); }
 /* CLEAR USER DATA counting down: asking, as AUTOTEST's CONTINUE does (a press calls it off) */
 .dbg #d-clear.ask:not(:disabled) { color: #000; background: var(--yellow); border-color: var(--yellow); animation: dbg-ask 1s steps(1) infinite; }
 .dbg #d-clear.ask.told .prog { color: inherit; }
@@ -411,7 +414,7 @@ computer: USB AUDIO HERE on for its part</p>
   document.title = "PT/FM DEBUG";
   const move = (id, to, before) => { const n = $(id); if (n) (before ? to.insertBefore(n, before) : to.appendChild(n)); return n; };
   const fw = $("d-firmware");
-  move("go", fw); move("cleanrow", fw); move("disk", fw); move("upload", fw); move("d-clear", fw);   /* (as install.html's order) */
+  move("go", fw); move("cleanrow", fw); move("disk", fw); move("upload", fw); move("replace", fw); move("d-clear", fw);   /* (as install.html's order) */
   const cleanText = $("cleanrow") && $("cleanrow").querySelector("span:not(.track)");
   if (cleanText) {                                    /* (its long words a tooltip: INSTALL's own line says it too) */
     const words = [...cleanText.childNodes].filter((n) => n.nodeType === 3);
@@ -447,7 +450,8 @@ computer: USB AUDIO HERE on for its part</p>
      the line stays until another is pressed or CLEAN INSTALL switched (install.html's script untouched: it is
      watched; CLEAR USER DATA writes the same line and bar) */
   const clr = { key: $("d-clear"), left: 0, timer: 0, held: false, running: false };   /* (CLEAR USER DATA: counting down; an autotest running; erasing) */
-  const keys = [[go, "INSTALLING"], [$("disk"), "UPLOADING"], [$("upload"), "UPLOADING"], [clr.key, "CLEARING"]].filter(([b]) => b && b.firstChild);
+  const keys = [[go, "INSTALLING"], [$("disk"), "UPLOADING"], [$("upload"), "UPLOADING"], [$("replace"), "REPLACING"],
+                [clr.key, "CLEARING"]].filter(([b]) => b && b.firstChild);
   let told = null, before = null;                     /* before: the line as it was at the press (not this key's yet) */
   keys.forEach(([b, doing]) => {
     b.dataset.name = b.firstChild.textContent;
@@ -477,7 +481,8 @@ computer: USB AUDIO HERE on for its part</p>
       b.classList.toggle("told", on);
       b.classList.toggle("busy", works);
       b.style.setProperty("--p", works && share >= 0 ? String(share) : "0");
-      const text = on && st && before === null ? st.textContent : "", kind = on && st ? (st.classList.contains("err") ? "err" : st.classList.contains("done") ? "done" : "") : "";
+      const text = on && st && before === null ? st.textContent : "", kind = on && st ? (st.classList.contains("err") ? "err" :
+        st.classList.contains("done") ? "done" : st.classList.contains("warn") ? "warn" : "") : "";
       if (p.textContent !== text) p.textContent = text;
       p.className = "prog" + (kind ? " " + kind : "");
       const tip = on ? text : b.querySelector("small:not(.prog)") ? b.querySelector("small:not(.prog)").textContent : "";
@@ -544,7 +549,7 @@ computer: USB AUDIO HERE on for its part</p>
     }, 1000);
   });
   async function clearRun() {
-    const others = ["go", "disk", "upload", "clean"].map($).filter(Boolean), was = others.map((n) => n.disabled);
+    const others = ["go", "disk", "upload", "replace", "clean"].map($).filter(Boolean), was = others.map((n) => n.disabled);
     const bar = $("bar");
     window.PTFM_busy = clr.running = true;
     others.forEach((n) => { n.disabled = true; });

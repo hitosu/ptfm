@@ -54,7 +54,9 @@ In short:
   asking for MIDI nowhere. It uses the same
   module and protocol as `dist/firmware/seed.html` (the files proposal, 12.2:
   [proposals/202610080050-fs.md](proposals/202610080050-fs.md)), so seeding is tested without the
-  FM-1.
+  FM-1. Its plan is shown before WRITE, a disk leaving less free than the device's reserve with a yellow LOW
+  SPACE line ([files/store.md](files/store.md)); a disk that fits only the FM-1 emptied gets REPLACE ALL in WRITE's
+  place, its plan below ([files/blob.md](files/blob.md#seeding)).
 - **The emulated flash is kept in the browser's storage,** so the library survives a reload, as on the
   device.
 - **DOWNLOAD DISK** saves what the emulated FM-1 holds in its user area as a disk

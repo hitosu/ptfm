@@ -67,10 +67,12 @@ The screens name the user area USER and the firmware space FWS ([../ui/saving.md
     back. A built-in thing never moves and has no DELETE.
   - **More room** in the user area comes from deleting things, the demo disk's among them.
 - **Reading:** the user area and the built-in instruments are read in place, as the firmware's own data.
-- **A reserve of 64 KB** (16 blocks) of the user area is left free by the install page's uploader, for the
-  device's saves and for compaction. The editor's WRITE does not keep it: it may fill the user area to its
-  last block, and says first what fewer free blocks cost ([../editor.md](../editor.md#the-fm-1-read-write-and-disks)):
-  under the 40 KB a SAVE of new things keeps (below), nothing new is saved; under 3 blocks, nothing at all.
+- **A reserve of 64 KB** (16 blocks) of the user area is advised free, for the device's saves and for
+  compaction. The uploaders (the install page's, the emulator's) keep it when they can; a disk too big for that
+  still goes in, to the user area's last block, and the plan says what fewer free blocks cost (LOW SPACE). The
+  editor's WRITE does not keep it either, and says first what fewer free blocks cost
+  ([../editor.md](../editor.md#the-fm-1-read-write-and-disks)): under the 40 KB a SAVE of new things keeps (below),
+  nothing new is saved; under 3 blocks, nothing at all.
 - **Installs:** the update loader writes the whole firmware slot, 0x004000 - 0x093000, and never the user
   area: installing PT/FM keeps everything the user made, the changed built-ins included. Other firmwares
   write the fast regions too: for PT/FM their install is the loss of everything, and a copy made with the

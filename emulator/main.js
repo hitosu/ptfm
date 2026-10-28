@@ -397,6 +397,7 @@
         bar.style.width = "0";
         go.disabled = true;
         go.hidden = false;
+        go.textContent = "WRITE";
         cancel.textContent = "CANCEL";
         let closed = false, writing = false, ses = null;
         const done = () => { go.hidden = true; cancel.textContent = "CLOSE"; };
@@ -418,9 +419,20 @@
             ses = S.session(transport);
             const layout = await ses.hello();
             if (closed) return;
-            const P = S.plan(layout, data);
-            const summary = P.summary.map(t => t.startsWith("PROBLEM") ? { text: t, kind: "bad" }
-                                              : t.startsWith("DELETE") || t.startsWith("REWRITE") ? { text: t, kind: "warn" } : t);
+            const lines = Q => Q.summary.map(t => t.startsWith("PROBLEM") ? { text: t, kind: "bad" }
+                : /^(DELETE|REWRITE|LOW SPACE|ERASE)/.test(t) ? { text: t, kind: "warn" } : t);
+            /* a disk that does not fit around what the FM-1 holds, but fits it emptied: REPLACE ALL offered, the user
+             * area erased and the disk written anew (seed.js planClean) */
+            let P = S.plan(layout, data), summary = lines(P);
+            if (!P.ok) {
+                const C = S.planClean(layout, data);
+                if (C.ok) {
+                    summary = summary.concat(["", { text: "It fits the FM-1 emptied: REPLACE ALL erases everything it holds and " +
+                        "writes the disk anew (an upload cut short then leaves a part: upload again).", kind: "warn" }], lines(C));
+                    P = C;
+                    go.textContent = "REPLACE ALL";
+                }
+            }
             show(summary);
             if (!P.ok || P.upToDate) { done(); return; }
             go.disabled = false;

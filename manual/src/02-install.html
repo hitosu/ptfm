@@ -25,7 +25,8 @@ MIDI from a web page.</li>
 <p>Writes PT/FM over whatever firmware the FM-1 runs.</p>
 <ol class="steps">
 <li>Open install.html and connect the FM-1.</li>
-<li>Press <b>INSTALL FIRMWARE</b>. The page shows its progress; the FM-1 restarts by itself.</li>
+<li>Press <b>INSTALL FIRMWARE</b>. The page shows its progress, the kilobytes written of the firmware's; the FM-1
+restarts by itself.</li>
 <li>When the page says it is done, the FM-1 starts PT/FM on its STATUS screen.</li>
 </ol>
 <p><b>Over PT/FM</b> (an update), your songs, patterns, instruments, samples and settings stay where they are: the
@@ -70,7 +71,11 @@ then part of it may be left. Either way, upload again. The FM-1 says what it fou
 <p>The same with a disk file you pick (<b>.ptfmdsk</b>): a backup the EDITOR page's DOWNLOAD DISK saved
 (<a href="#editor-page">chapter 17</a>), or a disk someone gave you. Afterwards the FM-1 holds exactly that disk,
 everything else gone, as with the demo disk. A file that is no disk, or a disk holding nothing, is refused before
-anything is sent.</p>
+anything is sent. A disk that leaves the FM-1 less than 64 KB free still goes in, and the page says what that costs
+its own saves: under 40 KB free, it saves nothing new until you delete something.</p>
+<p>A disk that does not fit around what the FM-1 holds, but would fit it empty, is not written: the page offers
+<b>REPLACE ALL</b>, which erases everything the FM-1 holds and then writes the disk. Cut short, it leaves part of the
+disk: upload again.</p>
 </section>
 
 <section class="topic" id="install-rescue">
