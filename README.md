@@ -7,7 +7,7 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 <img src="site/screens/status-ptfm.png" width="240" height="240" alt="STATUS, the start screen: POCKET TRACKER / FUSION MACHINE, BY HITOSU">
 <img src="site/screens/manual/editor-4tracks.png" width="240" height="240" alt="The EDITOR: a pattern's cells on 4 tracks, each a note, an instrument, a volume and a command">
 <img src="site/screens/manual/playback-view.png" width="240" height="240" alt="PLAYBACK: a song's 8 tracks scrolling as they play">
-<img src="site/screens/manual/visual-spectrum.png" width="240" height="240" alt="VISUAL: the spectrum of what plays">
+<img src="site/screens/visual-voices16.png" width="240" height="240" alt="VISUAL: a scope for each of 16 voices">
 <img src="site/screens/loops-full.png" width="240" height="240" alt="LOOPS: 16 loops layered">
 <img src="site/screens/dj-decks.png" width="240" height="240" alt="DJ: two songs on two decks">
 </p>
