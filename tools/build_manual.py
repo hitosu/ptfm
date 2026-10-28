@@ -352,7 +352,7 @@ def web_page(chs, ids):
     css = (MAN / "web.css").read_text(encoding="utf-8")
     js = (MAN / "manual.js").read_text(encoding="utf-8")
     return ("<!doctype html>\n" + LICENCE + '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
             "<title>%s</title>\n<style>\n%s\n</style>\n</head>\n<body class=\"manual\">\n"
             '<header class="mtop"><button class="menu" type="button" aria-label="Contents">&#9776;</button>'
             '<a class="mark" href="https://hitosu.github.io/ptfm/" title="PT/FM\'s page" aria-label="PT/FM\'s page">%s</a>'

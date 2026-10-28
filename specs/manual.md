@@ -68,7 +68,9 @@ Appendix A has a topic `shortcuts-everywhere` and a topic `shortcuts-SCREEN` for
   `BLACK KEY`) while pointed at.
   Below about 900 px
   (a phone, with no pointing to light keys by) there is no drawing: the screenshots stand in the text, and the
-  contents become a drawer.
+  contents become a drawer. On a phone the page fills the screen (`viewport-fit=cover`): the sticky header reaches
+  up under the status bar, so no text scrolls by there, and the page keeps clear of a notch in landscape (the safe
+  area's insets).
 - **The key lighting:** the build gives every key, combination and key table row a `data-k` (the panel's element ids
   it lights) and `tabindex="0"`; pointing at it, focusing it or tapping it lights those keys on the drawing, the whole
   combination at once, and leaving clears them. A key name the drawing has no element for fails the build.
