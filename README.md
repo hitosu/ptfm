@@ -3,7 +3,11 @@
 **Pocket Tracker / Fusion Machine**: a tracker firmware for the M-VAVE FM-1 synthesizer, in the
 ProTracker tradition, whose tracks play synth engines and samples side by side.
 
+<img src="site/screens/status-ptfm.png" width="240" height="240" alt="PT/FM's start screen on the FM-1: POCKET TRACKER / FUSION MACHINE, BY HITOSU">
+
 **https://hitosu.github.io/ptfm/**: install it, try it in the emulator, read the manual, open the editor.
+
+**Video:** [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE) on YouTube.
 
 **Status:** the firmware runs on the FM-1 and is being made lighter, so more voices play at once
 (`dist/firmware/install.html` installs it and uploads the demo disk). Its **MIDI CONTROLLER** (SETTINGS' MIDI
