@@ -92,6 +92,8 @@ const SETTINGS = [
     { n: "HOLD DELAY", at: 6, min: 300, max: 1500, step: 50, def: 500, unit: " MS", get: p => p[6] | p[7] << 8, set: (p, v) => { p[6] = v & 255; p[7] = v >> 8; } },
     { n: "COMBO GRACE", at: 8, min: 0, max: 250, step: 10, def: 100, unit: " MS", ...u8(8) },
     { n: "PLAYBACK SCROLL", at: 9, list: ["ROWS", "PAGES"], def: 0, ...u8(9) },
+    /* byte 123 bit 2 set: OFF */
+    { n: "PRESETS LIST", at: 123, list: ["ON", "OFF"], def: 0, get: p => p[123] >> 2 & 1, set: (p, v) => { p[123] = (p[123] & ~4) | (v ? 4 : 0); } },
     { n: "COUNT-IN", at: 109, list: ["OFF", "1 BAR", "2 BARS", "KEY"], def: 1, ...u8(109) },
     { n: "ARP RHYTHM", at: 110, list: RHYTHMS, def: 3, ...u8(110) },
     { n: "ARP PATTERN", at: 113, list: ["UP", "DOWN", "UP-DOWN", "RANDOM", "AS PLAYED"], def: 0, ...u8(113) },

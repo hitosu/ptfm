@@ -319,7 +319,7 @@ the file system in Chrome or Edge.
 - **Input:** buttons and keys press while held (several fingers on a touch screen; Shift+click holds
   one); a held button keeps the pointer, so SEL + a wheel turn over PRESETS works. Knobs: − / + (held:
   repeating, faster), dragging the middle (14 px a click, up or right clockwise) or the wheel; a turn's
-  value shows from 0 and fades after a second. MASTER: a bar with its %, double-click for 50 %. Keyboard: `Z X C V B N M , . /` F3-A4 (`S D F H J L ; '` black), `Q W E R
+  value shows from 0 and fades after a second. MASTER: a bar with its %, 100 % at first, double-click back to 100 %. Keyboard: `Z X C V B N M , . /` F3-A4 (`S D F H J L ; '` black), `Q W E R
   T Y` B4-G5 (`3 4 6` black); the buttons `1 2` OCT- OCT+, `7 8 9 0 - =` FX SEL ENV LFO EDIT GLO, `U I O P [ ]` HOME
   SAVE ARP SEQ PLAY REC.
 

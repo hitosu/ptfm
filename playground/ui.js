@@ -1017,8 +1017,10 @@ PTFM.ui = (function () {
     function buttonDown(b) {
         if (U.blocking()) return;
         if (capturing() && b !== B.HOME) { held.set(b, { t: U.now(), used: true }); capturing().capture({ button: b }); return; }
-        /* PRESETS' cartridge list closes at any other control, which does its own job; HOME only closes it */
-        if (pcEnd() && b === B.HOME) { held.set(b, { t: U.now(), used: true }); return; }
+        ilEnd();                                                 /* (PRESETS' instrument list: closed, the button does its job) */
+        /* PRESETS' cartridge list closes at any other control, which does its own job; HOME and SEL only close it (SEL
+         * still held: SEL + PRESETS again) */
+        if (pcEnd() && (b === B.HOME || b === B.SEL)) { held.set(b, { t: U.now(), used: true }); return; }
         const t = U.now(), hc = home();
         if (b === B.ARP && pin.k != null && !pin.kept) {             /* a punch-in's key held: ARP holds it on */
             pin.kept = true;
@@ -1188,6 +1190,7 @@ PTFM.ui = (function () {
         if (U.blocking()) return;
         if (capturing()) { keyUse[n] = { kind: "overlay", o: capturing() }; capturing().capture({ key: n }); return; }
         pcEnd();                                            /* (PRESETS' cartridge list: closed, the key plays) */
+        ilEnd();                                            /* (its instrument list too) */
         const bi = U.blackIndex(n), wi = U.whiteIndex(n), hc = home();
         /* HOME's combination: a black key goes to its screen (tapped open: and closes it), a white key mutes
          * its track on release, or solos it (SEQ's SOLO, or held past the hold delay); LOOPS: its loop */
@@ -1253,7 +1256,7 @@ PTFM.ui = (function () {
 
     /* PRESETS' cartridge list (specs/ui/dialogs.md#presets-cartridge-list): SEL + PRESETS, SEL held or tapped first,
      * opens the cartridge list over the screen, the current cartridge highlighted; PRESETS goes on picking; any other
-     * control closes it and does its own job (HOME only closes it); opened with SEL held, it closes when SEL is let go
+     * control closes it and does its own job (HOME and SEL only close it); opened with SEL held, it closes when SEL is let go
      * (PRESETS the instruments again). selArmed (declared with the grammar's state): SEL's tap reached the screen and
      * nothing else was touched since; every overlay then open is one that tap opened */
     const pcFind = () => U.overlays.find(o => o.presetsList);
@@ -1272,6 +1275,38 @@ PTFM.ui = (function () {
     /* whether the list can open now: nothing over the screen, or only the menus SEL's tap opened (closed for it) */
     const pcRoom = armed => !U.screen.noKeyboard && U.overlays.every(o => armed && o.kind === "menu");
     U.presetsListOpen = () => !!pcFind();
+
+    /* PRESETS' instrument list (specs/ui/dialogs.md#presets-instrument-list): a PRESETS click that changed the keys'
+     * instrument, with SETTINGS' PRESETS LIST on and nothing else over the screen (not on INSTRUMENTS, whose own list
+     * it is, nor DJ): the cartridge's used slots, the ones PRESETS steps through, the current one highlighted; it
+     * closes 1 s after the last click (ilPoll, each frame), or at any other control, which does its own job */
+    const ilFind = () => U.overlays.find(o => o.instList);
+    function ilEnd() { const o = ilFind(); if (o) U.close(o); }
+    function ilShow() {
+        if (U.set("PRESETS LIST") === "OFF" || U.screen.name === "INSTRUMENTS" || U.screen.noKeyboard || (U.overlays.length && !ilFind())) return;
+        const o = ilFind() || U.open({
+            kind: "list", instList: true, knob() {}, tap: () => false, cancel() { U.close(this); },
+            draw() {
+                const y = BODY_Y + 2, c = M.cart(U.inst >> 8), at = U.inst & 255;
+                U.panel(2, y, 236, 206, "INSTRUMENTS");
+                if (!c) return;
+                D.text(8, y + 16, F.T, M.hex(c.id), M.asBuilt("cart", c) ? D.BROWN : D.LGREY);   /* the cartridge (built in: brown) */
+                D.text(26, y + 16, F.T, c.name, D.LGREY);
+                D.text(232 - D.tw(F.T, M.TYPE_NAMES[c.type]), y + 16, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
+                const used = c.slots.map((s, i) => s ? i : -1).filter(i => i >= 0), sel = Math.max(0, used.indexOf(at));
+                const ROWS = 13, top = Math.max(0, Math.min(sel - 6, used.length - ROWS));
+                used.slice(top, top + ROWS).forEach((s, k) => {
+                    const yy = y + 30 + k * 13, on = s === at;
+                    if (on) D.box(4, yy - 1, 232, 13, D.WHITE);
+                    D.text(8, yy, F.T, M.hex(s), on ? D.WHITE : D.DGREY);   /* (as INSTRUMENTS colours them) */
+                    D.text(26, yy, F.T, c.slots[s].name, on ? D.WHITE : M.ENGINES[c.type].col);
+                });
+            },
+        });
+        o.until = U.now() + 1000;
+    }
+    function ilPoll() { const o = ilFind(); if (o && U.now() >= o.until) U.close(o); }
+    U.instListOpen = () => !!ilFind();
 
     /* faster turns, bigger steps: by the time between clicks, as they came (a click from MIDI carries
      * its message's time stamp: clicks the page reads in one go are not a fast turn) */
@@ -1306,6 +1341,7 @@ PTFM.ui = (function () {
             const was = U.inst;                      /* the screen's own: INSTRUMENTS' (afloat: nothing) */
             const own = cart ? !!(U.screen.presetsCart && U.screen.presetsCart(step)) : !!(U.screen.presets && U.screen.presets(step));
             if (!own) { if (cart) U.stepCart(step); else U.stepInst(step); }
+            if (!cart && !own && U.inst !== was) ilShow();      /* (PRESETS' instrument list, where it may show) */
             const c = M.cart(U.inst >> 8);
             /* shown as every knob (specs/ui/frame.md): `PRESETS 01:03 E.PIANO`, with SEL `CARTRIDGE 01 KEYS/ORGANS`;
              * a screen's own that changed nothing has said why */
@@ -1319,6 +1355,7 @@ PTFM.ui = (function () {
             return c;
         }
         pcEnd();
+        ilEnd();
         if (U.screen.encHeld && U.screen.encHeld(e, steps)) return;
         /* ARP held: SELECT the rhythm (the EDITOR's row preview's too), ALGORITHM the pattern, K1 the latch
          * (the arpeggiator's: not on the EDITOR); in LOOPS nothing */
@@ -1576,6 +1613,7 @@ PTFM.ui = (function () {
     }
     U.render = function (lcd, dev) {
         if (PTFM.ctl && PTFM.ctl.on) { PTFM.ctl.render(lcd, dev); return; }   /* (MIDI CONTROLLER: the tracker ended) */
+        ilPoll();                                           /* (PRESETS' instrument list: gone 1 s after its last click) */
         D.noclip();
         D.clear(D.BLACK);
         D.clip(0, BODY_Y, 240, BODY_H);

@@ -81,7 +81,8 @@
 
     function createDevice(container) {
         const listeners = {};
-        const state = { buttons: 0, notes: 0, master: 0.5 };
+        const MASTER_START = 1;          /* MASTER at first, and a double-click's: full */
+        const state = { buttons: 0, notes: 0, master: MASTER_START };
         const keys = [];             /* by key id: {e, name, src} */
         const ledEls = [];           /* by LED id: its element */
         const ledLevel = [];         /* by LED id: the level last set */
@@ -368,7 +369,7 @@
                 setMaster(state.master + d / POT_DRAG);
             });
             for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) e.addEventListener(t, () => { drag = null; });
-            e.addEventListener("dblclick", () => setMaster(0.5));
+            e.addEventListener("dblclick", () => setMaster(MASTER_START));
             e.addEventListener("wheel", ev => { ev.preventDefault(); setMaster(state.master - Math.sign(ev.deltaY) / 50); }, { passive: false });
             draw();
         }

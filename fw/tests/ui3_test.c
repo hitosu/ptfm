@@ -3542,6 +3542,13 @@ static void test_presets_list(void)
     check(carts_list_on() && ui_cur.inst >> 8 == nums[(i0 + 1) % n], "PRESETS' list: back a click, SEL tapped again");
     tap(B_HOME);
     check(!ui_overlay_count() && !ui_home_combo(), "PRESETS' list: HOME only closes it");
+    tap(B_SEL);
+    turn(K_PRESETS, 1);
+    turn(K_PRESETS, -1);                                /* (back: the cartridge as before, for what follows) */
+    int was_on = carts_list_on();
+    tap(B_SEL);
+    run(600);                                           /* (past COMBO GRACE: its tap's menu would be open by now) */
+    check(was_on && !ui_overlay_count(), "PRESETS' list: SEL tapped again only closes it, no menu after");
     press(B_SEL);                                       /* held */
     turn(K_PRESETS, -1);
     int held_on = carts_list_on() && ui_cur.inst >> 8 == nums[i0];
@@ -3549,7 +3556,7 @@ static void test_presets_list(void)
     run(300);
     uint16_t after = ui_cur.inst;
     turn(K_PRESETS, 1);
-    check(held_on && !ui_overlay_count() && ui_cur.inst >> 8 == nums[i0] && ui_cur.inst != after,
+    check(held_on && !carts_list_on() && ui_cur.inst >> 8 == nums[i0] && ui_cur.inst != after,
           "PRESETS' list: SEL held + PRESETS, the list while held, gone with SEL; PRESETS then the instruments");
     tap(B_SEL);
     turn(K_PRESETS, 1);
@@ -3567,6 +3574,49 @@ static void test_presets_list(void)
     tap(B_HOME);
     run(300);
     ui_set_inst(keep);
+}
+
+/* PRESETS' instrument list (specs/ui/dialogs.md#presets-instrument-list): PRESETS on SONGS opens it, the cartridge's
+ * used slots with the current one highlighted; each click keeps it a second more, gone a second after the last; any
+ * other control closes it and does its own job; none with PRESETS LIST OFF, none over a menu, none on INSTRUMENTS */
+static int il_on(void) { ui_overlay_t *o = ui_top(); return o && o->kind == OV_LIST && o->opener < 0; }
+static void test_presets_instruments(void)
+{
+    uint16_t keep = ui_cur.inst;
+    ui_set_inst(0xF000);                                /* (F0, built in: every slot used) */
+    home_key(1);                                        /* SONGS */
+    turn(K_PRESETS, 1);
+    check(il_on() && ui_overlay_count() == 1 && ui_cur.inst == 0xF001, "PRESETS' instruments: a click opens them");
+    shot("presets_instruments");
+    run(600);
+    turn(K_PRESETS, 1);
+    run(600);
+    int kept = il_on();
+    run(400);
+    check(kept && !ui_overlay_count() && ui_cur.inst == 0xF002,
+          "PRESETS' instruments: a click keeps them a second more, gone a second after the last");
+    int song = ui_cur.song;
+    turn(K_PRESETS, -1);
+    turn(K_SELECT, 1);
+    check(!ui_overlay_count() && ui_cur.song != song, "PRESETS' instruments: SELECT closes them and moves the cursor");
+    turn(K_SELECT, -1);
+    ui_set[S_PRESETS_LIST] = 1;                         /* OFF */
+    turn(K_PRESETS, 1);
+    check(!ui_overlay_count() && ui_cur.inst == 0xF002, "PRESETS' instruments: none with PRESETS LIST OFF");
+    ui_set[S_PRESETS_LIST] = 0;
+    tap(B_SEL);
+    turn(K_SELECT, 1);                                  /* (in the menu: another control first, no cartridges' list) */
+    turn(K_PRESETS, 1);
+    check(ui_top() && ui_top()->kind == OV_MENU && ui_overlay_count() == 1 && ui_cur.inst == 0xF003,
+          "PRESETS' instruments: none over a menu (the instrument turns, the menu stays)");
+    tap(B_HOME);
+    home_key(5);                                        /* INSTRUMENTS */
+    turn(K_PRESETS, 1);
+    check(screen_is("INSTRUMENTS") && !ui_overlay_count() && ui_cur.inst == 0xF004,
+          "PRESETS' instruments: none on INSTRUMENTS (its own list)");
+    home_key(1);
+    ui_set_inst(keep);
+    run(300);
 }
 
 /* ------------------------------------------------------------- QUANTIZE --- */
@@ -6102,6 +6152,7 @@ int main(int argc, char **argv)
     test_fx_meters();
     test_mixer_heard();
     test_presets_list();
+    test_presets_instruments();
     test_keys_dry();
     test_filter_env();
     test_themes();

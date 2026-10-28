@@ -32,6 +32,7 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
 | HOLD DELAY | 300-1500 ms, in steps of 50 (layers, solo) | 500 ms |
 | COMBO GRACE | 0-250 ms, in steps of 10: how long a released modifier still counts ([../controls.md](../controls.md)) | 100 ms |
 | PLAYBACK SCROLL | ROWS / PAGES | ROWS |
+| PRESETS LIST | ON / OFF: PRESETS' instrument list over the screen while it turns ([../dialogs.md](../dialogs.md#presets-instrument-list)) | ON |
 | COUNT-IN | before the EDITOR's takes: OFF, 1 BAR, 2 BARS, KEY (the first note starts the take) ([../transport.md](../transport.md#count-in)); LOOPS has its own | 1 BAR |
 | QUANTIZE | where the EDITOR's takes put a note ([editor.md](editor.md#realtime-takes)): 2 ROWS, 3 ROWS, 4 ROWS (the nearest line of that many rows, from the pattern's start), ROW (the nearest row), REAL TIME (the row it falls in, with a note delay `EDx` and its end as a key off `Kxx`); the keys sound as they are written, a note played before its line waiting for it. LOOPS has its own ([loops.md](loops.md#quantize)) | ROW |
 | ARP RHYTHM | the rhythm of the arpeggiator and of the EDITOR's row preview, a row a step: `#`, `#_`, `#__`, `#___`, `##_`, `###_`, `##__`, `#_##_`, and two slow ones (`#` and 7 or 15 rests); ARP held + SELECT changes it too | `#___` |
@@ -217,7 +218,8 @@ SETTINGS                               S, the frame's header
 [OUTPUT                          STEREO]   the selected item, boxed
  LINE GAIN                         0 DB
  USB GAIN                          0 DB
- VOICES                              12
+ VOICES                              16
+ SECOND CORE                         ON
  THEME                          DEFAULT
  KEYS VOLUME                         60
  KEYS GAIN                         0 DB
@@ -227,9 +229,8 @@ SETTINGS                               S, the frame's header
  HOLD DELAY                      500 MS
  COMBO GRACE                     100 MS
  PLAYBACK SCROLL                   ROWS
- COUNT-IN                         1 BAR
-                                           (QUANTIZE, ARP RHYTHM, ARP PATTERN, ARP LATCH, POWER-ON
-                                           SCREEN, TUNING, TOOLS and ABOUT below: the list scrolls)
+                                           (PRESETS LIST, COUNT-IN, QUANTIZE, ARP RHYTHM, ARP PATTERN, ARP
+                                           LATCH, POWER-ON SCREEN, TUNING, TOOLS and ABOUT below: it scrolls)
 01:00 EL PIANO DX7       DEFAULT STEREO    the frame's footer
 ```
 
@@ -428,7 +429,7 @@ come first, as every question ([../dialogs.md](../dialogs.md)):
 
 - **The header:** `SETTINGS`.
 - **The items:** `OUTPUT`, `LINE GAIN`, `USB GAIN`, `VOICES`, `SECOND CORE`, `THEME`, `KEYS VOLUME`, `KEYS GAIN`, `KEYS`, `KEYS OCTAVE`,
-  `KNOB SPEED`, `HOLD DELAY`, `COMBO GRACE`, `PLAYBACK SCROLL`, `COUNT-IN`, `QUANTIZE`, `ARP RHYTHM`, `ARP PATTERN`,
+  `KNOB SPEED`, `HOLD DELAY`, `COMBO GRACE`, `PLAYBACK SCROLL`, `PRESETS LIST`, `COUNT-IN`, `QUANTIZE`, `ARP RHYTHM`, `ARP PATTERN`,
   `ARP LATCH`, `POWER-ON SCREEN`, `TUNING`, `TOOLS`, `ABOUT`.
 - **VOICES' toast:** `16 VOICES: 12 WITHOUT CPU 2`, when 16 is picked while the second core does not run (the line
   itself shows the value picked; no toast otherwise).
@@ -505,8 +506,7 @@ SECOND CORE: A 2ND PROCESSOR, FOR THE
 SOUND, KEYS AND KNOBS
 THEME: THE COLOURS
 KEYS VOLUME: THE {KEYS}' NOTE VOLUME
-KEYS GAIN: THE {KEYS} AS HEARD, NOT AS
-  RECORDED
+KEYS GAIN: AS HEARD, NOT AS RECORDED
 KEYS: THROUGH FX, OR DRY (NO EFFECTS)
 KEYS OCTAVE: THE OCTAVE AT POWER-ON
 KNOB SPEED: BIGGER STEPS IF TURNED FAST
@@ -514,6 +514,7 @@ HOLD DELAY: HOW LONG UNTIL A HOLD
 COMBO GRACE: SLACK FOR TWO-KEY PRESSES
 PLAYBACK SCROLL: [PLAYBACK] BY ROWS OR
   BY PAGES
+PRESETS LIST: SHOWN AS {PRESETS} TURNS
 COUNT-IN: BEFORE A TAKE IN [EDITOR]
   1 OR 2 BARS, OFF, OR KEY:
   THE FIRST NOTE STARTS THE TAKE

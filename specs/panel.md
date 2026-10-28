@@ -20,7 +20,8 @@ small knobs, buttons and keys placed where they are easy to reach. Each lights a
     moved 8 px), so a drag that starts on − or + turns it too;
   - the mouse's wheel turns it;
   - while it turns, it shows the clicks of the turn (`+3`), for a second after the last.
-- **MASTER,** a bar to drag (or the wheel), its % written on it; a double-click puts it back at half.
+- **MASTER,** a bar to drag (or the wheel), its % written on it; it starts full (100 %), and a double-click puts it
+  back there.
 - **The 27 keys:** 16 white, the 11 black ones over the gaps they sit at, named as printed (OP1 …
   POLY), each lit as its LED.
 - **Holding:** a pointer holds what it presses until let go, so on a touch screen several fingers hold
@@ -82,7 +83,7 @@ the room the page gives it ([below](#the-page)), not to the whole window.
 [− K1 +][− K2 +][− K3 +][− K4 +]
 [OCT-][ FX ][ SEL][ ENV][ LFO][EDIT][ GLO]
 [OCT+][HOME][SAVE][ ARP][ SEQ][PLAY][ REC]
-[           MASTER 50%            ]
+[           MASTER 100%           ]
    PIT GLO   MONO POLY   ( )
 [  ][  ][  ][  ][  ][  ][  ][  ]     G4-G5
   OP1 OP2 OP3   OP4 OP5   OP6

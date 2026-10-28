@@ -198,13 +198,14 @@ static void s_status_ram(void) { status_page(4); }
 static void s_status_device(void) { status_page(5); }
 /* SETTINGS: the list's items in order (OUTPUT 0 ... TUNING 20, TOOLS 21, ABOUT 22) */
 static void s_settings_top(void) { go_to(K_MONO, "SETTINGS"); }
-static void s_settings_bottom(void) { go_to(K_MONO, "SETTINGS"); slow_turn(K_SELECT, 19); }
+/* (SETTINGS' items by name, S_*: their places move as items come) */
+static void s_settings_bottom(void) { go_to(K_MONO, "SETTINGS"); slow_turn(K_SELECT, S_POWER_ON); }
 static void s_settings_midi(void) { go_to(K_MONO, "SETTINGS"); tap(B_SEQ); run(300); }
-static void s_settings_about(void) { go_to(K_MONO, "SETTINGS"); slow_turn(K_SELECT, 22); tap(B_EDIT); }
+static void s_settings_about(void) { go_to(K_MONO, "SETTINGS"); slow_turn(K_SELECT, S_ABOUT); tap(B_EDIT); }
 static void s_settings_cleanup(void)
 {
     go_to(K_MONO, "SETTINGS");
-    slow_turn(K_SELECT, 21);
+    slow_turn(K_SELECT, S_TOOLS);
     slow_turn(K_K1, 2);                                 /* CHECK REFERENCES, CHECK STORAGE, CLEAN UP */
     tap(B_EDIT);
     run(1500);
@@ -212,7 +213,7 @@ static void s_settings_cleanup(void)
 static void s_settings_factory_reset(void)              /* its first question (nothing erased: the shot is taken there) */
 {
     go_to(K_MONO, "SETTINGS");
-    slow_turn(K_SELECT, 21);
+    slow_turn(K_SELECT, S_TOOLS);
     slow_turn(K_K1, 5);                                 /* ... REVERT ALL, FACTORY RESET */
     tap(B_EDIT);
     run(400);

@@ -407,7 +407,7 @@ static void show_inst(int cart)
 
 /* PRESETS' cartridge list (dialogs.md#presets-cartridge-list): SEL + PRESETS, SEL held or tapped first, opens it
  * over the screen, the current cartridge highlighted; PRESETS goes on picking; any other control closes it and does
- * its own job (HOME only closes it); opened with SEL held, it closes when SEL is let go (PRESETS the instruments
+ * its own job (HOME and SEL only close it); opened with SEL held, it closes when SEL is let go (PRESETS the instruments
  * again). sel_armed (above): SEL's tap reached the screen and nothing else was touched since; every overlay then
  * open is one that tap opened */
 static struct { uint8_t nums[256]; int n; uint8_t held; } pc;
@@ -463,6 +463,63 @@ static int pc_room(int armed)
     if (cur->no_keyboard) return 0;
     for (int i = 0; i < nov; i++) if (!armed || ovs[i].kind != OV_MENU) return 0;
     return 1;
+}
+
+/* PRESETS' instrument list (dialogs.md#presets-instrument-list): a PRESETS click that changed the keys' instrument, with
+ * SETTINGS' PRESETS LIST on and nothing else over the screen (not on INSTRUMENTS, whose own list it is, nor DJ):
+ * the cartridge's used slots, the ones PRESETS steps through, the current one highlighted; it closes 1 s after the
+ * last click, or at any other control, which does its own job */
+extern const ui_screen_t SCR_INSTRUMENTS;
+static uint32_t il_at;                  /* the last click's time (| 1), 0 none */
+static uint8_t il_tag;                  /* (the overlay's data: its mark) */
+static void il_draw(ui_overlay_t *o)
+{
+    (void)o;
+    uint8_t c = (uint8_t)(ui_cur.inst >> 8);
+    int y = BODY_Y + 2, rows = 13, slots = ui_cart_slots(c), at = ui_cur.inst & 255, n = 0, sel = 0, k = ui_cart_kind(c);
+    char nm[16];
+    for (int s = 0; s < slots; s++) if (ui_inst_name((uint16_t)(c << 8 | s), nm)) { if (s == at) sel = n; n++; }
+    ui_panel(2, y, 236, 206, T("INSTRUMENTS"), C_CYAN);
+    g_text(8, y + 16, &FONT_T, ui_hex2(c), ins_builtin(c) ? C_BROWN : C_LGREY);   /* the cartridge (built in: brown) */
+    if (!ui_cart_name(c, nm)) nm[0] = 0;
+    nm[12] = 0;
+    g_text(26, y + 16, &FONT_T, nm, C_LGREY);
+    g_text(232 - g_tw(&FONT_T, T(ENG_TYPE[k])), y + 16, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
+    int top = ui_clamp(sel - 6, 0, n - rows > 0 ? n - rows : 0);
+    for (int s = 0, i = 0; s < slots && i < top + rows; s++) {
+        if (!ui_inst_name((uint16_t)(c << 8 | s), nm)) continue;
+        if (i >= top) {
+            int yy = y + 30 + (i - top) * 13, on = s == at;
+            if (on) g_box(4, yy - 1, 232, 13, C_WHITE);
+            g_text(8, yy, &FONT_T, ui_hex2((uint8_t)s), on ? C_WHITE : C_DGREY);   /* (as INSTRUMENTS colours them) */
+            g_text(26, yy, &FONT_T, nm, on ? C_WHITE : ENG_COL[k]);
+        }
+        i++;
+    }
+}
+static ui_overlay_t *il_find(void)
+{
+    for (int i = 0; i < nov; i++) if (ovs[i].data == (void *)&il_tag) return &ovs[i];
+    return 0;
+}
+static void il_end(void)                /* any other control: it closes */
+{
+    ui_overlay_t *o = il_find();
+    il_at = 0;
+    if (o) ui_close(o);
+}
+static void il_show(void)               /* a click that changed the instrument: open, or kept open 1 s more */
+{
+    if (ui_set[S_PRESETS_LIST] || cur == &SCR_INSTRUMENTS || cur->no_keyboard || (nov && !il_find())) return;
+    il_at = ui_now() | 1u;
+    if (!il_find()) {
+        ui_overlay_t o = {.kind = OV_LIST, .opener = -1, .knob = pc_knob, .tap = pc_tap, .draw = il_draw, .data = (void *)&il_tag};
+        ui_open(&o);
+    }
+}
+static void il_poll(void)
+{
+    if (il_at && (int32_t)(ui_now() - il_at) >= 1000) il_end();
 }
 
 int ui_muted(int t) { return ui_cur.solo >= 0 ? t != ui_cur.solo : (int)(ui_cur.mutes >> t & 1); }
@@ -810,8 +867,10 @@ static void button_down(int b)
     if (ui_blocking()) return;
     uint32_t t = ui_now();
     btn_t *h = &btn[b];
-    /* PRESETS' cartridge list closes at any other control, which does its own job; HOME only closes it */
-    if (pc_end() && b == B_HOME) { memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t; return; }
+    il_end();                                           /* (PRESETS' instrument list: closed, the button does its job) */
+    /* PRESETS' cartridge list closes at any other control, which does its own job; HOME and SEL only close it (SEL
+     * still held: SEL + PRESETS again) */
+    if (pc_end() && (b == B_HOME || b == B_SEL)) { memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t; return; }
     combo_t *hc = home();
     /* a punch-in's key held: ARP holds it on after the key is let go */
     if (b == B_ARP && ui_punch_now() >= 0 && !ui_punch_kept() && ui_punch_arp()) {
@@ -927,6 +986,7 @@ static void note_down(int n)
 {
     if (ui_blocking()) return;
     pc_end();                                           /* (PRESETS' cartridge list: closed, the key plays) */
+    il_end();                                           /* (its instrument list too) */
     int bi = ui_black_index(n), wi = ui_white_index(n);
     combo_t *hc = home();
     keyuse_t *k = &key_use[n];
@@ -1022,6 +1082,7 @@ static void encoder(int e, int step)
         uint16_t was = ui_cur.inst;
         int own = cart ? cur->presets_cart && cur->presets_cart(step) : cur->presets && cur->presets(step);
         if (!own) { if (cart) step_cart(step); else step_inst(step); }
+        if (!cart && !own && ui_cur.inst != was) il_show();   /* (PRESETS' instrument list, where it may show) */
         if (!own || ui_cur.inst != was) {               /* (a screen's own that changed nothing has said why) */
             show_inst(cart);
             if (list == 2) { while (nov) ui_close(0); pc_open(); pc.held = btn[B_SEL].down; }   /* (SEL's tap's menu: the
@@ -1030,6 +1091,7 @@ static void encoder(int e, int step)
         return;
     }
     pc_end();
+    il_end();
     /* ARP held: SELECT the rhythm (the EDITOR's row preview's too), ALGORITHM the pattern, K1 the latch (the
      * arpeggiator's: not on the EDITOR); in LOOPS and DJ nothing */
     int arp_k = !cur->own_arp ? e == K_SELECT || e == K_ALG || e == K_K1 : cur->own_arp == UI_ARP_PREVIEW && e == K_SELECT;
@@ -1626,6 +1688,7 @@ void ui_poll(void)
     ui_dj_poll();                                       /* (a LOAD at the bar, JUMP / MOVE on the beat off DJ too) */
     if (cur->tick) cur->tick();
     ui_dlg_poll();
+    il_poll();                                          /* (PRESETS' instrument list: gone 1 s after its last click) */
     ui_level_poll();
     ui_voices_poll();
     ui_play_mode_poll();

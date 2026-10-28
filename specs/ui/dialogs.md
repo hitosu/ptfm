@@ -650,11 +650,30 @@ SEL + PRESETS opens the same list, on every screen but DJ, SEL held or tapped fi
 - **Each click** picks the next cartridge at once, at its first used slot, the highlight following; the header names it, `CARTRIDGE 01 KEYS/ORGANS`.
   Wrapping, from the last to the first.
 - **Any other control** closes the list and does its own job, as if the list had not been open: SELECT moves the
-  screen's cursor, ENV opens ENV's own list, a key plays. HOME closes it and does nothing more.
+  screen's cursor, ENV opens ENV's own list, a key plays. HOME and SEL close it and do nothing more (SEL's press
+  opens no menu; held on, SEL + PRESETS turns the cartridges again).
 - **With SEL held,** the list shows while it is held and closes when it is let go; PRESETS then turns the
   instruments of the cartridge picked. Tapped first (or let go within COMBO GRACE before PRESETS turns), the list
   stays until another control.
 - **Its LED:** SEL lit while it is open.
+
+### PRESETS' instrument list
+
+PRESETS turned shows the instruments it turns through, titled `INSTRUMENTS`, while SETTINGS' PRESETS LIST is ON
+([screens/settings.md](screens/settings.md)).
+
+- **It opens** at a click that changed the current instrument, with nothing else over the screen: not over a menu
+  or any other overlay (PRESETS changes the instrument there, the header naming it, as before), not on INSTRUMENTS
+  (its own list), not on DJ, not where a screen takes PRESETS for its own job, and not when the click changed nothing
+  (a cartridge of one instrument).
+- **It shows** the cartridge on its first line (its ID, brown while built in and unchanged, its name light grey, its
+  type right-aligned in its engine's colour), then its used slots, the ones PRESETS steps through, as the
+  cartridges' list shows its rows: 13 at a time, the current one kept near the middle, `03 GLASS KEYS`, coloured
+  as INSTRUMENTS colours them ([screens/instruments.md](screens/instruments.md)): the slot's number dark grey, its
+  name in the cartridge type's colour, the current one white and boxed white. Each click moves the highlight; the header names the instrument as
+  ever ([frame.md](frame.md#the-header)).
+- **It closes** a second after the last click, or at any other control, which does its own job as if it had not
+  been open. No LED.
 
 ## Text entry
 

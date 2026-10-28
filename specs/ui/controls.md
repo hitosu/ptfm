@@ -16,6 +16,8 @@ one meaning for each button, and the key map. What the hardware has is in
     cartridges (K1 on INSTRUMENTS, SEL + PRESETS), and the screens in HOME's combination.
 - **PRESETS** changes the **current instrument** on every screen.
   - It wraps within the cartridge.
+  - Its instrument list shows over the screen while it turns, gone a second after the last click
+    ([dialogs.md](dialogs.md#presets-instrument-list); SETTINGS' PRESETS LIST switches it off).
   - The footer names the new instrument at once ([frame.md](frame.md#the-footer)), so there is no
     toast for it.
   - The keys play the current instrument wherever they are not taken for something else.
@@ -32,7 +34,7 @@ one meaning for each button, and the key map. What the hardware has is in
   naming it ([frame.md](frame.md#the-header)), with the cartridges' list open over the screen, the current one
   highlighted ([dialogs.md](dialogs.md#presets-cartridge-list)). A SEL tap does its own job first (a menu opens,
   say); PRESETS turned next closes that menu and opens the list in its place, and the list stays while PRESETS turns;
-  any other control closes it and does its own job, as if it had not been open. With SEL held the list closes when
+  any other control closes it and does its own job, as if it had not been open (HOME and SEL only close it). With SEL held the list closes when
   SEL is let go, and PRESETS turns the instruments again, as before. Only where SEL +
   PRESETS changes the current cartridge: not on DJ, and not over a question, a name being typed or any overlay the
   SEL tap did not open (there SEL held + PRESETS turns the cartridge without the list, as before).

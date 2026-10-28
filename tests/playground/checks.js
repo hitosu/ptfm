@@ -186,7 +186,7 @@ module.exports = async t => {
     /* every held combination locks the same way */
     const inst0 = U.inst;
     t.down("SEL"); await t.sleep(30); await t.turn("SELECT", 1); await t.turn("PRESETS", 1); t.up("SEL"); await t.sleep(200);
-    ok(U.editor.block && U.inst >> 8 === inst0 >> 8 && U.inst !== inst0 && !t.top(),
+    ok(U.editor.block && U.inst >> 8 === inst0 >> 8 && U.inst !== inst0 && t.top() !== "menu",
        "SEL held: SELECT marks, then PRESETS turns the instruments (not the cartridges); letting go opens no menu");
     U.editor.block = null; U.editor.anchor = null; U.setInst(inst0);
     t.down("SEL"); await t.sleep(30); await t.tap("SEQ"); t.up("SEL"); await t.sleep(200);
@@ -1838,13 +1838,19 @@ module.exports = async t => {
         ok(listOn() && U.inst >> 8 === at(1), "... back a click, SEL tapped again");
         await t.tap("HOME");
         ok(!U.overlays.length, "... HOME only closes it");
+        await t.tap("SEL");
+        await t.turn("PRESETS", 1);
+        await t.turn("PRESETS", -1);                         /* (back: the cartridge as before, for what follows) */
+        const wasOn = listOn();
+        await t.tap("SEL"); await t.sleep(600);              /* (past COMBO GRACE: its tap's menu would be open by now) */
+        ok(wasOn && !U.overlays.length, "... SEL tapped again only closes it, no menu after");
         t.down("SEL"); await t.sleep(30);
         await t.turn("PRESETS", -1);
         const heldOn = listOn() && U.inst >> 8 === at(0);
         t.up("SEL"); await t.sleep(300);
         const after = U.inst;
         await t.turn("PRESETS", 1);
-        ok(heldOn && !U.overlays.length && U.inst >> 8 === at(0) && U.inst !== after,
+        ok(heldOn && !listOn() && U.inst >> 8 === at(0) && U.inst !== after,
            "... SEL held + PRESETS: the list while held, gone with SEL; PRESETS then the instruments");
         await t.tap("SEL");
         await t.turn("PRESETS", 1);
@@ -1857,6 +1863,42 @@ module.exports = async t => {
         await t.turn("PRESETS", 1);
         ok(t.top() === "menu" && U.inst >> 8 === was >> 8 && U.inst !== was, "... a control between: PRESETS turns the instrument, the menu stays");
         await t.tap("HOME");
+        U.setInst(keep);
+    }
+
+    /* ---- PRESETS' instrument list (specs/ui/dialogs.md#presets-instrument-list): PRESETS on SONGS opens it, the
+     * cartridge's used slots with the current one highlighted; each click keeps it a second more, gone a second
+     * after the last (each frame looks); any other control closes it and does its own job; none with PRESETS LIST
+     * OFF, none over a menu, none on INSTRUMENTS ---- */
+    {
+        const keep = U.inst, ilOn = () => !!U.top() && !!U.top().instList;
+        U.setInst(0xF000);                                   /* (F0, built in: every slot used) */
+        await t.homeKey(1);
+        await t.turn("PRESETS", 1); t.frame();
+        ok(ilOn() && U.overlays.length === 1 && U.inst === 0xF001, "PRESETS' instruments: a click opens them");
+        t.shot("presets_instruments");
+        await t.sleep(600); await t.turn("PRESETS", 1); await t.sleep(600); t.frame();
+        const kept = ilOn();
+        await t.sleep(400); t.frame();
+        ok(kept && !U.overlays.length && U.inst === 0xF002, "... a click keeps them a second more, gone a second after the last");
+        const song = U.song;
+        await t.turn("PRESETS", -1);
+        await t.turn("SELECT", song ? -1 : 1);
+        ok(!U.overlays.length && U.song !== song, "... SELECT closes them and moves the cursor");
+        await t.turn("SELECT", song ? 1 : -1);
+        M.state.settings["PRESETS LIST"] = "OFF";
+        await t.turn("PRESETS", 1); t.frame();
+        ok(!U.overlays.length && U.inst === 0xF002, "... none with PRESETS LIST OFF");
+        M.state.settings["PRESETS LIST"] = "ON";
+        await t.tap("SEL");
+        await t.turn("SELECT", 1);                           /* (in the menu: another control first, no cartridges' list) */
+        await t.turn("PRESETS", 1);
+        ok(t.top() === "menu" && U.overlays.length === 1 && U.inst === 0xF003, "... none over a menu (the instrument turns, the menu stays)");
+        await t.tap("HOME");
+        await t.homeKey(5);
+        await t.turn("PRESETS", 1);
+        ok(U.screen.name === "INSTRUMENTS" && !U.overlays.length && U.inst === 0xF004, "... none on INSTRUMENTS (its own list)");
+        await t.homeKey(1);
         U.setInst(keep);
     }
 

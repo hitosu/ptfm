@@ -58,6 +58,7 @@ const ui_setting_t UI_SETTINGS[S_COUNT] = {
     {TX("HOLD DELAY"), 0, 0, 300, 1500, 50, 500, SF_MS},
     {TX("COMBO GRACE"), 0, 0, 0, 250, 10, 100, SF_MS},
     {TX("PLAYBACK SCROLL"), L_SCROLL, 2, 0, 0, 1, 0, SF_LIST},
+    {TX("PRESETS LIST"), L_ON_OFF, 2, 0, 0, 1, 0, SF_LIST},   /* PRESETS' instrument list while it turns (ui.c) */
     {TX("COUNT-IN"), L_COUNT_IN, 4, 0, 0, 1, 1, SF_LIST},
     {TX("QUANTIZE"), L_QUANTIZE, 5, 0, 0, 1, 3, SF_LIST},  /* (LOOPS has its own) */
     {TX("ARP RHYTHM"), L_RHYTHM, 10, 0, 0, 1, 3, SF_LIST},
@@ -137,8 +138,10 @@ static void from_record(const uint8_t *p, uint32_t len)
         ui_set[S_OUTPUT] = (int16_t)(1 + p[120]);       /* (a record from when SYNC PULSE was the MIDI page's) */
     if (len >= 124 && (p[123] & 1))
         saved_inst = (uint16_t)(p[121] << 8 | p[122]);
-    if (len >= 124)
+    if (len >= 124) {
         ui_set[S_SECOND_CORE] = p[123] & 2 ? 1 : 0;    /* (bit 1 OFF: ON in a record from before it) */
+        ui_set[S_PRESETS_LIST] = p[123] & 4 ? 1 : 0;   /* (bit 2 OFF: ON in a record from before it) */
+    }
     if (len >= 125)
         ui_set[S_KEYS_GAIN] = (int16_t)ui_clamp((int8_t)p[124], -24, 12);   /* (0 dB in a record from before it) */
     if (len >= 126)
@@ -185,7 +188,8 @@ static void to_record(uint8_t *p)
     p[120] = (uint8_t)(ui_set[S_OUTPUT] >= 2 ? ui_set[S_OUTPUT] - 1 : 0);    /* (SYNC PULSE's side, as it was kept) */
     p[121] = (uint8_t)(ui_cur.inst >> 8);               /* the current instrument, kept */
     p[122] = (uint8_t)ui_cur.inst;
-    p[123] = (uint8_t)(1 | (ui_set[S_SECOND_CORE] ? 2 : 0));   /* bit 0 the instrument kept, bit 1 SECOND CORE OFF */
+    p[123] = (uint8_t)(1 | (ui_set[S_SECOND_CORE] ? 2 : 0) | (ui_set[S_PRESETS_LIST] ? 4 : 0));   /* bit 0 the instrument
+                                                         * kept, bit 1 SECOND CORE OFF, bit 2 PRESETS LIST OFF */
     p[124] = (uint8_t)(int8_t)ui_set[S_KEYS_GAIN];      /* KEYS GAIN, dB */
     p[125] = (uint8_t)ui_set[S_KEYS_FX];                /* KEYS: 0 THROUGH FX, 1 DRY */
     saved_pat = editor_pattern();                       /* the EDITOR's pattern: a numbered one (bit 0), or its own */

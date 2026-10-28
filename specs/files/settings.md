@@ -24,7 +24,7 @@ and the user's own GATE patterns ([../ui/screens/fx.md](../ui/screens/fx.md)). K
 | 119 | CLOCK OUT: 0 OFF, 1 ON |
 | 120 | SYNC PULSE's side as byte 0 has it (0 none, 1 left, 2 right), written for readers from before SYNC PULSE became OUTPUT's; read only when byte 0 is 0 or 1, as SYNC PULSE L / R |
 | 121-122 | the current instrument at the last SAVE: its cartridge, its slot |
-| 123 | bit 0: bytes 121-122 are set (clear: F0:00, the first built-in instrument); bit 1: SECOND CORE OFF (clear: ON, [../second-core.md](../second-core.md)); bits 2-7 0 |
+| 123 | bit 0: bytes 121-122 are set (clear: F0:00, the first built-in instrument); bit 1: SECOND CORE OFF (clear: ON, [../second-core.md](../second-core.md)); bit 2: PRESETS LIST OFF (clear: ON, [../ui/screens/settings.md](../ui/screens/settings.md)); bits 3-7 0 |
 | 124 | KEYS GAIN: dB, signed, −24 to +12 |
 | 125 | KEYS: 0 THROUGH FX, 1 DRY |
 | 126 | bit 0: byte 127 is set (clear: the EDITOR's own pattern); bits 1-7 0 |

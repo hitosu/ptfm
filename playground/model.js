@@ -323,6 +323,7 @@ PTFM.model = (function () {
         { k: "HOLD DELAY", min: 300, max: 1500, step: 50, def: 500, unit: " MS" },
         { k: "COMBO GRACE", min: 0, max: 250, step: 10, def: 100, unit: " MS" },
         { k: "PLAYBACK SCROLL", list: ["ROWS", "PAGES"], def: "ROWS" },
+        { k: "PRESETS LIST", list: ["ON", "OFF"], def: "ON" },
         /* the EDITOR's takes (LOOPS has its own, in its properties: M.LOOP_COUNT_INS): 4 beats a bar, its own click */
         { k: "COUNT-IN", list: M.COUNT_INS, def: "1 BAR" },
         /* where the EDITOR's takes put a note (LOOPS has its own, in its properties): QUANTIZE's values, ROW at first */
@@ -545,6 +546,7 @@ PTFM.model = (function () {
         for (const k in s) M.state[k] = s[k];
         /* (a user area kept before a setting existed reads its default: SECOND CORE ON) */
         if (M.state.settings && M.state.settings["SECOND CORE"] === undefined) M.state.settings["SECOND CORE"] = "ON";
+        if (M.state.settings && M.state.settings["PRESETS LIST"] === undefined) M.state.settings["PRESETS LIST"] = "ON";
         if (M.state.settings && !M.state.settings["KEYS MIX"]) M.state.settings["KEYS MIX"] = { ...M.KEYS_MIX_DEF };
         if (M.state.settings && !M.QUANTIZES.includes(M.state.settings.QUANTIZE)) M.state.settings.QUANTIZE = "ROW";   /* (one from before QUANTIZE: ROW) */
         if (M.onRestore) M.onRestore(kind);
