@@ -123,6 +123,23 @@ h2 { font: 800 clamp(28px, 4vw, 44px)/1.08 var(--wide); font-stretch: 112%; lett
 .feat p { margin: 0; color: #b9bcc3; font-size: 15.5px; line-height: 1.55; }
 .feat p a { color: var(--ink); text-underline-offset: 3px; }
 
+/* ---- the video: real screens behind a play button; YouTube's player takes their place only when asked for */
+.video { position: relative; aspect-ratio: 16 / 9; margin-top: 36px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #07080a; }
+.video > a, .video > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.video > a { display: grid; place-items: center; text-decoration: none; }
+.video .wall { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); align-content: center; gap: 2px; opacity: .32; transition: opacity .2s; }
+.video .wall img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.video > a::after { content: ""; position: absolute; inset: 0; background: radial-gradient(closest-side, rgba(10,11,13,.92) 25%, rgba(10,11,13,.1)); }
+.video .play { position: relative; z-index: 1; display: grid; justify-items: center; gap: 18px; }
+.video .play i { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; background: var(--led); box-shadow: 0 0 40px rgba(93,255,122,.35); transition: background .15s; }
+.video .play svg { width: 30px; height: 30px; margin-left: 5px; fill: #04140a; }
+.video .play b { font-weight: 400; color: var(--ink); text-shadow: 0 1px 12px #000; }
+.video > a:hover .wall { opacity: .5; }
+.video > a:hover .play i { background: #8dffa3; }
+.vnote { margin: 14px 0 0; color: var(--dim); font-size: 14px; }
+.vnote a { color: var(--ink); text-underline-offset: 3px; }
+@media (max-width: 599px) { .video .play { gap: 12px; } .video .play i { width: 64px; height: 64px; } .video .play svg { width: 22px; height: 22px; margin-left: 4px; } }
+
 .tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 36px; }
 .tool { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
 .tool.main { border-color: rgba(93,255,122,.45); box-shadow: 0 0 0 1px rgba(93,255,122,.12), 0 20px 50px rgba(93,255,122,.05); }
@@ -198,6 +215,20 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
 
 <section>
   <div class="wrap">
+    <span class="label pix">Video</span>
+    <h2>See it and hear it.</h2>
+    <div class="video">
+      <a id="video" href="https://youtu.be/95bZPtyD5rE" data-id="95bZPtyD5rE" data-title="INTRODUCING PT/FM" aria-label="Play the video INTRODUCING PT/FM (YouTube)">
+        <span class="wall" aria-hidden="true"><img src="screens/editor-grid.png" alt="" loading="lazy"><img src="screens/instruments-all.png" alt="" loading="lazy"><img src="screens/loops-full.png" alt="" loading="lazy"><img src="screens/dj-decks.png" alt="" loading="lazy"><img src="screens/visual-voices16.png" alt="" loading="lazy"><img src="screens/fx-live-punch.png" alt="" loading="lazy"><img src="screens/songs-list.png" alt="" loading="lazy"><img src="screens/status-ptfm.png" alt="" loading="lazy"></span>
+        <span class="play"><i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></i><b class="pix">Introducing PT/FM</b></span>
+      </a>
+    </div>
+    <p class="vnote"><a href="https://youtu.be/95bZPtyD5rE">Watch on YouTube</a></p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <span class="label pix">Features</span>
     <h2>Everything happens on the FM-1.</h2>
     <div class="features">
@@ -241,6 +272,23 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
     const s = document.getElementById("support");
     document.addEventListener("click", e => { if (s.open && !s.contains(e.target)) s.open = false; });
     document.addEventListener("keydown", e => { if (e.key === "Escape" && s.open) { s.open = false; s.querySelector("summary").focus(); } });
+})();
+/* the video: YouTube's player in place of the screens at the first press, nothing loaded from YouTube before; a press
+   with a modifier key opens YouTube as a link does */
+(() => {
+    const v = document.getElementById("video");
+    v.addEventListener("click", e => {
+        if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        const f = document.createElement("iframe");
+        f.src = "https://www.youtube-nocookie.com/embed/" + v.dataset.id + "?autoplay=1&rel=0&playsinline=1";
+        f.title = v.dataset.title;
+        f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+        f.allowFullscreen = true;
+        f.referrerPolicy = "strict-origin-when-cross-origin";
+        v.replaceWith(f);
+        f.focus();
+    });
 })();
 </script>
 </body>

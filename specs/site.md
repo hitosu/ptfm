@@ -14,6 +14,7 @@ EDITOR), all served from GitHub Pages. GitHub serves this repository's Pages at 
 | `/ptfm/install/` | `dist/firmware/install.html` |
 | `/ptfm/emulator/` | `dist/emulator/emulator.html`, the emulator in one file; before that file, `emulator/` with `panel/`, `fw/web/seed.js` and `dist/emulator/` at the paths the page loads them from |
 | `/ptfm/manual/` | `dist/manual/manual.html` and `ptfm-manual.pdf` beside it (the page links it); left out while `dist/manual/` is missing |
+| `/ptfm/screens/manual/ID.png` | `site/screens/manual/`: each of the manual's screenshots as a file, for links from elsewhere (no page links them) |
 | `/ptfm/editor/` | `dist/editor/editor.html` |
 
 Nothing else (the debug build, the playground, the sources) is published.
@@ -38,11 +39,15 @@ One page, dark ("studio night"), for a phone first and a computer:
    first and lit as PLAY's LED), the licence and the version.
 2. **What it is:** a tracker in the ProTracker tradition; a row of figures (voices, a pattern's size, the kinds of
    instrument, the effects, USB, the built-in instruments).
-3. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
+3. **The video,** INTRODUCING PT/FM on YouTube (`youtu.be/95bZPtyD5rE`): a 16:9 panel of eight real screens
+   (section 5), dimmed, under a play button lit as PLAY's LED and the video's title; the first press puts YouTube's
+   player (`youtube-nocookie.com`, playing at once) in the panel's place. Until then nothing comes from YouTube; a
+   press with a modifier key, or without scripts, opens YouTube as a link. WATCH ON YOUTUBE below it, a link.
+4. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
    punch-ins, LOOPS, DJ, MIDI and sync, kept on the FM-1, music included (the demo disk links INSTALL).
-4. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;
+5. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;
    the EDITOR: a beta, a computer).
-5. **The footer:** the repository, the licence, the root page; custom firmware at one's own risk; not affiliated
+6. **The footer:** the repository, the licence, the root page; custom firmware at one's own risk; not affiliated
    with M-VAVE. The credits stay in the README.
 
 - **Texts name no count that changes with the contents** (songs, cartridges, a document's pages): the firmware's
@@ -53,7 +58,7 @@ One page, dark ("studio night"), for a phone first and a computer:
 - **Fonts:** Archivo (the manual's, `assets/fonts/Archivo.woff2`), and for the logo and labels the FM-1's Terminus
   8x16 as outline webfonts, `site/fonts/ptfm-pixel.woff2` (every glyph 8 pixels wide, as on the screen) and
   `ptfm-pixel-prop.woff2` (letters as wide as their ink, digits 8 wide), named PTFM Pixel, both SIL OFL 1.1.
-  Nothing is loaded from elsewhere.
+  Nothing is loaded from elsewhere until the video is played (item 3).
 
 ## 4. Links back
 
@@ -65,7 +70,8 @@ Each of the four pages links to the landing from its `PT/FM`: the install page's
 
 | Tool | Makes |
 |---|---|
-| `shots.sh` (`shots.c`) | `site/screens/*.png`: the screens, made as the manual's are (all of `fw/core` on the PC, the demo disk, a script a screen; core 2 taken as running, so VOICES 16 is 16) |
+| `shots.sh` (`shots.c`) | `site/screens/*.png`: the screens, made as the manual's are (all of `fw/core` on the PC, the demo disk, a script a screen; core 2 taken as running, so VOICES 16 is 16); also STATUS's first page (`status-ptfm.png`, PT/FM's name), on the landing only in the video's panel, for links from elsewhere too |
+| `tools/build_manual.py` | `site/screens/manual/*.png`: the manual's screenshots, made with the manual ([manual.md](manual.md)) |
 | `hero.html`, `images.py hero` | `site/img/hero.webp`, `hero-phone.webp`, `og.jpg`: the FM-1 in 3D from `panel/layout.js` with the EDITOR's screen, rendered in the browser (three.js), saved as PNG, then cut to the page's sizes |
 | `pixfont.py` | `site/fonts/ptfm-pixel*.woff2` from `assets/fonts/ter-u16n.bdf` |
 

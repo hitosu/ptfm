@@ -98,7 +98,8 @@ Appendix A has a topic `shortcuts-everywhere` and a topic `shortcuts-SCREEN` for
 each figure's state by its id and writes the screen. Every build makes them anew. Each script checks it reached its
 screen and state before the shot; a failed check fails the build. The page shows them in colour at twice their size;
 the PDF as a printed LCD: grey levels under 40, 110 and 190 (of 255) and above, printed as `#CDD2C4`, `#8E9488`,
-`#4E544A` and `#181C16`.
+`#4E544A` and `#181C16`. Each is also a file for the web site, `site/screens/manual/ID.png`: in colour, the screen's
+own 240 x 240 pixels; published, no page links them ([site.md](site.md)).
 
 ## 4. The tests
 

@@ -4,13 +4,15 @@
 (manual/src/*.html, in the order of their names) rendered twice: the page, dist/manual/manual.html, and the print page,
 build/manual/print.html, which --pdf prints to dist/manual/ptfm-manual.pdf (twice: the contents' and the index's page
 numbers from the first print; the dates and the tagged structure's node ids pinned, so a build is the same byte for
-byte; SOURCE_DATE_EPOCH sets the dates).
+byte; SOURCE_DATE_EPOCH sets the dates). Each screenshot is also a file for the web site, site/screens/manual/ID.png,
+the screen's own 240 x 240 pixels.
 
     python3 -I tools/build_manual.py [--pdf] [--no-shots] [--src DIR] [--work DIR]      (from ptfm/)
 
   --no-shots   the screenshots made last (build/manual/shots) taken as they are
   --src DIR    the chapters from DIR instead of manual/src
-  --work DIR   both pages into DIR instead of dist/manual/ and build/manual/ (the tests)
+  --work DIR   both pages and screens/ into DIR instead of dist/manual/, build/manual/ and site/screens/manual/
+               (the tests)
 
 Needs cc (the screenshots, as fw/tests/run_ui3.sh builds them) and node (the panel's numbers, panel/layout.js);
 --pdf a headless Chrome (CHROME names another) and pdfinfo (poppler)."""
@@ -37,6 +39,7 @@ import webfont  # noqa: E402
 MAN = ROOT / "manual"
 WORK = ROOT / "build" / "manual"
 DIST = ROOT / "dist" / "manual"
+SITE_SHOTS = ROOT / "site" / "screens" / "manual"       # the screenshots as files, for the web site (specs/site.md)
 DISK = ROOT / "dist" / "firmware" / "demo.ptfmdsk"
 TITLE = "PT/FM OWNER'S MANUAL"
 LOGO = "".join('<b class="c-%s">%s</b>' % (c, l) for c, l in zip("ptsfm", "PT/FM"))   # (the header's mark: the
@@ -143,6 +146,16 @@ def lcd(rgb):
 def shot_png(sid, target):
     w, h, rgb = read_ppm(WORK / "shots" / (sid + ".ppm"))
     return "data:image/png;base64," + base64.b64encode(png(w, h, rgb if target == "web" else lcd(rgb))).decode()
+
+
+def write_screens(ids, out):
+    """every screenshot as out/ID.png at the screen's own size, in colour; a PNG no longer made is removed"""
+    out.mkdir(parents=True, exist_ok=True)
+    for p in out.glob("*.png"):
+        if p.stem not in ids:
+            p.unlink()
+    for sid in ids:
+        (out / (sid + ".png")).write_bytes(png(*read_ppm(WORK / "shots" / (sid + ".ppm")), scale=1))
 
 
 # ---------------------------------------------------------------------------------------------------- chapters ---
@@ -602,6 +615,9 @@ def main():
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(t, encoding="utf-8")
         print("%s  %d B\n%s  %d B" % (web_out, len(web.encode()), prn_out, len(prn.encode())))
+        scr_out = Path(a.work) / "screens" if a.work else SITE_SHOTS
+        write_screens(ids, scr_out)
+        print("%s  %d screens" % (scr_out, len(ids)))
         if a.pdf:
             pdf_out = (Path(a.work) if a.work else DIST) / PDF_NAME
             n = make_pdf(chs, ids, prn_out, pdf_out)

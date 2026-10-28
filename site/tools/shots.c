@@ -59,6 +59,7 @@ static void s_visual_voices16(void)
     whole_frame = 1;
 }
 static void s_settings_midi(void) { go_to(K_MONO, "SETTINGS"); tap(B_SEQ); run(300); }
+static void s_status_ptfm(void) { tap(B_PLAY); run(3000); go_to(K_GLO, "STATUS"); run(400); }
 static void s_status_storage(void) { tap(B_PLAY); run(3000); go_to(K_GLO, "STATUS"); slow_turn(K_SELECT, 2); run(400); }
 static void s_songs_list(void) { go_to(K_OP1, "SONGS"); turn(K_SELECT, 2); }
 /* the EDITOR on MIDNIGHT RUN's pattern 0D, the cursor a few rows down on a track with notes (the hero's screen) */
@@ -80,6 +81,7 @@ static const sshot_t SHOTS[] = {
     {"loops-full", 0, loops_as_playground, "28i_loops_full16"},
     {"dj-decks", 0, dj_as_playground, "33b_dj_decks"},
     {"settings-midi", s_settings_midi, 0, 0},
+    {"status-ptfm", s_status_ptfm, 0, 0},
     {"status-storage", s_status_storage, 0, 0},
     {"songs-list", s_songs_list, 0, 0},
     {"editor-grid", s_editor_grid, 0, 0},

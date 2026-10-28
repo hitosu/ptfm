@@ -59,7 +59,8 @@ ptfm/
 - **`manual/`** holds the manual's sources ([manual.md](manual.md)): `manual/src/` the chapters,
   `web.css` and `manual.js` the page's, `print.css` the PDF's; `tools/build_manual.py` makes
   `dist/manual/`; its tests are `tests/manual/`, run by `fw/tests/run_manual.sh`.
-- **`site/`** holds the web site's landing, `site/index.html`, with its pictures (`img/`, `screens/`), its pixel
+- **`site/`** holds the web site's landing, `site/index.html`, with its pictures (`img/`, `screens/`; `screens/manual/` the
+  manual's screenshots, made by `tools/build_manual.py`), its pixel
   fonts (`fonts/`) and the tools that make them (`tools/`); `site/assemble.sh` puts the landing and the pages it
   links together, and `.github/workflows/pages.yml` publishes that on every push to `main` ([site.md](site.md)).
 - **`assets/fonts/`** holds the Terminus fonts (SIL OFL 1.1). Tools turn them into C tables for the
