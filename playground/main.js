@@ -16,7 +16,7 @@
     const M = PTFM.model;
     /* ERASE DATA: the page's keys and the user area kept gone, it starts again (a new FM-1) */
     page.onErase(() => M.eraseKept().then(() => location.reload(), () => location.reload()));
-    /* DEMO DISK: the demo disk into the user area, kept, then a power cycle; refused with changes not saved */
+    /* UPLOAD DEMO DISK: the demo disk into the user area, kept, then a power cycle; refused with changes not saved */
     const demo = document.getElementById("demo-disk"), DEMO_WORD = demo ? demo.textContent : "";
     if (demo) demo.addEventListener("click", () => {
         if (!M.demoDisk()) {

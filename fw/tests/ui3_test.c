@@ -676,6 +676,29 @@ static void test_knob_then_press(void)
     run(200);
 }
 /* EDIT on STATUS (specs/ui/screens/status.md#controls): SETTINGS from every page, as HOME + MONO: a plain switch */
+/* PERFORMANCE counts every engine's voices, CHIP's too (specs/ui/screens/status.md): its figure on the engines' third
+ * row (left, y 107) dark grey with none, in CHIP's colour with two keys held on a CHIP instrument; EFFECTS beside it */
+static void test_status_chip(void)
+{
+    uint16_t was = ui_cur.inst;
+    ui_set_inst(0xF900);                                /* (CHIPTUNE F9:00, built in) */
+    home_key(17);                                       /* STATUS */
+    turn(K_SELECT, -6); turn(K_SELECT, 1);              /* PERFORMANCE */
+    run(300);
+    int grey0 = count_px(0, 107, 117, 119, C_DGREY), lit0 = count_px(0, 107, 117, 119, ENG_COL[ENG_CHIP]);
+    key(0, 1); key(4, 1);
+    run(300);
+    shot("ui3_status_performance_chip");
+    int grey = count_px(0, 107, 117, 119, C_DGREY), lit = count_px(0, 107, 117, 119, ENG_COL[ENG_CHIP]),
+        fx = count_px(124, 107, 240, 119, C_LGREY);
+    key(0, 0); key(4, 0);
+    run(1000);
+    tap(B_HOME);
+    ui_set_inst(was);
+    check(grey0 > 0 && !lit0 && lit > 0 && !grey && fx > 0,
+          "PERFORMANCE: CHIP's figure dark grey with no voices, in its colour with two keys on a CHIP instrument; "
+          "EFFECTS beside it");
+}
 static void test_status_edit(void)
 {
     home_key(17);                                       /* STATUS */
@@ -6052,6 +6075,7 @@ int main(int argc, char **argv)
     test_settings_voices();
     test_status_storage();
     test_status_maps();
+    test_status_chip();
     test_status_edit();
     test_knob_then_press();
     test_fx_sel_oct();                  /* (before test_fx plays a song: FX edits THE KEYS' setup) */

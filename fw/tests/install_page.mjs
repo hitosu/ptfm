@@ -15,6 +15,8 @@
 //   then holds every file of the disk as a record (specs/files/store.md: header, CRC, one save, its last
 //   flagged), in the user area only; pressed again, the device already holds it; a SAVE on the FM-1 right after
 //   its layout: BEGIN refused (CHANGED), planned again, written
+// - UPLOAD CUSTOM DISK: a disk file picked, written as UPLOAD DEMO DISK's (the FM-1 then holds its files); again, nothing
+//   to write; a file that is no disk, and a disk holding nothing, refused before MIDI
 // - CLEAN INSTALL, a switch (off at first; on at first on a --clean page, the debug page's): INSTALL FIRMWARE
 //   installs, then erases the user area (a damaged record too): no record left; off, the firmware alone, the user
 //   area untouched
@@ -256,7 +258,8 @@ function runPage(html, access) {
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   const els = {};
   const node = (tag) => ({ tag, textContent: "", className: "", innerHTML: "", hidden: false, value: 0, disabled: true,
-    on: {}, children: [], firstChild: null,
+    on: {}, children: [], firstChild: null, files: [], picks: 0,
+    click() { this.picks++; },                          /* (a file input's picker opened: the test sets files) */
     appendChild(c) { this.children.push(c); return c; },
     addEventListener(t, f) { this.on[t] = f; }, scrollIntoView() {} });
   const el = (id) => (els[id] ||= Object.assign(node("div"), { id }));
@@ -322,6 +325,38 @@ const parsed = SEED.parseData(disk);
   el("disk").on.click();                                 /* again: nothing to write */
   await until(() => /already holds/.test(el("status").textContent) || /err/.test(el("status").className), 10000);
   ok(/already holds/.test(el("status").textContent), "UPLOAD again: the device already holds it, nothing written");
+}
+{ /* UPLOAD CUSTOM DISK: a disk file picked (set on the picker, then its change), written at once as UPLOAD DEMO DISK's: the
+     FM-1 then holds that disk's files, not the page's; again, nothing to write; a file that is no disk and a disk
+     holding nothing are refused before MIDI */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101" });
+  const el = runPage(html, dev.access);
+  await until(() => !el("upload").disabled, 5000);
+  const pick = async (name, bytes) => {                 /* (the line cleared: the waits below see only this pick's) */
+    Object.assign(el("status"), { textContent: "", className: "status" });
+    el("upload-pick").files = [{ name, arrayBuffer: async () => Uint8Array.from(bytes).buffer }];
+    await el("upload-pick").on.change();
+  };
+  el("upload").on.click();
+  ok(el("upload-pick").picks === 1, "UPLOAD CUSTOM DISK: opens the file picker");
+  await pick("NOTES.TXT", new TextEncoder().encode("not a disk"));
+  ok(el("status").textContent === "NOTES.TXT cannot be uploaded: not a PT/FM disk or blob." && !dev.mounts,
+     `UPLOAD CUSTOM DISK, a file that is no disk: "${el("status").textContent}"`);
+  await pick("EMPTY.ptfmdsk", SEED.makeDisk([]));
+  ok(el("status").textContent === "EMPTY.ptfmdsk holds nothing to upload." && !dev.mounts,
+     `UPLOAD CUSTOM DISK, a disk holding nothing: "${el("status").textContent}"`);
+  const mine = parsed.files.filter((f) => f.kind === 0x21 || f.kind === 0x20)     /* the song and its pattern, changed */
+    .map((f) => ({ kind: f.kind, num: f.num + 2, sub: f.sub, ver: f.ver, payload: f.payload.map((b) => b ^ 0x5A) }));
+  await pick("MINE.ptfmdsk", SEED.makeDisk(mine));
+  await until(() => /^Done: the FM-1 holds|stopped/.test(el("status").textContent) || /err/.test(el("status").className), 60000);
+  const recs = dev.records();
+  const same = mine.every((f) => recs.some((r) => r.ok && r.kind === f.kind && r.num === f.num && r.sub === f.sub &&
+    r.ver === f.ver && eq(Array.from(r.payload), Array.from(f.payload))));
+  ok(el("status").textContent === `Done: the FM-1 holds ${mine.length} files.` && same && recs.length === mine.length &&
+     dev.mounts === 1, `UPLOAD CUSTOM DISK: the picked disk written, the FM-1 holds its ${mine.length} files -> "${el("status").textContent}"`);
+  await pick("MINE.ptfmdsk", SEED.makeDisk(mine));
+  await until(() => /already holds/.test(el("status").textContent) || /err/.test(el("status").className), 10000);
+  ok(el("status").textContent === "The FM-1 already holds MINE.ptfmdsk, exactly.", "UPLOAD CUSTOM DISK again: nothing written");
 }
 { /* a SAVE on the FM-1 between its layout and BEGIN: the device refuses BEGIN (CHANGED), the page plans again */
   const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101" });

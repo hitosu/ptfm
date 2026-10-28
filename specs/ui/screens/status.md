@@ -157,7 +157,7 @@ VOICES     06/09/12  STEALS       0
 
 DX7          0 X 5.6%    JUNO     0 X 4.4%
 TB-303       0 X 2.8%    SAMPLE   0 X 1.6%
-EFFECTS            0.0%
+CHIP         0 X 2.5%    EFFECTS      0.0%
 
 +--------------------------------------+
 |CPU, LAST 30 S                        |
@@ -175,8 +175,8 @@ EFFECTS            0.0%
 | a figure, left | 0, *y* | 116 wide | T | its name; its value right-aligned to x 116 |
 | a figure, right | 124, *y* | 116 wide | T | its name; its value right-aligned to x 240 |
 | rows | *y* = 55, 67 | | | WORST HALF (core 1's longest audio interrupt) and LATE; VOICES (used / most / limit) and STEALS; the voices used as the first page's VOICES, over each tenth of a second |
-| the engines | *y* = 83, 95 | | T | DX7 and JUNO; TB-303 and SAMPLE: voices × the share of one (`0 X 5.6%`), counted again every tenth of a second |
-| EFFECTS | 0, 107 | | T | the effects' cost (`0.0%`), on whichever core runs them: measured only while STATUS is open, with one pair of timer reads around the whole effects stage in each audio block |
+| the engines | *y* = 83, 95, 107 | | T | DX7 and JUNO; TB-303 and SAMPLE; CHIP (left): voices × the share of one (`0 X 5.6%`; CHIP's 2.5 %, a triangle at A-4 as measured on the FM-1: a pulse costs less, noise and high wave notes more), counted again every tenth of a second |
+| EFFECTS | 124, 107 | | T | the effects' cost (`0.0%`), on whichever core runs them: measured only while STATUS is open, with one pair of timer reads around the whole effects stage in each audio block |
 | the graph | 0, 125 | 240 × 100 | | a box |
 | – its label | 2, 127 | | T | `CPU, LAST 30 S` |
 | – 50 % and 80 % | 1, 175 and 145 | 238 × 1 | | lines |

@@ -8,7 +8,8 @@
  *     keeps it busy as long as it takes on the FM-1 (60 MHz SPI: a full frame ~30.2 ms), and so do the
  *     flash's erases (17.1 ms) and programs (~1.9 ms).
  * The page sends the panel's input and SysEx in, and reads back the screen, the LEDs, the SysEx the
- * device sends and the flash (to keep it in the browser's storage). The sound goes through the FM-1's
+ * device sends and the flash (to keep it in the browser's storage), the user area's records (DOWNLOAD DISK) and
+ * USB audio's frames while it records (RECORD). The sound goes through the FM-1's
  * own last stage (fw/device/out.h: MASTER squared, LINE GAIN, mono, the soft ceiling), as the codec's
  * 24-bit words. CPU figures are the PC's: app_audio timed with the page's clock (web_clock_us), its
  * time per half of the device's.
@@ -18,6 +19,8 @@
 #include <string.h>
 #include "plat.h"
 #include "app.h"
+#include "store.h"
+#include "ui_core.h"
 #include "../fw/device/out.h"
 
 #ifdef WEB_NATIVE
@@ -139,7 +142,36 @@ void plat_output(int mono, int line_gain_db)
     web_mono = mono;
     web_line_db = line_gain_db;
 }
-void plat_usb_gain(int db) { (void)db; }   /* (the emulator has no USB audio) */
+/* USB audio, for the page's RECORD (specs/emulator.md): what the FM-1 sends a computer (specs/connections.md#usb-audio),
+ * as the device's usb_value (fw/device/main.c): the mix after the effects, the clicks left out, times USB GAIN in
+ * MASTER's place, always stereo, then the soft ceiling, as 16-bit values; at the device's own rate (no resampler:
+ * the page's file is the computer). Made only while the page records (web_rec), taken after every web_render */
+#define WEB_REC 2048u                    /* frames (web_render makes at most 1,024 a call) */
+static int16_t web_rec_buf[WEB_REC * 2u];
+static uint32_t web_rec_n;
+static int32_t web_usb_gain = 5157;      /* USB GAIN (Q12; its 0 dB, out.h's OUT_USB_REF, till the settings come) */
+
+void plat_usb_gain(int db) { web_usb_gain = out_usb_gain_q12(db); }
+
+static int16_t web_usb_value(int32_t v)  /* a mix value (the clicks out) to the computer's */
+{
+    v = v < -131072 ? -131072 : v;       /* (the mix before the player's ceiling) */
+    v = v > 131071 ? 131071 : v;
+    v = (int32_t)(((int64_t)v * web_usb_gain) >> 4);
+    return (int16_t)(out_ceiling(v) >> 8);
+}
+static void web_usb_block(const int32_t *lr, const int16_t *click, int n)
+{
+    int i;
+    if (n <= 0 || (uint32_t)n > WEB_REC - web_rec_n)   /* (never: the worklet takes them after every render) */
+        return;
+    for (i = 0; i < n; i++) {
+        int32_t c = click ? click[i] : 0;
+        web_rec_buf[2u * web_rec_n] = web_usb_value(lr[2 * i] - c);
+        web_rec_buf[2u * web_rec_n + 1u] = web_usb_value(lr[2 * i + 1] - c);
+        web_rec_n++;
+    }
+}
 
 /* the second core: one core here, so a block's job runs at once where it is handed over (the device's order, the
  * same sound) and its time is core 2's; core 1's figure is the half's time without it */
@@ -548,6 +580,44 @@ WEB_EXPORT("web_master") void web_master_set(int32_t v)
 static uint32_t web_usb_resets;
 uint32_t plat_usb_resets(void) { return web_usb_resets; }
 WEB_EXPORT("web_usb_reset") void web_usb_reset(void) { web_usb_resets++; }
+
+/* RECORD: USB audio's frames from the next block on (on), or none; web_rec_len the frames made since the last
+ * web_rec_take, 16-bit stereo at web_rec_at */
+WEB_EXPORT("web_rec") void web_rec(uint32_t on)
+{
+    web_rec_n = 0;
+    app_audio_usb(on ? web_usb_block : 0);
+}
+WEB_EXPORT("web_rec_at") int16_t *web_rec_at(void) { return web_rec_buf; }
+WEB_EXPORT("web_rec_len") uint32_t web_rec_len(void) { return web_rec_n; }
+WEB_EXPORT("web_rec_take") void web_rec_take(void) { web_rec_n = 0; }
+
+/* DOWNLOAD DISK: the user area's live records, as seeding's layout lists them (fw/core/store/seed.c), but asked
+ * whatever is not saved (seeding refuses then). web_disk fills web_disk_at with n entries of 3 words (kind | num << 8
+ * | sub << 16 | ver << 24, the header's flash address, the payload's length) and returns n, or -1 while a save is
+ * being written; web_unsaved: 1 while changes are not saved (SAVE's LED), which are not in the flash, so on no disk
+ * of it */
+#define WEB_DISK_MAX 1024
+static uint32_t web_disk_buf[WEB_DISK_MAX * 3];
+WEB_EXPORT("web_disk_at") uint32_t *web_disk_at(void) { return web_disk_buf; }
+WEB_EXPORT("web_disk") int32_t web_disk(void)
+{
+    int i, n = 0, all = store_count();
+    if (store_saving())
+        return -1;
+    for (i = 0; i < all && n < WEB_DISK_MAX; i++) {
+        store_rec_t r;
+        uint32_t *e = web_disk_buf + 3 * n;
+        if (!store_entry(i, &r, 0, 0) || r.area != STORE_AREA_USER || r.deleted)
+            continue;
+        e[0] = (uint32_t)r.kind | (uint32_t)r.num << 8 | (uint32_t)r.sub << 16 | (uint32_t)r.ver << 24;
+        e[1] = r.addr;
+        e[2] = r.len;
+        n++;
+    }
+    return n;
+}
+WEB_EXPORT("web_unsaved") uint32_t web_unsaved(void) { return ui_unsaved || store_edit_count() ? 1u : 0u; }
 
 /* a SysEx the page staged in web_sysex_stage (n bytes, F0 ... F7): queued for the main loop; 0 when
  * queued, -1 when the queue is full (try again after some audio) */

@@ -349,12 +349,14 @@
                 D.text(0, y + 48, F.T, "VOICES", D.CYAN);
                 D.runs(w - D.tw(F.T, vu + vm), y + 48, F.T, [[vu, U.voicesCol(used, max)], [vm, U.voicesCol(S.usedMax || 0, max)]]);
                 f(124, y + 48, "STEALS", String(S.steals || 0), S.steals ? D.RED : D.DGREY, w);
-                const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6 };
-                ["DX7", "JUNO", "TB303", "SAMPLER"].forEach((e, i) => {
+                /* voices x the share of one, two a line: DX7 JUNO, TB-303 SAMPLE, CHIP (CHIP's: a triangle at A-4,
+                 * measured on the FM-1); EFFECTS beside CHIP */
+                const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6, CHIP: 2.5 };
+                ["DX7", "JUNO", "TB303", "SAMPLER", "CHIP"].forEach((e, i) => {
                     const n = (S.countNow || {})[e] || 0;
                     f((i % 2) * 124, y + 64 + Math.floor(i / 2) * 12, M.ENGINES[e].short, n + " X " + COST[e] + "%", n ? M.ENGINES[e].col : D.DGREY, w);
                 });
-                f(0, y + 88, "EFFECTS", (S.fxCost || 0).toFixed(1) + "%", D.LGREY, w);
+                f(124, y + 88, "EFFECTS", (S.fxCost || 0).toFixed(1) + "%", D.LGREY, w);
                 /* the last 30 s: core 1's bars, core 2's white marks */
                 const gy = y + 106, gh = 100, g = S.graph || [], g2 = S.graph2 || [];
                 D.box(0, gy, 240, gh, D.DGREY);

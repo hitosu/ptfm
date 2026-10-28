@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Vasily Kazantsev */
-/* Seeding into the emulator, as its DEMO DISK button does: fw/web/seed.js (the install page's module)
+/* Seeding into the emulator, as its UPLOAD DEMO DISK button does: fw/web/seed.js (the install page's module)
  * talks to the firmware's own seeding code in the WebAssembly, through calls instead of USB-MIDI, with
  * the device's time running between messages. Checks that every block is answered, that the FM-1 mounts
  * what was written with nothing bad, and that its layout afterwards holds exactly the disk (a second

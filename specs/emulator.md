@@ -12,9 +12,10 @@ In short:
 - **PT/FM's firmware running in a browser,** on the panel, the virtual FM-1's controls (`panel/`,
   [panel.md](panel.md)): one big screen and the controls placed for ease of use, a WIDE view for a
   computer, a PORTRAIT one for a phone held upright and a SIDEWAYS one for a phone held sideways.
-- **Its page is the playground's** ([panel.md](panel.md#the-page)), with three groups more in its sidebar:
-  DISKS (SEED, DEMO DISK), ITS USB MIDI (the emulated FM-1's MIDI IN and OUT ports) and FIRMWARE (which file
-  runs, its version, also in the header); POWER says whether it is switched on, or that its firmware stopped. Its
+- **Its page is the playground's** ([panel.md](panel.md#the-page)), with four groups more in its sidebar:
+  DISKS (UPLOAD CUSTOM DISK and UPLOAD DEMO DISK, one group of joined keys; DOWNLOAD DISK apart), ITS USB AUDIO (RECORD, [below](#recording)), ITS USB MIDI (the emulated
+  FM-1's MIDI IN and OUT ports) and FIRMWARE (which file runs, its version, also in the header); POWER says whether
+  it is switched on, or that its firmware stopped. Its
   PT/FM logos (the sidebar's, the header's on a narrow page) lead to PT/FM's page, https://hitosu.github.io/ptfm/.
 - **Switching on** comes from a gesture the browser lets sound start from: a key, a click, a mouse's press, a
   finger lifted (a touch screen counts a tap only when the finger lifts: a sound made at the touch can stay
@@ -47,13 +48,38 @@ In short:
 
 ## Data
 
-- **The Seed button** opens a PT/FM disk (the picker offers `.ptfmdsk` only) and seeds it into the emulated device,
+- **UPLOAD CUSTOM DISK** (as the install page's) opens a PT/FM disk (the picker offers `.ptfmdsk` only), or takes one dropped
+  anywhere on the page (framed while a file is dragged over it; a file that is no disk gets its PROBLEM line), and
+  seeds it into the emulated device,
   asking for MIDI nowhere. It uses the same
   module and protocol as `dist/firmware/seed.html` (the files proposal, 12.2:
   [proposals/202610080050-fs.md](proposals/202610080050-fs.md)), so seeding is tested without the
   FM-1.
 - **The emulated flash is kept in the browser's storage,** so the library survives a reload, as on the
   device.
+- **DOWNLOAD DISK** saves what the emulated FM-1 holds in its user area as a disk
+  (`ptfm-emulator-YYYY-MM-DD-HHMM.ptfmdsk`, [files/disk.md](files/disk.md)): every live record read from its flash,
+  each checked against its header's CRC, as the editor's backup reads a real FM-1's, so UPLOAD CUSTOM DISK, the install page and
+  the editor open it. The page asks the firmware for its records directly (the web platform's own call, not
+  seeding, which refuses while changes are not saved).
+  - **A disk holds what SAVE wrote.** With changes not saved (SAVE's LED), a box says so first: press SAVE on the
+    FM-1 first (its key works with the box open, and the box then says the disk holds everything), or they will
+    not be on the disk; CANCEL, or DOWNLOAD ANYWAY. The line under the button names the file and its records,
+    and says when changes were left out.
+  - With nothing saved in the user area, no disk is made.
+
+## Recording
+
+- **RECORD** (ITS USB AUDIO) keeps what a computer records from the FM-1 over USB audio
+  ([connections.md](connections.md#usb-audio)): the mix after the effects, without the METRONOME's and the
+  count-in's clicks, times USB GAIN in MASTER's place, always stereo, then the soft ceiling, as 16-bit values. The
+  web platform makes it as the device does, at the device's own rate (44.1 kHz; no resampler: the file is the
+  computer), only while the page records.
+- **One recording at a time,** kept in the page: RECORD (its time on it, and a REC chip in the footer), STOP, then
+  SAVE WAV (`ptfm-emulator-YYYY-MM-DD-HHMM.wav`, 16-bit stereo, about 10 MB a minute); a new RECORD takes its
+  place. It stops by itself at 30 minutes.
+- **No gaps:** the firmware runs only while its sound does, so a pause (the browser holding the sound back) pauses
+  the recording too. RESET, ERASE DATA and a stopped firmware end it, kept for SAVE WAV.
 
 ## Rules for the shared code
 

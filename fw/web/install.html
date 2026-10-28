@@ -56,7 +56,9 @@ body:not(.dbg) h2 { padding-bottom: 5px; border-bottom: 1px solid var(--dgrey); 
 body:not(.dbg) * + h2 { margin-top: 24px; }
 
 /* the keys: a button is a key, its name yellow; pressed, the yellow's dark shade */
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* INSTALL FIRMWARE the whole width, CLEAN INSTALL under it, then the two uploads side by side, their own line */
+.actions { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.actions.uploads { grid-template-columns: 1fr 1fr; margin-top: 16px; }
 button { font: inherit; cursor: pointer; }
 .big { min-height: 72px; padding: 10px 12px; background: var(--bg); color: var(--yellow); border: 1px solid var(--dgrey);
   border-radius: 0; font: 600 17px/1.25 var(--sans); letter-spacing: .08em; text-align: center;
@@ -129,7 +131,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
 @media (max-width: 560px) {
   .wrap { padding-top: 18px; }
   .logo { font-size: 38px; }
-  .actions { grid-template-columns: 1fr; }
+  .actions.uploads { grid-template-columns: 1fr; }
   .card { padding: 14px 12px; }
 }
 </style>
@@ -148,13 +150,17 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   <section class="card">
     <div class="actions">
       <button class="big" id="go" disabled>INSTALL FIRMWARE<small id="gosub">PT/FM onto the FM-1, your work kept</small></button>
-      <button class="big" id="disk" disabled>UPLOAD DEMO DISK<small>the demo songs onto the FM-1, replacing your work</small></button>
     </div>
     <label class="switch" id="cleanrow" hidden>
       <input type="checkbox" id="clean" role="switch">
       <span class="track" aria-hidden="true"></span>
       <span><b>CLEAN INSTALL</b>INSTALL FIRMWARE writes PT/FM, then erases everything the FM-1 holds: an empty user area</span>
     </label>
+    <div class="actions uploads">
+      <button class="big" id="disk" disabled>UPLOAD DEMO DISK<small>the demo songs onto the FM-1, replacing your work</small></button>
+      <button class="big" id="upload" disabled>UPLOAD CUSTOM DISK<small>a disk file of yours onto the FM-1, replacing your work</small></button>
+    </div>
+    <input type="file" id="upload-pick" accept=".ptfmdsk" hidden>
     <div class="status" id="status" role="status">Checking the package…</div>
     <progress id="bar" max="100" value="0" hidden></progress>
     <div class="facts" id="facts"></div>
@@ -167,7 +173,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       <li>Connect the FM-1 by USB and switch it on. Keep it connected until the page says <b>Done</b>.</li>
       <li>When the browser asks, allow MIDI devices, SysEx included: everything goes through it.</li>
     </ol>
-    <p class="note">The firmware and the demo disk are inside this page: it works offline and sends nothing anywhere else.</p>
+    <p class="note">The firmware and the demo disk are inside this page: it works offline and sends nothing anywhere else. A disk
+      file you pick is read here, on this computer.</p>
     <h2>WHAT THE KEYS DO</h2>
     <dl class="keys">
       <dt>INSTALL FIRMWARE</dt>
@@ -183,6 +190,9 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       <dd>Needs PT/FM running. Afterwards the FM-1 holds exactly the demo disk: its songs, patterns and samples take the
         place of yours, and what of yours is not on it is gone. If the FM-1 has edits not saved, it refuses: press
         <kbd>SAVE</kbd> on it (or REVERT them), then upload again.</dd>
+      <dt>UPLOAD CUSTOM DISK</dt>
+      <dd>The same with a disk file you pick (<b>.ptfmdsk</b>: the editor page's DOWNLOAD DISK saves the FM-1's library as
+        one, and so does the emulator's). Afterwards the FM-1 holds exactly that disk.</dd>
     </dl>
     <details>
       <summary>IF SOMETHING GOES WRONG</summary>
@@ -230,7 +240,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   let image = null, disk = null, busy = false;
   const status = (text, kind) => { $("status").textContent = text; $("status").className = "status" + (kind ? " " + kind : ""); };
   const fact = (html, cls) => { const s = document.createElement("span"); s.className = "chip" + (cls ? " " + cls : ""); s.innerHTML = html; $("facts").appendChild(s); };
-  const lock = (on) => { busy = on; window.PTFM_busy = on; $("go").disabled = on || !image; $("disk").disabled = on || !disk; $("clean").disabled = on; };
+  const lock = (on) => { busy = on; window.PTFM_busy = on; $("go").disabled = on || !image; $("disk").disabled = on || !disk;
+    $("upload").disabled = on || !image || typeof PTFM_seed === "undefined"; $("clean").disabled = on; };
   const cleanOn = () => !!$("clean").checked;      /* CLEAN INSTALL */
   function cleanLabel() {                            /* INSTALL FIRMWARE's line under it says which install it does */
     $("gosub").textContent = cleanOn() ? "clean: PT/FM, then an empty user area" : "PT/FM onto the FM-1, your work kept";
@@ -377,7 +388,7 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   const oldBad = (r) => r.bad ? ` The FM-1 also found ${r.bad} damaged record${r.bad === 1 ? "" : "s"} from before, which ` +
     `this did not need (SETTINGS > TOOLS > CHECK STORAGE names them).` : "";
 
-  /* the demo disk planned on the layout L by planFn and written at once, the progress in the status line;
+  /* a disk (data, else the demo disk) planned on the layout L by planFn and written at once, the progress in the status line;
      planned again if the FM-1 saved meanwhile (CHANGED). -> { r } written, { upToDate }, { problem }; throws
      what writing threw (the caller aborts) */
   async function writeDisk(s, L, planFn, what, data) {
@@ -400,32 +411,33 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     }
   }
 
-  /* UPLOAD DEMO DISK: one press, written at once */
-  $("disk").addEventListener("click", async () => {
-    if (busy || !disk) return;
+  /* an upload, written at once: data (seed.js parseData's) planned on the FM-1's layout; what names it in the status
+     line ("the demo disk", a file's name), key is the button to press again */
+  async function upload(data, what, key) {
+    const What = what[0].toUpperCase() + what.slice(1);
     lock(true);
     $("bar").hidden = true;
     let midi, s = null, asked = false;
     try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
-    catch (e) { status("MIDI was not allowed. Allow it for this page and press UPLOAD DEMO DISK again.", "err"); lock(false); return; }
+    catch (e) { status(`MIDI was not allowed. Allow it for this page and press ${key} again.`, "err"); lock(false); return; }
     try {
       s = await ptfmSession(midi);
       if (!s) { status(ERR.notfound, "err"); lock(false); return; }
       status("Asking the FM-1 what it holds…");
       const L = await s.hello();
       asked = true;
-      const w = await writeDisk(s, L, PTFM_seed.plan, "Writing the demo disk");
-      if (w.problem) status("The demo disk cannot be written: " + w.problem + ".", "err");
-      else if (w.upToDate) status("The FM-1 already holds the demo disk, exactly.", "done");
+      const w = await writeDisk(s, L, PTFM_seed.plan, "Writing " + what, data);
+      if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
+      else if (w.upToDate) status(`The FM-1 already holds ${what}, exactly.`, "done");
       else status(`Done: the FM-1 holds ${w.r.records} files.` + oldBad(w.r), "done");
     } catch (e) {
       if (!asked) {
         const unsaved = e && e.code === PTFM_seed.RESULT.UNSAVED;
-        status(unsaved ? "The FM-1 has edits not saved: SAVE them (or REVERT) on the FM-1, then press UPLOAD DEMO DISK again."
+        status(unsaved ? `The FM-1 has edits not saved: SAVE them (or REVERT) on the FM-1, then press ${key} again.`
           : "The FM-1 did not answer as PT/FM (" + (e && e.message) + "). Is PT/FM installed and running? INSTALL FIRMWARE first.", "err");
       } else {
         status(e && e.timeout
-          ? "The upload stopped: the FM-1 did not answer. Switch the FM-1 off and on, then press UPLOAD DEMO DISK again. What was there before is kept."
+          ? `The upload stopped: the FM-1 did not answer. Switch the FM-1 off and on, then press ${key} again. What was there before is kept.`
           : "The upload stopped: " + (e && e.message) + ". What was there before is kept; upload again.", "err");
         try { await s.abort(); } catch (_) { /* the FM-1 mounts by itself after 10 s */ }
       }
@@ -433,6 +445,22 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     }
     if (s) s.close();
     lock(false);
+  }
+
+  /* UPLOAD DEMO DISK: one press, written at once */
+  $("disk").addEventListener("click", () => { if (!busy && disk) upload(disk, "the demo disk", "UPLOAD DEMO DISK"); });
+
+  /* UPLOAD CUSTOM DISK: a disk file picked (read here, never sent anywhere else), then as UPLOAD DEMO DISK; a file that is no
+     disk, or a disk holding nothing (it would empty the user area: CLEAN INSTALL's job), is refused before MIDI */
+  $("upload").addEventListener("click", () => { if (!busy) $("upload-pick").click(); });
+  $("upload-pick").addEventListener("change", async () => {
+    const f = $("upload-pick").files[0];
+    $("upload-pick").value = "";
+    if (!f || busy) return;
+    const data = PTFM_seed.parseData(new Uint8Array(await f.arrayBuffer()));
+    if (data.problems.length) status(`${f.name} cannot be uploaded: ${data.problems[0]}.`, "err");
+    else if (!data.files.length) status(`${f.name} holds nothing to upload.`, "err");
+    else upload(data, f.name, "UPLOAD CUSTOM DISK");
   });
 
   $("clean").addEventListener("change", cleanLabel);

@@ -62,8 +62,9 @@ number.
    deleted records, so the device ends up holding exactly the blob: **the device's own saved work not in
    it is deleted**, and keeping a copy of that work is the user's to do. The emulator shows the plan (each
    area's space, what goes where, what does not fit, what will be deleted) and writes once the user
-   accepts it; the install page's UPLOAD DEMO DISK plans and writes in one press, its progress in the
-   status line, and says there what keeps it from writing (it does not fit, a kind the device does not
+   accepts it; the install page's UPLOAD DEMO DISK plans and writes in one press, and so does its UPLOAD
+   CUSTOM DISK with a disk file picked (refused before anything is sent when the file is no disk or holds
+   nothing), its progress in the status line, and says there what keeps it from writing (it does not fit, a kind the device does not
    take), writing nothing then.
    - **Nothing goes into FWS:** the device never writes it ([store.md](store.md#where-things-go)).
    - **It stops there** if what is left does not fit in the user area, if the device does not accept a
@@ -96,7 +97,8 @@ number.
   at first on the debug page, [../debug.md](../debug.md#the-page)) keeps nothing: after the
   install the uploader writes every block of the user area empty (all 0xFF: the device erases it), and no
   record. Nothing that was there stays, damaged records included; the device then holds an empty user area,
-  the firmware's built-ins alone. The demo disk is UPLOAD DEMO DISK's, a button of its own. The debug page's
+  the firmware's built-ins alone. The demo disk is UPLOAD DEMO DISK's, a button of its own (UPLOAD CUSTOM
+  DISK beside it, a disk file of the user's). The debug page's
   CLEAR USER DATA writes the same empty blocks without an install, PT/FM running. On the FM-1 alone,
   SETTINGS' FACTORY RESET erases them and restarts ([../ui/screens/settings.md](../ui/screens/settings.md));
   while it erases, the seeding's commands are answered busy.

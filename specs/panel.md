@@ -26,8 +26,15 @@ small knobs, buttons and keys placed where they are easy to reach. Each lights a
 - **Holding:** a pointer holds what it presses until let go, so on a touch screen several fingers hold
   several controls (SEL held with one finger while another turns PRESETS: SEL + PRESETS). With a mouse,
   Shift+click latches a button or key until the next click, and a button held keeps the pointer, so the
-  wheel can turn a knob while it is held. The computer's keyboard plays the keys
-  (`panel/keyboard.js`).
+  wheel can turn a knob while it is held.
+- **The computer's keyboard** (`panel/keyboard.js`), matched by the keys' places, so every layout gets the same:
+  - **the 27 keys** as a piano on two tiers: `Z X C V B N M , . /` F3-A4 with `S D F H J L ; '` the black keys,
+    `Q W E R T Y` B4-G5 with `3 4 6`;
+  - **the 14 buttons,** held as the keys are: `1` `2` OCT- OCT+, then the panel's two rows right of the piano,
+    `7 8 9 0 - =` FX SEL ENV LFO EDIT GLO and `U I O P [ ]` HOME SAVE ARP SEQ PLAY REC. No function keys: a
+    browser keeps some of them, and many laptops give them only with Fn;
+  - the page's HOW TO PLAY shows them as caps, each the computer's key over what it plays: the 27 keys as a piano
+    in two tiers (B4-G5 above, F3-A4 below, as the computer's rows stand), the buttons as the panel's grid.
 - **Gliding:** a pointer that pressed a note key follows it: moved onto another note key, it lets the one it
   held go and plays that one, as a finger slid along a keyboard; off the note keys it keeps the last. A button
   stays held wherever its pointer goes.
@@ -130,14 +137,14 @@ yellow, groups headed in cyan. `panel/page.css` is its look and `panel/page.js` 
 
 - **A sidebar** on the left: the logo and the page's name, then its groups: SOUND (POWER on the emulator: off
   until the first click, then ON while the sound runs, RESET; ERASE DATA, tapped twice, erases what the page
-  keeps in the browser, the user area included, then starts it again: a new FM-1), DISKS (DEMO DISK; the
-  emulator's SEED too), THE FM-1 OVER MIDI (CONNECT, the state, how), SCREEN (ZOOM), HOW TO PLAY; the emulator
+  keeps in the browser, the user area included, then starts it again: a new FM-1), DISKS (UPLOAD DEMO DISK;
+  the emulator's UPLOAD CUSTOM DISK beside it and DOWNLOAD DISK too), THE FM-1 OVER MIDI (CONNECT, the state, how), SCREEN (ZOOM), HOW TO PLAY; the emulator
   adds ITS USB MIDI (IN, OUT) and FIRMWARE (the file and its version).
   It scrolls by itself when it is longer than the window.
 - **The user area is kept in the browser** (IndexedDB), on both: what SAVE writes survives a reload, as the
   FM-1's flash survives a power cycle; the changes not saved are the tab's alone, as the FM-1's RAM, gone with a
   reload or the tab. With nothing kept the page starts as a new FM-1: an empty user area, the built-ins alone.
-  DEMO DISK writes the demo disk into the user area, in place of what is there (the playground's refuses while
+  UPLOAD DEMO DISK writes the demo disk into the user area, in place of what is there (the playground's refuses while
   changes are not saved, as the FM-1's seeding does: SAVE or REVERT first), then starts again.
 - **A header** over the panel: the page's name, a word on what it is (the emulator: its firmware), and on
   the right the sound's sign until the sound starts: `CLICK ANYWHERE TO START THE SOUND` (`TAP TO START THE

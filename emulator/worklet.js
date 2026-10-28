@@ -15,10 +15,18 @@
  *               {t: "sysex", bytes}                 a message F0 ... F7 for the device
  *               {t: "midi", b, src}                 a MIDI message in (notes, CCs, the clock): b its bytes
  *               {t: "flash?"}                       the flash now, whatever its writes
- * Messages out: {t: "ready", fwEnd} {t: "frame", y0, y1, px} {t: "leds", leds} {t: "sysex", bytes}
+ *               {t: "rec", on}                      RECORD: USB audio's frames from now on, or the end of them
+ *               {t: "disk?"} {t: "unsaved?"}        DOWNLOAD DISK: the user area's records; changes not saved?
+ * Messages out: {t: "ready", fwEnd, rec, disk}      (rec, disk: the firmware can record, give its disk)
+ *               {t: "frame", y0, y1, px} {t: "leds", leds} {t: "sysex", bytes}
  *               {t: "midi", bytes}                  MIDI OUT: messages one after another
  *               {t: "flash", image} {t: "fault", text}
- *               {t: "restart"}                      the firmware asks for a restart (FACTORY RESET), once */
+ *               {t: "restart"}                      the firmware asks for a restart (FACTORY RESET), once
+ *               {t: "rec", pcm, end}                USB audio's frames, 16-bit stereo, a quarter second or so a
+ *                                                   message; end: the last of the recording
+ *               {t: "disk", list, image, unsaved}   the live records (3 words each: plat_web.c's web_disk) and the
+ *                                                   flash they are in; {t: "disk", saving: true} while a save writes
+ *               {t: "unsaved", v} */
 window.PTFM = window.PTFM || {};
 
 PTFM.emuWorklet = function () {
@@ -41,6 +49,7 @@ PTFM.emuWorklet = function () {
             this.leds = null;
             this.pending = [];                            /* SysEx the device's queue had no room for */
             this.gen = 0; this.genAt = 0; this.savedGen = 0;
+            this.rec = null;                              /* RECORD's frames not yet sent: { parts, frames } */
             this.port.onmessage = e => this.onMessage(e.data);
         }
 
@@ -66,7 +75,7 @@ PTFM.emuWorklet = function () {
                     this.ex = ex;
                     ex.web_init();
                     this.gen = this.savedGen = ex.web_flash_gen();
-                    this.port.postMessage({ t: "ready", fwEnd: ex.web_fw_end() });
+                    this.port.postMessage({ t: "ready", fwEnd: ex.web_fw_end(), rec: !!ex.web_rec, disk: !!ex.web_disk });
                 } catch (err) {
                     this.fault(err);
                 }
@@ -82,9 +91,40 @@ PTFM.emuWorklet = function () {
                 else if (m.t === "sysex") { this.pending.push(m.bytes); this.flushSysex(); }
                 else if (m.t === "midi") ex.web_midi_in(m.b[0], m.b[1] || 0, m.b[2] || 0, m.src || 0);
                 else if (m.t === "flash?") this.sendFlash();
+                else if (m.t === "rec" && ex.web_rec) {
+                    if (m.on) { ex.web_rec(1); this.rec = { parts: [], frames: 0 }; }
+                    else if (this.rec) { this.recTake(); ex.web_rec(0); this.recPost(true); this.rec = null; }
+                }
+                else if (m.t === "disk?" && ex.web_disk) this.sendDisk();
+                else if (m.t === "unsaved?" && ex.web_unsaved) this.port.postMessage({ t: "unsaved", v: ex.web_unsaved() });
             } catch (err) {
                 this.fault(err);
             }
+        }
+
+        recTake() {                                       /* USB audio's frames since the last take */
+            const ex = this.ex, n = ex.web_rec_len();
+            if (!n) return;
+            this.rec.parts.push(new Int16Array(ex.memory.buffer, ex.web_rec_at(), n * 2).slice());
+            this.rec.frames += n;
+            ex.web_rec_take();
+        }
+
+        recPost(end) {                                    /* what was taken, in one message */
+            const pcm = new Int16Array(this.rec.frames * 2);
+            let at = 0;
+            for (const p of this.rec.parts) { pcm.set(p, at); at += p.length; }
+            this.rec.parts = [];
+            this.rec.frames = 0;
+            this.port.postMessage({ t: "rec", pcm: pcm.buffer, end }, [pcm.buffer]);
+        }
+
+        sendDisk() {
+            const ex = this.ex, n = ex.web_disk();
+            if (n < 0) { this.port.postMessage({ t: "disk", saving: true }); return; }
+            const list = new Uint32Array(ex.memory.buffer, ex.web_disk_at(), n * 3).slice();
+            const image = new Uint8Array(ex.memory.buffer, ex.web_flash(), 1 << 20).slice().buffer;
+            this.port.postMessage({ t: "disk", list, image, unsaved: ex.web_unsaved() }, [list.buffer, image]);
         }
 
         flushSysex() {                                    /* the page's messages into the device's queue */
@@ -115,6 +155,10 @@ PTFM.emuWorklet = function () {
                 this.ring[i + 1] = s[2 * k + 1];
             }
             this.written += QUANTUM;
+            if (this.rec) {                               /* RECORD: USB audio's frames made meanwhile */
+                this.recTake();
+                if (this.rec.frames >= 11025) this.recPost(false);
+            }
         }
 
         process(inputs, outputs) {

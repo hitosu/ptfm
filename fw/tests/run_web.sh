@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Vasily Kazantsev
 # The emulator (specs/emulator.md, Testing): its WebAssembly against the same C built natively.
 #   1. seed the demo disk (dist/firmware/demo.ptfmdsk) into a new emulated FM-1 through fw/web/seed.js, as the
-#      page's DEMO DISK button does (web_seed.js): every block answered, the mount clean, the FM-1
+#      page's UPLOAD DEMO DISK button does (web_seed.js): every block answered, the mount clean, the FM-1
 #      holding exactly the disk; its flash is kept for 2;
 #   2. one session (web_session.txt) on both builds from that flash: the same audio, screens and LEDs
 #      at every shot. The native run's screens: build/fw/web/test/shot_<n>.png (2x) to look at.

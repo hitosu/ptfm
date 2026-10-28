@@ -36,7 +36,7 @@ static uint8_t graph[60], graph2[60];
 static int ngraph;
 static uint32_t sample_at, avg_sum, avg2_sum, avg_n, avg2_n, cpu_sum0, cpu_n0, cpu2_sum0, cpu2_n0;
 /* the engines' voices on PERFORMANCE, counted again every 100 ms or a little more (specs/ui/screens/status.md) */
-static int eng_count[5];
+static int eng_count[PL_ENG_CHIP + 1];   /* by PL_ENG_* */
 static uint32_t eng_at;
 static uint32_t up0;
 
@@ -243,23 +243,24 @@ static void draw_performance(void)
         g_runs(w - g_tw(&FONT_T, v), y + 48, &FONT_T, r, 2);
     }
     ui_fmt(v, sizeof v, "%u", st.steals); fig(124, y + 48, T("STEALS"), v, st.steals ? C_RED : C_DGREY, w);
-    /* the engines: voices x the share of one */
-    static const char *const COST[4] = {"5.6%", "4.4%", "2.8%", "1.6%"};
+    /* the engines: voices x the share of one (CHIP's: a triangle at A-4, measured on the FM-1) */
+    static const struct { uint8_t pl, eng; char cost[6]; } ENGS[5] = {
+        {PL_ENG_DX7, ENG_DX7, "5.6%"}, {PL_ENG_JUNO, ENG_JUNO, "4.4%"}, {PL_ENG_TB303, ENG_TB303, "2.8%"},
+        {PL_ENG_SAMPLER, ENG_SAMPLER, "1.6%"}, {PL_ENG_CHIP, ENG_CHIP, "2.5%"}};
     uint32_t now = ui_now();
     if (!eng_at || (int32_t)(now - eng_at) >= 100) {   /* (| 1: maybe 1 ms ahead) */
         pl_voice_info_t vi[PL_VOICES];
         int nv = ui_player_voices(vi, PL_VOICES);
         memset(eng_count, 0, sizeof eng_count);
-        for (int i = 0; i < nv; i++) if (vi[i].on && vi[i].engine >= 1 && vi[i].engine <= 4) eng_count[vi[i].engine]++;
+        for (int i = 0; i < nv; i++) if (vi[i].on && vi[i].engine >= 1 && vi[i].engine <= PL_ENG_CHIP) eng_count[vi[i].engine]++;
         eng_at = now | 1;
     }
-    const int *count = eng_count;
-    for (int i = 0; i < 4; i++) {
-        int eng = i + 1;                                /* PL_ENG_DX7 .. PL_ENG_SAMPLER = ENG_DX7 .. ENG_SAMPLER */
-        ui_fmt(v, sizeof v, "%d X %s", count[eng], COST[i]);
-        fig((i % 2) * 124, y + 64 + (i / 2) * 12, T(ENG_SHORT[eng]), v, count[eng] ? ENG_COL[eng] : C_DGREY, w);
+    for (int i = 0; i < 5; i++) {                       /* two a line: DX7 JUNO, TB-303 SAMPLE, CHIP */
+        int n = eng_count[ENGS[i].pl], eng = ENGS[i].eng;
+        ui_fmt(v, sizeof v, "%d X %s", n, ENGS[i].cost);
+        fig((i % 2) * 124, y + 64 + (i / 2) * 12, T(ENG_SHORT[eng]), v, n ? ENG_COL[eng] : C_DGREY, w);
     }
-    fig(0, y + 88, T("EFFECTS"), "0.0%", C_LGREY, w);
+    fig(124, y + 88, T("EFFECTS"), "0.0%", C_LGREY, w);
     int gy = y + 106, gh = 100;
     g_box(0, gy, 240, gh, C_DGREY);
     g_hline(1, gy + gh - 50, 238, C_DEEP + C_YELLOW);

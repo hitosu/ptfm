@@ -74,16 +74,16 @@ A folder for each kind of build; the pages are self-contained and open from the 
 | File | What |
 |---|---|
 | **`firmware/`** | **PT/FM's firmware, the release** |
-| `firmware/install.html` | installs the firmware on the FM-1 and uploads the demo disk (Chrome / Edge, Web MIDI): INSTALL FIRMWARE, the firmware alone (or, with CLEAN INSTALL switched on, everything erased after: an empty user area), and UPLOAD DEMO DISK ([files/blob.md](files/blob.md#seeding)) |
+| `firmware/install.html` | installs the firmware on the FM-1 and uploads the demo disk (Chrome / Edge, Web MIDI): INSTALL FIRMWARE, the firmware alone (or, with CLEAN INSTALL switched on, everything erased after: an empty user area), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file picked) ([files/blob.md](files/blob.md#seeding)) |
 | `firmware/ptfm.fwsc` | the firmware package, for other installers |
 | `firmware/demo.ptfmdsk` | the demo disk, built from `demo-disk/` by the packer ([files/disk.md](files/disk.md)) |
 | `firmware/seed.html` | the data uploader for the real device: opens a data blob or a disk and seeds it (the files proposal, 12.2) *(not built yet: the install page seeds the demo disk, the emulator's SEED any disk)* |
 | **`debug/`** | **the debug build: the same firmware with its figures** ([debug.md](debug.md)) |
-| `debug/install.html` | installs it (CLEAN INSTALL on at first: everything on the FM-1 erased, an empty user area; UPLOAD DEMO DISK beside it; CLEAR USER DATA erases without installing), then reads its figures over USB once a second, runs its bench, gathers both into a report to copy |
+| `debug/install.html` | installs it (CLEAN INSTALL on at first: everything on the FM-1 erased, an empty user area; UPLOAD DEMO DISK and UPLOAD CUSTOM DISK beside it; CLEAR USER DATA erases without installing), then reads its figures over USB once a second, runs its bench, gathers both into a report to copy |
 | `debug/ptfm-debug.fwsc` | its package |
 | **`emulator/`** | **what the emulator loads** (`emulator/index.html`, [emulator.md](emulator.md)) |
 | `emulator/ptfm.wasm.js` | the firmware built for the emulator, as a script |
-| `emulator/demo.ptfmdsk.js` | the demo disk as a script, for the emulator's DEMO DISK (a page from `file://` cannot read a file next to it) |
+| `emulator/demo.ptfmdsk.js` | the demo disk as a script, for the emulator's UPLOAD DEMO DISK (a page from `file://` cannot read a file next to it) |
 | `emulator/emulator.html` | the emulator in one file, to pass on: `emulator/index.html` with its stylesheets, scripts, the firmware and the demo disk written in (`emulator/build.py --release`, or `--page` alone) |
 | **`editor/`** | **the editor** ([editor.md](editor.md)) |
 | `editor/editor.html` | the editor in one file, the firmware's WebAssembly inside (`editor/build.py`) |

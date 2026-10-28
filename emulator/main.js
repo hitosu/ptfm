@@ -4,8 +4,9 @@
  * behind it PT/FM's firmware compiled to WebAssembly, run by the audio worklet (worklet.js): the screen,
  * the LEDs and the sound are the firmware's. The first click or key switches it on (browsers allow
  * audio only after one, and the audio runs the device's time). The emulated flash is kept in this
- * browser (IndexedDB), so the library survives a reload; SEED and DEMO DISK write a disk into it
- * through the install page's seeding (fw/web/seed.js).
+ * browser (IndexedDB), so the library survives a reload; UPLOAD CUSTOM DISK and UPLOAD DEMO DISK write a disk into it
+ * through the install page's seeding (fw/web/seed.js), DOWNLOAD DISK saves what it holds as one. RECORD keeps its
+ * USB audio, as a computer records a real FM-1's, for SAVE WAV.
  *
  * The firmware: ../dist/emulator/ptfm.wasm.js (the production build), else a dev build's,
  * ../build/fw/web/ptfm.wasm.js, else a file picked; index.html?dev tries the dev build first.
@@ -88,7 +89,7 @@
     }
 
     /* ---------------------------------------------------------------- the firmware --- */
-    const emu = { on: false, fw: null, demo: null, node: null, ctx: null, sysex: [], waiting: [] };
+    const emu = { on: false, fw: null, demo: null, node: null, ctx: null, sysex: [], waiting: [], caps: {}, asked: {} };
     window.emu = emu;
     const fwInfo = t => { $("fw-info").textContent = t; $("fw-tip").textContent = "the firmware: " + t; };
 
@@ -167,14 +168,18 @@
         else if (m.t === "midi") { if (emu.midiOut) emu.midiOut(m.bytes); }
         else if (m.t === "flash") flashSave(m.image);
         else if (m.t === "restart") cycle(true, "SWITCHING OFF AND ON");   /* (FACTORY RESET: the flash erased, kept) */
+        else if (m.t === "rec") recFrames(m);
+        else if (m.t === "disk" || m.t === "unsaved") { const r = emu.asked[m.t]; delete emu.asked[m.t]; if (r) r(m); }
         else if (m.t === "ready") {
             emu.on = true;
+            emu.caps = { rec: !!m.rec, disk: !!m.disk };
             power();
             for (let id = 0; id < 14; id++) if (dev.state.buttons >> id & 1) send({ t: "btn", id, down: true });
             for (let n = 0; n < 27; n++) if (dev.state.notes >> n & 1) send({ t: "note", id: n, down: true });
             emu.waiting.splice(0).forEach(fn => fn());
         } else if (m.t === "fault") {
             emu.on = false;
+            recLost();
             page.soundText("THE FIRMWARE STOPPED: " + m.text, true);
             console.error("PT/FM firmware:", m.text);
         }
@@ -248,6 +253,7 @@
      * erased, on again as a new FM-1 */
     async function powerOff(keep) {
         if (starting) { try { await starting; } catch (_) { /* it never came on */ } }
+        await recEnd();                              /* (a recording ends there, kept for SAVE WAV) */
         if (emu.on && keep) {
             const f = await emu.flash();
             if (f) await flashSave(f.buffer);
@@ -383,11 +389,11 @@
         }
     }
 
-    async function seed(bytes, name) {
+    async function seed(bytes, name, key = "UPLOAD CUSTOM DISK") {   /* (key: the button that asked, the box's title) */
         if (!window.PTFM_seed) { alert("seeding is missing: ../fw/web/seed.js did not load"); return; }
         const S = window.PTFM_seed;
         box.hidden = false;
-        $("seed-title").textContent = "SEED: " + name;
+        $("seed-title").textContent = key + ": " + name;
         bar.style.width = "0";
         go.disabled = true;
         go.hidden = false;
@@ -440,7 +446,199 @@
         $("seed-pick").value = "";
         if (f) seed(new Uint8Array(await f.arrayBuffer()), f.name);
     });
-    $("seed-demo").addEventListener("click", () => { if (emu.demo) seed(emu.demo.bytes, emu.demo.name); });
+    $("seed-demo").addEventListener("click", () => { if (emu.demo) seed(emu.demo.bytes, emu.demo.name, "UPLOAD DEMO DISK"); });
     emu.seed = seed;
+    /* a disk dropped anywhere on the page: UPLOAD CUSTOM DISK's, as if picked (a file that is no disk: its PROBLEM line); the
+     * page framed while a file is dragged over it. Not while an upload's box is open. */
+    const files = ev => ev.dataTransfer && [...ev.dataTransfer.types].includes("Files");
+    window.addEventListener("dragover", ev => {
+        if (!files(ev)) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = box.hidden ? "copy" : "none";
+        document.body.classList.toggle("dropping", box.hidden);
+    });
+    window.addEventListener("dragleave", ev => { if (!ev.relatedTarget) document.body.classList.remove("dropping"); });
+    window.addEventListener("drop", async ev => {
+        document.body.classList.remove("dropping");
+        if (!files(ev)) return;
+        ev.preventDefault();                         /* (not the browser opening the file) */
+        const f = ev.dataTransfer.files[0];
+        if (f && box.hidden) seed(new Uint8Array(await f.arrayBuffer()), f.name);
+    });
+
+    /* the worklet's answers (disk, unsaved): null when none came (switched off meanwhile) */
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const ask = t => new Promise(resolve => {
+        const done = m => { clearTimeout(timer); resolve(m); };
+        const timer = setTimeout(() => { if (emu.asked[t] === done) delete emu.asked[t]; resolve(null); }, 3000);
+        emu.asked[t] = done;
+        send({ t: t + "?" });
+    });
+    const p2 = n => String(n).padStart(2, "0");
+    const stamp = (d = new Date()) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
+    function saveAs(blob, name) {                    /* the browser's download of a file made here */
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    }
+
+    /* ------------------------------------------------------------- DOWNLOAD DISK --- */
+    /* what the emulated FM-1 holds in its user area, as a disk (specs/files/disk.md): its live records read from its
+     * flash, each checked against its header's CRC, as the EDITOR's backup reads a real FM-1's. Asked of the firmware
+     * itself (plat_web.c's web_disk), not through seeding, which refuses while changes are not saved: here they bring
+     * a warning only, as they are not in the flash, so not on the disk. The dialog sees a SAVE made while it is open. */
+    async function diskNow() {                       /* { files, bytes, unsaved }, as the flash holds them now */
+        const S = window.PTFM_seed;
+        let d = await ask("disk");
+        for (let i = 0; d && d.saving && i < 50; i++) { await sleep(100); d = await ask("disk"); }   /* (a SAVE writing) */
+        if (!d) throw new Error("THE FM-1 DID NOT ANSWER");
+        if (d.saving) throw new Error("A SAVE IS BEING WRITTEN: TRY AGAIN IN A MOMENT");
+        const img = new Uint8Array(d.image), L = d.list, files = [];
+        for (let i = 0; i < L.length; i += 3) {
+            const kind = L[i] & 255, num = L[i] >>> 8 & 255, sub = L[i] >>> 16 & 255, ver = L[i] >>> 24, at = L[i + 1], len = L[i + 2];
+            const rec = img.subarray(at, at + 16 + len);
+            const ok = rec.length === 16 + len && rec[0] === kind && rec[1] === num && rec[2] === sub &&
+                (rec[4] | rec[5] << 8 | rec[6] << 16) === len &&
+                S.crc32(rec.subarray(16), S.crc32(rec.subarray(0, 12))) === (rec[12] | rec[13] << 8 | rec[14] << 16 | rec[15] << 24) >>> 0;
+            if (!ok) throw new Error(S.describe({ kind, num, sub }) + " READ BACK WRONG");
+            files.push({ kind, num, sub, ver, payload: rec.slice(16) });
+        }
+        return { files, bytes: S.makeDisk(files), unsaved: !!d.unsaved };
+    }
+    /* changes not saved: the dialog says so until they are (SAVE on the FM-1: its key works with the dialog open);
+     * true: DOWNLOAD (ANYWAY), false: CANCEL */
+    function unsavedAsk() {
+        const box = $("unsaved"), text = $("unsaved-text"), go = $("unsaved-go"), cancel = $("unsaved-cancel");
+        const say = unsaved => {
+            text.innerHTML = unsaved
+                ? "The FM-1 has <b>changes not saved</b>. A disk holds what SAVE wrote: press <b>SAVE</b> on the FM-1 " +
+                  "first (its key <b>I</b> works here), or they will not be on the disk."
+                : "<b>Saved:</b> the disk holds everything now.";
+            go.textContent = unsaved ? "DOWNLOAD ANYWAY" : "DOWNLOAD";
+        };
+        say(true);
+        box.hidden = false;
+        return new Promise(resolve => {
+            let asking = false;
+            const poll = setInterval(async () => {
+                if (asking || !emu.on) return;
+                asking = true;
+                const m = await ask("unsaved");
+                asking = false;
+                if (m && !box.hidden) say(!!m.v);
+            }, 400);
+            const end = v => { clearInterval(poll); box.hidden = true; go.onclick = cancel.onclick = null; resolve(v); };
+            go.onclick = () => end(true);
+            cancel.onclick = () => end(false);
+        });
+    }
+    function diskState(text, kind) {
+        const p = $("disk-state");
+        p.hidden = !text;
+        p.textContent = text;
+        p.className = "state" + (kind ? " " + kind : "");
+    }
+    async function downloadDisk() {
+        const btn = $("disk-down");
+        btn.disabled = true;
+        try {
+            await powerOn();
+            if (!emu.caps.disk) throw new Error("THIS FIRMWARE BUILD CANNOT GIVE ITS DISK (BUILT BEFORE DOWNLOAD DISK)");
+            let d = await diskNow();
+            if (d.unsaved) {
+                if (!await unsavedAsk()) { diskState(""); return; }
+                d = await diskNow();                 /* (a SAVE made meanwhile is on it) */
+            }
+            if (!d.files.length) { diskState("NOTHING SAVED IN IT YET: NO DISK MADE", "warn"); return; }
+            const name = `ptfm-emulator-${stamp()}.ptfmdsk`;
+            saveAs(new Blob([d.bytes], { type: "application/octet-stream" }), name);
+            diskState(`${name}: ${d.files.length} RECORDS, ${Math.ceil(d.bytes.length / 1024)} KB` +
+                      (d.unsaved ? ", CHANGES NOT SAVED LEFT OUT" : ""), d.unsaved ? "warn" : "ok");
+        } catch (e) {
+            diskState("DOWNLOAD DISK: " + (e && e.message || e), "bad");
+        } finally {
+            btn.disabled = false;
+        }
+    }
+    $("disk-down").addEventListener("click", downloadDisk);
+    emu.downloadDisk = downloadDisk;
+
+    /* -------------------------------------------------------------------- RECORD --- */
+    /* the emulated FM-1's USB audio (specs/connections.md#usb-audio) as a computer records a real one's, as the debug
+     * page's LISTEN does: the firmware's own frames, 16-bit stereo at its rate (44.1 kHz), kept here till SAVE WAV; one
+     * recording at a time (a new one takes its place), 30 minutes at most. The firmware runs only while its sound does,
+     * so a pause pauses the recording too: no gaps. RESET, ERASE DATA and a stopped firmware end it, kept. */
+    const RATE = 44100, REC_MOST = 30 * 60 * RATE;   /* frames */
+    const recIdle = $("rec-slot").textContent;
+    let rec = null;                                  /* { chunks, frames, at, until, live, url, why, ended } */
+    const mmss = s => `${p2(Math.floor(s / 60))}:${p2(Math.floor(s % 60))}`;
+    function wavBlob(chunks, frames) {               /* a WAV: its header, then the frames as they came */
+        const n = frames * 4, h = new DataView(new ArrayBuffer(44));
+        const str = (o, s) => { for (let i = 0; i < 4; i++) h.setUint8(o + i, s.charCodeAt(i)); };
+        str(0, "RIFF"); h.setUint32(4, 36 + n, true); str(8, "WAVE"); str(12, "fmt "); h.setUint32(16, 16, true);
+        h.setUint16(20, 1, true); h.setUint16(22, 2, true); h.setUint32(24, RATE, true); h.setUint32(28, RATE * 4, true);
+        h.setUint16(32, 4, true); h.setUint16(34, 16, true); str(36, "data"); h.setUint32(40, n, true);
+        return new Blob([h, ...chunks], { type: "audio/wav" });
+    }
+    function recShow() {
+        const on = !!rec && !rec.until, secs = rec ? rec.frames / RATE : 0;
+        $("rec-on").disabled = on;
+        $("rec-on").classList.toggle("recording", on);
+        $("rec-on").textContent = on ? "REC " + mmss(secs) : "RECORD";
+        $("rec-stop").disabled = !on;
+        $("rec-chip").hidden = !on;
+        $("rec-chip").textContent = on ? mmss(secs) : "";
+        $("rec-slot").textContent = !rec ? recIdle
+            : `${on ? "RECORDING " : ""}${mmss(secs)}, 44.1 kHz STEREO, ${((rec.frames * 4 + 44) / 1048576).toFixed(1)} MB` +
+              (rec.until ? `, ${new Date(rec.at).toTimeString().slice(0, 5)}` : "") + (rec.why ? ": " + rec.why : "");
+        const save = $("rec-save");
+        save.hidden = !(rec && rec.until && !rec.live && rec.frames);
+        if (!save.hidden && !rec.url) {
+            rec.url = URL.createObjectURL(wavBlob(rec.chunks, rec.frames));
+            save.href = rec.url;
+            save.download = `ptfm-emulator-${stamp(new Date(rec.at))}.wav`;
+        }
+    }
+    async function recStart() {
+        if (rec && !rec.until) return;
+        try { await powerOn(); } catch (_) { return; }  /* (powerOn says why) */
+        if (!emu.caps.rec) { $("rec-slot").textContent = "THIS FIRMWARE BUILD CANNOT RECORD (BUILT BEFORE RECORD)"; return; }
+        if (rec && rec.url) URL.revokeObjectURL(rec.url);
+        rec = { chunks: [], frames: 0, at: Date.now(), until: 0, live: true, url: "", why: "", ended: null };
+        send({ t: "rec", on: true });
+        recShow();
+    }
+    function recFrames(m) {                          /* the worklet's frames, into the recording under way */
+        if (!rec || !rec.live) return;
+        if (m.pcm.byteLength) { rec.chunks.push(m.pcm); rec.frames += m.pcm.byteLength / 4; }
+        if (m.end) { rec.live = false; if (rec.ended) rec.ended(); recShow(); }
+        else if (rec.frames >= REC_MOST && !rec.until) recEnd("STOPPED AT 30:00, THE MOST");
+    }
+    /* STOP: the worklet's last frames (a moment at most), then SAVE WAV */
+    function recEnd(why) {
+        if (!rec || rec.until) return Promise.resolve();
+        const r = rec;
+        r.until = Date.now();
+        r.why = why || "";
+        const last = new Promise(resolve => { r.ended = resolve; setTimeout(resolve, 600); });
+        if (emu.on) send({ t: "rec", on: false });
+        else r.live = false;
+        recShow();
+        return last.then(() => { r.live = false; if (rec === r) recShow(); });
+    }
+    function recLost() {                             /* the firmware stopped: what came is kept */
+        if (!rec || !rec.live) return;
+        if (!rec.until) { rec.until = Date.now(); rec.why = "THE FIRMWARE STOPPED"; }
+        rec.live = false;
+        if (rec.ended) rec.ended();
+        recShow();
+    }
+    $("rec-on").addEventListener("click", recStart);
+    $("rec-stop").addEventListener("click", () => recEnd());
+    setInterval(() => { if (rec && !rec.until) recShow(); }, 250);
+    emu.recording = () => rec;
 
 })();

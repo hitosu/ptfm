@@ -4,7 +4,7 @@
  * pool, songs with their timing, mixer and FX setups, the loops, the GATE patterns, the settings.
  * The demo disk is content.js's. The "flash", the user area, starts clean and is kept in this browser
  * (IndexedDB): SAVE copies the edits there, REVERT copies them back, a reload starts from what was kept, the
- * edits not saved gone (specs/ui/saving.md); DEMO DISK writes the demo disk into it, ERASE DATA drops it. Values are kept as the files store them (specs/files/: mixer bytes, FX knobs
+ * edits not saved gone (specs/ui/saving.md); UPLOAD DEMO DISK writes the demo disk into it, ERASE DATA drops it. Values are kept as the files store them (specs/files/: mixer bytes, FX knobs
  * as steps).
  *
  * A cell: {note, inst, vol, cmds}: note a MIDI number (12-127), M.OFF (===) or null; inst a
@@ -377,7 +377,7 @@ PTFM.model = (function () {
 
     const keys = M.newKeys();
     /* the demo disk, as content.js has it; the user area starts without it (a new FM-1's: the built-ins alone, the
-     * EDITOR's own pattern, every record at its default), and DEMO DISK writes it in (M.demoDisk) */
+     * EDITOR's own pattern, every record at its default), and UPLOAD DEMO DISK writes it in (M.demoDisk) */
     const DEMO = structuredClone({ carts, patterns, songs, gates, loops, settings, midi, dj, keys });
     function cleanState() {
         const s = structuredClone(DEMO);
@@ -611,7 +611,7 @@ PTFM.model = (function () {
         load(s && s.carts && s.songs ? s : cleanState());
         return !!(s && s.carts && s.songs);
     };
-    /* DEMO DISK: the demo disk written into the user area, in place of what was there (refused with changes not
+    /* UPLOAD DEMO DISK: the demo disk written into the user area, in place of what was there (refused with changes not
      * saved: SAVE or REVERT first, as on the FM-1) */
     M.demoDisk = function () {
         if (M.unsaved) return false;

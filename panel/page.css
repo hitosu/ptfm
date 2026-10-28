@@ -179,6 +179,31 @@ body * { scrollbar-width: thin; scrollbar-color: var(--dgrey) #000; }
     color: var(--yellow);
 }
 
+/* the computer's keys as caps (panel/keyboard.js draws them): each the key (yellow, as keys are) over what it plays.
+ * The buttons as the panel's grid (OCT- OCT+, then its two rows of six); the 27 keys as a piano in two tiers, a white
+ * key two half-columns wide, a black one (filled) over the gap it sits at */
+.keymap {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 3px;
+}
+.keymap.piano {
+    grid-template-columns: repeat(21, minmax(0, 1fr));
+    gap: 3px 1px;
+}
+.keymap span {
+    border: 1px solid var(--dgrey);
+    border-radius: 3px;
+    padding: 1px 0 2px;
+    text-align: center;
+    font: 10px/12px var(--sans);
+    white-space: nowrap;
+    overflow: hidden;
+}
+.keymap.piano span { font-size: 9px; padding-inline: 0; }
+.keymap span.black { background: var(--line); letter-spacing: -0.07em; }   /* (C#5 in a cap's width) */
+.keymap span b { display: block; font: 13px/15px var(--sans); letter-spacing: 0; }
+
 /* keys: a button is a key, its name yellow as the help draws keys; on (CONNECTED, the zoom picked) green */
 .app button, .app select {
     font: 16px/20px var(--sans);

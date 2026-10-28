@@ -27,8 +27,8 @@
     </section>
     <section class="grp" id="disks" aria-label="the demo disk for the playground's FM-1">
       <h3>DISKS</h3>
-      <button id="demo-disk" title="write the demo disk into the user area, in place of what is there, then start again">DEMO DISK</button>
-      <p class="hint">The user area is kept in this browser: SAVE keeps it, a reload starts from it, changes not saved are gone. DEMO DISK writes the demo disk into it (SAVE or REVERT your changes first).</p>
+      <button id="demo-disk" title="write the demo disk into the user area, in place of what is there, then start again">UPLOAD DEMO DISK</button>
+      <p class="hint">The user area is kept in this browser: SAVE keeps it, a reload starts from it, changes not saved are gone. UPLOAD DEMO DISK writes the demo disk into it (SAVE or REVERT your changes first).</p>
     </section>
     <section class="grp" id="midi" aria-label="the FM-1 as the controller, over MIDI">
       <h3>THE FM-1 OVER MIDI</h3>
@@ -48,8 +48,11 @@
         <li><b>SLIDE ALONG THE KEYS</b>: each key the finger reaches plays (buttons stay held)</li>
         <li><b>KNOBS</b>: − / + (held: repeats, faster), drag, the wheel</li>
         <li><b>MASTER</b>: drag the bar; a double-click: half</li>
-        <li><b>KEYBOARD</b>: Z … / F3-A4 (S D F H J L ; ' the black), Q … Y B4-G5 (3 4 6)</li>
-        <li><b>HOME + LFO</b>: the help for the screen shown</li>
+        <li><b>KEYBOARD</b>: the computer's keys play the FM-1's, B4-G5 above, F3-A4 below, then the buttons:</li>
+        <li class="keymap piano" data-keymap="upper" aria-label="the keys B4-G5 on the keyboard"></li>
+        <li class="keymap piano" data-keymap="lower" aria-label="the keys F3-A4 on the keyboard"></li>
+        <li class="keymap" data-keymap="buttons" aria-label="the buttons on the keyboard"></li>
+        <li><b>HOME + LFO</b> (U + 0): the help for the screen shown</li>
         <li><b>RIGHT-CLICK THE SCREEN</b>: save or copy it</li>
       </ul>
     </section>

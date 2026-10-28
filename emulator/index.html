@@ -27,8 +27,20 @@
     </section>
     <section class="grp" id="disks" aria-label="disks for the emulated FM-1">
       <h3>DISKS</h3>
-      <div class="two"><button id="seed-file" title="load a PT/FM disk (.ptfmdsk) into the emulated FM-1">SEED</button><button id="seed-demo" title="seed the demo disk into the emulated FM-1" disabled>DEMO DISK</button></div>
-      <p class="hint">A disk into the emulated FM-1, as the install page seeds the real one: its plan first, then WRITE. The flash is kept in this browser.</p>
+      <div class="join" role="group" aria-label="upload a disk">
+        <button id="seed-file" title="upload a PT/FM disk (.ptfmdsk) into the emulated FM-1">UPLOAD CUSTOM DISK</button>
+        <button id="seed-demo" title="upload the demo disk into the emulated FM-1" disabled>UPLOAD DEMO DISK</button>
+      </div>
+      <p class="hint">A disk into the emulated FM-1 (or drop one on the page), as the install page uploads into the real one: its plan first, then WRITE.</p>
+      <button id="disk-down" title="save what the emulated FM-1 holds in its user area as a PT/FM disk (.ptfmdsk): what SAVE wrote, not changes not saved">DOWNLOAD DISK</button>
+      <p class="state" id="disk-state" hidden></p>
+      <p class="hint">What it holds, as a disk: what SAVE wrote. The flash is kept in this browser.</p>
+    </section>
+    <section class="grp" id="usb-audio" aria-label="recording the emulated FM-1's USB audio">
+      <h3>ITS USB AUDIO</h3>
+      <div class="two"><button id="rec-on" title="record what the emulated FM-1's USB audio carries, as a computer records a real one (one recording: a new one takes its place)">RECORD</button><button id="rec-stop" disabled>STOP</button></div>
+      <a class="save" id="rec-save" href="#" hidden>SAVE WAV</a>
+      <p class="hint" id="rec-slot">RECORD keeps what a computer records from it over USB audio: the mix after the effects, no METRONOME, USB GAIN in MASTER's place. One recording at a time, 30 minutes at most.</p>
     </section>
     <section class="grp" id="ports" aria-label="MIDI in and out of the emulated FM-1, as its USB MIDI">
       <h3>ITS USB MIDI</h3>
@@ -58,8 +70,11 @@
         <li><b>SLIDE ALONG THE KEYS</b>: each key the finger reaches plays (buttons stay held)</li>
         <li><b>KNOBS</b>: − / + (held: repeats, faster), drag, the wheel</li>
         <li><b>MASTER</b>: drag the bar; a double-click: half</li>
-        <li><b>KEYBOARD</b>: Z … / F3-A4 (S D F H J L ; ' the black), Q … Y B4-G5 (3 4 6)</li>
-        <li><b>HOME + LFO</b>: the help for the screen shown</li>
+        <li><b>KEYBOARD</b>: the computer's keys play the FM-1's, B4-G5 above, F3-A4 below, then the buttons:</li>
+        <li class="keymap piano" data-keymap="upper" aria-label="the keys B4-G5 on the keyboard"></li>
+        <li class="keymap piano" data-keymap="lower" aria-label="the keys F3-A4 on the keyboard"></li>
+        <li class="keymap" data-keymap="buttons" aria-label="the buttons on the keyboard"></li>
+        <li><b>HOME + LFO</b> (U + 0): the help for the screen shown</li>
         <li><b>RIGHT-CLICK THE SCREEN</b>: save or copy it</li>
       </ul>
     </section>
@@ -76,6 +91,7 @@
   <main id="stage"><div id="fm1"></div></main>
   <footer class="foot">
     <span id="status">HELD: NOTHING</span>
+    <span class="chip" id="rec-chip" data-k="REC" hidden></span>
     <span class="chip" data-k="FLASH">kept in this browser</span>
   </footer>
 </div>
@@ -83,10 +99,17 @@
 <input type="file" id="seed-pick" accept=".ptfmdsk" hidden>
 <div id="seed" class="dlg" hidden>
   <div class="box" role="dialog" aria-labelledby="seed-title">
-    <h2 id="seed-title">SEED</h2>
+    <h2 id="seed-title">UPLOAD CUSTOM DISK</h2>
     <pre id="seed-lines"></pre>
     <div id="seed-bar"><span></span></div>
     <div class="buttons"><button id="seed-cancel">CANCEL</button><button id="seed-go" class="go" disabled>WRITE</button></div>
+  </div>
+</div>
+<div id="unsaved" class="dlg" hidden>
+  <div class="box" role="dialog" aria-labelledby="unsaved-title">
+    <h2 id="unsaved-title">DOWNLOAD DISK</h2>
+    <p id="unsaved-text"></p>
+    <div class="buttons"><button id="unsaved-cancel">CANCEL</button><button id="unsaved-go" class="go">DOWNLOAD ANYWAY</button></div>
   </div>
 </div>
 <div id="firmware" class="dlg" hidden>

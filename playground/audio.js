@@ -265,7 +265,7 @@ PTFM.audio = (function () {
     /* each voice's cost on the FM-1 at 44.1 kHz, % of a half (measured with the firmware's engines:
      * DX7 and Juno-106 about 6 % a voice at 8 voices; the TB-303 and samples less; CHIP's estimated from its code: a
      * pulse under 1 %, the fastest noise about 2 %), and the effects' */
-    const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6, CHIP: 1.2 };
+    const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6, CHIP: 2.5 };   /* (CHIP's: a triangle at A-4, measured on the FM-1) */
     const FX_COST = { GATE: .4, FILTER: 1.2, DRIVE: .8, "LO-FI": .5, CHORUS: 2.2, DELAY: 1.4, REVERB: 7.5, LIMITER: .6, DUCK: .3 };
     const win = { tenth: { at: 0, v: 0, c: 0, c2: 0, n: 0 }, half: { at: 0, v: 0, c: 0, c2: 0, n: 0 } };
     /* the second core (specs/second-core.md#the-emulator-and-the-playground): DEVICE reads STARTING for the page's

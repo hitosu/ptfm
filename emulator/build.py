@@ -8,7 +8,7 @@ compiled to WebAssembly, written as a classic script the page loads from the fil
     python3 -I emulator/build.py --release    the production build: dist/emulator/ptfm.wasm.js
     python3 -I emulator/build.py --page       only dist/emulator/emulator.html, from dist/emulator's scripts
 
-Beside it, demo.ptfmdsk.js: the demo disk (dist/firmware/demo.ptfmdsk) as a script, for the page's DEMO DISK button
+Beside it, demo.ptfmdsk.js: the demo disk (dist/firmware/demo.ptfmdsk) as a script, for the page's UPLOAD DEMO DISK button
 (a page opened from file:// cannot read a file by itself). --release also writes dist/emulator/emulator.html: the
 emulator as one self-contained page to pass on as a single file, emulator/index.html with every stylesheet and script
 it loads written in, in order, the firmware and the demo disk before main.js (which takes a firmware the page
@@ -158,7 +158,7 @@ def main():
         d = disk.read_bytes()
         (out / "demo.ptfmdsk.js").write_text(script("PTFM_DEMO", {
             "name": "demo.ptfmdsk", "ptd": base64.b64encode(d).decode()},
-            "the demo disk, dist/firmware/demo.ptfmdsk, for the emulator's DEMO DISK button"), encoding="utf-8")
+            "the demo disk, dist/firmware/demo.ptfmdsk, for the emulator's UPLOAD DEMO DISK button"), encoding="utf-8")
         print(f"demo.ptfmdsk.js  {out / 'demo.ptfmdsk.js'}  ({len(d)} B)")
     else:
         print("demo.ptfmdsk.js  not made: no dist/firmware/demo.ptfmdsk yet (tools/pack.py makes it)")

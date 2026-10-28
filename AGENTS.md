@@ -20,12 +20,13 @@ FM-1").
   their page, `specs/debug.md`, whose autotests play any build through MIRROR and the state query,
   `specs/connections.md`) and production (`fw/build.sh --release`: `dist/firmware/ptfm.fwsc`,
   `dist/firmware/install.html` with INSTALL FIRMWARE (the firmware alone; CLEAN INSTALL also empties the user
-  area, as SETTINGS' FACTORY RESET does on the FM-1 alone) and UPLOAD DEMO DISK; copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
+  area, as SETTINGS' FACTORY RESET does on the FM-1 alone), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file); copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
   is one 439 KB data region (with core 2's 40 KB room above it) and nearly full: every part keeps to `specs/files/ram.md`, and the build prints each
   object's share. The playground stays the UI's fast reference, and the firmware follows it.
 - **The emulator is built** (`emulator/`, `dist/emulator/ptfm.wasm.js`): the playground's page and panel, with the
-  screen, LEDs and sound all from the compiled firmware, the flash kept in the browser; SEED and DEMO DISK
-  seed through `fw/web/seed.js`, as the install page does.
+  screen, LEDs and sound all from the compiled firmware, the flash kept in the browser; UPLOAD CUSTOM DISK and UPLOAD DEMO DISK
+  seed through `fw/web/seed.js`, as the install page does; DOWNLOAD DISK saves the user area as a disk (warning of
+  changes not saved); RECORD keeps its USB audio, as a computer records a real FM-1's, for SAVE WAV.
 - **The editor page is built** (EDITOR [beta]: `specs/editor.md`, `editor/README.md`, `dist/editor/editor.html`):
   TABLE and FM-1 side by side, items moved with what they use, READ and WRITE over the seeding protocol, UPLOAD and
   DOWNLOAD DISK, a tab for every item with the FM-1's own pictures (`fw/core/ui`'s drawing, built in under
@@ -319,7 +320,8 @@ the file system in Chrome or Edge.
   one); a held button keeps the pointer, so SEL + a wheel turn over PRESETS works. Knobs: − / + (held:
   repeating, faster), dragging the middle (14 px a click, up or right clockwise) or the wheel; a turn's
   value shows from 0 and fades after a second. MASTER: a bar with its %, double-click for 50 %. Keyboard: `Z X C V B N M , . /` F3-A4 (`S D F H J L ; '` black), `Q W E R
-  T Y` B4-G5 (`3 4 6` black).
+  T Y` B4-G5 (`3 4 6` black); the buttons `1 2` OCT- OCT+, `7 8 9 0 - =` FX SEL ENV LFO EDIT GLO, `U I O P [ ]` HOME
+  SAVE ARP SEQ PLAY REC.
 
 ## The engines and their limits
 

@@ -114,8 +114,8 @@ record readers), `store/seed.h` (`seed_poll`, `seed_active`, `seed_sysex`), `pla
   buffer into the pool; `device/include/string.h` gives `core/` the few string routines a freestanding
   build has (`device/main.c` defines them); the generated sources get every `core/` header directory.
 - **The install page** (`web/install.html`, made by `tools/make_installer.py`) carries the package and
-  `../dist/firmware/demo.ptfmdsk`: INSTALL FIRMWARE (the FM-1's update path) and UPLOAD DEMO DISK (seeding through
-  `web/seed.js`: the device's layout, the plan shown, written only once accepted).
+  `../dist/firmware/demo.ptfmdsk`: INSTALL FIRMWARE (the FM-1's update path), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a
+  disk file picked) (seeding through `web/seed.js`: the device's layout, planned and written in one press).
 - **On the FM-1** (`device/main.c`): TIMER5 at 10 kHz scans the panel and keeps the clocks, USB-MIDI at
   2 kHz, the LEDs' levels at 1 kHz (lit from 96, else the dim glow); ALNK0 asks for each half and
   `app_audio` fills it; `device/out.h` then applies MASTER (squared), LINE GAIN, mono and the soft ceiling
