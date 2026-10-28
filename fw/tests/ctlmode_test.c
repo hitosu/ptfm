@@ -147,11 +147,27 @@ int main(int argc, char **argv)
         check(sent_has(on9, 3) && (sent_has(off9a, 3) || nsent >= 2),
               "the 1 kHz tick: a 2 ms tap's Note On and Off, the main loop away");
         run(30);
+        /* a fast turn, the main loop passing between each click and the tick (on the FM-1 it passes many times a
+         * millisecond): every click still goes out, the tick's alone (the main loop's input takes none) */
+        nsent = 0;
+        for (int i = 0; i < 10; i++) {
+            in_now.knob[K_K2] = 1;
+            ctlmode_poll();
+            run(1);
+        }
+        run(30);
+        int sum = 0, last = -1;
+        for (uint32_t i = 0; i < nsent; i++)
+            if (sent_n[i] == 3 && sent[i][0] == (0xB0 | ch) && sent[i][1] == (general ? 71 : 23))
+                sum += sent[i][2] < 64 ? sent[i][2] : sent[i][2] - 128, last = sent[i][2];
+        check(general ? last == 64 + 1 + 9 * 4 : sum == 10,   /* (general: a turn's first click 1, the rest 1 ms apart 4) */
+              general ? "10 clicks of K2, the main loop between them and the tick: CC 71 at 64 + 1 + 9 x 4"
+                      : "10 clicks of K2, the main loop between them and the tick: CC 23 adds up to +10");
     }
     if (!general) {                                     /* the page's LEDs and its question */
         inq[inq_w++ % 16] = (plat_midi_t){{(uint8_t)(0x90 | ch), 53 + 7, 127}, PLAT_MIDI_USB, now_ms};
         inq[inq_w++ % 16] = (plat_midi_t){{(uint8_t)(0xB0 | ch), 102 + B_PLAY, 32}, PLAT_MIDI_USB, now_ms};
-        run(10);
+        run(30);                                        /* (fast: the main loop, which lights them, every 25 ms) */
         check(leds[LED_NOTE(7)] == 255 && leds[B_PLAY] == 64, "mirror: the page's LEDs (a key lit, PLAY dim)");
         nsent = 0;
         const uint8_t ask[7] = {0xF0, 0x7D, 0x50, 0x54, 0x43, 0x01, 0xF7};

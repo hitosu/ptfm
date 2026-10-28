@@ -297,7 +297,10 @@ void ctlmode_poll(void)
     plat_midi_t m;
     uint32_t now = plat_ms(), i, r;
     int up;
-    plat_input(&in);
+    if (cm.on && cm.fast)               /* (the fast tick takes the input: a take here would eat the knobs' clicks) */
+        memset(&in, 0, sizeof in);
+    else
+        plat_input(&in);
     if (!cm.on) {                       /* the start: SELECT the channel, a press of REC or HOME starts it */
         int c = cm.chan + in.knob[K_SELECT];
         uint32_t pick = in.buttons & cm.armed;          /* (pressed after being seen up: not one held since before) */

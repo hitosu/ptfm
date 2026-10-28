@@ -50,6 +50,8 @@ ${CC:-cc} -std=gnu11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-paramete
 "$OUT/ctlmode_test" mirror "$SHOTS"
 "$OUT/ctlmode_test" general "$SHOTS"
 "$OUT/ctlmode_test" general "$SHOTS" fast          # (the platform's 1 kHz tick runs it, as on the FM-1)
+mkdir -p "$OUT/fast"
+"$OUT/ctlmode_test" mirror "$OUT/fast" fast        # (the same in mirror mode; its shots aside, the others' kept)
 node fw/tests/ui_shots.js "$SHOTS" build/playground
 # the debug build (specs/debug.md): the same with PTFM_DEBUG, its figures asked for and answered, a whole bench
 # run (THE CORE, ALONE); the page's side (fw/web/figures.js) on the answers and records caught
