@@ -7,7 +7,7 @@ proposed details marked *(proposed)*.
 
 ```
 ptfm/
-  AGENTS.md  README.md  LICENSE  .gitignore
+  AGENTS.md  README.md  CHANGELOG.md  LICENSE  .gitignore
   specs/        these specifications (Markdown)
   fw/           the firmware's sources: the engine only, no data
   emulator/     the emulator's sources: the web hardware layer (C), the page, the audio worklet

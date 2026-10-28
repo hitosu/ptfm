@@ -14,7 +14,7 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const OUT = path.join(ROOT, "build", "editor", "page");
 const PAGE = "file://" + path.join(ROOT, "dist", "editor", "editor.html") + "?virtual";
 const PORT = +(process.env.PTFM_PAGE_PORT || 9339), HOST = "http://127.0.0.1:" + PORT;
-const ORDER = ["files", "dialogs", "tabs", "pictures", "keys", "new", "backup", "down", "optimize", "narrow"];
+const ORDER = ["files", "dialogs", "tabs", "pictures", "keys", "new", "backup", "down", "whole", "optimize", "narrow"];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let checks = 0, fails = 0;
 function check(ok, what) {

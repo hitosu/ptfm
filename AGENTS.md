@@ -134,6 +134,7 @@ The layout in full, with what is committed: `specs/layout.md`.
 |---|---|
 | `AGENTS.md` | this file |
 | `README.md` | for users: what PT/FM is, the folders, the licence |
+| `CHANGELOG.md` | what changes from version to version, an entry a change with its kind first (FEATURE, CHANGE, BUG, REMOVED): the top section, Next version, since the last release |
 | `LICENSE` | GPL-3.0-only |
 | `specs/` | the specifications, one subject per file; `specs/proposals/` the drafts |
 | `fw/` | the firmware, engine only, no data but the built-in instruments (`fw/README.md`): `core/` (`store/`, `play/`, `eng/`, `fx/`, `midi/`, `ui/`, `plat.h`, `app.c`), `device/`, `hal/`, `loader/`, `tools/` (build, packager, install page, generators), `web/` (the install page's template, `seed.js`), `tests/` |
@@ -142,7 +143,7 @@ The layout in full, with what is committed: `specs/layout.md`.
 | `editor/` | the editor, a page for the computer: EDITOR [beta] (`specs/editor.md`: TABLE and FM-1 side by side, items moved with what they use, READ / WRITE / UPLOAD DISK / DOWNLOAD DISK, an item's tab to edit it, the FM-1's own pictures from `fw/core/ui` built in under `PTFM_EDITOR`); `editor/build.py` makes `dist/editor/editor.html`; tests `tests/editor/run_tests.sh` (Node) and `tests/editor/run_page.sh` (the page in a headless Chrome) |
 | `playground/` | the UI playground: the UI, the transport and the sound in plain JS; no build |
 | `demo-disk/` | the demo disk's sources: patches, samples and songs under free licences (`demo-disk/README.md`, `CREDITS.md`) |
-| `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual is the one document that names the version |
+| `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual and `CHANGELOG.md`'s released sections are the only documents that name a version |
 | `site/` | the web site, hitosu.github.io/ptfm (`specs/site.md`): `index.html` the landing (`@VERSION@` filled in from `fw/VERSION`), `img/` its picture, `screens/` real screens (`tools/shots.sh`; `screens/manual/` the manual's, by `tools/build_manual.py`), `fonts/` the FM-1's Terminus as webfonts (`tools/pixfont.py`), `tools/hero.html` + `tools/images.py` the 3D picture; `site/assemble.sh OUT` puts the landing and the four pages together (nothing built), `.github/workflows/pages.yml` publishes it on every push to `main`. Its texts name no count that changes with the contents |
 | `assets/fonts/` | Terminus (SIL OFL 1.1), from which the tools make the fonts; Iosevka Aile (the pages') and Archivo (the PDF manual's), both SIL OFL 1.1, cut once by `fw/tools/webfont.py` |
 | `tools/` | the data packer (`pack.py`: `dist/firmware/demo.ptfmdsk`, the built-in instruments, `--check` against the playground; `ptfm_records.py`: every record's bytes both ways), `gen_fonts.py` (JS; C with `--c` for the device's own screens, `--fw` for the firmware's UI), `gen_playground.py`, `build_playground.py` (`dist/playground/playground.html`) |
@@ -157,6 +158,10 @@ This folder is its own git repository; the parent is not one.
 
 - **No git commits;** the user makes them. Commits are authored "Vasily Kazantsev"
   <vasily@kazantsev.xyz>, PGP-signed.
+- **Every change a user would notice goes into `CHANGELOG.md`** as it is made: an entry under Next version, its kind
+  first (`FEATURE:`, `CHANGE:`, `BUG:`, `REMOVED:`), in plain words. A release turns Next version into that
+  version's section (its number and date) and starts a new Next version above it; `fw/VERSION` and the release's
+  tag change only when the user says.
 - **Never install anything** (toolchains, packages, images): give the commands to run. Ask before
   anything that needs a download, and before adding compilers.
 - **Change files with Edit / Write only,** never by a shell rewrite, one-word changes included.

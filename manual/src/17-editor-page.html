@@ -102,8 +102,9 @@ lets go.</p>
 <dt>WRITE</dt><dd>Makes the FM-1 hold exactly the panel. Before writing it shows what it writes and what it removes (in
 red), warns when the FM-1 saved something since the last READ (READ FIRST, WRITE ANYWAY or CANCEL) and when fewer
 than the 16 advised blocks would stay free, and offers to back up first: what the write would
-replace goes onto the TABLE (BACKUP and the time). The FM-1's sound stops while it writes. With unsaved edits on the
-FM-1 it is refused: SAVE OR REVERT FIRST.</dd>
+replace goes onto the TABLE (BACKUP and the time). When the panel does not fit around what the FM-1 keeps but fits
+the FM-1 emptied, it writes the whole user area anew and says so first (it takes longer). The FM-1's sound stops while
+it writes. With unsaved edits on the FM-1 it is refused: SAVE OR REVERT FIRST.</dd>
 <dt>REVERT</dt><dd>Puts back what the panel showed after the last READ or WRITE.</dd>
 <dt>DOWNLOAD DISK</dt><dd>Saves the FM-1 panel as a disk file (ptfm-2026-10-26.ptfmdsk). <b>This is the backup:</b>
 READ, then DOWNLOAD DISK.</dd>

@@ -52,5 +52,5 @@ name it): the page itself in a headless Chrome (`page_test.js`, through its DevT
 WebSocket), on `dist/editor/editor.html?virtual`, a scenario a file in `tests/editor/page/`: `files` (drops, a move,
 the views, WRITE and READ, each kind's tab), `dialogs` (DELETE with what uses it, ALSO WHAT ONLY IT USES, REPLACE,
 UNDO), `tabs` (each kind edited and saved, the FX chain dragged), `pictures`, `keys` (the side list, MIDI, the keyboard's
-input kept, FILES' group headers), `new` (+ NEW), `backup` (WRITE's BACKUP), `down` (WRITE converting down), `optimize`
+input kept, FILES' group headers), `new` (+ NEW), `backup` (WRITE's BACKUP), `down` (WRITE converting down), `whole` (WRITE of the whole user area), `optimize`
 (a sample's OPTIMIZE, its instruments following on SAVE), `narrow` (a phone's width). Screenshots to look at in `build/editor/page/`. Run it before handing a build over.

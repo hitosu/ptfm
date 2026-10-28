@@ -5,7 +5,8 @@
  * UPLOAD DISK puts a disk in the FM-1 panel, DOWNLOAD DISK saves the panel as one, REVERT puts back what it showed after
  * the last READ or WRITE.
  *   ED.fm1.read(), write(), uploadDisk(), downloadDisk(), revert()
- *   ED.fm1.readFrom(session, st) / planWrite(layout, st) / writeTo(session, st, o): the same without the page (the tests)
+ *   ED.fm1.readFrom(session, st) / planWrite(layout, st, heldBytes?) / writeTo(session, st, o): the same without the page
+ *   (the tests)
  *   ED.fm1.connect: async () -> { session, close(), name }: Web MIDI, or the virtual FM-1 (the page's own firmware, its
  *   flash in this page only) when the page is opened with ?virtual, or what a test puts there */
 (function (ED) {
@@ -111,8 +112,10 @@ function slimLayout(L) { return { regions: L.regions, reserve: L.reserve, builti
 
 /* ---- WRITE ---- */
 const recKey = r => r.kind << 16 | r.num << 8 | r.sub;
-/* the plan: the panel's records the FM-1 should hold, planned by the uploader's own planner; what it says first */
-function planWrite(layout, st) {
+/* the plan: the panel's records the FM-1 should hold, planned by the uploader's own planner; what it says first.
+ * heldBytes: the bytes of the FM-1's records the page cannot read (recKey.crc -> payload), which a whole rewrite
+ * writes back as they are: read by writeTo when a plan asks for them (readHeld) */
+function planWrite(layout, st, heldBytes) {
     const out = { problems: [], warnings: [], newer: false, plan: null, missingBuiltins: [], converted: [] };
     const items = st.R, dims = items.filter(i => i.dim);
     const recs = M.toRecords(items.filter(i => !i.dim), items);
@@ -156,7 +159,24 @@ function planWrite(layout, st) {
     const keepAsIs = held.map(x => ({ kind: x.kind, num: x.num, sub: x.sub, ver: x.ver, len: x.len, crc: x.crc, payload: null, label: x.label }));
     /* (the FM-1's reserve not kept: planned to its last block; fewer free blocks than advised are said instead) */
     const lay = Object.assign({}, layout, { reserve: 0, accepts: layout.accepts.concat(held.map(x => ({ kind: x.kind, ver: x.ver }))) });
-    const P = S.plan(lay, { files: files.concat(keepAsIs), problems: [] });
+    let P = S.plan(lay, { files: files.concat(keepAsIs), problems: [] });
+    /* it does not fit around what stays on the FM-1 (records kept where they are, blocks a deleted record's header still
+     * holds) but fits the FM-1 emptied: the whole user area written anew (the uploader's planClean), every record of the
+     * panel's, and what the page cannot read written back as the FM-1 holds it (its bytes read first: readHeld) */
+    if (!P.ok) {
+        const bytes = heldBytes || new Map(), bk = x => recKey(x) + "." + x.crc;
+        const back = keepAsIs.map(f => Object.assign({}, f, { payload: bytes.get(bk(f)) || new Uint8Array(f.len) }));
+        const C = S.planClean(lay, { files: files.concat(back), problems: [] });
+        const unread = held.filter(x => !bytes.has(bk(x)));
+        if (C.ok && unread.length) out.readHeld = unread;
+        else if (C.ok) {
+            /* (what the FM-1 holds and the panel does not: erased with the rest, named as removed) */
+            const keys = new Set(C.write.map(recKey));
+            C.del = layout.records.filter(x => !x.deleted && !keys.has(recKey(x)))
+                .map(x => ({ kind: x.kind, num: x.num, sub: x.sub, ver: x.ver, len: 0, del: true, label: x.label }));
+            P = C;
+        }
+    }
     if (P.ok && !P.upToDate) { const low = M.lowSpace(P.space.after, layout.reserve); if (low) out.warnings.push(low); }
     P.del = P.del.filter(d => !dimKeys.has(recKey(d)));
     if (P.write.some(f => !f.payload)) P.problems.push("a record this page cannot read would be written");    /* (never: kept as it is) */
@@ -217,7 +237,13 @@ async function writeTo(session, st, o) {
     o = o || {};
     for (let tries = 0; ; tries++) {
         const layout = await session.hello();
-        const w = planWrite(layout, st);
+        let w = planWrite(layout, st);
+        /* a whole rewrite keeping what the page cannot read: those records read first, then planned again */
+        if (w.readHeld) {
+            const bytes = new Map();
+            for (const x of w.readHeld) bytes.set(recKey(x) + "." + x.crc, await readRecord(session, x));
+            w = planWrite(layout, st, bytes);
+        }
         if (layout.unsaved) w.problems.unshift("THE FM-1 HAS EDITS NOT SAVED: SAVE OR REVERT FIRST ON THE FM-1");
         if (w.problems.length) { const e = new Error(w.problems.join(" · ")); e.problems = w.problems; throw e; }
         if (w.plan.upToDate) return { upToDate: true, layout, lastSave: layout.lastSave };
@@ -277,9 +303,11 @@ function confirmDialog(w, layout, st) {
             !P.upToDate && w.converted.length ? h("div", null, h("div", { class: "lbl" }, "CONVERTED FOR THE FM-1'S VERSION"), h("ul", null, w.converted.map(c =>
                 h("li", { class: c.lost.length ? "warn" : null }, c.name + ": VERSION " + c.from + " WRITTEN AS VERSION " + c.to +
                     (c.lost.length ? " · NOT KEPT: " + c.lost.join(", ") : " · NOTHING LOST"))))) : null,
+            P.clean ? h("p", { class: "box" }, "THIS PANEL DOES NOT FIT AROUND WHAT STAYS ON THE FM-1, BUT IT FITS THE FM-1 EMPTIED: " +
+                "THE WHOLE USER AREA IS WRITTEN ANEW, WHICH TAKES LONGER. AFTER IT THE FM-1 HOLDS EXACTLY THIS PANEL, AS AFTER ANY WRITE.") : null,
             P.upToDate ? h("p", null, "THE FM-1 ALREADY HOLDS EXACTLY THIS PANEL: NOTHING TO WRITE.") :
                 h("p", null, "WRITES " + u.plural(P.write.length, "RECORD") + " (" + u.kb(bytes) + ") INTO " + u.plural(P.space.need, "BLOCK") + "; " +
-                    P.keep.length + " ALREADY THERE STAY. " + P.space.after + " BLOCKS FREE AFTER."),
+                    (P.clean ? "THE OTHER " + u.plural(P.space.erase, "BLOCK") + " ERASED. " : P.keep.length + " ALREADY THERE STAY. ") + P.space.after + " BLOCKS FREE AFTER."),
             P.upToDate ? null : (names => h("div", null, h("div", { class: "lbl" }, "WRITTEN"), h("ul", null, names.slice(0, 24).map(t => h("li", null, t)),
                 names.length > 24 ? h("li", null, "AND " + (names.length - 24) + " MORE") : null)))(writtenNames(P, st)),
             gone.length ? h("div", null, h("div", { class: "lbl" }, "REMOVED FROM THE FM-1"), h("ul", null, gone.map(t => h("li", { class: "rm" }, t)))) : null,
@@ -312,7 +340,7 @@ async function write() {
          * was written (st, taken at the start), whatever changed on the page meanwhile */
         a.set(Object.assign({}, a.st, { base: st.R, fm1 }));
         u.status(r.upToDate ? "NOTHING TO WRITE: THE FM-1 ALREADY HOLDS EXACTLY THIS PANEL" : "WRITTEN TO " + c.name + ": " + u.plural(r.plan.write.length, "RECORD") + ", " +
-            u.plural(r.plan.del.length, "REMOVED", "REMOVED") + backedUp + (r.bad ? " · " + r.bad + " BAD RECORDS: WRITE AGAIN" : ""), { ok: !r.bad, err: !!r.bad });
+            u.plural(r.plan.del.length, "REMOVED", "REMOVED") + (r.plan.clean ? " · THE WHOLE USER AREA WRITTEN ANEW" : "") + backedUp + (r.bad ? " · " + r.bad + " BAD RECORDS: WRITE AGAIN" : ""), { ok: !r.bad, err: !!r.bad });
     });
 }
 /* BACKUP: the FM-1's items a WRITE replaces or removes, with what they use, onto the TABLE as a move would take them:

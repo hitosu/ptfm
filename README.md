@@ -35,7 +35,8 @@ page) turns the FM-1 into a USB-MIDI controller, for the virtual FM-1 or any syn
 | `site/` | the web site, https://hitosu.github.io/ptfm/ ([specs/site.md](specs/site.md)): the landing, and `assemble.sh`, which puts it together with the pages above for `.github/workflows/pages.yml` to publish |
 | `tools/`, `tests/`, `assets/` | build scripts, host tests, fonts |
 
-The layout in full: [specs/layout.md](specs/layout.md).
+The layout in full: [specs/layout.md](specs/layout.md). What changed from version to version:
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

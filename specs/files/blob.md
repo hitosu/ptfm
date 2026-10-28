@@ -62,7 +62,8 @@ number.
    plan's LOW SPACE line says what fewer free blocks cost the device's saves; a blob that does not fit around what the
    device holds, its blocks pinned by records kept and deleted records' headers, but fits it emptied: nothing is
    written, and the uploaders offer REPLACE ALL, the user area erased and the blob written anew as a clean seeding
-   writes it, below); records the device has and the blob does not get
+   writes it, below; the editor's WRITE writes it anew so by itself and says so in its dialog,
+   [../editor.md](../editor.md#the-fm-1-read-write-and-disks)); records the device has and the blob does not get
    deleted records, so the device ends up holding exactly the blob: **the device's own saved work not in
    it is deleted**, and keeping a copy of that work is the user's to do. The emulator shows the plan (each
    area's space, what goes where, what does not fit, what will be deleted) and writes once the user

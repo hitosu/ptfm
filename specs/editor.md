@@ -63,7 +63,8 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
 - **The system items still at their defaults** are listed too, dark grey, marked `DEFAULT`: nothing to move or
   delete; a tab opened on one starts from the firmware's own default, and its SAVE makes the record.
 - **What the page cannot read** (a record of a version or a kind it does not know, read from the FM-1 or on a disk put
-  in by UPLOAD DISK) is listed dim and kept as it is: it never moves, and WRITE neither writes nor removes it.
+  in by UPLOAD DISK) is listed dim and kept as it is: it never moves, and WRITE neither changes nor removes it (a
+  WRITE of the whole user area reads it first and writes it back as it was).
 - **The space bar:** the user area's 103 blocks of 4 KB, as data, audio and free. Nothing is kept free: when fewer
   blocks than the 16 (64 KB) advised for the FM-1's own saves are left, it says what that costs
   ([files/store.md](files/store.md#where-things-go)): under 10 blocks the FM-1 cannot save new things (it can
@@ -196,8 +197,12 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   the FM-1 panel in place of what it showed; UNDO brings that back. After the first READ it reads only the records
   whose CRC changed since the last READ or WRITE.
 - **WRITE** asks for the layout and plans with the uploader's own planner: records the FM-1 holds with the same
-  CRC stay where they are, the rest go into free blocks, to the last one if need be (no reserve kept). Before
-  writing it shows:
+  CRC stay where they are, the rest go into free blocks, to the last one if need be (no reserve kept). **When the
+  panel does not fit around what stays** (records kept where they are, blocks a deleted record's header still holds)
+  **but fits the FM-1 emptied, the whole user area is written anew,** as the install page's REPLACE ALL does: the
+  panel's records from the first block, every other block empty; what the page cannot read is read first and
+  written back as it was. A panel that does not fit even the FM-1 emptied is refused. Before writing it shows:
+  - that it writes the whole user area anew, when it does, and that this takes longer;
   - fewer free blocks after it than advised, what that costs the FM-1's own saves (as the space bar says it), with
     WRITE ANYWAY and CANCEL;
   - anything saved on the FM-1 after the panel's last READ or WRITE (its save number is newer), at the top, with
@@ -409,12 +414,13 @@ Formats 0 and 1, a first version:
   OPTIMIZE SAMPLES on the demo disk's samplers (each sample as its tab makes it).
 - **READ and WRITE against the virtual FM-1:** the firmware's WebAssembly seeded through function calls instead of
   MIDI: READ back, only the changed records read again, the plan, CHANGED, `SAVE OR REVERT FIRST`, a version the
-  FM-1 does not take, a backup put back exactly (`FE` included). The page itself takes the virtual FM-1 for the FM-1
+  FM-1 does not take, a panel that fits only the FM-1 emptied written as the whole user area anew (what the page
+  cannot read written back as it was), a backup put back exactly (`FE` included). The page itself takes the virtual FM-1 for the FM-1
   when opened with `?virtual` after its file's name.
 - **The previews:** the flash image of each kind played by the firmware; the repeat with its second of silence.
 - **The pictures:** each equals the firmware's own screen pixels for the same bytes.
 - **The page:** scenarios in a headless Chrome, a command of their own (`tests/editor/run_page.sh`, the Node tests
   needing no browser): drops, moves, DELETE and its dialogs, every tab edited and saved, the pictures beside their
-  sliders, the keyboard's input, + NEW, OPTIMIZE and OPTIMIZE SAMPLES, READ and WRITE on the virtual FM-1 with BACKUP and a version converted down,
+  sliders, the keyboard's input, + NEW, OPTIMIZE and OPTIMIZE SAMPLES, READ and WRITE on the virtual FM-1 with BACKUP, a version converted down and the whole user area written anew,
   a phone's width; each passes or fails, an exception on the page fails it; screenshots looked at. Run before a build
   is handed over.

@@ -4,7 +4,9 @@
  * own seeding code in its WebAssembly, through seed.js's session as with a real FM-1 over MIDI. A song moved to the FM-1
  * panel and written; READ back byte for byte, then again with only the changed records read; the plan (what stays,
  * what goes); CHANGED (a save on the FM-1 meanwhile: planned again); SAVE OR REVERT FIRST; a version the FM-1 does not
- * take; built-ins it lacks; another PT/FM version; DELETE ALL written; a backup put back exactly, FE included.
+ * take; built-ins it lacks; another PT/FM version; a panel that fits only the FM-1 emptied written as the whole user
+ * area anew (what the page cannot read written back as it was); DELETE ALL written; a backup put back exactly, FE
+ * included.
  *
  *   node tests/editor/device_test.js [WASM] */
 "use strict";
@@ -160,6 +162,54 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
         const disk2 = Object.assign({}, odd, { num: 0x77 });
         const w2 = F.planWrite(await ses.hello(), Object.assign({}, st, { R: rd.items.concat([disk2]) }));
         check(w2.plan.ok && w2.plan.upToDate, "a dim item at a free key: not written");
+    }
+
+    /* ---- it fits only the FM-1 emptied: the whole user area written anew ---- */
+    {
+        /* the FM-1 as it says it is, every block of its user area also holding a deleted record's header (which no
+         * plan may write over), so nothing fits around what is there */
+        const pinAll = l => {
+            const extra = [];
+            for (const g of l.regions) if (g.area === "user")
+                for (let a = g.start; a + 4096 <= g.end; a += 4096)
+                    extra.push({ kind: K.SONG, num: 0x7E, sub: 0, ver: 1, len: 0, crc: 0, addr: a, deleted: true, label: "SONG 7E.0" });
+            return Object.assign({}, l, { records: l.records.concat(extra) });
+        };
+        const pinned = { hello: async () => pinAll(await ses.hello()), write: (P, cb) => ses.write(P, cb), read: (a, n) => ses.read(a, n) };
+        const w = F.planWrite(await pinned.hello(), st);
+        check(!w.problems.length && w.plan.ok && w.plan.clean && w.plan.del.length === 0 && w.plan.write.length === M.toRecords(st.R).length,
+            "the panel fits only the FM-1 emptied: the whole user area planned anew, every record of the panel's (" + w.plan.write.length + ")");
+        res = await F.writeTo(pinned, st, {});
+        rd = await F.readFrom(ses, empty());
+        check(res.bad === 0 && res.plan.clean && sameRecs(M.toRecords(rd.items), M.toRecords(st.R)), "written anew: the FM-1 holds exactly the panel");
+        st = Object.assign({}, st, { base: st.R, fm1: { from: "write", lastSave: res.lastSave } });
+
+        /* the FM-1 holding what the panel lacks: named as removed */
+        const gone = st.R.find(i => i.kind === K.SONG);
+        const fewer = M.remove(st, "R", [gone.id], false).st;
+        const wg = F.planWrite(await pinned.hello(), fewer);
+        check(wg.plan.ok && wg.plan.clean && wg.plan.del.length === 1 && wg.plan.del[0].kind === K.SONG && wg.plan.del[0].num === gone.num,
+            "written anew, what the panel lacks named as removed: " + F.removedNames(wg.plan, st).join(", "));
+
+        /* a record the page cannot read, held by the FM-1: read first, written back byte for byte */
+        const song = rd.items.find(i => i.kind === K.SONG);
+        const odd = Object.assign({}, song, { id: M.newId(), dim: true, recs: [{ sub: 0, ver: 9, payload: Uint8Array.of(9, 9, 9) }] });
+        const pat = rd.items.find(i => i.kind === K.PATTERN);
+        const pp = R.unpackPattern(pat.recs.map(x => x.payload));
+        pp.cells.set("2,0", { note: 63, ins: -1, vol: 0x20, cmds: [] });
+        const pat4 = Object.assign({}, pat, { recs: R.packPattern(pp).map((payload, i) => ({ sub: i, ver: 1, payload })) });
+        const stD = Object.assign({}, st, { R: rd.items.map(i => i.id === song.id ? odd : i.id === pat.id ? pat4 : i) });
+        const wd = F.planWrite(await pinned.hello(), stD);
+        check(wd.readHeld && wd.readHeld.length === 1 && wd.readHeld[0].kind === K.SONG && wd.readHeld[0].num === song.num,
+            "written anew with a record the page cannot read: that one to read first");
+        res = await F.writeTo(pinned, stD, {});
+        const after = await F.readFrom(ses, empty());
+        const songAfter = after.items.find(i => i.kind === K.SONG && i.num === song.num);
+        const patAfter = after.items.find(i => i.kind === K.PATTERN && i.num === pat.num);
+        check(res.bad === 0 && res.plan.clean && songAfter && sameRecs(M.toRecords([songAfter]), M.toRecords([song])) &&
+            patAfter && sameRecs(M.toRecords([patAfter]), M.toRecords([pat4])),
+            "written anew: the record the page cannot read back as it was, the changed pattern written");
+        st = Object.assign({}, st, { R: after.items, base: after.items, fm1: { from: "write", lastSave: res.lastSave } });
     }
 
     /* ---- a backup put back exactly, FE included ---- */
