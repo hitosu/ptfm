@@ -66,6 +66,7 @@ def build(glyphs, fbb, family, prop, out):
             else:
                 adv = max(3, adv // 2)                          # the space
         pen = TTGlyphPen(None)
+        lsb = None                                              # where the ink starts (none: a space)
         for r, bits in enumerate(g["rows"]):
             y = (yo + h - 1 - r) * U
             x = 0
@@ -75,13 +76,16 @@ def build(glyphs, fbb, family, prop, out):
                     while x1 < w and on(bits, x1):
                         x1 += 1
                     x0u, x1u = (xo + x) * U, (xo + x1) * U
+                    lsb = x0u if lsb is None else min(lsb, x0u)
                     pen.moveTo((x0u, y)); pen.lineTo((x0u, y + U)); pen.lineTo((x1u, y + U)); pen.lineTo((x1u, y))
                     pen.closePath()
                     x = x1
                 else:
                     x += 1
         outlines["u%04X" % c] = pen.glyph()
-        metrics["u%04X" % c] = (adv * U, 0)
+        # the left side bearing must be the ink's start: browsers place the outline by it, and a 0 drew every glyph
+        # as far left as its blank columns ("I" 2 pixels: "MI DI")
+        metrics["u%04X" % c] = (adv * U, lsb or 0)
     fb.setupGlyf(outlines)
     fb.setupHorizontalMetrics(metrics)
     asc, desc = (ch + cy0) * U, -cy0 * U
