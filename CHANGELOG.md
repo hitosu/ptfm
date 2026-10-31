@@ -20,3 +20,5 @@ Each change is one entry, its kind first:
 - BUG: The site's pixel fonts (PTFM Pixel, PTFM Pixel Prop) drew each letter as far left as the blank columns at its
   left: in the screen cut an I stood 2 pixels left, so words read "MI DI" or "TI ME", and the landing's logo and
   figures sat a pixel or two off. Each letter now sits in its cell as Terminus draws it.
+- FEATURE: The site's landing shows the second video, PT/FM: UNDER THE HOOD: a small card under the first video, its
+  thumbnail, length and what it shows; pressed, it plays there at the first video's size.

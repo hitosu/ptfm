@@ -139,6 +139,32 @@ h2 { font: 800 clamp(28px, 4vw, 44px)/1.08 var(--wide); font-stretch: 112%; lett
 .vnote { margin: 14px 0 0; color: var(--dim); font-size: 14px; }
 .vnote a { color: var(--ink); text-underline-offset: 3px; }
 @media (max-width: 599px) { .video .play { gap: 12px; } .video .play i { width: 64px; height: 64px; } .video .play svg { width: 22px; height: 22px; margin-left: 4px; } }
+/* the next video: a small card, its YouTube thumbnail under a small play button; pressed, it widens into the panel's size */
+.more { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); grid-template-areas: "thumb head" "thumb text"; gap: 8px 24px; margin-top: 40px; }
+.more .thumb { grid-area: thumb; position: relative; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #07080a; }
+.more .thumb > a, .more .thumb > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.more .thumb > a { display: grid; place-items: center; }
+.more .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .82; transition: opacity .2s; }
+.more .thumb i { position: relative; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--led); box-shadow: 0 0 28px rgba(93,255,122,.35); transition: background .15s; }
+.more .thumb svg { width: 17px; height: 17px; margin-left: 3px; fill: #04140a; }
+.more .thumb > a:hover img { opacity: 1; }
+.more .thumb > a:hover i { background: #8dffa3; }
+.more .head { grid-area: head; align-self: end; }
+.more .head .label { margin-bottom: 10px; }
+.more h3 { font: 750 20px/1.2 var(--wide); font-stretch: 112%; margin: 0; }
+.more .text { grid-area: text; }
+.more .text p { margin: 0; max-width: 56ch; color: #b9bcc3; font-size: 15.5px; line-height: 1.55; }
+.more .text .vnote { margin-top: 10px; }
+.more.playing { grid-template-columns: minmax(0, 1fr); grid-template-areas: "thumb" "head" "text"; }
+.more.playing .thumb { border-radius: 12px; margin-bottom: 14px; }
+@media (max-width: 599px) {
+    .more { grid-template-columns: 44% minmax(0, 1fr); grid-template-areas: "thumb head" "text text"; gap: 14px 14px; margin-top: 32px; }
+    .more .head { align-self: center; }
+    .more .head .label { margin-bottom: 6px; }
+    .more h3 { font-size: 17px; }
+    .more .thumb i { width: 40px; height: 40px; }
+    .more .thumb svg { width: 14px; height: 14px; }
+}
 
 .tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 36px; }
 .tool { display: grid; grid-template-rows: auto 1fr auto; gap: 12px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); }
@@ -215,7 +241,7 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
 
 <section>
   <div class="wrap">
-    <span class="label pix">Video</span>
+    <span class="label pix">Videos</span>
     <h2>See it and hear it.</h2>
     <div class="video">
       <a id="video" href="https://youtu.be/95bZPtyD5rE" data-id="95bZPtyD5rE" data-title="INTRODUCING PT/FM" aria-label="Play the video INTRODUCING PT/FM (YouTube)">
@@ -224,6 +250,19 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
       </a>
     </div>
     <p class="vnote"><a href="https://youtu.be/95bZPtyD5rE">Watch on YouTube</a></p>
+    <div class="more">
+      <div class="thumb">
+        <a id="under-the-hood" href="https://youtu.be/M6I354-Xu5I" data-id="M6I354-Xu5I" data-title="PT/FM: UNDER THE HOOD" aria-label="Play the video PT/FM: UNDER THE HOOD (YouTube)">
+          <img src="img/under-the-hood.webp" width="640" height="360" alt="" loading="lazy">
+          <i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></i>
+        </a>
+      </div>
+      <div class="head"><span class="label pix">Next &middot; 17 min</span><h3>Under the Hood</h3></div>
+      <div class="text">
+        <p>Professor FOMA opens the FM-1 and shows how PT/FM works inside: synths in whole numbers, two cores sharing one flash, a file system and a sample codec of its own.</p>
+        <p class="vnote"><a href="https://youtu.be/M6I354-Xu5I">Watch on YouTube</a></p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -273,10 +312,9 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
     document.addEventListener("click", e => { if (s.open && !s.contains(e.target)) s.open = false; });
     document.addEventListener("keydown", e => { if (e.key === "Escape" && s.open) { s.open = false; s.querySelector("summary").focus(); } });
 })();
-/* the video: YouTube's player in place of the screens at the first press, nothing loaded from YouTube before; a press
-   with a modifier key opens YouTube as a link does */
-(() => {
-    const v = document.getElementById("video");
+/* the videos: YouTube's player in place of the screens (or the thumbnail, its card widening) at the first press, nothing
+   loaded from YouTube before; a press with a modifier key opens YouTube as a link does */
+document.querySelectorAll("a[data-id]").forEach(v => {
     v.addEventListener("click", e => {
         if (e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
@@ -286,10 +324,11 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
         f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
         f.allowFullscreen = true;
         f.referrerPolicy = "strict-origin-when-cross-origin";
+        v.closest(".more")?.classList.add("playing");
         v.replaceWith(f);
         f.focus();
     });
-})();
+});
 </script>
 </body>
 </html>

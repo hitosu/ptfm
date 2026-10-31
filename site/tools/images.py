@@ -7,6 +7,9 @@
   python3 -I site/tools/images.py hero HERO.png   hero.html's picture -> site/img/hero.webp (2400 px), hero-phone.webp
                                                   (the FM-1 cropped close, 1200 px) and og.jpg (1200 x 630, for link
                                                   previews)
+  python3 -I site/tools/images.py video THUMB.png NAME
+                                                  a video's YouTube thumbnail (1280 x 720) -> site/img/NAME.webp
+                                                  (640 px, the video card's picture at twice its size)
 """
 import sys
 from pathlib import Path
@@ -47,7 +50,16 @@ def hero(src):
         print(out / name, (out / name).stat().st_size, "B")
 
 
+def video(src, name):
+    dest = SITE / "img" / (name + ".webp")
+    scaled(Image.open(src).convert("RGB"), 640).save(dest, "WEBP", quality=82, method=6)
+    print(dest, dest.stat().st_size, "B")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("screens", "hero"):
+    if sys.argv[1:2] == ["video"] and len(sys.argv) == 4:
+        video(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3 and sys.argv[1] in ("screens", "hero"):
+        (screens if sys.argv[1] == "screens" else hero)(sys.argv[2])
+    else:
         raise SystemExit(__doc__)
-    (screens if sys.argv[1] == "screens" else hero)(sys.argv[2])

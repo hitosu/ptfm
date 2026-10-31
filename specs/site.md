@@ -39,10 +39,14 @@ One page, dark ("studio night"), for a phone first and a computer:
    first and lit as PLAY's LED), the licence and the version.
 2. **What it is:** a tracker in the ProTracker tradition; a row of figures (voices, a pattern's size, the kinds of
    instrument, the effects, USB, the built-in instruments).
-3. **The video,** INTRODUCING PT/FM on YouTube (`youtu.be/95bZPtyD5rE`): a 16:9 panel of eight real screens
+3. **The videos,** INTRODUCING PT/FM on YouTube (`youtu.be/95bZPtyD5rE`): a 16:9 panel of eight real screens
    (section 5), dimmed, under a play button lit as PLAY's LED and the video's title; the first press puts YouTube's
    player (`youtube-nocookie.com`, playing at once) in the panel's place. Until then nothing comes from YouTube; a
    press with a modifier key, or without scripts, opens YouTube as a link. WATCH ON YOUTUBE below it, a link.
+   Below, a small card for the next video, PT/FM: UNDER THE HOOD (`youtu.be/M6I354-Xu5I`): its YouTube thumbnail
+   (section 5) under a small play button, NEXT and its length, its title, one line on what it shows, WATCH ON YOUTUBE;
+   pressed as the panel is, its player takes the thumbnail's place and the card widens to the panel's width (on a
+   phone too, where the thumbnail is beside the title and the line below both).
 4. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
    punch-ins, LOOPS, DJ, MIDI and sync, kept on the FM-1, music included (the demo disk links INSTALL).
 5. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;
@@ -58,7 +62,7 @@ One page, dark ("studio night"), for a phone first and a computer:
 - **Fonts:** Archivo (the manual's, `assets/fonts/Archivo.woff2`), and for the logo and labels the FM-1's Terminus
   8x16 as outline webfonts, `site/fonts/ptfm-pixel.woff2` (every glyph 8 pixels wide, as on the screen) and
   `ptfm-pixel-prop.woff2` (letters as wide as their ink, digits 8 wide), named PTFM Pixel, both SIL OFL 1.1.
-  Nothing is loaded from elsewhere until the video is played (item 3).
+  Nothing is loaded from elsewhere until a video is played (item 3).
 
 ## 4. Links back
 
@@ -74,6 +78,8 @@ Each of the four pages links to the landing from its `PT/FM`: the install page's
 | `tools/build_manual.py` | `site/screens/manual/*.png`: the manual's screenshots, made with the manual ([manual.md](manual.md)) |
 | `hero.html`, `images.py hero` | `site/img/hero.webp`, `hero-phone.webp`, `og.jpg`: the FM-1 in 3D from `panel/layout.js` with the EDITOR's screen, rendered in the browser (three.js), saved as PNG, then cut to the page's sizes |
 | `pixfont.py` | `site/fonts/ptfm-pixel*.woff2` from `assets/fonts/ter-u16n.bdf` |
+| `images.py video` | `site/img/under-the-hood.webp`: the video's own YouTube thumbnail (1280 x 720), 640 px wide |
 
-The screens are made again when the screens they show change, the picture when the panel or its screen does.
+The screens are made again when the screens they show change, the picture when the panel or its screen does, a
+video's thumbnail when YouTube's is replaced.
 The FM-1's sides and thickness in the picture are not measured.

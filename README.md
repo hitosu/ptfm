@@ -14,7 +14,8 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 
 **https://hitosu.github.io/ptfm/**: install it, try it in the emulator, read the manual, open the editor.
 
-**Video:** [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE) on YouTube.
+**Videos** on YouTube: [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE) and
+[PT/FM: UNDER THE HOOD](https://youtu.be/M6I354-Xu5I).
 
 **Status:** the firmware runs on the FM-1 and is being made lighter, so more voices play at once
 (`dist/firmware/install.html` installs it and uploads the demo disk). Its **MIDI CONTROLLER** (SETTINGS' MIDI
