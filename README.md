@@ -14,6 +14,8 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 
 **https://hitosu.github.io/ptfm/**: install it, try it in the emulator, read the manual, open the editor.
 
+**Current version: 0.27** (2026-11-08); what changed in each version: [CHANGELOG.md](CHANGELOG.md).
+
 **Videos** on YouTube: [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE) and
 [PT/FM: UNDER THE HOOD](https://youtu.be/M6I354-Xu5I).
 
