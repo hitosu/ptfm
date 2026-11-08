@@ -139,7 +139,7 @@ h2 { font: 800 clamp(28px, 4vw, 44px)/1.08 var(--wide); font-stretch: 112%; lett
 .vnote { margin: 14px 0 0; color: var(--dim); font-size: 14px; }
 .vnote a { color: var(--ink); text-underline-offset: 3px; }
 @media (max-width: 599px) { .video .play { gap: 12px; } .video .play i { width: 64px; height: 64px; } .video .play svg { width: 22px; height: 22px; margin-left: 4px; } }
-/* the next video: a small card, its YouTube thumbnail under a small play button; pressed, it widens into the panel's size */
+/* the other videos: a small card each, its YouTube thumbnail under a small play button; pressed, it widens into the panel's size */
 .more { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); grid-template-areas: "thumb head" "thumb text"; gap: 8px 24px; margin-top: 40px; }
 .more .thumb { grid-area: thumb; position: relative; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #07080a; }
 .more .thumb > a, .more .thumb > iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
@@ -261,6 +261,19 @@ footer p { margin: 18px 0 0; max-width: 70ch; }
       <div class="text">
         <p>Professor FOMA opens the FM-1 and shows how PT/FM works inside: synths in whole numbers, two cores sharing one flash, a file system and a sample codec of its own.</p>
         <p class="vnote"><a href="https://youtu.be/M6I354-Xu5I">Watch on YouTube</a></p>
+      </div>
+    </div>
+    <div class="more">
+      <div class="thumb">
+        <a id="whats-new" href="https://youtu.be/oSuT1VmGyvw" data-id="oSuT1VmGyvw" data-title="WHAT'S NEW IN PT/FM 0.27" aria-label="Play the video WHAT'S NEW IN PT/FM 0.27 (YouTube)">
+          <img src="img/whats-new-0-27.webp" width="640" height="360" alt="" loading="lazy">
+          <i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></i>
+        </a>
+      </div>
+      <div class="head"><span class="label pix">Latest &middot; 5 min</span><h3>What's New in 0.27</h3></div>
+      <div class="text">
+        <p>FOMA plays what 0.27 brings: a tune built in LOOPS from nothing, FAVORITES, recording in the EDITOR, safe installs and the newer FM-1.</p>
+        <p class="vnote"><a href="https://youtu.be/oSuT1VmGyvw">Watch on YouTube</a></p>
       </div>
     </div>
   </div>

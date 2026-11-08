@@ -13,6 +13,11 @@ Each change is one entry, its kind first:
 - **BUG:** something fixed;
 - **REMOVED:** something taken out.
 
+## Next version
+
+- FEATURE: The site's landing shows the third video, WHAT'S NEW IN PT/FM 0.27: a card under the second video's, the
+  same kind.
+
 ## 0.27 (2026-11-08)
 
 - FEATURE: Safe installs. An install cut short (a cable pulled, the power lost) no longer leaves the FM-1 dark: a
