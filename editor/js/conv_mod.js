@@ -8,11 +8,12 @@
  *     instrument, volume (the volume column's 0-64 as 2v, 64 as 7F), XM's volume-column effect first (0x24-0x2D),
  *     then the effect: XM's own numbers, S3M's as their XM twins (FINE VIBRATO 0x1E), Dxx's row in hex; F00 and
  *     A00, which IBXM ignores, left out; XM samples' pans as 8xx where an instrument starts (IBXM sets them there);
- *   - a sampler cartridge (more when over 64 instruments or samples): an instrument for each module instrument and
- *     sample (an XM instrument with several samples: one for each, the cells pointing at the one its key picks), its
- *     loop, VOLUME (the sample's), BASE NOTE and TUNE so it plays at IBXM's pitch: the module's C-4 rate (8287 Hz
- *     for 4-channel MODs, else 8363) at BASE NOTE 60 - the sample's relative note, TUNE 128 + its finetune; and its
- *     audio in PTR at its own depth.
+ *   - its samples, each a sample of its own (kind SAMPLE, numbered 00.., 256 at most: PTR at its own depth, its entry the
+ *     rate, depth and name), and sampler cartridges of up to 64 instruments naming them (a sampler for every 64): an
+ *     instrument for each module instrument and sample (an XM instrument with several samples: one for each, the
+ *     cells pointing at the one its key picks), its loop, VOLUME (the sample's), BASE NOTE and TUNE so it plays at
+ *     IBXM's pitch: the module's C-4 rate (8287 Hz for 4-channel MODs, else 8363) at BASE NOTE 60 - the sample's
+ *     relative note, TUNE 128 + its finetune.
  * What PT/FM does not keep is listed: XM's envelopes and auto-vibrato, IBXM's gain, channels past 16, the effects
  * without a twin. ED.conv.module(bytes, name) -> { recs, what, warnings }; ED.conv.fromModule(module, name) the same
  * from a module as read; ED.conv.loadModule(bytes) the module. */
@@ -159,11 +160,13 @@ ED.conv.fromModule = function (m, name) {
     /* the instruments: one PT/FM instrument for each (instrument, sample) a cell plays, in cartridges of 64 */
     const insts = [];                              /* { ins, sam, sample, name } */
     const slotOf = new Map();                      /* ins * 256 + sam -> index in insts */
+    const past = new Set();                        /* the samples past the 256th (a record's number is one byte) */
     const want = (ins, sam) => {
         const k = ins * 256 + sam;
         if (!slotOf.has(k)) {
             const s = m.instruments[ins] && m.instruments[ins].samples[sam];
             if (!s || !s.data.length) return -1;
+            if (insts.length >= 256) { past.add(k); return -1; }      /* (counted once a sample, not a cell) */
             slotOf.set(k, insts.length);
             insts.push({ ins, sam, sample: s, name: m.instruments[ins].samples.length > 1 ? (s.name || m.instruments[ins].name) : (m.instruments[ins].name || s.name) });
         }
@@ -208,30 +211,33 @@ ED.conv.fromModule = function (m, name) {
     });
     const split = splitLong(pats, m.sequence, m.patterns.length, warnings);
     for (const n in dropped) warnings.push(`LEFT OUT: ${dropped[n]} × ${n}`);
+    if (past.size) warnings.push(`LEFT OUT: ${past.size} × SAMPLES PAST THE 256TH`);
     if (m.gain !== 64 && m.gain) warnings.push(`IBXM'S GAIN ${m.gain} (OF 64) IS NOT KEPT: AUTO LEVEL OR THE SONG'S MIXER EVENS IT`);
     /* the records: cartridges 0.., patterns 0.., song 0 (the import places them at free numbers) */
     const recs = [], ncart = Math.max(1, Math.ceil(insts.length / 64));
-    if (insts.length > 64) warnings.push(`${insts.length} INSTRUMENTS: ${ncart} SAMPLER CARTRIDGES`);
+    if (insts.length > 64) warnings.push(`${insts.length} SAMPLES: ${ncart} SAMPLERS OF UP TO 64 INSTRUMENTS`);
     const base = R.cleanName(m.name || String(name || "").replace(/\.[^.]*$/, ""), 12) || "MODULE";
+    /* (each module sample a sample of its own, numbered 00.. in the order the instruments come; a sampler of up to 64
+     * instruments names its 64 by those numbers) */
     for (let c = 0; c < ncart; c++) {
         const mine = insts.slice(c * 64, c * 64 + 64);
-        const instruments = [], samples = [];
+        const instruments = [];
         mine.forEach((x, i) => {
-            const s = x.sample, n = s.data.length;
+            const idx = c * 64 + i, s = x.sample, n = s.data.length;
             let baseNote = 60 - s.relNote, rate = m.c2Rate;
             while (baseNote > 127) { baseNote -= 12; rate *= 2; }
             while (baseNote < 0) { baseNote += 12; rate /= 2; }
             rate = Math.max(1, Math.min(262143, Math.round(rate)));
             const looped = s.loopLength > 0;
-            const nm = R.cleanName(x.name, 10) || "SAMPLE " + (c * 64 + i + 1);
-            samples.push({ length: n, rate, coding: s.bits === 16 ? 2 : 1, name: nm });
-            instruments.push({ name: nm, level: 0, sample: i, start: 0, end: n, loop_start: looped ? s.loopStart : 0,
+            const nm = R.cleanName(x.name, 10) || "SAMPLE " + (idx + 1);
+            recs.push({ kind: K.SAMPLE, num: idx, sub: 0, ver: R.VERSION[K.SAMPLE],
+                payload: R.packSample({ length: n, rate, coding: s.bits === 16 ? 2 : 1, name: nm }, R.ptrEncode(s.data, s.bits)) });
+            instruments.push({ name: nm, level: 0, sample: idx, start: 0, end: n, loop_start: looped ? s.loopStart : 0,
                 loop_end: looped ? s.loopStart + s.loopLength : n, loop: looped ? (s.pingPong ? 2 : 1) : 0, base_note: baseNote,
                 tune: Math.max(0, Math.min(255, 128 + s.fineTune)), volume: Math.min(64, s.volume),
                 env: { r1: 99, r2: 99, r3: 99, r4: 99, l1: 99, l2: 99, l3: 99, l4: 0 } });
-            recs.push({ kind: K.AUDIO, num: c, sub: i, ver: 1, payload: R.ptrEncode(s.data, s.bits) });
         });
-        recs.push({ kind: K.SAMPLER, num: c, sub: 0, ver: 1, payload: R.packSampler({ name: ncart > 1 ? R.cleanName(base.slice(0, 9) + " " + (c + 1), 12) : base, instruments, samples }) });
+        recs.push({ kind: K.SAMPLER, num: c, sub: 0, ver: R.VERSION[K.SAMPLER], payload: R.packSampler({ name: ncart > 1 ? R.cleanName(base.slice(0, 9) + " " + (c + 1), 12) : base, instruments }) });
     }
     split.pats.forEach((p, i) => R.packPattern(p).forEach((bytes, sub) => recs.push({ kind: K.PATTERN, num: i, sub, ver: 1, payload: bytes })));
     const song = R.newSong(R.cleanName(m.name || base, 16) || "MODULE");
@@ -249,7 +255,7 @@ ED.conv.fromModule = function (m, name) {
     recs.push({ kind: K.SONG, num: 0, sub: 0, ver: 1, payload: R.packSong(song) });
     const bytes = recs.reduce((n, r) => n + 16 + ((r.payload.length + 3) & ~3), 0);
     if (bytes > 348 * 1024) warnings.push(`IT TAKES ${Math.round(bytes / 1024)} KB: MORE THAN AN FM-1'S USER AREA HOLDS (ABOUT 348 KB); THE PREVIEW CANNOT PLAY IT`);
-    const what = `${m.kind}: A SONG OF ${song.positions.length} POSITIONS, ${split.pats.length} PATTERNS OF ${nch} TRACKS, ${insts.length} SAMPLE INSTRUMENTS (${ncart} CARTRIDGE${ncart > 1 ? "S" : ""}), ${Math.round(bytes / 1024)} KB`;
+    const what = `${m.kind}: A SONG OF ${song.positions.length} POSITIONS, ${split.pats.length} PATTERNS OF ${nch} TRACKS, ${insts.length} SAMPLES (${ncart} SAMPLER${ncart > 1 ? "S" : ""}), ${Math.round(bytes / 1024)} KB`;
     return { recs, what, warnings, module: m };
 };
 })(globalThis.ED = globalThis.ED || {});

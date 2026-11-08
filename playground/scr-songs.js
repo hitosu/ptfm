@@ -23,12 +23,14 @@
     function rename(s) {
         U.textEntry("SONG NAME", s.name, 16, B.EDIT, name => { if (name != null) U.edit(() => { s.name = name || "NO NAME"; }); });
     }
-    /* the list becomes `after` (in place: one edit); the player's song indexes follow */
-    function relist(before, after) {
-        const all = M.state.songs;
-        all.splice(0, all.length, ...after);
-        P.songsRemap(i => { const k = after.indexOf(before[i]); return k < 0 ? null : k; });
+    /* MOVE: the songs take the numbers of the places they land on (in place: one edit); the player's song numbers follow.
+     * Nothing else renumbers a song */
+    function relist(after) {
+        const all = M.state.songs, nums = M.songNums(), before = nums.map(n => all[n]);
+        nums.forEach((n, k) => { all[n] = after[k]; });
+        P.songsRemap(n => { const k = after.indexOf(before[nums.indexOf(n)]); return k < 0 ? null : nums[k]; });
     }
+    const placeOf = n => M.songNums().indexOf(n);        /* a song's place in the list */
     let propsO = null, propsSong = -1;            /* the properties overlay open: its song's timing is being edited */
     function props() {
         const s = song();
@@ -49,18 +51,18 @@
      * refers to songs, so no question */
     let mv = null;
     const placed = () => {                               /* the list with the song afloat put at mv.at */
-        const before = M.state.songs, s = before[mv.from];
+        const before = M.songList(), s = before[mv.from];
         const others = before.filter(x => x !== s);
         others.splice(mv.at, 0, s);
         return others;
     };
-    const listed = () => mv ? placed() : M.state.songs.slice();
+    const listed = () => mv ? placed() : M.songList();
     function putDown() {
-        const { from, at } = mv, before = M.state.songs.slice(), after = placed();
+        const { from, at } = mv, after = placed(), to = M.songNums()[at];
         mv = null;
         if (at === from) return;
-        U.edit(() => { relist(before, after); U.song = at; });
-        U.toast("SONG MOVED TO " + M.hex(at));
+        U.edit(() => { relist(after); U.song = to; });
+        U.toast("SONG MOVED TO " + M.hex(to));
     }
     /* REVERT (specs/ui/saving.md#revert): the song as saved, its record whole (its order, name, properties, mixer and
      * FX setup; not its patterns: each is the EDITOR's to revert); what plays hears it at once */
@@ -68,7 +70,7 @@
         const i = U.song;
         U.askRevert("REVERT SONG " + M.hex(i) + " TO SAVED?", null, () => {
             M.revertThing("song", i);
-            U.song = U.clamp(U.song, 0, Math.max(0, M.state.songs.length - 1));
+            if (!song()) U.song = M.songNums().length ? M.songNums()[0] : 0;
             if (order) { if (song()) keepOrder(); else { order = false; sess = null; } }   /* (the order's copy now the saved one) */
             pos = U.clamp(pos, 0, Math.max(0, ((song() || {}).order || []).length - 1));
         });
@@ -82,26 +84,27 @@
         U.menu("songs", label, items, a => {
             if (a === "UNLOAD SONG") { P.unload(); return; }
             if (a === "REVERT") { revertSong(); return; }
-            const all = M.state.songs, before = all.slice();
+            const all = M.state.songs, gone = () => U.toast("NO FREE SONG NUMBER");
             /* (song FE is the keys': the user's end at FD) */
-            if ((a === "NEW" && all.length > M.SONG_LAST) || (a === "CLONE" && s && all.length - 1 >= M.SONG_LAST)) { U.toast("NO FREE SONG NUMBER"); return; }
+            if ((a === "NEW" || (a === "CLONE" && s)) && M.freeSong() < 0) { gone(); return; }
             /* NEW: its first pattern picked first (NEW SONG STARTS WITH), or a new empty one, 8 x 64 at the first free
-             * number; the song at the end of the list: nothing shifts */
+             * number; the song at the smallest number free */
             if (a === "NEW") U.patternList("NEW SONG STARTS WITH", U.pattern, n => {
-                const free = n === "NEW" ? M.freePattern() : n;
+                const free = n === "NEW" ? M.freePattern() : n, num = M.freeSong();
+                if (num < 0) { gone(); return; }
                 if (free < 0) { U.toast("NO FREE PATTERN"); return; }
                 U.edit(() => {
                     if (n === "NEW") M.state.patterns[free] = M.newPattern(free, 8, 64);
-                    all.push(Object.assign(M.newSong(), { order: [free] }));
-                    U.song = all.length - 1;
+                    all[num] = Object.assign(M.newSong(), { order: [free] });
+                    U.song = num;
                 });
             }, B.SEL, { plus: true });
             if (!s) return;
-            if (a === "CLONE") U.edit(() => {            /* after the song, a copy */
-                const c = structuredClone(s); c.name = (s.name.slice(0, 12) + " 2").trim();
-                const after = before.slice();
-                after.splice(i + 1, 0, c);
-                relist(before, after); U.song = i + 1;
+            if (a === "CLONE") U.edit(() => {            /* a copy, at the smallest number free */
+                const c = structuredClone(s), num = M.freeSong();
+                c.name = (s.name.slice(0, 12) + " 2").trim();
+                all[num] = c;
+                U.song = num;
             });
             if (a === "DELETE") {                            /* (ITS PATTERNS TOO, ticked at first: the song's own) */
                 const own = M.songOwn(s), k = own.items.length;
@@ -110,14 +113,17 @@
                     if (x !== "DELETE") return;
                     const np = rs[0].on ? k : 0;
                     const ok = U.edit(() => {
-                        const was = M.state.songs.slice(), after = was.filter(y => y !== s);
-                        relist(was, after); U.song = U.clamp(i, 0, after.length - 1);
+                        const at = placeOf(i);
+                        M.state.songs[i] = null;         /* (its number free: the others keep theirs) */
+                        P.songsRemap(n => n === i ? null : n);
+                        const ns = M.songNums();
+                        U.song = ns.length ? ns[U.clamp(at, 0, ns.length - 1)] : 0;
                         if (np) for (const p of own.items) M.state.patterns[p.n] = null;
                     });
                     if (ok && np) U.toast("SONG " + M.hex(i) + " DELETED, " + (np === 1 ? "1 PATTERN TOO" : np + " PATTERNS TOO"));
                 }, null, { sub: s.name, foot: own.shared ? own.shared + " SHARED WITH OTHER SONGS STAY" : "", bare: true });
             }
-            if (a === "MOVE") { mv = { from: i, at: i }; U.toast("SELECT MOVES IT, SEL PUTS IT DOWN"); }
+            if (a === "MOVE") { mv = { from: placeOf(i), at: placeOf(i) }; U.toast("SELECT MOVES IT, SEL PUTS IT DOWN"); }
             if (a === "RENAME") rename(s);
         });
     }
@@ -175,8 +181,8 @@
         combines: [],
         editing: (what, key) => what === "time" && key === propsSong && U.overlays.includes(propsO),
         page() {                                             /* the song at the cursor of how many: `3/18` */
-            const n = M.state.songs.length;
-            return n ? M.pageOf(mv ? mv.at : U.song, n) : null;
+            const n = M.songNums().length;
+            return n ? M.pageOf(mv ? mv.at : placeOf(U.song), n) : null;
         },
         sub: () => [null, "REPEAT", "NEXT"][P.playMode],    /* the play mode, but ONE PLAY */
         lit(b) { if (b === B.EDIT && order) return 1; if (b === B.SEL && mv) return 1; if (b === B.SEQ) return P.playMode ? 1 : .25; },
@@ -196,11 +202,11 @@
         knob(e, s, coarse) {
             const sg = song();
             if (!order) {
-                const n = M.state.songs.length;
+                const nums = M.songNums(), n = nums.length;
                 if (e === E.SELECT && mv) mv.at = U.clamp(mv.at + Math.sign(s), 0, n - 1);   /* a song afloat */
-                else if (e === E.SELECT) {
+                else if (e === E.SELECT && n) {
                     const was = U.song;
-                    U.song = U.clamp(U.song + s, 0, n - 1);
+                    U.song = nums[U.clamp(Math.max(placeOf(U.song), 0) + s, 0, n - 1)];
                     if (U.song !== was) { pos = 0; picked = false; }   /* (another song: its own place, else its first) */
                 } else if (e === E.ALGORITHM && sg && sg.order.length) {  /* the position PLAY starts from; playing, only the box */
                     pos = U.clamp(startPos() + s, 0, sg.order.length - 1);
@@ -261,7 +267,7 @@
         draw() {
             /* a song afloat (MOVE) is drawn at the place it would go, boxed yellow. The list scrolls a song at
              * a time, the cursor kept in the middle, as the song list's (specs/ui/screens/songs.md) */
-            const songs = listed(), cur = mv ? mv.at : U.song, top = Math.max(0, Math.min(cur - (LIST >> 1), songs.length - LIST));
+            const nums = M.songNums(), songs = listed(), cur = mv ? mv.at : placeOf(U.song), top = Math.max(0, Math.min(cur - (LIST >> 1), songs.length - LIST));
             const playingSong = M.state.songs[P.playingSong()];
             for (const [x, w] of [[8, "NR"], [26, "NAME"], [132, "BPM"], [156, "LEN"], [186, "TIME"]])
                 D.text(x, Y0 + 2, F.T, w, D.CYAN);           /* (the column names, each over its column; LEN: the positions) */
@@ -270,7 +276,7 @@
                 if (on && !order) D.box(0, y - 1, 240, 13, mv ? D.YELLOW : D.WHITE);
                 if (isPlaying && P.playing) D.play(1, y + 1, D.GREEN);
                 const col = on ? D.WHITE : D.LGREY;
-                D.text(8, y, F.T, M.hex(i), on ? D.WHITE : D.DGREY);
+                D.text(8, y, F.T, M.hex(nums[i]), on ? D.WHITE : D.DGREY);
                 D.text(26, y, F.T, s.name, isPlaying && P.playing ? D.GREEN : col);   /* (green while it plays) */
                 D.text(132, y, F.T, String(M.bpm(s)).padStart(3), col);
                 D.text(156, y, F.T, String(s.order.length).padStart(3), col);
@@ -279,7 +285,7 @@
             const s = song(), y0 = Y0 + 16 + LIST * 13 + 4;
             D.hline(0, y0 - 3, 240, D.DGREY);
             if (!s) {
-                if (!M.state.songs.length) D.text(0, y0, F.T, "NO SONGS: SEL MAKES ONE OR UPLOAD A DISK", D.DGREY);
+                if (!nums.length) D.text(0, y0, F.T, "NO SONGS: SEL MAKES ONE OR UPLOAD A DISK", D.DGREY);
                 return;
             }
             D.runs(0, y0, F.T, [["ORDER ", D.CYAN], [s.name, D.WHITE], [order ? "  (EDIT)" : "", D.LBLUE]]);

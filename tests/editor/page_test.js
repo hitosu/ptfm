@@ -14,7 +14,8 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const OUT = path.join(ROOT, "build", "editor", "page");
 const PAGE = "file://" + path.join(ROOT, "dist", "editor", "editor.html") + "?virtual";
 const PORT = +(process.env.PTFM_PAGE_PORT || 9339), HOST = "http://127.0.0.1:" + PORT;
-const ORDER = ["files", "dialogs", "tabs", "pictures", "keys", "new", "backup", "down", "whole", "optimize", "narrow"];
+const ORDER = ["files", "dialogs", "tabs", "pictures", "keys", "new", "backup", "down", "whole", "optimize", "slices", "recorder",
+    "toolong", "favorites", "slots", "sampler", "narrow", "loops_shift", "seldisk", "builtin", "renumber"];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let checks = 0, fails = 0;
 function check(ok, what) {
@@ -37,7 +38,8 @@ async function startChrome() {
     const profile = path.join(OUT, "chrome");
     fs.rmSync(profile, { recursive: true, force: true });
     const proc = spawn(bin, ["--headless=new", "--remote-debugging-port=" + PORT, "--user-data-dir=" + profile, "--window-size=1400,900",
-        "--no-first-run", "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required"], { stdio: "ignore" });
+        "--no-first-run", "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required",
+        "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"], { stdio: "ignore" });   /* (the recorder's input: a fake one) */
     for (let i = 0; i < 100; i++) {
         try { if ((await fetch(HOST + "/json/version")).ok) return proc; } catch (e) { /* (not up yet) */ }
         await sleep(100);

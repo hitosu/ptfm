@@ -35,8 +35,8 @@
 static uint32_t fm1_lcd_timeouts;
 
 /* the backlight (PA2, active low) driven on, alone: the same line enables the keys' and buttons' matrix, which the
- * boot ROM and the update loader leave undriven, so the rescue key's early scan (device/recovery.c, before
- * fm1_lcd_hw_init) needs it first. Driven once, never toggled */
+ * boot ROM leaves undriven, so the start check's scan for OCT- (fw/stub, before the firmware's fm1_lcd_hw_init) needs
+ * it first. Driven once, never toggled */
 FM1_INLINE void fm1_lcd_backlight_on(void)
 {
     FM1_LCD_PA_OUT &= ~FM1_LCD_BL;

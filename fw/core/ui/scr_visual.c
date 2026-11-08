@@ -23,6 +23,8 @@ static const int16_t ZOOM[6] = {128, 256, 384, 512, 768, 1024};
 static struct {
     uint8_t view, zoom, gain, stereo, freeze;
     uint32_t last;                      /* the last grab */
+} vis = {.zoom = 2, .gain = 3, .stereo = 1};
+static struct {                         /* (SIZE: the views' buffers apart, all 0 at the start: .bss, not the image) */
     int16_t sc[2][240];                 /* SCOPE: each column's sample, left and right */
     uint8_t wave[240];                  /* WAVE: a frame's peak, 0-255; the newest last */
     uint8_t nwave;
@@ -31,7 +33,7 @@ static struct {
     pl_voice_info_t vi[PL_VOICES_MOST]; /* (the voices heard: the pool's first 16; past them only notes fading out
                                          * of their places or parked, unheard) */
     int8_t vs[PL_VOICES_MOST][VS_N];    /* VOICES: each voice's scope, / 256 */
-} vis = {.zoom = 2, .gain = 3, .stereo = 1};
+} visb;
 
 /* The mascot, FOMA (specs/ui/screens/visual.md#foma; its name only in the texts): a little FM-1 with a cat's ears,
  * flying as Nyan Cat does, facing right, but bouncing round the body as a DVD player's logo does (a new colour at
@@ -128,7 +130,7 @@ static void mas_draw(void)
         int k = i * MAS_S, a = k < 8 ? 0 : k - 8, b = k + 9 > 240 ? 240 : k + 9;
         for (int c = 0; c < 2; c++) {
             int32_t sum = 0;
-            for (int j = a; j < b; j++) sum += vis.sc[c][j];
+            for (int j = a; j < b; j++) sum += visb.sc[c][j];
             e[c][i] = (int16_t)(sum / (b - a));
         }
     }
@@ -205,7 +207,7 @@ static void spectrum(const int16_t *lr, int32_t *re, int32_t *im)
     for (int k = 0; k < FFT_N / 2; k++) {
         uint64_t m = fxm_sqrt((uint64_t)((int64_t)re[k] * re[k] + (int64_t)im[k] * im[k]));
         int db = m ? fxm_db(m, 32768) / 256 : -128;
-        vis.spec[k] = (int8_t)ui_clamp(db, -128, 0);
+        visb.spec[k] = (int8_t)ui_clamp(db, -128, 0);
     }
 }
 static void grab(void)
@@ -225,9 +227,9 @@ static void grab(void)
     base = MASTER_N - got;
     int pk = 0;
     for (int i = 0; i < 2 * MASTER_N; i++) { int a = lr[i] < 0 ? -lr[i] : lr[i]; if (a > pk) pk = a; }
-    if (vis.nwave == 240) memmove(vis.wave, vis.wave + 1, 239);
-    else vis.nwave++;
-    vis.wave[vis.nwave - 1] = (uint8_t)(pk >> 7);
+    if (visb.nwave == 240) memmove(visb.wave, visb.wave + 1, 239);
+    else visb.nwave++;
+    visb.wave[visb.nwave - 1] = (uint8_t)(pk >> 7);
     /* SCOPE: from the left channel's first rising zero crossing, ZOOM's window over 240 columns (within what
      * the player kept). On FOMA's view (its tail's edges) taken anew once a step only, a row while playing */
     int len = ZOOM[vis.zoom] < got ? ZOOM[vis.zoom] : got > 0 ? got : 1, z = base;
@@ -237,22 +239,22 @@ static void grab(void)
         for (int x = 0; x < 240; x++) {
             int i = z + x * len / 240;
             if (i >= MASTER_N) i = MASTER_N - 1;
-            vis.sc[0][x] = lr[2 * i];
-            vis.sc[1][x] = lr[2 * i + 1];
+            visb.sc[0][x] = lr[2 * i];
+            visb.sc[1][x] = lr[2 * i + 1];
         }
     }
     spectrum(lr, (int32_t *)scratch, (int32_t *)(scratch + 4 * FFT_N));     /* (the oldest frames' bytes) */
     store_scratch_claim(0);
-    player_levels(vis.lv);
-    int n = player_voices_now(vis.vi, PL_VOICES_MOST);
-    for (int i = n; i < PL_VOICES_MOST; i++) vis.vi[i].on = 0;
+    player_levels(visb.lv);
+    int n = player_voices_now(visb.vi, PL_VOICES_MOST);
+    for (int i = n; i < PL_VOICES_MOST; i++) visb.vi[i].on = 0;
     /* a voice's scope: every frame the player keeps of it (its last block, 64), across the VS_N points; only what
      * it gave is read */
     int16_t s[64];
     for (int i = 0; i < n; i++) {
-        if (!vis.vi[i].on) continue;
+        if (!visb.vi[i].on) continue;
         int got = player_scope(i, s, (int)(sizeof s / sizeof s[0]));
-        for (int k = 0; k < VS_N; k++) vis.vs[i][k] = got > 0 ? (int8_t)(s[k * got / VS_N] >> 8) : 0;
+        for (int k = 0; k < VS_N; k++) visb.vs[i][k] = got > 0 ? (int8_t)(s[k * got / VS_N] >> 8) : 0;
     }
 }
 static void tick(void)
@@ -279,7 +281,7 @@ static void draw(void)
         int rows = n / 4, tw = 60, th = H / rows;
         for (int i = 0; i < n; i++) {
             int x = (i % 4) * tw, y = Y0 + i / 4 * th;
-            const pl_voice_info_t *v = &vis.vi[i];
+            const pl_voice_info_t *v = &visb.vi[i];
             g_box(x, y, tw - 1, th - 1, C_DGREY);
             if (i >= PL_VOICES_MOST || !v->on) { g_text(x + 3, y + 2, &FONT_T, "--", C_DGREY); continue; }
             int col = ENG_COL[ENG_OF[v->engine < 6 ? v->engine : 0]];
@@ -292,7 +294,7 @@ static void draw(void)
             g_text(x + tw - 22, y + 2, &FONT_T, note, C_LGREY);
             int mid2 = 2 * (y + 14) + (th - 16), amp2 = th - 18, py = 0;   /* x 2: halves */
             for (int k = 0; k < VS_N; k++) {
-                int64_t s = (int64_t)vis.vs[i][k] * 256 * g8 * 6 / 256;   /* the sample x gain x 6, 32768 = 1 */
+                int64_t s = (int64_t)visb.vs[i][k] * 256 * g8 * 6 / 256;   /* the sample x gain x 6, 32768 = 1 */
                 if (s > 32768) s = 32768;
                 if (s < -32768) s = -32768;
                 int yy = fxm_round((int64_t)mid2 * 32768 - s * amp2, 65536);
@@ -314,7 +316,7 @@ static void draw(void)
             g_hline(0, fxm_round(mid2, 2), 240, C_DEEP + C_DGREY);
             int py = 0;
             for (int x = 0; x < 240; x++) {
-                int64_t s = ch < 0 ? (vis.sc[0][x] + vis.sc[1][x]) / 2 : vis.sc[ch][x];
+                int64_t s = ch < 0 ? (visb.sc[0][x] + visb.sc[1][x]) / 2 : visb.sc[ch][x];
                 s = s * g8 * 2 / 256;
                 if (s > 32768) s = 32768;
                 if (s < -32768) s = -32768;
@@ -327,9 +329,9 @@ static void draw(void)
         return;
     }
     if (vis.view == V_WAVE) {
-        int mid = Y0 + H / 2, n = vis.nwave;
+        int mid = Y0 + H / 2, n = visb.nwave;
         for (int x = 0; x < n; x++) {
-            int64_t a = (int64_t)vis.wave[x] * 128 * g8 * 3 / (256 * 2);    /* peak x gain x 1.5, 32768 = 1 */
+            int64_t a = (int64_t)visb.wave[x] * 128 * g8 * 3 / (256 * 2);    /* peak x gain x 1.5, 32768 = 1 */
             if (a > 32768) a = 32768;
             int64_t h2 = a * (H - 8) / 32768;                               /* h x 2 */
             int top = fxm_round((int64_t)2 * mid - h2, 2), hh = fxm_round(h2 * 2, 2);
@@ -346,7 +348,7 @@ static void draw(void)
             int i0 = (int)(f0 * (FFT_N / 2) / (22050LL << 16)), i1 = (int)(f1 * (FFT_N / 2) / (22050LL << 16));
             if (i1 < i0 + 1) i1 = i0 + 1;
             int m = -128;
-            for (int i = i0; i < i1 && i < FFT_N / 2; i++) if (vis.spec[i] > m) m = vis.spec[i];
+            for (int i = i0; i < i1 && i < FFT_N / 2; i++) if (visb.spec[i] > m) m = visb.spec[i];
             int v = m + 90 + vis.gain * 4;                                  /* dB */
             int h = ui_clamp(v, 0, 80) * (H - 16) / 80;
             g_rect(b * 6, Y0 + H - 12 - h, 5, h, b < 12 ? C_LRED : b < 26 ? C_YELLOW : C_LCYAN);
@@ -358,7 +360,7 @@ static void draw(void)
     }
     for (int t = 0; t < 16; t++) {                      /* LEVELS: a meter for each track */
         int x = t * 15, full = H - 20;
-        int64_t a = (int64_t)vis.lv[t] * g8 * 4 / 256;
+        int64_t a = (int64_t)visb.lv[t] * g8 * 4 / 256;
         if (a > 32768) a = 32768;
         int h = (int)(a * full / 32768);
         g_rect(x + 2, Y0 + 2, 11, full, C_DEEP + C_DGREY);

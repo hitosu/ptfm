@@ -33,6 +33,8 @@ int g_ink(int c);                       /* text on a fill of colour c: C_WHITE, 
 /* clipping, in screen coordinates (the strip's own rows are clipped besides) */
 void g_clip(int x, int y, int w, int h);
 void g_noclip(void);
+int g_shown(int y, int h);              /* 1: some of the rows y .. y + h - 1 are drawn now (the strip's, within the clip):
+                                         * what lies wholly outside need not be worked out */
 
 void g_clear(int c);
 void g_px(int x, int y, int c);
@@ -53,7 +55,7 @@ int g_tw(const ui_font_t *f, const char *s);
 int g_centre(const ui_font_t *f, const char *s, int x0, int w);
 
 /* runs: texts in colours one after another */
-typedef struct { const char *s; uint8_t c; } g_run_t;
+typedef struct { const char *s; uint32_t c; } g_run_t;
 int g_runs(int x, int y, const ui_font_t *f, const g_run_t *r, int n);
 int g_runs_crop(int x, int y, const ui_font_t *f, const g_run_t *r, int n, int r0, int r1);
 int g_runs_w(const ui_font_t *f, const g_run_t *r, int n);

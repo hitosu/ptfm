@@ -32,7 +32,7 @@ is the reference that matches the specs: each file here names the playground fil
 | `fxm.c` | fixed-point maths for the pictures: sin, log2, exp2, dB, tanh, sqrt |
 | `ui_punch.c` | the punch-ins played live (FX held + a white key, FX LIVE), ARP holding one on |
 | `scr_visual.c` | VISUAL: the voices' scopes, the output's scope, wave, spectrum (an integer FFT), the tracks' levels |
-| `scr_loops.c`, `lp_rec.c` | LOOPS: the loop station, its pattern recorder (its loops: `../play/loops.c`; RECORD LIVE's song: `../play/live.c`) |
+| `scr_loops.c`, `lp_rec.c` | LOOPS: the loop station, its pattern recorder (its loops: `../play/loops.c`; RECORD LIVE's song: `../play/live.c`; the stage: `../play/player.c` and `../store/store.c`; the cells both read: `../play/rec.c`) |
 | `scr_dj.c` | DJ: the decks, the crossfader, the list (the stand and the decks in the player: `../play/dj.c`) |
 
 ## Adding a screen
@@ -44,7 +44,7 @@ is the reference that matches the specs: each file here names the playground fil
    `back()` (HOME tap: 1 if it closed something of its own), `sub` / `page` / `seq` / `footer` (texts the
    frame draws; return a static buffer), `lit(b)` (an LED's level or `LV_NONE`), `key_leds(keys)`,
    `sel_lines` (SEL held's layer), `play_down` / `play_up` (a PLAY of its own), `rec`, `hold(b)`,
-   `has_combo(held, b)` with `combo(held, b)` (button + button, either order), `hold_action(b)`, `can_play`,
+   `has_combo(held, b)` with `combo(held, b)` (button + button, either order), `press(b)`, `can_play`,
    `tick` (every pass while on screen), `enter` / `leave`; for LOOPS and DJ: `mute_key` / `solo_key` /
    `mute_leds` / `home_area` (HOME + white keys on their own things), `foot_hints` (the footer's left as
    key hints), `presets` / `presets_cart` (PRESETS of their own), `no_keyboard`.

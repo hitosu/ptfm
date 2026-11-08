@@ -101,7 +101,7 @@ static void lay_disk(const char *path)
         p = 16;
         for (uint32_t i = 0; i < count; i++) {
             uint32_t len = d[p + 4] | d[p + 5] << 8 | d[p + 6] << 16 | (uint32_t)d[p + 7] << 24;
-            int kind = d[p], audio = kind == REC_AUDIO;
+            int kind = d[p], audio = store_is_audio((uint8_t)kind);
             if (kind < 0xE0 && audio == pass) { put(d + p, d + p + 12, len, audio); hdrs[nh++] = last_hdr; }
             p = (p + 12 + len + 3) & ~3u;
         }
@@ -271,7 +271,7 @@ int main(int argc, char **argv)
     turn(K_SELECT, 2); tap(B_SEL); shot("20bb_fusion_menu"); tap(B_HOME);
     turn(K_SELECT, -2); tap(B_SEL); run(50); shot("20c_fusion_editor");
     tap(B_HOME); tap(B_HOME);
-    ui_set_inst(0x0100);
+    ui_set_inst(0xA000);
     ui_set_inst((uint16_t)(fu << 8 | first_empty(fu)));
     tap(B_EDIT); shot("20d_fusion_fill"); tap(B_HOME);
     tap(B_ENV); shot("21_cartridges"); tap(B_HOME);
@@ -334,7 +334,7 @@ int main(int argc, char **argv)
     {
         uint8_t nums[64];
         int np = store_list(REC_PATTERN, nums, 64);
-        for (int i = 0; i < np && Q == P; i++) if (nums[i] != P && nums[i] < 0xF0) Q = nums[i];
+        for (int i = np - 1; i >= 0 && Q == P; i--) if (nums[i] != P && nums[i] < 0xF0) Q = nums[i];   /* (a song's: the disk's last) */
     }
     check(Q != P, "another pattern to try REVERT on");
     rec_cell_t u0, u1;
@@ -443,14 +443,14 @@ int main(int argc, char **argv)
     tap(B_OCTP); tap(B_GLO);
     check(ui_pattern_rows(P) == rows0 - 1, "GLO's ROWS: one row less (asked first when cells are dropped)");
     /* the pattern list's NEW */
-    int free0 = ed_first_free();
+    int free0 = rec_free_pattern();
     tap(B_ENV); tap(B_SEL); turn(K_SELECT, -20); tap(B_SEL); run(100);
     check(free0 >= 0 && ui_pattern_rows((uint8_t)free0) == 64 && ui_pattern_tracks((uint8_t)free0) == 8, "the pattern list's NEW: 8 x 64 at the first free number");
     tap(B_HOME);
     /* the clipboard's 2 KB (ED_CLIP), each track's 0x00 included: track 0 128 cells of 13 B (note, volume, 4
      * commands) + 0x00 = 1,665 B, track 1 29 such + one of 5 B (1 command) + 0x00 = 383 B: 2,048 B, it just fits;
      * with an empty track 2 after them it does not (and nothing is written past the clipboard) */
-    int big = ed_first_free();
+    int big = rec_free_pattern();
     rec_cell_t fc = {RC_NOTE | RC_VOL | RC_CMD, 48, 0, 0, 0x40, 4, {{1, 1}, {2, 2}, {3, 3}, {4, 4}}};
     ok = big >= 0 && !ed_new_pattern((uint8_t)big, 3, 128, 1);
     for (int r = 0; r < 128 && ok; r++) ok = !ed_put_cell((uint8_t)big, r, 0, &fc);
@@ -465,7 +465,7 @@ int main(int argc, char **argv)
     home_key(5);
     ui_set_inst((uint16_t)(dx << 8 | 3));
     ui_set_inst((uint16_t)(fu << 8 | first_empty(fu)));
-    int fp = ed_first_free();
+    int fp = rec_free_pattern();
     tap(B_EDIT);
     const char *w = ui_top() ? ui_overlay_words(ui_top()) : 0;
     if (w && strcmp(w, "A NEW PATTERN FOR THIS SLOT")) { tap(B_OCTP); run(50); w = ui_top() ? ui_overlay_words(ui_top()) : 0; }  /* (the EDITOR's own pattern's warning first) */

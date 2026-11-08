@@ -16,8 +16,6 @@ void plat_unlock(uint32_t was) { (void)was; }
 uint32_t plat_usb_resets(void) { return 0; }
 void remote_dj_put(uint8_t *p) { (void)p; }
 int remote_send(uint8_t cmd, const uint8_t *b, uint32_t len) { (void)cmd; (void)b; (void)len; return 0; }
-int bench_sysex(int cmd) { (void)cmd; return 0; }
-void bench_poll(void) {}
 const ui_screen_t *ui_screen_now(void) { return 0; }
 void ui_toast(const char *text) { (void)text; }
 const char *ui_txt_s(const char *s) { return s; }

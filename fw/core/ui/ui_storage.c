@@ -20,7 +20,7 @@ static void prob_text(const store_problem_t *p, char *s, int max)
     switch (p->kind) {
     case REC_SONG: ui_fmt(what, sizeof what, T("SONG %02X"), p->num); break;
     case REC_PATTERN: ui_fmt(what, sizeof what, T("PATTERN %02X"), p->num); break;
-    case REC_AUDIO: ui_fmt(what, sizeof what, T("SAMPLE %02X:%02X"), p->num, p->sub); break;
+    case REC_SAMPLE: ui_fmt(what, sizeof what, T("SAMPLE %02X"), p->num); break;
     case REC_LOOPS: ui_fmt(what, sizeof what, "%s", T("LOOPS")); break;
     case REC_DJ: ui_fmt(what, sizeof what, "%s", T("DJ")); break;
     case REC_SETTINGS: ui_fmt(what, sizeof what, "%s", T("SETTINGS")); break;
@@ -28,7 +28,8 @@ static void prob_text(const store_problem_t *p, char *s, int max)
     default: ui_fmt(what, sizeof what, T("CARTRIDGE %02X"), p->num); break;
     }
     ui_fmt(s, max, "%s%s", what,
-           p->what == STORE_FELL_BACK ? T(": AN OLDER VERSION") : p->what == STORE_MISSING ? T(": MISSING") : T(": DAMAGED"));
+           p->what == STORE_FELL_BACK ? T(": AN OLDER VERSION") : p->what == STORE_MISSING ? T(": MISSING") :
+           p->what == STORE_DIFFER ? T(": ENTRY AND AUDIO DIFFER") : T(": DAMAGED"));
 }
 
 static void pl_knob(ui_overlay_t *o, int e, int s, int c)

@@ -3,7 +3,7 @@
   "version": 2,
   "patterns": [
     {
-      "number": 18,
+      "number": 184,
       "tracks": 12,
       "edit_step": 1,
       "what": "intro: the hook alone, the FM BASS from bar 3, the drum machine from bar 5; a tom fill",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "number": 19,
+      "number": 185,
       "tracks": 12,
       "edit_step": 1,
       "what": "verse: VOICE LEAD sings over POLY PAD, the MARIMBA's ostinato, the bass's octaves",
@@ -275,7 +275,7 @@
       ]
     },
     {
-      "number": 20,
+      "number": 186,
       "tracks": 12,
       "edit_step": 1,
       "what": "chorus: the hook, BRASS SECT stabs, claps; an ORCH HIT",
@@ -411,7 +411,7 @@
       ]
     },
     {
-      "number": 21,
+      "number": 187,
       "tracks": 12,
       "edit_step": 1,
       "what": "break: FM VOICES, ORCH HITs, a TUBE BELL; the toms and claps build",
@@ -547,7 +547,7 @@
       ]
     },
     {
-      "number": 22,
+      "number": 188,
       "tracks": 12,
       "edit_step": 1,
       "what": "peak: the last chorus, the hook doubled by SAW LEAD, the stabs, the MARIMBA, ORCH HITs",
@@ -683,7 +683,7 @@
       ]
     },
     {
-      "number": 23,
+      "number": 189,
       "tracks": 12,
       "edit_step": 1,
       "what": "outro: the hook, its Bb C A once more, a tom fill; the last Dm with an ORCH HIT",

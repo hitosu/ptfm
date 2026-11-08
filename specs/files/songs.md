@@ -26,6 +26,9 @@ Nothing refers to songs, so moving one needs no reference update.
 | then | spare, 8 B |
 
 - **Size:** ~170 B for 20 positions and 10 tracks; at most ~450 B.
+- **A position naming a pattern that does not exist** (deleted: DELETE keeps the order as it is,
+  [references.md](references.md#a-reference-to-nothing)) plays 64 empty rows at the song's time, and is drawn grey;
+  `FF` (`--`) names no pattern on purpose and plays the same, not grey.
 - **Converted modules keep their sound:** TEMPO and TICKS A ROW from their BPM and speed, the pans from
   their channels (MOD's left, right, right, left; S3M's pan table), their global volume and restart
   position, and their slides' kind: Amiga periods for MOD and S3M, linear for XM; S3M files saved

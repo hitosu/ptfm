@@ -2,6 +2,9 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* The sample voice and PTR's decoder: see samp.h; the format is specs/files/ptr.md. */
 #include "samp.h"
+#ifndef PLAT_COLD
+#define PLAT_COLD                        /* (a screen's work: built for size on the FM-1, core/plat.h) */
+#endif
 
 /* --------------------------------------------------------- decoder --- */
 #define PTR_BLOCK 256
@@ -522,7 +525,7 @@ void samp_render(samp_voice_t *v, int32_t *out)
 }
 
 /* the envelope's gain now, Q15 (1.0 full), without the engine's output scale: the screens' picture of it */
-int32_t samp_env_q15(const samp_voice_t *v) { return env_gain(ENV_FULL - v->level); }
+PLAT_COLD int32_t samp_env_q15(const samp_voice_t *v) { return env_gain(ENV_FULL - v->level); }
 
 /* a block of a sounding voice's time without its sound (the player's parked voices): its envelope and its place
  * in the sample go on as samp_render's (the loop, a ping-pong's way, END); nothing is decoded: the window is

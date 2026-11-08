@@ -8,7 +8,7 @@ module.exports = async api => {
     const menu = await evaluate(`(() => { const b = [...document.querySelectorAll(".panel[data-side=L] .ptools button")].find(x => x.textContent.startsWith("+ NEW")); b.click();
         const m = document.querySelector(".menu"); return m ? [...m.querySelectorAll("button")].map(x => x.textContent).join(" | ") : ""; })()`);
     check(menu === "SONG (WITH AN EMPTY PATTERN) | PATTERN | DX7 CARTRIDGE | JUNO-106 CARTRIDGE | TB-303 CARTRIDGE | CHIP CARTRIDGE | FUSION CARTRIDGE | " +
-        "SAMPLER (DROP SOUNDS ON IT) | SETTINGS | MIDI MAP | LOOPS | DJ SETUP", "new: the menu: " + menu);
+        "SAMPLER (ITS INSTRUMENTS NAME SAMPLES) | FAVORITES (INSTRUMENTS OF ANY CARTRIDGE) | SETTINGS | MIDI MAP | LOOPS | DJ SETUP", "new: the menu: " + menu);
     await shot("01-menu");
     await evaluate("ED.ui.closeMenu(); 1");
     const want = { 0x21: "NEW SONG · 1 · 1", 0x20: "8 x 64", 1: "NEW DX7 · 1", 2: "NEW JUNO-106 · 1", 3: "NEW TB-303 · 1", 4: "NEW SAMPLER · 0", 5: "NEW FUSION · 1",

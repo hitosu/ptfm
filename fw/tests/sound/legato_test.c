@@ -193,7 +193,7 @@ int main(int argc, char **argv)
     legato("DX7", 0xF0, 0, EN_DX7);
     legato("JUNO-106", 0xF8, 0, EN_JUNO);
     legato("CHIP", 0xF9, 0, EN_CHIP);
-    legato("sampler", 0x03, 0, EN_SAMP);
+    legato("sampler", 0xA2, 0, EN_SAMP);
     {   /* LEG where it plays a plain note: the same as without it */
         const cell_t off0[3] = {{0, 60, 0xF0, 0, 0x7F, 0, {{0}}}, {2, REC_NOTE_OFF, -1, 0, -1, 0, {{0}}},
                                 {4, 64, -1, 0, -1, 0, {{0}}}};
@@ -201,8 +201,8 @@ int main(int argc, char **argv)
                                 {4, 64, -1, 0, -1, 1, {{0xD3, 0}}}};
         const cell_t oth0[2] = {{0, 60, 0xF0, 0, 0x7F, 0, {{0}}}, {4, 64, 0xF0, 1, -1, 0, {{0}}}};
         const cell_t oth1[2] = {{0, 60, 0xF0, 0, 0x7F, 0, {{0}}}, {4, 64, 0xF0, 1, -1, 1, {{0xD3, 0}}}};
-        const cell_t fus0[2] = {{0, 60, 0x06, 0, 0x7F, 0, {{0}}}, {4, 64, -1, 0, -1, 0, {{0}}}};
-        const cell_t fus1[2] = {{0, 60, 0x06, 0, 0x7F, 0, {{0}}}, {4, 64, -1, 0, -1, 1, {{0xD3, 0}}}};
+        const cell_t fus0[2] = {{0, 60, 0xA5, 0, 0x7F, 0, {{0}}}, {4, 64, -1, 0, -1, 0, {{0}}}};
+        const cell_t fus1[2] = {{0, 60, 0xA5, 0, 0x7F, 0, {{0}}}, {4, 64, -1, 0, -1, 1, {{0xD3, 0}}}};
         const cell_t tbs0[2] = {{0, 48, 0xFA, 0, 0x7F, 1, {{0xC1, 0}}}, {4, 52, -1, 0, -1, 0, {{0}}}};
         const cell_t tbs1[2] = {{0, 48, 0xFA, 0, 0x7F, 1, {{0xC1, 0}}}, {4, 52, -1, 0, -1, 1, {{0xD3, 0}}}};
         const cell_t tb0[2] = {{0, 48, 0xFA, 0, 0x7F, 0, {{0}}}, {4, 52, -1, 0, -1, 0, {{0}}}};

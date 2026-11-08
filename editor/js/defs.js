@@ -245,11 +245,28 @@ const CONTROLS = KNOBS.concat(["MASTER"], BUTTONS, Array.from({ length: 27 }, (_
 const MAP_KINDS = ["ABSOLUTE KNOB", "RELATIVE: TWO'S COMPLEMENT", "RELATIVE: OFFSET 64", "RELATIVE: SIGN AND MAGNITUDE",
     "MOMENTARY PAD", "TOGGLE PAD"];
 
+/* ---- a loop's SHIFT (files/loops.md): stored 0-127, read modulo the length n; shown signed the nearer way round as the
+ * FM-1's LOOPS screen does (the half way round is +: 24 of 48 is +24) ---- */
+const shiftSigned = (s, n) => { s = ((s % n) + n) % n; return s > n / 2 ? s - n : s; };
+const shiftText = (s, n) => { const v = shiftSigned(s, n); return v > 0 ? "+" + v : String(v); };
+const shiftHint = (s, n) => {
+    const v = shiftSigned(s, n), a = Math.abs(v);
+    return v ? "SHIFT " + shiftText(s, n) + ": PLAYS " + a + (a === 1 ? " ROW " : " ROWS ") + (v > 0 ? "LATER" : "EARLIER") : "SHIFT 0: PLAYS AS STORED";
+};
+/* an entry, shown (`+3`, `-3`) or stored (`29`), -(n-1) to n-1 -> the stored SHIFT (0 to n-1), else null */
+const shiftParse = (txt, n) => {
+    const t = String(txt).trim();
+    if (!/^[+-]?\d+$/.test(t)) return null;
+    const v = parseInt(t, 10);
+    return Math.abs(v) < n ? (v + n) % n : null;
+};
+
 /* ---- kinds ---- */
-const KIND_NAME = { 0x01: "DX7", 0x02: "JUNO-106", 0x03: "TB-303", 0x04: "SAMPLER", 0x05: "FUSION", 0x06: "CHIP", 0x10: "SAMPLE", 0x20: "PATTERN",
+const KIND_NAME = { 0x01: "DX7", 0x02: "JUNO-106", 0x03: "TB-303", 0x04: "SAMPLER", 0x05: "FUSION", 0x06: "CHIP", 0x10: "OLD SAMPLE AUDIO", 0x11: "SAMPLE", 0x20: "PATTERN",
     0x21: "SONG", 0x22: "LOOPS", 0x23: "DJ", 0x30: "SETTINGS", 0x31: "MIDI MAP", 0xE0: "NOTES" };
 
 ED.defs = { H, sgn, list, FX, FX_NAMES, FX_CODES, NV, knobSteps, knobValue, knobText, knobStep, fxDefaults, METRONOME_SOUNDS,
     SETTINGS, MIDI_SETTINGS, newSettings, curInst, setCurInst, GATE_STEPS, gateGet, gateSet, THEMES, DX7_OP, DX7_VOICE, JUNO, TB303, CHIP, SAMPLER_INST, ENV,
-    ENGINE, newSlot, CONTROLS, MAP_KINDS, KNOBS, BUTTONS, KIND_NAME, noteName };
+    ENGINE, newSlot, CONTROLS, MAP_KINDS, KNOBS, BUTTONS, KIND_NAME, noteName,
+    shiftSigned, shiftText, shiftHint, shiftParse };
 })(globalThis.ED = globalThis.ED || {});

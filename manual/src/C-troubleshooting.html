@@ -39,15 +39,17 @@ MASTER does not touch it (<a href="#usb-audio">chapter 16</a>).</td></tr>
 <table>
 <thead><tr><th>What happens</th><th>What to do</th></tr></thead>
 <tbody>
-<tr><td>The screen says <b>PT/FM CRASH</b>.</td><td>PT/FM stopped on an error. The FM-1 restarts by itself after a
-few seconds; what was saved is kept, edits not saved are lost. Until you switch the FM-1 off and on, it runs on one
-processor (VOICES 16 plays 12 voices at most; STATUS' DEVICE says STOPPED: AFTER A CRASH). If it happens again,
-note the numbers on the red screen.</td></tr>
-<tr><td>The FM-1 does not start, or starts in <b>USB RESCUE</b>.</td><td>After two failed starts in a row the FM-1
-waits in USB RESCUE for an install. Install the firmware again from the install page
-(<a href="#install-rescue">chapter 2</a>). To reach USB RESCUE yourself, hold <kbd>OCT-</kbd> while switching on.</td></tr>
-<tr><td>An install was cut short (a cable pulled, the power lost).</td><td>It does not go on by itself. Press INSTALL
-FIRMWARE again, from USB RESCUE if need be (<a href="#install-rescue">chapter 2</a>).</td></tr>
+<tr><td>The screen says <b>PT/FM CRASH</b>.</td><td>PT/FM stopped on an error. Note the numbers on the red screen (a
+photo is easiest): they say what went wrong where, and the version and the BUILD code under them tell exactly which
+firmware it was, so send them all when you report it. Then press any button: the FM-1 restarts. What was saved is kept, edits not saved are lost. Until
+you switch the FM-1 off and on, it runs on one processor (VOICES 16 plays 12 voices at most; STATUS' DEVICE says
+STOPPED: AFTER A CRASH).</td></tr>
+<tr><td>The FM-1 does not start, or starts in <b>UPDATE MODE</b>.</td><td>After two failed starts in a row, or with
+the firmware not whole, the FM-1 waits in UPDATE MODE for an install; its screen says why. Install the firmware again
+from the install page (<a href="#install-rescue">chapter 2</a>). To reach UPDATE MODE yourself, hold <kbd>OCT-</kbd>
+while switching on.</td></tr>
+<tr><td>An install was cut short (a cable pulled, the power lost).</td><td>Switch the FM-1 on: it starts in UPDATE
+MODE by itself. Press INSTALL FIRMWARE again (<a href="#install-rescue">chapter 2</a>).</td></tr>
 <tr><td>The install page finds no FM-1.</td><td>Close whatever else uses its MIDI port (a music program, another
 installer, another browser tab) and try again; use a USB cable that carries data (<a href="#install-trouble">chapter
 2</a>).</td></tr>
@@ -73,6 +75,17 @@ NOW (<kbd>OCT+</kbd>), then make the edit again. STATUS' EDITS FREE shows the ro
 <tr><td><samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp></td><td>The flash is full. Answer CLEAN UP
 (<kbd>OCT+</kbd>) to delete what nothing uses, or delete songs, patterns or samples yourself, then save again;
 nothing is lost meanwhile. STATUS' FLASH FREE shows the room left (<a href="#settings-tools">chapter 13</a>).</td></tr>
+<tr><td>The install page was converting the samplers and stopped (a cable pulled, the power lost, the FM-1 stopped
+answering).</td><td>Press INSTALL FIRMWARE again (if the FM-1 does not answer, switch it off and on first): the conversion
+goes on from where it stopped and the samplers converted so far and the rest are both whole (<a href="#install-firmware">chapter 2</a>).</td></tr>
+<tr><td>A sampler instrument plays nothing and its page says <samp class="msg">THE SAMPLE IS MISSING</samp>.</td><td>Its
+sample is gone (a partial upload, a disk without it). Pick another sample: K1 on SAMPLE, or SEL, REPLACE SAMPLE
+(<a href="#instruments-sampler">chapter 8</a>).</td></tr>
+<tr><td>CHECK REFERENCES lists <samp class="msg" data-t="CARTRIDGE %02X: OLDER FORM">CARTRIDGE 03: OLDER FORM</samp>, or the
+EDITOR page shows a sampler marked OLDER FORM.</td><td>The sampler is still in the older form: it plays nothing yet.
+Press INSTALL FIRMWARE again to convert it; if the page says it needs room or sample numbers, free some, or on the
+EDITOR page READ, delete what you do not need, and WRITE (<a href="#install-firmware">chapter 2</a>,
+<a href="#editor-page-fm1">chapter 17</a>).</td></tr>
 <tr><td><samp class="msg">SAVE FAILED</samp></td><td>Save again. If it keeps failing, run SETTINGS, TOOLS, CHECK
 STORAGE, which lists anything damaged (<a href="#settings-tools">chapter 13</a>).</td></tr>
 <tr><td>You want to start from nothing.</td><td>SETTINGS, TOOLS, FACTORY RESET erases everything you saved or

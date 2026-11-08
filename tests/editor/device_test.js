@@ -212,6 +212,149 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
         st = Object.assign({}, st, { R: after.items, base: after.items, fm1: { from: "write", lastSave: res.lastSave } });
     }
 
+    /* ---- samples are records of their own: a sampler and its samples written, read back byte for byte ---- */
+    {
+        /* (an FM-1 of its own, so that this block reads only what it wrote) */
+        const fw2 = await new ED.Firmware(wasm).start(null), ses2 = S.session(fw2.transport(), { timeout: 20000, blockTimeout: 20000, endTimeout: 30000 });
+        const smpr = L.find(i => i.kind === K.SAMPLER);
+        const mv = M.transfer(Object.assign(empty(), { L }), "L", [smpr.id], {});
+        const sSt = Object.assign({}, mv.st, { R: mv.st.R });
+        const nSmp = sSt.R.filter(i => i.kind === K.SAMPLE).length;
+        const wS = F.planWrite(await ses2.hello(), sSt);
+        const res2 = await F.writeTo(ses2, Object.assign({}, sSt, { fm1: { from: "empty", lastSave: null } }), {});
+        const rd2 = await F.readFrom(ses2, empty());
+        check(nSmp > 0 && res2.bad === 0 && !wS.rewritesSamples && sameRecs(M.toRecords(rd2.items), M.toRecords(sSt.R)) &&
+            rd2.items.filter(i => i.kind === K.SAMPLE).length === nSmp && !rd2.conversion,
+            "a sampler and its " + nSmp + " samples: written as records of kind 0x04 version 2 and 0x11, read back byte for byte, nothing converted");
+        const linked = rd2.items.filter(i => i.kind === K.SAMPLER).every(i => M.refs(i).every(f => rd2.items.some(x => x.id === i.link[M.lk("m", f.num)] && x.num === f.num)));
+        check(linked, "READ links every instrument to its sample's number");
+        ses2.close();
+    }
+
+    /* ---- big, small, big: 12 songs written (what they use with them, samples among it), then one song, then the 12
+     * again with the EDITOR'S PATTERN and the settings: the samples the small WRITE deleted leave their bytes in their
+     * freed blocks, which the big one writes in part; that is no damaged record (specs/files/store.md#power-on), so every
+     * mount counts none, and a READ lists every record ---- */
+    {
+        const fw3 = await new ED.Firmware(wasm).start(null), ses3 = S.session(fw3.transport(), { timeout: 20000, blockTimeout: 20000, endTimeout: 30000 });
+        const songs = L.filter(i => i.kind === K.SONG), bads = [];
+        let mv = M.transfer(Object.assign(empty(), { L }), "L", songs.slice(0, 12).map(i => i.id), {});
+        let w = await F.writeTo(ses3, mv.st, {});
+        bads.push(w.records + ":" + w.bad);
+        mv = M.transfer(Object.assign(empty(), { L }), "L", [songs[0].id], {});
+        w = await F.writeTo(ses3, mv.st, {});
+        bads.push(w.records + ":" + w.bad);
+        mv = M.transfer(Object.assign(empty(), { L }), "L", songs.slice(0, 12).map(i => i.id), {});
+        const fe3 = { id: M.newId(), side: "R", kind: K.PATTERN, num: 0xFE, orig: 0xFE, link: { cF0: M.BUILTIN },
+            recs: [{ sub: 0, ver: 1, payload: R.packPattern({ tracks: 2, rows: 8, step: 1, cells: new Map([["1,1", { note: 64, ins: 0xF000, vol: -1, cmds: [] }]]) })[0] }] };
+        const set3 = { id: M.newId(), side: "R", kind: K.SETTINGS, num: 0, orig: 0, link: {}, recs: [{ sub: 0, ver: 1, payload: (() => { const b = new Uint8Array(133); b.set(ED.defs.newSettings()); b[2] = 3; return b; })() }] };
+        const big = mv.st.R.concat([fe3, set3]);
+        w = await F.writeTo(ses3, Object.assign({}, mv.st, { R: big }), {});
+        bads.push(w.records + ":" + w.bad);
+        const rd3 = await F.readFrom(ses3, empty());
+        check(bads.every(x => x.endsWith(":0")) && sameRecs(M.toRecords(rd3.items), M.toRecords(big)),
+            "big, small, big written: each mount counts nothing damaged, READ gives every record (records:bad " + bads.join(" ") + ")");
+        ses3.close();
+    }
+
+    /* ---- an FM-1 holding the old form: READ converts as it loads; the first WRITE rewrites every sample, says so, and
+     * backs the old records up; WRITE to an FM-1 that reads only the old form converts down, NOT KEPT named ---- */
+    {
+        const lay0 = await ses.hello();
+        const d = S.parseData(demo());
+        const sams = d.files.filter(f => f.kind === K.SAMPLER).slice(0, 3), smps = d.files.filter(f => f.kind === K.SAMPLE);
+        const dn = R.downgrade(sams.concat(smps), 1);
+        const oldRecs = dn.recs;
+        /* a fake FM-1: the old records at blocks of their own, readable as the protocol reads them */
+        const mem = new Map(), recs = [];
+        let next = 0x93000;
+        oldRecs.forEach(r => {
+            const addr = next, b = new Uint8Array(16 + r.payload.length);
+            next += Math.ceil(b.length / 4096) * 4096;
+            b[0] = r.kind; b[1] = r.num; b[2] = r.sub; b[3] = r.ver;
+            b[4] = r.payload.length & 255; b[5] = r.payload.length >> 8 & 255; b[6] = r.payload.length >> 16;
+            b.set(r.payload, 16);
+            const crc = S.crc32(b.subarray(16), S.crc32(b.subarray(0, 12)));
+            b[12] = crc & 255; b[13] = crc >>> 8 & 255; b[14] = crc >>> 16 & 255; b[15] = crc >>> 24;
+            mem.set(addr, b);
+            recs.push({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, len: r.payload.length, crc: S.crc32(r.payload), addr, deleted: false, label: S.describe(r) });
+        });
+        const layOld = Object.assign({}, lay0, { records: recs });
+        const fake = { hello: async () => layOld, read: async (a, n) => { for (const [at, b] of mem) if (a >= at && a < at + b.length) return b.slice(a - at, a - at + n); throw new Error("no record at " + a); } };
+        const ro = await F.readFrom(fake, empty());
+        const cv = ro.conversion;
+        check(cv && cv.converted.length === 3 && cv.older.length === 0 && cv.samples === ro.items.filter(i => i.kind === K.SAMPLE).length && cv.samples > 0 &&
+            ro.items.filter(i => i.kind === K.SAMPLER).every(i => !i.dim && i.recs[0].ver === 2) && !ro.items.some(i => i.kind === K.AUDIO),
+            "READ of an FM-1 holding the old form: " + cv.converted.length + " samplers converted, " + cv.samples + " samples of their own (" + F.conversionText(cv).trim() + ")");
+        check(ro.items.filter(i => i.kind === K.SAMPLER).map(i => i.num).join() === sams.map(s => s.num).join(), "the samplers keep their numbers");
+        const stO = Object.assign(empty(), { R: ro.items, base: ro.items, fm1: ro.fm1 });
+        check(M.pending(stO).count === 0, "(the panel and its base are the converted records: nothing pending by the page's count)");
+        const wO = F.planWrite(layOld, stO);
+        check(wO.problems.length === 0 && wO.plan.ok && !wO.plan.upToDate && wO.rewritesSamples === oldRecs.length && wO.plan.del.length === oldRecs.length - 3 &&
+            wO.plan.write.length === M.toRecords(ro.items).length,
+            "the first WRITE: every sample rewritten (" + wO.plan.write.length + " records), the old audio removed (" + wO.plan.del.length + "), the 3 old samplers replaced in place, and said (" + wO.rewritesSamples + " old records)");
+        check(wO.backup.length === oldRecs.length && wO.seenGone === 0, "the old records are never 'seen already': all " + wO.backup.length + " in the BACKUP offered first");
+        /* the old records loaded as a backup would: converted as they load */
+        const loaded = M.fromRecords(oldRecs.map(r => ({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, payload: r.payload })), { side: "R" });
+        check(loaded.conversion && loaded.conversion.converted.length === 3, "a backup of the old records converts as it loads too");
+        /* the BACKUP offered first: the old records read from the FM-1, converted as they load, put on the TABLE with their samples */
+        {
+            let got = null, wrote = null;
+            const hybrid = { hello: async () => layOld, read: fake.read, write: async P => { wrote = P; return { records: P.write.length, bad: 0, lastSave: 5 }; } };
+            const rw = await F.writeTo(hybrid, stO, { backup: b => { got = b; } });
+            check(rw.bad === 0 && wrote && wrote.write.length === M.toRecords(ro.items).length && got && got.read === oldRecs.length,
+                "WRITE: the backup read before anything is written (" + (got && got.read) + " old records), then the rewrite sent");
+            const tb = M.transfer({ L: [], R: got.items, base: [], fm1: {} }, "R", got.ids, { stamp: "BACKUP 4 NOV 05:00" });
+            check(tb.ok && got.ids.length === 3 && tb.st.L.filter(i => i.kind === K.SAMPLER).length === 3 && tb.st.L.filter(i => i.kind === K.SAMPLE).length === ro.items.filter(i => i.kind === K.SAMPLE).length &&
+                tb.st.L.every(i => i.src === "BACKUP 4 NOV 05:00"),
+                "the backup lands on the TABLE: the 3 samplers with their " + tb.st.L.filter(i => i.kind === K.SAMPLE).length + " samples, stamped");
+        }
+        /* once written the old records are gone and the plan is up to date */
+        const noOld = Object.assign({}, lay0);
+        const wN = F.planWrite(noOld, Object.assign({}, stO, { base: [] }));
+        check(!wN.rewritesSamples, "an FM-1 with no old records: no rewrite said");
+        /* an FM-1 that reads the old form only: the samplers go down, NOT KEPT named */
+        const onlyOld = Object.assign({}, lay0, { accepts: lay0.accepts.filter(a => a.kind !== K.SAMPLE && a.kind !== K.SAMPLER).concat([{ kind: K.SAMPLER, ver: 1 }, { kind: K.AUDIO, ver: 1 }]) });
+        const mv = M.transfer(Object.assign(empty(), { L }), "L", L.filter(i => i.kind === K.SAMPLER).slice(0, 4).map(i => i.id).concat(L.filter(i => i.kind === K.SAMPLE).slice(-2).map(i => i.id)), {});
+        const wD = F.planWrite(onlyOld, mv.st);
+        const cvd = wD.converted.find(c => c.name === "SAMPLERS");
+        const wf = wD.plan.write.filter(f => f.kind === K.SAMPLER || f.kind === K.AUDIO || f.kind === K.SAMPLE);
+        check(!wD.problems.length && cvd && cvd.from === 2 && cvd.to === 1 && wf.every(f => f.kind !== K.SAMPLE && f.ver === 1) && wf.some(f => f.kind === K.AUDIO),
+            "WRITE to an FM-1 that reads the old form: samplers down to version 1 with their audio, no sample record sent (" + wf.length + " records; " + JSON.stringify(cvd && cvd.lost) + ")");
+        const names = M.toRecords(mv.st.R).filter(r => r.kind === K.SAMPLER).map(r => R.unpackSampler(r.payload));
+        check(wf.filter(f => f.kind === K.SAMPLER).length === names.length, "each sampler an old sampler under its own number");
+        /* NOT KEPT: a sample no instrument names (not sent), a sample two samplers name (a copy in each, counted twice) */
+        {
+            const aud = R.ptrEncode(Array.from({ length: 64 }, (_, i) => (i * 3) % 100 - 50), 8), mkS = (n, name) => ({ id: M.newId(), side: "R", kind: K.SAMPLE, num: n, orig: n, link: {},
+                recs: [{ sub: 0, ver: 1, payload: R.packSample({ length: 64, rate: 8000, coding: 1, name }, aud) }] });
+            const slot = n => Object.assign(ED.defs.newSlot(K.SAMPLER, "I"), { sample: n, start: 0, end: 64 });
+            const S0 = mkS(0, "SHARED"), S1 = mkS(1, "ALONE"), A = { id: M.newId(), side: "R", kind: K.SAMPLER, num: 1, orig: 1, link: {},
+                recs: [{ sub: 0, ver: 2, payload: R.packSampler({ name: "A", instruments: [slot(0)] }) }] };
+            const B = Object.assign({}, A, { id: M.newId(), num: 2, recs: [{ sub: 0, ver: 2, payload: R.packSampler({ name: "B", instruments: [slot(0)] }) }] });
+            for (const s of [A, B]) s.link[M.lk("m", 0)] = S0.id;
+            const wK = F.planWrite(onlyOld, Object.assign(empty(), { R: [S0, S1, A, B] }));
+            const cK = wK.converted.find(c => c.name === "SAMPLERS");
+            const audio = wK.plan.write.filter(f => f.kind === K.AUDIO);
+            check(cK && cK.lost.join("|") === "1 SAMPLE NO INSTRUMENT NAMES (NOT SENT)|1 SAMPLE SEVERAL SAMPLERS NAME (A COPY IN EACH)" && audio.length === 2 && audio.every(f => f.num !== undefined) &&
+                !wK.plan.write.some(f => f.kind === K.SAMPLE),
+                "NOT KEPT: the unnamed sample not sent, the shared sample a copy in each sampler: " + JSON.stringify(cK && cK.lost));
+        }
+        /* it fits only the FM-1 emptied: the whole user area written anew, the first WRITE's rewrite said */
+        {
+            const pin = l => {
+                const extra = [];
+                for (const g of l.regions) if (g.area === "user")
+                    for (let a = g.start; a + 4096 <= g.end; a += 4096) extra.push({ kind: K.SONG, num: 0x7E, sub: 0, ver: 1, len: 0, crc: 0, addr: a, deleted: true, label: "SONG 7E.0" });
+                return Object.assign({}, l, { records: l.records.concat(extra) });
+            };
+            const wC = F.planWrite(pin(layOld), stO);
+            check(!wC.problems.length && wC.plan.ok && wC.plan.clean && wC.rewritesSamples === oldRecs.length && wC.plan.write.length === M.toRecords(ro.items).length,
+                "the first WRITE of a converted panel that fits only the FM-1 emptied: the whole user area written anew, the rewrite still said (" + wC.rewritesSamples + " old records)");
+        }
+        const noSmp = Object.assign({}, lay0, { accepts: lay0.accepts.filter(a => a.kind !== K.SAMPLE && a.kind !== K.SAMPLER) });
+        check(F.planWrite(noSmp, mv.st).problems.some(t => /DOES NOT TAKE (SAMPLER|SAMPLE)/.test(t)), "no version of the sampler it reads: refused as before");
+    }
+
     /* ---- a backup put back exactly, FE included ---- */
     const fe = { id: M.newId(), side: "R", kind: K.PATTERN, num: 0xFE, orig: 0xFE, link: {},
         recs: [{ sub: 0, ver: 1, payload: R.packPattern({ tracks: 2, rows: 8, step: 1, cells: new Map([["1,1", { note: 64, ins: 0xF000, vol: -1, cmds: [] }]]) })[0] }] };
@@ -220,7 +363,7 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
     st = Object.assign({}, st, { R: st.R.concat([fe, settings]) });
     let feErr = null;
     try { res = await F.writeTo(ses, st, {}); } catch (e) { feErr = e; }
-    check(!feErr && res.bad === 0, "the EDITOR'S PATTERN and the settings written" + (feErr ? ": " + feErr.message : ""));
+    check(!feErr && res.bad === 0, "the EDITOR'S PATTERN and the settings written" + (feErr ? ": " + feErr.message : "") + (res ? " " + JSON.stringify({ bad: res.bad, records: res.records }) : ""));
     rd = await F.readFrom(ses, empty());
     check(sameRecs(M.toRecords(rd.items), M.toRecords(st.R)), "read back with them");
     const disk = F.diskOf(rd.items);
@@ -232,6 +375,30 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
     res = await F.writeTo(ses, Object.assign({}, st, { R: back.items }), {});
     rd = await F.readFrom(ses, empty());
     check(sameRecs(M.toRecords(rd.items), M.toRecords(back.items)), "the backup put back exactly");
+
+    /* ---- a cartridge's number changed: WRITE names nothing as removed, READ brings it back byte for byte ---- */
+    {
+        const fw5 = await new ED.Firmware(wasm).start(null), ses5 = S.session(fw5.transport(), { timeout: 20000, blockTimeout: 20000, endTimeout: 30000 });
+        const mv = M.transfer(Object.assign(empty(), { L }), "L", L.filter(i => i.kind === K.SONG).slice(0, 3).map(i => i.id).concat(L.filter(i => i.kind === K.FUSION).map(i => i.id)), {});
+        const w5 = await F.writeTo(ses5, Object.assign({}, mv.st, { fm1: { from: "empty", lastSave: null } }), {});
+        const s5 = Object.assign({}, mv.st, { base: mv.st.R, fm1: { from: "write", lastSave: w5.lastSave } });
+        const fus = s5.R.find(i => i.kind === K.FUSION), smp = s5.R.find(i => i.kind === K.SAMPLER);
+        const sw = M.renumber(s5, fus.id, smp.num);              /* (two kinds swapping their numbers) */
+        check(sw.ok, "a sampler and FUSION swap their numbers: " + sw.msg);
+        const pl = F.planWrite(await ses5.hello(), sw.st);
+        check(pl.problems.length === 0 && pl.plan.ok && pl.plan.del.length > 0 && F.removedNames(pl.plan, sw.st).length === 0,
+            "the plan: their old records go, and nothing is named as removed: " + F.removedNames(pl.plan, sw.st).join(", "));
+        const w6 = await F.writeTo(ses5, sw.st, {});
+        const rd5 = await F.readFrom(ses5, empty());
+        check(w6.bad === 0 && sameRecs(M.toRecords(rd5.items), M.toRecords(sw.st.R)), "written and read back byte for byte, " + rd5.items.length + " items");
+        const free = M.renumber(Object.assign({}, sw.st, { base: sw.st.R }), fus.id, 0x40);
+        check(free.ok, "to a free number: " + free.msg);
+        const w7 = await F.writeTo(ses5, Object.assign({}, free.st, { fm1: { from: "write", lastSave: w6.lastSave } }), {});
+        const rd6 = await F.readFrom(ses5, empty());
+        check(w7.bad === 0 && sameRecs(M.toRecords(rd6.items), M.toRecords(free.st.R)) && rd6.items.some(i => i.kind === K.FUSION && i.num === 0x40),
+            "the FM-1 holds it at 40, what names it following");
+        ses5.close();
+    }
 
     ses.close();
     done("device_test");

@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Copyright (C) 2026 Vasily Kazantsev (the RAM laid out anew: specs/files/ram.md#the-layout) */
-/* PT/FM's memory map (specs/files/ram.md, The layout). Code and constants execute in place from XIP (app.bin
- * offset 0 = 0x02000120). In RAM:
+/* PT/FM's memory map (specs/files/ram.md, The layout). Code and constants execute in place from XIP, from 0x02001000
+ * (app.bin's offset 0xEE0: the start check, fw/stub, comes first, at 0x02000120, and the mark last: build.py puts the
+ * slot together). In RAM:
  *   0x01C00000   4,096  RAMTEXT: .ram_text, the code that must run while the flash is busy (the flash driver);
  *                       the link fails beyond
  *   0x01C01000 449,536  DATA, one region, set up at power-on: the pool first, the effects' object's at its very
@@ -22,7 +23,8 @@
  *   0x01C78D00  16,128  the main loop's stack (_ustack_lo .. _ustack_top)
  *   0x01C7CC00     256  guard band (write-protected)
  *   0x01C7CD00  12,032  the interrupts' stack (_sstack_lo .. _sstack_top)
- *   0x01C7FC00     256  NOINIT: the records kept across restarts (the crash record, the boot guard)
+ *   0x01C7FC00     256  NOINIT: the records kept across restarts (the crash record, the boot guard), its last 16 B
+ *                       the start check's box (fw/stub/stub_core.h)
  *   0x01C7FD00      76  unused, write-protected with the chip's own (from _records_top)
  *   0x01C7FD4C     692  the chip's own: boot info, the boot-state mailbox, the update record, the vectors
  * Each stack's bottom and top are named here; everything that needs them (the stack-pointer windows, the guard
@@ -30,11 +32,14 @@
  * here alone. build.py reads the region's bounds and its parts from these symbols. */
 MEMORY
 {
-    XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8DFBC
+    XIP    (rx)  : ORIGIN = 0x02001000, LENGTH = 0x8D0BC
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x1000
     DATA   (rwx) : ORIGIN = 0x01C01000, LENGTH = 0x6DC00
     C2RAM  (rwx) : ORIGIN = 0x01C6EC00, LENGTH = 0xA000
     NOINIT (rw)  : ORIGIN = 0x01C7FC00, LENGTH = 0x100
+    DBGX   (rx)  : ORIGIN = 0x020F3020, LENGTH = 0x7FE0   /* the debug part (the debug build's PLAT_DBG code): flash
+                                                          * 0xF7000, after its 32-B head, in place over the plain
+                                                          * window; not in the image (build.py writes it apart) */
 }
 SECTIONS
 {
@@ -73,11 +78,15 @@ SECTIONS
     /* the spare zone last: its own 24 KB, then the room up to the region's top is the zone's too (plat_spare_room) */
     .spare (NOLOAD) : { . = ALIGN(16); _spare_lo = .; KEEP(*(.spare)) . = ALIGN(4); _spare_end = .; } > DATA
     .noinit (NOLOAD) : { _records_lo = .; *(.noinit*) _records_end = .; } > NOINIT
+    .dbg_text : { _dbg_start = .; *(.dbg_text*) *(.dbg_rodata*) . = ALIGN(4); _dbg_end = .; } > DBGX
+    /* instructions run from the image, and in the debug build from its debug part too (fm1_guard.h's PC limit) */
+    _pc_top = _dbg_end > _dbg_start ? _dbg_end : _etext;
     _data_lo = ORIGIN(DATA); _data_top = ORIGIN(DATA) + LENGTH(DATA);
     _c2_lo = ORIGIN(C2RAM); _c2_top = ORIGIN(C2RAM) + LENGTH(C2RAM);
     _guard0 = 0x01C78C00; _ustack_lo = 0x01C78D00; _ustack_top = 0x01C7CC00;
     _guard1 = 0x01C7CC00; _sstack_lo = 0x01C7CD00; _sstack_top = 0x01C7FC00;
     _records_top = ORIGIN(NOINIT) + LENGTH(NOINIT);
+    _stub_box = 0x01C7FCF0;               /* the start check's box (fw/stub/stub_core.h's STUB_BOX_ADDR) */
     _restart_band = 0x01C07F00;           /* the 256 B the debug build patterns before a restart it makes and checks
                                            * at the next start (in the effects' lines: specs/debug.md) */
     ASSERT(_data_top <= _guard0, "the data region runs into the main loop's stack's guard band")
@@ -98,5 +107,6 @@ SECTIONS
     ASSERT(_ustack_lo == _guard0 + 0x100 && _sstack_lo == _guard1 + 0x100, "a guard band is not 256 B")
     ASSERT(_sstack_top <= ORIGIN(NOINIT), "the interrupts' stack runs into the records")
     ASSERT(_records_top <= 0x01C7FD4C, "the records run into the chip's own")
+    ASSERT(_records_end <= _stub_box, "the records run into the start check's box (its last 16 B)")
     /DISCARD/ : { *(.comment) *(.note*) }
 }

@@ -120,13 +120,15 @@ solo</td></tr>
 NEXT)</td></tr>
 <tr><td>Your cartridges, and your changes to the built-in ones</td><td>PLAYBACK's speed and volume</td></tr>
 <tr><td>The settings, the MIDI map and your GATE patterns</td><td>The clipboards (blocks, slots)</td></tr>
-<tr><td>The loops, with their mutes; DJ's decks as they stand</td><td>The pattern recorder's steps</td></tr>
+<tr><td>The loops, with their mutes; DJ's decks as they stand</td><td>LOOPS' stage, and the pattern recorder's
+steps</td></tr>
 <tr><td>THE KEYS' setup and tempo</td><td>The arpeggiator being on, and the octave (SETTINGS' KEYS OCTAVE sets the
 octave at power-on)</td></tr>
 <tr><td>The current instrument, and the pattern the EDITOR is on</td><td>What was playing, and where</td></tr>
 </tbody>
 </table>
-<p>Samples are the one exception to "SAVE writes": CLONE and MOVE of a sampler cartridge write its samples at once.</p>
+<p>Samples wait for SAVE too: a sampler cartridge's CLONE and MOVE change only its instruments, and a sample's DELETE
+waits for SAVE like any other change (its row reads (DELETED) until then, and REVERT brings it back).</p>
 <p><b>A power cut during a save</b> loses nothing that was saved before: the FM-1 keeps either the old state or the
 new one, whole. The same holds when the battery runs out.</p>
 <p><b>The memory for edits</b> holds what differs from what is saved (about 650 changed tracks). When it runs low,
@@ -143,7 +145,9 @@ meanwhile. STATUS shows the free storage.</p>
 <section class="topic" id="basics-references">
 <h3>Things that use other things</h3>
 <p>A note uses an instrument, a song uses patterns, a FUSION instrument uses a pattern, a sampler instrument uses a
-sample. Moving, swapping or deleting something in use asks first
+sample. A sample is a thing of its own, numbered apart from the cartridges and played by instruments of any sampler
+(<a href="#instruments-sampler">chapter 8</a>); deleting it takes the instruments that play it with it, after a
+question. Moving, swapping or deleting something in use asks first
 (<samp class="msg" data-t="%s IS USED %d TIMES">PATTERN 1A IS USED 3 TIMES</samp>,
 <samp class="msg">UPDATE REFERENCES?</samp>):</p>
 <ul>
@@ -154,7 +158,8 @@ sample. Moving, swapping or deleting something in use asks first
 is there.</li>
 <li><kbd>HOME</kbd>: nothing happens.</li>
 </ul>
-<p>A reference to something missing is drawn in red and plays nothing. SETTINGS, TOOLS, CHECK REFERENCES lists them.
+<p>A reference to something missing is drawn in red in a pattern and plays nothing; a sampler instrument whose sample
+is missing says so on its page, in grey (<samp class="msg">THE SAMPLE IS MISSING</samp>). SETTINGS, TOOLS, CHECK REFERENCES lists them.
 </p>
 </section>
 
@@ -204,11 +209,12 @@ for a note, 10 for a value.</li>
 it on the left.</p>
 <ul>
 <li><kbd>PRESETS</kbd> picks the instrument, one a click, round within its cartridge (a cartridge is a bank of up to
-128 instruments). While it turns, the cartridge's instruments show over the screen, the one picked highlighted; the
-list goes a second after the last click, or at once when you touch another control (SETTINGS' PRESETS LIST switches
-it off).</li>
+128 instruments). While it turns, the cartridge's instruments show over the screen in big letters, six at a time,
+the one picked highlighted; the list goes a second after the last click, or at once when you touch another control
+(SETTINGS' PRESETS LIST switches it off).</li>
 <li><span class="combo"><kbd>SEL</kbd> + <kbd>PRESETS</kbd></span> (SEL held, or tapped first) turns the
-cartridges instead: the list of cartridges opens and each click picks the next. Let go of SEL (or touch another
+cartridges instead: the list of cartridges opens, big too (seven at a time, each with its type), and each click
+picks the next. Let go of SEL (or touch another
 control) and PRESETS turns the instruments again; <kbd>SEL</kbd> tapped again only closes the list.</li>
 <li><kbd>OCT-</kbd> and <kbd>OCT+</kbd> shift the keys by an octave, from -4 to +4
 (<samp class="msg" data-t="OCT #">OCT +3</samp>).</li>
@@ -264,7 +270,7 @@ characters, a cartridge's 12, a song's 16; a name left empty becomes NO NAME.</l
 pages on the screen you are on, then pages shared by all screens (the global keys, HOME, the screens, buttons,
 knobs, saving). <kbd>SELECT</kbd> turns the pages; <kbd>HOME</kbd> gets you back. In the help, keys are yellow, and a
 button whose print reads wrong gets its reading once: ENV <i>(Explore Named Vaults)</i>, SEQ <i>(Show Else,
-Quick)</i>, ARP <i>(Again, Repeat, Please)</i>.</p>
+Quick)</i>, ARP <i>(Automatic Repeat Procedure)</i>, and LFO <i>(Leave Field Open)</i> where it clears something.</p>
 </section>
 
 <section class="topic" id="basics-keys">
@@ -278,6 +284,12 @@ LOOPS' CONTROL mode, DJ and FX's LIVE page, for example).</td></tr>
 cartridge.</td></tr>
 <tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>PRESETS</kbd></span></td><td>Picks another cartridge (a bank of
 sounds): the cartridge list opens, and each click shows the next one. Hold SEL, or tap it first.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span></td><td>Goes to your favourite sounds, the
+FAVORITES cartridge (<a href="#instruments-favorites">chapter 8</a>), at the one you used there last; again, back to
+where you were.</td></tr>
+<tr><td><span class="combo"><kbd>GLO</kbd> held + <kbd>PRESETS</kbd></span></td><td>Picks one of your favourite
+sounds while you stay in your cartridge: their list shows while GLO is held, and the next PRESETS click goes on from
+where you were. Not on INSTRUMENTS.</td></tr>
 <tr><td><kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>Shift the keys an octave down or up, from -4 to +4.</td></tr>
 <tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>OCT-</kbd></span> <span class="combo"><kbd>SEL</kbd> +
 <kbd>OCT+</kbd></span></td><td>On FX's EDIT page, where OCT alone switches the effect off and on, these change the

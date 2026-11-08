@@ -318,7 +318,8 @@ opened in the EDITOR by any of the ways above, NEW PATTERN, LOAD A PATTERN), a q
   the cursor's cell's instrument becomes the current one, the one the keys play and write and PRESETS
   turns from; on a cell naming none, the instrument its track plays at that row. The toast names it
   (`01:05 EL PIANO DX7`); with none there, `NO INSTRUMENT HERE` and the button blinks. ENV's tap stays
-  the pattern list.
+  the pattern list. A cell holds an instrument's own number, never a favourite's; one naming a FAVORITES
+  cartridge's number names no instrument: `NO INSTRUMENT HERE` ([instruments.md](instruments.md#favorites)).
 
 ## SEL: RECORD PATTERN
 
@@ -372,8 +373,8 @@ whole pattern again and again, recording on every pass, until PLAY or REC stops 
   - **PLAY held past the hold delay** shows an overlay with both ways: `LET GO: START THE TAKE`,
     `PRESS A KEY: START ON THAT NOTE`. A quick tap never shows it; a key starting the take closes it.
 - **How a take records:**
-  - **Notes land as SETTINGS' QUANTIZE says** ([settings.md](settings.md)), the values LOOPS' takes
-    have ([loops.md](loops.md#quantize)): `2 ROWS`, `3 ROWS`, `4 ROWS`, the nearest line of that many
+  - **Notes land as SETTINGS' QUANTIZE says** ([settings.md](settings.md)), the values LOOPS' stage
+    has ([loops.md](loops.md#quantize)): `2 ROWS`, `3 ROWS`, `4 ROWS`, the nearest line of that many
     rows from the pattern's start; `ROW` (at first), the nearest row; `REAL TIME`, the row it falls in,
     with a note delay `EDx` of the ticks since and its end as a key off `Kxx` at its tick, as LOOPS
     writes them ([../../files/loops.md](../../files/loops.md#recording-on-the-grid)).
@@ -1021,8 +1022,8 @@ BLOCKS: SEVERAL CELLS AT ONCE
   INTERPOLATE: A SWEEP, FIRST TO LAST
 CLIPBOARD: KEPT UNTIL POWER OFF
 LISTEN TO A ROW
-{ARP} (AGAIN, REPEAT, PLEASE): REPEAT ROW
-  AT THE TEMPO, WHAT PLAYS STOPS
+{ARP} (AUTOMATIC REPEAT PROCEDURE):
+  THE ROW AT THE TEMPO, WHAT PLAYS STOPS
 THE RHYTHM: [SETTINGS] (HOLD {ARP} + {SELECT})
   ##_ = PLAY TWO ROWS, REST ONE
 ```

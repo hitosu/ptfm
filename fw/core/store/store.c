@@ -20,7 +20,7 @@
 #include "../plat.h"
 /* (the platform's long-work and lock calls: no-ops where a platform has none, in plat_weak.c, never here) */
 
-#define MAP_MAX   560                   /* objects, 8 B each (store.md: ~600 objects in a full store) */
+#define MAP_MAX   STORE_MAP_MAX         /* objects, 8 B each (store.md: ~600 objects in a full store) */
 #define F_LAST    1u
 #define F_DEL     2u
 #define NBLK      256                   /* 4 KB blocks in the 1 MiB flash */
@@ -78,8 +78,8 @@ static struct { uint32_t keyd, addr, len; } pend[PEND_MAX];    /* records writte
 static int npend;
 
 const uint8_t store_kinds[STORE_NKINDS] = {
-    REC_DX7, REC_JUNO, REC_TB303, REC_SAMPLER, REC_FUSION, REC_CHIP, REC_AUDIO, REC_PATTERN, REC_SONG, REC_LOOPS,
-    REC_DJ, REC_SETTINGS, REC_MIDIMAP
+    REC_DX7, REC_JUNO, REC_TB303, REC_SAMPLER, REC_FUSION, REC_CHIP, REC_AUDIO_OLD, REC_PATTERN, REC_SONG, REC_LOOPS,
+    REC_DJ, REC_SETTINGS, REC_MIDIMAP, REC_FAV, REC_SAMPLE
 };
 
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -122,6 +122,8 @@ static int is_builtin(uint8_t kind, uint8_t num)
     return 0;
 }
 static int is_cart(uint8_t kind) { return kind >= REC_DX7 && kind <= REC_CART_LAST; }
+/* a cartridge kind's version this firmware reads and writes (specs/files/store.md#a-record) */
+static uint8_t cart_ver(uint8_t kind) { return kind == REC_SAMPLER ? REC_SAMPLER_VER : 1u; }
 /* the user area's two regions: the FM-1's; in the editor's WebAssembly the preview may take the whole flash instead
  * (store.h, store_preview_room: region 1 all of it, region 2 empty) */
 #ifdef PTFM_EDITOR
@@ -204,7 +206,8 @@ static int plausible(const uint8_t *h, uint32_t pos, uint32_t end, uint32_t len)
     if (fl & ~(F_LAST | F_DEL)) return 0;
     if ((fl & F_DEL) && len) return 0;
     if (pos + STORE_HDR + len > end || pos + STORE_HDR + len < pos) return 0;
-    if (k != REC_AUDIO && (pos & 0xFFFu) + STORE_HDR + len > STORE_BLOCK) return 0;
+    if (!store_is_audio(k) && (pos & 0xFFFu) + STORE_HDR + len > STORE_BLOCK) return 0;   /* (audio, both kinds: it may
+                                                                                         * cross blocks) */
     return 1;
 }
 
@@ -327,7 +330,7 @@ static void blocks_count(void)
             uint32_t b = BLK(a), be = (b + 1) << 12, n = (end < be ? end : be) - a;
             uint32_t u = blk_live[b] + (n + 15) / 16;
             blk_live[b] = (uint8_t)(u > 255 ? 255 : u);
-            if (ent_kind(&map[i]) == REC_AUDIO && !ent_del(&map[i]))  /* (a deleted one is a header like any) */
+            if (store_is_audio(ent_kind(&map[i])) && !ent_del(&map[i]))   /* (a deleted one is a header like any) */
                 blk_audio[b >> 3] |= (uint8_t)(1u << (b & 7));
             a += n;
         }
@@ -375,6 +378,9 @@ static void on_spoil(uint32_t pos, const uint8_t *h, uint32_t len)
     }
 }
 
+static void fav_give_way(void);
+static void on_nothing(uint32_t pos, const uint8_t *h, uint32_t len);
+static void on_mount_bad(uint32_t pos, const uint8_t *h, uint32_t len);
 void store_mount(void)
 {
     pg_addr = 1;                                        /* no page half written */
@@ -397,6 +403,16 @@ void store_mount(void)
         m_walks++;
         m_ignore[m_nignore++] = m_max;
     }
+    /* what counts as damaged is what CHECK STORAGE names (bad_costs, against the map just built): the walk above counted
+       every word that is no record where it looked for one, a deleted sample's leftovers among them; so when it counted
+       anything, once more by that rule */
+    if (n_bad) {
+        n_bad = 0;
+        walk_bad = on_mount_bad;
+        walk_all(on_nothing);
+        walk_bad = 0;
+        m_walks++;
+    }
     last_save = m_max;
     next_save = m_seen + 1;
     memset(taken, 0, sizeof taken);
@@ -410,6 +426,7 @@ void store_mount(void)
             store_all_ff(m_last_end, ((b + 1) << 12) - m_last_end))
             head = m_last_end;
     }
+    fav_give_way();
 }
 
 enum { S_IDLE, S_STAGING, S_WRITING, S_RESULT };
@@ -437,16 +454,20 @@ static const builtin_rec_t *builtin_find(uint8_t kind, uint8_t num, uint8_t sub)
 /* ---- the edit memory (store.h; specs/files/ram.md#editing-and-saving) ----
  * What differs from the flash, as pieces, each piece once. The pieces lie from emem's bottom up (to ptop), each in
  * a room of its length rounded up to 4; their list, 8 B an entry sorted by key, from its top down (from lbase). A
- * piece changed again is rewritten where it lies when it fits its room (what it leaves is free), else it goes to
- * the pieces' top and its old room is free; free room between pieces is joined when room runs short, moving pieces
- * down one at a time (squeeze). The audio context reads the list and the pieces: every change is made with it held
- * off (plat_lock) and told meanwhile to whoever reads them (the watch: the player puts its place on what changed).
- * An entry: kv = its key (kind << 17 | num << 9 | id: a track, a slot, a head, the samples' table, a whole record's
- * sub; PC_OBJ the thing's own) | its version << 25; its piece's offset in 4-byte units (a room starts on a multiple
+ * piece changed again is rewritten where it lies when it fits its room (what it leaves is free) or grows where it lies
+ * when it is the pieces' top (a pointer into it stays, its length and bytes changed: told, store_edit_moves unchanged),
+ * else it goes to the pieces' top and its old room is free; free room between pieces is joined when room runs short,
+ * moving pieces down one at a time (squeeze). The audio context reads the list and the pieces: every change is made
+ * with it held off (plat_lock) and told meanwhile to whoever reads them (the watch: the player puts its place on what
+ * changed).
+ * An entry: kv = its key (kind << 17 | num << 9 | id: a track, a slot, a head, a whole record's sub; PC_OBJ the
+ * thing's own) | its version << 25; its piece's offset in 4-byte units (a room starts on a multiple
  * of 4: 256 KB reach), the length | flags. Kinds with bit 7 set (K_SESS) are an edit mode's copies
- * (store_edit_session): never read as edits, never saved, never told. */
+ * (store_edit_session): never read as edits, never saved, never told; and LOOPS' stage (STORE_STAGE, the highest key:
+ * the list's last), no edit either, but told, and kept by a SAVE and REVERT ALL (edits_none). */
 #define PC_OBJ 0x1FFu                   /* a thing's own entry: PF_DEL, its flash record left out */
 #define K_SESS 0x80u
+#define STAGE_KEY ((uint32_t)STORE_STAGE << 17)        /* (num 0, id 0; no record kind is 0x7F) */
 typedef struct { uint32_t kv; uint16_t off, lenf; } pc_t;
 #define PF_DEL 0x8000u                  /* a whole record deleted; PC_OBJ: the flash's record left out */
 #define PF_NONE 0x4000u                 /* (an edit mode's copy: there was no entry) */
@@ -496,7 +517,8 @@ static int sess_wants(uint32_t key)             /* an edit mode keeps a copy of 
 static void tell(uint32_t key)                  /* (the audio context held off) */
 {
     gen_n++;                                    /* (first: the watch's readers see the change) */
-    if (watch && !is_sess(key)) watch((uint8_t)(key >> 17), (uint8_t)(key >> 9), (uint16_t)(key & 0x1FFu));
+    if (watch && (!is_sess(key) || key == STAGE_KEY))
+        watch((uint8_t)(key >> 17), (uint8_t)(key >> 9), (uint16_t)(key & 0x1FFu));
 }
 static int obj_hidden(uint8_t kind, uint8_t num)
 {
@@ -530,10 +552,14 @@ static void squeeze(void)
 }
 static uint32_t room_free(void) { return lbase - pused; }      /* (above the top and between the pieces) */
 static uint8_t held;                            /* store_edit_hold: nothing rewritten in place, nothing moved */
+static int room_can(uint32_t n)                 /* room(n) would be 1: clear above the top, or once squeezed */
+{
+    return lbase - ptop >= n || (!held && room_free() >= n);
+}
 static int room(uint32_t n)                     /* n bytes clear between the pieces' top and the list */
 {
     if (lbase - ptop >= n) return 1;
-    if (held || room_free() < n) return 0;
+    if (!room_can(n)) return 0;
     squeeze();
     return lbase - ptop >= n;
 }
@@ -541,17 +567,24 @@ void store_edit_hold(int on) { held = (uint8_t)(on != 0); }
 int store_edit_reserve(uint32_t n) { return !locked && !edit_saving && room(n); }
 
 static int sess_keep(uint32_t key);
-/* The entry of key set: its version, these bytes (len, at most 4 KB, never lying in emem) and flags; written where
- * it lies when they fit its room, else at the pieces' top; told. STORE_ERR_FULL: nothing changed. */
+/* what a room of a bytes (a multiple of 4) for entry i (-1: a new one) needs clear above the pieces' top: written where
+ * it lies when it fits its room or it is the pieces' top (it grows there: the stage grows a note at a time; a squeeze
+ * keeps it the top), else (move) at a new room at the top, as when held (the old bytes stay where they are) */
+static uint32_t pc_need(int i, uint32_t a, int *move)
+{
+    uint32_t had = i >= 0 ? ALIGN4(PF_LEN(pcs()[i].lenf)) : 0u;
+    int top = !held && had && pc_off(&pcs()[i]) + had == ptop;
+    *move = (a > had && !top) || (held && a);
+    return (*move ? a : a > had ? a - had : 0u) + (i < 0 ? 8u : 0u);
+}
+/* The entry of key set: its version, these bytes (len, at most 4 KB, never lying in emem) and flags, as pc_need lays
+ * them; told. STORE_ERR_FULL: nothing changed. */
 static int pc_put(uint32_t key, uint8_t ver, const void *p, uint32_t len, uint32_t flags)
 {
     if (sess_wants(key) && sess_keep(key)) return STORE_ERR_FULL;
     uint32_t a = ALIGN4(len);
-    int i = pc_find(key);
-    uint32_t had = i >= 0 ? ALIGN4(PF_LEN(pcs()[i].lenf)) : 0u;
-    int move = a > had || (held && a);          /* (a new room at the top: it does not fit, or held: the old bytes
-                                                 * stay where they are) */
-    uint32_t need = (move ? a : 0u) + (i < 0 ? 8u : 0u);
+    int i = pc_find(key), move;
+    uint32_t had = i >= 0 ? ALIGN4(PF_LEN(pcs()[i].lenf)) : 0u, need = pc_need(i, a, &move);
     if (need && !room(need)) return STORE_ERR_FULL;
     i = pc_find(key);                           /* (squeezed: it may have moved) */
     uint32_t off = move ? ptop : i >= 0 ? pc_off(&pcs()[i]) : 0u;
@@ -562,8 +595,8 @@ static int pc_put(uint32_t key, uint8_t ver, const void *p, uint32_t len, uint32
         ptop += a;
         pused = pused + a - had;
     } else {
-        if (!held && i >= 0 && off + had == ptop) ptop = off + a;    /* (the top piece: the top comes down) */
-        pused -= had - a;
+        if (!held && i >= 0 && off + had == ptop) ptop = off + a;    /* (the top piece: the top comes down, or up) */
+        pused = pused + a - had;
     }
     if (i < 0) {
         i = pc_lower(key);
@@ -616,10 +649,15 @@ static int sess_keep(uint32_t key)
     const pc_t *e = &pcs()[i];
     return pc_put(sk, (uint8_t)(e->kv >> 25), pc_at(e), len, e->lenf & PF_DEL);
 }
-static void sess_none(void)                     /* the copies dropped */
+static int sess_at(void)                        /* the first copy's entry, -1 none (copies' keys: under the stage's) */
+{
+    int i = pc_lower(K_SESS << 17);
+    return i < npc() && pc_key(&pcs()[i]) < STAGE_KEY ? i : -1;
+}
+static void sess_none(void)                     /* the copies dropped (the stage stays) */
 {
     int i;
-    while ((i = pc_lower(K_SESS << 17)) < npc()) pc_drop(pc_key(&pcs()[i]));
+    while ((i = sess_at()) >= 0) pc_drop(pc_key(&pcs()[i]));
 }
 void store_edit_session(int on)
 {
@@ -639,7 +677,7 @@ int store_edit_session_drop(void)
     if (locked || edit_saving) return 0;        /* (a save under way writes the changes it found: the copies stay) */
     sess_on = 0;
     sess_of = 0;
-    while ((i = pc_lower(K_SESS << 17)) < npc()) {
+    while ((i = sess_at()) >= 0) {
         pc_t c = pcs()[i];
         uint32_t sk = pc_key(&c), key = sk & ~(K_SESS << 17), len = PF_LEN(c.lenf);
         int k = pc_find(key);
@@ -659,25 +697,34 @@ int store_edit_session_drop(void)
     return changed;
 }
 
-/* every edit gone (a SAVE has written them, or REVERT ALL), the copies too; each thing told once */
+/* every edit gone (a SAVE has written them, or one had nothing to write, or REVERT ALL), the copies too; each thing
+ * told once. LOOPS' stage stays (specs/files/ram.md#the-stage-in-the-edit-memory): its entry, the list's last, where it
+ * lies, and its bytes too; the pieces' top its end and the room in use its own, the room under it free between pieces
+ * (the next squeeze joins it, moving the stage down); nothing told of it */
 static void edits_none(void)
 {
     sess_on = 0;
     sess_of = 0;
-    while (npc()) {
+    while (npc() && pc_key(&pcs()[0]) != STAGE_KEY) {
         uint32_t k = pc_key(&pcs()[0]), was = plat_lock();
         lbase += 8u;                            /* (the first entry: nothing else moves) */
         if (!is_sess(k) && (!piece_kind((uint8_t)(k >> 17)) || !npc() || pc_key(&pcs()[0]) >> 9 != k >> 9))
             tell(piece_kind((uint8_t)(k >> 17)) ? (k | PC_OBJ) : k);   /* (a thing's last entry gone) */
         plat_unlock(was);
     }
-    ptop = pused = 0;
+    if (npc()) {                                /* (the stage) */
+        pused = ALIGN4(PF_LEN(pcs()[0].lenf));
+        ptop = pc_off(&pcs()[0]) + pused;
+    } else {
+        ptop = pused = 0;
+    }
     edit_moves++;
 }
 void store_edit_revert(void)
 {
     if (edit_saving) return;
     edits_none();
+    fav_give_way();
 }
 
 /* a built-in thing (F0-FF) as the firmware has it: its changed copy, edited or saved, comes first; deleted, the
@@ -838,25 +885,30 @@ int store_list(uint8_t kind, uint8_t *nums, int max)
 
 /* ---- editing (store.h) ---- */
 static const uint8_t ZERO1[1] = {0};    /* an empty track's stream */
-static const uint8_t SLOT_SZ[REC_CART_LAST + 1] = {0, 112, 28, 24, 40, 16, 28};      /* a slot's bytes by cartridge kind */
-static const uint16_t NAME_AT[REC_CART_LAST + 1] = {0, 784, 123, 42, 174, 8, 121};   /* its name's first character (6 bits) */
+static const uint8_t SLOT_SZ[REC_CART_LAST + 1] = {0, 112, 28, 24, 40, 16, 28, 3};   /* a slot's bytes by cartridge kind */
+static const uint16_t NAME_AT[REC_CART_LAST + 1] = {0, 784, 123, 42, 176, 8, 121, 8};    /* its name's first character
+                                         * (6 bits; a sampler's in version 2, after its 8-bit SAMPLE); a favourite's: its
+                                         * slot byte, FF empty (8 bits) */
 #define LOOPS_VER 4u                    /* LOOPS' record (specs/files/loops.md): the version read; its loop table, 12 B
                                          * a loop, then with loops a pattern payload's bytes and the streams */
 #define LOOPS_TABLE 80u
 #define LOOPS_ENTRY 12u
 static uint32_t loops_head(uint32_t n) { return LOOPS_TABLE + LOOPS_ENTRY * n; }    /* its bytes before the streams */
-static uint32_t cart_head(uint8_t kind) { return kind == REC_SAMPLER ? 11u : 10u; }
+#define CART_HEAD 10u                   /* a cartridge's bytes before its slots: its name, its slots' count (a sampler's
+                                         * too: instruments only) */
+static uint32_t empty_mark(uint8_t kind) { return kind == REC_FAV ? 255u : 63u; }
 static int slot_empty(uint8_t kind, const uint8_t *s)
 {
-    uint32_t b = NAME_AT[kind];
-    return ((uint32_t)(s[b >> 3] | s[(b >> 3) + 1u] << 8) >> (b & 7u) & 63u) == 63u;
+    uint32_t b = NAME_AT[kind], m = empty_mark(kind);
+    return ((uint32_t)(s[b >> 3] | s[(b >> 3) + 1u] << 8) >> (b & 7u) & m) == m;
 }
-static void slot_clear(uint8_t kind, uint8_t *s)        /* an empty slot: 0s, its name's first character 63 */
+static void slot_clear(uint8_t kind, uint8_t *s)        /* an empty slot: 0s, its name's first character 63 (a
+                                                         * favourite's slot byte FF) */
 {
-    uint32_t b = NAME_AT[kind];
+    uint32_t b = NAME_AT[kind], m = empty_mark(kind);
     memset(s, 0, SLOT_SZ[kind]);
-    s[b >> 3] |= (uint8_t)(63u << (b & 7u));
-    s[(b >> 3) + 1u] |= (uint8_t)(63u >> (8u - (b & 7u)));
+    s[b >> 3] |= (uint8_t)(m << (b & 7u));
+    s[(b >> 3) + 1u] |= (uint8_t)(m >> (8u - (b & 7u)));
 }
 /* a track's stream at s (specs/files/patterns.md): its length with its 0x00; 0 when it runs past e */
 static uint32_t strm_len(const uint8_t *s, const uint8_t *e)
@@ -910,8 +962,8 @@ static const uint8_t *loops_part(uint8_t num, uint32_t sub, uint32_t *len)
     const uint8_t *q = flash_get(REC_LOOPS, num, (uint8_t)sub, len, &v);
     return q && v == LOOPS_VER ? q : 0;
 }
-/* The flash's piece (what an edit's piece lies over): 1 with its bytes (a track with no stream: a lone 0x00; a slot or
- * a table not stored: none, len 0), 0 when the flash has no such thing (or it cannot be read now) */
+/* The flash's piece (what an edit's piece lies over): 1 with its bytes (a track with no stream: a lone 0x00; a slot not
+ * stored: none, len 0), 0 when the flash has no such thing (or it cannot be read now) */
 static int flash_piece(uint8_t kind, uint8_t num, uint32_t id, const uint8_t **p, uint32_t *len, uint8_t *ver)
 {
     const uint8_t *q;
@@ -946,10 +998,9 @@ static int flash_piece(uint8_t kind, uint8_t num, uint32_t id, const uint8_t **p
         return 1;
     }
     if (!(q = flash_get(kind, num, 0, &l, ver))) return 0;
-    uint32_t hl = cart_head(kind), sz = SLOT_SZ[kind], n = l >= 10u ? q[9] : 0u, ns = kind == REC_SAMPLER && l > 10u ? q[10] : 0u;
-    if (id == STORE_PC_HEAD) { *p = q; *len = hl <= l ? hl : l; }
-    else if (id == STORE_PC_TABLE) { if (hl + sz * n + 16u * ns <= l) { *p = q + hl + sz * n; *len = 16u * ns; } }
-    else if (id < n && hl + sz * (id + 1u) <= l) { *p = q + hl + sz * id; *len = sz; }
+    uint32_t sz = SLOT_SZ[kind], n = l >= CART_HEAD ? q[9] : 0u;
+    if (id == STORE_PC_HEAD) { *p = q; *len = CART_HEAD <= l ? CART_HEAD : l; }
+    else if (id < n && CART_HEAD + sz * (id + 1u) <= l) { *p = q + CART_HEAD + sz * id; *len = sz; }
     return 1;
 }
 /* the flash has (kind, num, sub) but it cannot be read (a guard: the user area always reads in place) */
@@ -966,7 +1017,7 @@ static int as_flash(uint8_t kind, uint8_t num, uint32_t id, uint8_t ver, const u
     uint8_t qv = 0;
     if (flash_piece(kind, num, id, &q, &ql, &qv) != 1)      /* (nothing there: an empty track or slot is as none) */
         return is_cart(kind) ? id < 0x100u && len == SLOT_SZ[kind] && slot_empty(kind, b) : id < 16u && len == 1u && !b[0];
-    if (!q) return is_cart(kind) && id < 0x100u ? len == SLOT_SZ[kind] && slot_empty(kind, b) : !len && id == STORE_PC_TABLE;
+    if (!q) return is_cart(kind) && id < 0x100u && len == SLOT_SZ[kind] && slot_empty(kind, b);
     return qv == ver && ql == len && !memcmp(q, b, len);
 }
 static const void *outside(const void *p, uint32_t len)    /* (bytes from the edit memory itself: moved out first,
@@ -980,9 +1031,11 @@ static const void *outside(const void *p, uint32_t len)    /* (bytes from the ed
     return p;
 }
 
+static int cart_old(uint8_t num);
 int store_edit_piece(uint8_t kind, uint8_t num, uint16_t id, uint8_t ver, const void *p, uint32_t len)
 {
     if (locked || edit_saving || !piece_kind(kind) || id >= PC_OBJ) return STORE_ERR_STATE;
+    if (is_cart(kind) && (ver != cart_ver(kind) || cart_old(num))) return STORE_ERR_STATE;  /* (the old form untouched) */
     if (STORE_HDR + len > STORE_MAX_REC || (kind == REC_LOOPS && id < 16u && len > STORE_LOOP_STREAM_MAX))
         return STORE_ERR_BIG;
     p = outside(p, len);
@@ -991,6 +1044,46 @@ int store_edit_piece(uint8_t kind, uint8_t num, uint16_t id, uint8_t ver, const 
         return STORE_OK;
     }
     return pc_put(pkey(kind, num, id), ver, p, len, 0);
+}
+
+/* ---- LOOPS' stage (store.h; specs/files/ram.md#the-stage-in-the-edit-memory) ----
+ * One piece under STAGE_KEY, put, read and dropped here alone (no record's entry point takes a kind with bit 7): its
+ * changes refused as a piece's (a save being written or seeding, past a loop's stream's most, the edit memory full),
+ * told to the watch as any piece's; never a copy's (sess_wants), never counted or saved (both stop at K_SESS), kept
+ * by edits_none and the session code. */
+int store_stage_drop(void)
+{
+    if (locked || edit_saving) return STORE_ERR_STATE;
+    pc_drop(STAGE_KEY);
+    return STORE_OK;
+}
+int store_stage_put(const void *s, uint32_t len)
+{
+    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (len > STORE_LOOP_STREAM_MAX) return STORE_ERR_BIG;
+    if (!len || (len == 1u && !*(const uint8_t *)s)) return store_stage_drop();     /* (no cell: no piece) */
+    return pc_put(STAGE_KEY, 0, outside(s, len), len, 0);
+}
+int store_stage_check(uint32_t len)
+{
+    int move;
+    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (len > STORE_LOOP_STREAM_MAX) return STORE_ERR_BIG;
+    if (len <= 1u) return STORE_OK;                     /* (its lone 0x00: dropped) */
+    uint32_t need = pc_need(pc_find(STAGE_KEY), ALIGN4(len), &move);
+    return !need || room_can(need) ? STORE_OK : STORE_ERR_FULL;
+}
+const uint8_t *store_stage(uint32_t *len)
+{
+    int i = pc_find(STAGE_KEY);
+    if (i < 0) return 0;
+    if (len) *len = PF_LEN(pcs()[i].lenf);
+    return pc_at(&pcs()[i]);
+}
+uint32_t store_stage_room(void)
+{
+    int i = pc_find(STAGE_KEY);
+    return i < 0 ? 0u : ALIGN4(PF_LEN(pcs()[i].lenf)) + 8u;
 }
 
 /* a thing deleted: its pieces gone, its flash record left out (if it has one: a built-in thing's own is back) */
@@ -1004,28 +1097,43 @@ static int obj_delete(uint8_t kind, uint8_t num)
         if (!ent_del(&map[i]) && (kind == REC_PATTERN || !ent_sub(&map[i]))) { saved = 1; v = ent_ver(&map[i]); }
     return saved ? pc_put(pkey(kind, num, PC_OBJ), v, 0, 0, PF_DEL) : STORE_OK;
 }
-/* the six cartridge kinds share one number: kind's there means another kind's goes (a sampler's samples with it) */
+/* an old cartridge at num: a live record in the flash of a cartridge kind in a version this firmware does not read (a
+ * sampler of the old form, or a newer firmware's): never touched, its number taken (specs/files/instruments.md#the-
+ * old-form) */
+static int cart_old(uint8_t num)
+{
+    for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) {
+        int i = map_find(key_of(k, num, 0), 0);
+        if (i >= 0 && !ent_del(&map[i]) && ent_ver(&map[i]) != cart_ver(k)) return 1;
+    }
+    return 0;
+}
+/* the seven cartridge kinds share one number: kind's there means another kind's goes (that one alone: a sample's number
+ * is apart) */
 static int cart_other(uint8_t kind, uint8_t num)
 {
     for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) if (k != kind && obj_live(k, num) && !builtin_has(k, num)) return 1;
     return 0;
 }
+/* two cartridge kinds under one number (an older firmware's NEW over a FAVORITES record it kept): another kind always
+ * wins, the FAVORITES record left out by an edit, its deletion the next SAVE's (specs/files/store.md#power-on) */
+static void fav_give_way(void)
+{
+    for (int i = 0; i < map_n; i++)
+        if (ent_kind(&map[i]) == REC_FAV && !ent_del(&map[i]) && !obj_hidden(REC_FAV, ent_num(&map[i])) &&
+            cart_other(REC_FAV, ent_num(&map[i])))
+            obj_delete(REC_FAV, ent_num(&map[i]));
+}
 static void cart_claim(uint8_t kind, uint8_t num)
 {
-    for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) {
-        if (k == kind || !obj_live(k, num) || builtin_has(k, num)) continue;
-        obj_delete(k, num);
-        if (k == REC_SAMPLER)
-            for (int j = 0; j < map_n; j++)
-                if (ent_kind(&map[j]) == REC_AUDIO && ent_num(&map[j]) == num && !ent_del(&map[j]))
-                    pc_put(pkey(REC_AUDIO, num, ent_sub(&map[j])), ent_ver(&map[j]), 0, 0, PF_DEL);
-    }
+    for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++)
+        if (k != kind && obj_live(k, num) && !builtin_has(k, num)) obj_delete(k, num);
 }
 
 /* A whole record laid out as its pieces (store_edit_put), in turn: piece j's id, bytes and length (bytes NULL: that
  * piece goes); 0 past the last. A pattern: its head, its 16 tracks (all in this one part); LOOPS: its head, then with
  * loops its streams' head and 16 streams (all in this one part; without loops, those go); a cartridge: its head, its
- * slots, a sampler's table. */
+ * slots. */
 typedef struct {
     uint8_t kind;
     const uint8_t *b;
@@ -1040,10 +1148,10 @@ static int split_init(split_t *s, uint8_t kind, uint8_t ver, const uint8_t *b, u
     memset(s, 0, sizeof *s);
     s->kind = kind; s->b = b; s->len = len;
     if (is_cart(kind)) {
-        s->h = cart_head(kind);
-        if (len < s->h) return -1;
+        s->h = CART_HEAD;
+        if (len < s->h || ver != cart_ver(kind)) return -1;
         s->n = b[9];
-        return s->h + SLOT_SZ[kind] * s->n + (kind == REC_SAMPLER ? 16u * b[10] : 0u) == len ? 0 : -1;
+        return s->h + SLOT_SZ[kind] * s->n == len ? 0 : -1;
     }
     if (kind == REC_LOOPS) {
         if (ver != LOOPS_VER || len < loops_head(0)) return -1;
@@ -1071,7 +1179,6 @@ static int split_at(const split_t *s, uint32_t j, uint32_t *id, const uint8_t **
         uint32_t sz = SLOT_SZ[s->kind];
         if (!j) { *id = STORE_PC_HEAD; *p = s->b; *l = s->h; return 1; }
         if (j <= s->n) { *id = j - 1u; *p = s->b + s->h + sz * (j - 1u); *l = sz; return 1; }
-        if (j == s->n + 1u && s->kind == REC_SAMPLER) { *id = STORE_PC_TABLE; *p = s->b + s->h + sz * s->n; *l = 16u * s->b[10]; return 1; }
         return 0;
     }
     uint32_t at = 0;
@@ -1108,7 +1215,7 @@ static int put_split(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const 
         need += (ALIGN4(l) > had ? ALIGN4(l) : 0u) + (i < 0 ? 8u : 0u);
         if (sess_wants(pkey(kind, num, id)) && pc_find(pkey(kind | K_SESS, num, id)) < 0) need += had + 8u;
     }
-    if (claim) need += 8u * 66u;                        /* (another kind's deleted: its entry, a sampler's samples') */
+    if (claim) need += 8u * 7u;                         /* (the other kinds deleted: an entry each) */
     if (need > room_free()) return STORE_ERR_FULL;
     if (claim) cart_claim(kind, num);
     for (j = 0; split_at(&s, j, &id, &p, &l); j++) {
@@ -1124,9 +1231,15 @@ static int put_split(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const 
     return STORE_OK;
 }
 
+/* the old form, never touched (store.h): the old audio, and an old cartridge's number; and the kinds no record has
+ * (bit 7: an edit mode's copies, the stage) */
+static int untouched(uint8_t kind, uint8_t num)
+{
+    return (kind & K_SESS) || kind == REC_AUDIO_OLD || (is_cart(kind) && cart_old(num));
+}
 int store_edit_put(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const void *payload, uint32_t len)
 {
-    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (locked || edit_saving || untouched(kind, num)) return STORE_ERR_STATE;
     if (STORE_HDR + len > STORE_MAX_REC) return STORE_ERR_BIG;
     payload = outside(payload, len);
     if (piece_kind(kind)) return put_split(kind, num, sub, ver, payload, len);
@@ -1142,7 +1255,7 @@ int store_edit_put(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const vo
 
 int store_edit_del(uint8_t kind, uint8_t num, uint8_t sub)
 {
-    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (locked || edit_saving || untouched(kind, num)) return STORE_ERR_STATE;
     if (piece_kind(kind)) return obj_delete(kind, num);
     int i = map_find(key_of(kind, num, sub), 0);
     if (i < 0 || ent_del(&map[i])) {                    /* nothing saved: only the edit goes */
@@ -1154,20 +1267,15 @@ int store_edit_del(uint8_t kind, uint8_t num, uint8_t sub)
 
 int store_edit_forget(uint8_t kind, uint8_t num, uint8_t sub)
 {
-    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (locked || edit_saving || (kind & K_SESS)) return STORE_ERR_STATE;
     if (!piece_kind(kind)) pc_drop(pkey(kind, num, sub));
     else if (!is_cart(kind)) obj_drop(kind, num);
-    else {
-        int i;
-        for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) obj_drop(k, num);
-        while ((i = pc_lower(pkey(REC_AUDIO, num, 0))) < npc() && pc_key(&pcs()[i]) <= pkey(REC_AUDIO, num, 0x1FFu))
-            pc_drop(pc_key(&pcs()[i]));
-    }
+    else for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) obj_drop(k, num);
     return STORE_OK;
 }
 int store_edit_forget_piece(uint8_t kind, uint8_t num, uint16_t id)
 {
-    if (locked || edit_saving) return STORE_ERR_STATE;
+    if (locked || edit_saving || (kind & K_SESS)) return STORE_ERR_STATE;
     pc_drop(pkey(kind, num, id));
     return STORE_OK;
 }
@@ -1204,16 +1312,15 @@ uint32_t store_edit_limit(void) { return STORE_EDIT_MAX; }
 /* a cartridge into b (at most max): its length; 0 none, too big, or its flash record not readable now */
 static uint32_t build_cart(uint8_t kind, uint8_t num, uint8_t *b, uint32_t max)
 {
-    uint32_t fl = 0, hl = cart_head(kind), sz = SLOT_SZ[kind], hlen = 0, n, ns, fn, at, l, s;
+    uint32_t fl = 0, hl = CART_HEAD, sz = SLOT_SZ[kind], hlen = 0, n, fn, at, l, s;
     uint8_t fv;
     const uint8_t *f = flash_get(kind, num, 0, &fl, &fv), *h = store_piece(kind, num, STORE_PC_HEAD, &hlen), *q;
     if (!f && flash_lost(kind, num, 0)) return 0;
     if (!h) { h = f; hlen = fl; }
     if (!h || hlen < 10u) return 0;
     n = h[9];
-    ns = kind == REC_SAMPLER && hlen > 10u ? h[10] : 0u;
     fn = f && fl >= 10u ? f[9] : 0u;
-    at = hl + sz * n + 16u * ns;
+    at = hl + sz * n;
     if (at > max) return 0;
     memset(b, 0, hl);
     memcpy(b, h, hlen < hl ? hlen : hl);
@@ -1222,13 +1329,6 @@ static uint32_t build_cart(uint8_t kind, uint8_t num, uint8_t *b, uint32_t max)
         if ((q = store_piece(kind, num, (uint16_t)s, &l)) && l == sz) memcpy(d, q, sz);
         else if (f && s < fn && hl + sz * (s + 1u) <= fl) memcpy(d, f + hl + sz * s, sz);
         else slot_clear(kind, d);
-    }
-    if (ns) {                                           /* a sampler's samples' table */
-        uint8_t *d = b + hl + sz * n;
-        uint32_t fns = f && fl > 10u ? f[10] : 0u;
-        memset(d, 0, 16u * ns);
-        if ((q = store_piece(kind, num, STORE_PC_TABLE, &l))) memcpy(d, q, l < 16u * ns ? l : 16u * ns);
-        else if (f && hl + sz * fn + 16u * fns <= fl) memcpy(d, f + hl + sz * fn, 16u * (fns < ns ? fns : ns));
     }
     return at;
 }
@@ -1598,13 +1698,14 @@ static void sv_enter(int obj)
 /* ---- deletions first (store.md#the-room-for-the-editors-pattern) ----
  * An edits' SAVE that does not fit writes its deletions first, as a save of their own, then the rest once
  * compaction has freed their blocks. Only deletions no edit could be made from go first: a thing deleted whole whose
- * kind (the cartridges' kinds and the samples' audio: one) has no new thing among the edits (one the flash does not
- * hold, or one made anew: what a MOVE or a CLONE makes), the EDITOR's pattern and the keys' song apart (never moved).
- * A power cut between the two leaves the deletions saved and the rest not. */
+ * kind (patterns; songs; the cartridges' kinds, one; the samples) has no new thing among the edits (one the flash does
+ * not hold, or one made anew: what a MOVE or a CLONE makes), the EDITOR's pattern and the keys' song apart (never
+ * moved). A sample's deletion always qualifies (the FM-1 makes no samples): it goes first, the samplers whose
+ * instruments it deleted after it. A power cut between the two leaves the deletions saved and the rest not. */
 static int sv_dels;                     /* the save under way: those deletions only */
 static int then_rest;                   /* ... and the edits' save follows it */
 static void saving_none(void) { edit_saving = 0; sv_dels = 0; then_rest = 0; }   /* (power-on: no save under way) */
-static int fam(uint8_t kind) { return is_cart(kind) || kind == REC_AUDIO ? 1 : (int)kind; }
+static int fam(uint8_t kind) { return is_cart(kind) ? 1 : (int)kind; }
 static int saved_live(uint8_t kind, uint8_t num, uint8_t sub)
 {
     int i = map_find(key_of(kind, num, sub), 0);
@@ -1724,7 +1825,8 @@ int store_edit_build(uint8_t kind, uint8_t num, uint8_t sub, uint8_t *dst, uint3
         *len = l;
         return 0;
     }
-    if (!obj_live(kind, num)) return -1;
+    if (!obj_live(kind, num) || (is_cart(kind) && cart_old(num))) return -1;   /* (an old cartridge: not in the layout
+                                                                             * built here) */
     if (kind == REC_PATTERN || kind == REC_LOOPS) {
         sv.kind = kind;
         sv.num = num;
@@ -1800,19 +1902,15 @@ int store_save_put(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const vo
 {
     if (s_state != S_STAGING) return STORE_ERR_STATE;
     if (STORE_HDR + len > STORE_MAX_REC) return STORE_ERR_BIG;
+    if (is_cart(kind) && cart_old(num)) return STORE_ERR_STATE;    /* (an old cartridge's number: taken) */
     int r = stage(kind, num, sub, ver, 0, payload, len);
     if (r || !is_cart(kind)) return r;
-    /* the six cartridge kinds share one number space: another kind's cartridge there goes */
+    /* the seven cartridge kinds share one number space: another kind's cartridge there goes (that one alone) */
     for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) {
         if (k == kind || staged(k, num, 0)) continue;
         int i = map_find(key_of(k, num, 0), 0);
         if (i < 0 || ent_del(&map[i])) continue;
         if ((r = stage(k, num, 0, ent_ver(&map[i]), 1, 0, 0))) return r;
-        if (k == REC_SAMPLER)
-            for (int j = 0; j < map_n; j++)
-                if (ent_kind(&map[j]) == REC_AUDIO && ent_num(&map[j]) == num && !ent_del(&map[j]) &&
-                    !staged(REC_AUDIO, num, ent_sub(&map[j])))
-                    if ((r = stage(REC_AUDIO, num, ent_sub(&map[j]), ent_ver(&map[j]), 1, 0, 0))) return r;
     }
     return STORE_OK;
 }
@@ -2052,7 +2150,7 @@ void store_usage(store_usage_t *u)
     for (int i = 0; i < map_n; i++) {
         const ent_t *e = &map[i];
         if (ent_del(e)) continue;
-        if (ent_kind(e) == REC_AUDIO) u->user_audio += ent_span(e);
+        if (store_is_audio(ent_kind(e))) u->user_audio += ent_span(e);
         for (int k = 0; k < STORE_NKINDS; k++)
             if (store_kinds[k] == ent_kind(e)) { u->count[k]++; u->bytes[k] += ent_len(e); }
     }
@@ -2062,7 +2160,7 @@ void store_usage(store_usage_t *u)
     u->mount_walks = (uint8_t)m_walks;
 }
 
-/* ---- things, a sampler's CLONE and MOVE, CHECK STORAGE (store.h) ---- */
+/* ---- things, CHECK STORAGE (store.h) ---- */
 static int live_at(uint32_t key, int *i)
 {
     int k = map_find(key, 0);
@@ -2081,14 +2179,8 @@ int store_thing(uint8_t kind, uint8_t num, uint8_t sub, store_key_t *keys, int m
     int n = 0, at;
     if (is_builtin(kind, num)) return 0;
     if (is_cart(kind)) {
-        for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) {
-            if (!live_at(key_of(k, num, 0), 0)) continue;
-            n = add_key(keys, n, max, k, num, 0);
-            if (k != REC_SAMPLER) continue;
-            map_find(key_of(REC_AUDIO, num, 0), &at);
-            for (int i = at; i < map_n && ent_kind(&map[i]) == REC_AUDIO && ent_num(&map[i]) == num; i++)
-                if (!ent_del(&map[i])) n = add_key(keys, n, max, REC_AUDIO, num, ent_sub(&map[i]));
-        }
+        for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++)
+            if (live_at(key_of(k, num, 0), 0)) n = add_key(keys, n, max, k, num, 0);
     } else if (kind == REC_PATTERN || kind == REC_LOOPS) {     /* (every part) */
         map_find(key_of(kind, num, 0), &at);
         for (int i = at; i < map_n && ent_kind(&map[i]) == kind && ent_num(&map[i]) == num; i++)
@@ -2108,172 +2200,50 @@ uint32_t store_thing_bytes(const store_key_t *keys, int n)
     return b;
 }
 
-/* A copy's records (a sampler's CLONE or MOVE), in the scratch while it runs: where each comes from and goes */
-typedef struct {
-    uint8_t kind, num, sub, aud, ver;
-    uint32_t span, src, at;
-} mv_t;
-#define MV ((mv_t *)scratch32)
-typedef char mv_fits[STORE_MOVE_MAX * sizeof(mv_t) <= STORE_SCRATCH_BYTES ? 1 : -1];
-static int mv_n;
-
-/* the user area's blocks the copy needs: the records but audio from the head, and a run of blocks of their own for
- * the audio; 1 when they fit with the reserve and compaction's two blocks left (the reserve covers the EDITOR's
- * room), with the audio run's start (0 none needed) */
-static uint32_t mv_size_nonaudio(int k)
-{
-    int j = -1;
-    for (int i = 0; i < mv_n; i++) if (!MV[i].aud && ++j == k) return MV[i].span;
-    return 0;
-}
-static int mv_user_room(uint32_t *run_at)
-{
-    int nna = 0;
-    uint32_t audio = 0;
-    for (int i = 0; i < mv_n; i++) { if (MV[i].aud) audio += MV[i].span; else nna++; }
-    int need = blocks_needed(mv_size_nonaudio, nna), nab = (int)((audio + STORE_BLOCK - 1) / STORE_BLOCK);
-    *run_at = 0;
-    if (count_free() - need - nab < STORE_RESERVE + STORE_MIN_FREE) return 0;
-    if (!nab) return 1;
-    /* a run of nab free blocks in one region, the head's block not among them */
-    for (int reg = 0; reg < 2; reg++) {
-        uint32_t s = reg ? U2_START : U1_START, e = reg ? U2_END : U1_END, run = 0;
-        for (uint32_t a = s; a < e; a += STORE_BLOCK) {
-            run = blk_free(a, head) ? run + 1 : 0;
-            if ((int)run == nab) { *run_at = a - (uint32_t)(nab - 1) * STORE_BLOCK; return 1; }
-        }
-    }
-    return 0;
-}
-
-/* one record copied to addr (header made again: this save, its flags), its payload read from src's, 64 B at a time;
- * then in the map */
-static int wr_copy(uint32_t addr, const mv_t *m, int last, uint32_t save)
-{
-    uint32_t len;
-    uint8_t h[STORE_HDR], sh[8];
-    if (rd(m->src, sh, 8)) return -1;                   /* the payload's true length, from its header */
-    len = sh[4] | sh[5] << 8 | (uint32_t)sh[6] << 16;
-    h[0] = m->kind; h[1] = m->num; h[2] = m->sub; h[3] = m->ver;
-    h[4] = (uint8_t)len; h[5] = (uint8_t)(len >> 8); h[6] = (uint8_t)(len >> 16);
-    h[7] = (uint8_t)(last ? F_LAST : 0);
-    put32(h + 8, save);
-    uint32_t c = crc32_update(0, h, 12);
-    if (len) c = store_crc_flash(c, m->src + STORE_HDR, len);
-    put32(h + 12, c);
-    if (wr_bytes(addr, h, STORE_HDR)) return -1;
-    for (uint32_t o = 0; o < len; o += 64) {
-        uint8_t b[64];
-        uint32_t k = len - o < 64 ? len - o : 64;
-        if (rd(m->src + STORE_HDR + o, b, k) || wr_bytes(addr + STORE_HDR + o, b, k)) return -1;
-    }
-    return pend_add(key_of(m->kind, m->num, m->sub), addr, len, 0);
-}
-
-static int move_fail(void)
-{
-    pg_addr = 1;
-    store_mount();                                      /* the save has no last record: as it was */
-    return STORE_ERR_FLASH;
-}
-
-/* CLONE (and MOVE) of a sampler cartridge with samples: its audio copied under the new number, over a run of free
- * blocks of its own; a MOVE's deleted records for the old number; then the cartridge's record from RAM, the save's
- * last */
-int store_clone_sampler(uint8_t from, uint8_t to, uint8_t ver, const uint8_t *rec, uint32_t len, int move)
-{
-    if (locked || store_saving()) return STORE_ERR_STATE;
-    if (STORE_HDR + ALIGN4(len) > STORE_MAX_REC) return STORE_ERR_BIG;
-    for (int s = 0; s < 64; s++) {                      /* (an edit waiting at the new number would shadow it; a
-                                                         * move's old number: its edits would bring it back) */
-        int k = s >= REC_DX7 && s <= REC_CART_LAST;
-        if (store_edit_has(REC_AUDIO, to, (uint8_t)s) || (k && store_edit_has((uint8_t)s, to, 0))) return STORE_ERR_STATE;
-        if (move && (store_edit_has(REC_AUDIO, from, (uint8_t)s) || (k && store_edit_has((uint8_t)s, from, 0))))
-            return STORE_ERR_STATE;
-    }
-    if (!store_scratch_claim(1)) return STORE_ERR_STATE;
-    int r = STORE_OK, na = 0;
-    mv_n = 0;
-    for (int s = 0; s < 64 && mv_n < STORE_MOVE_MAX - 2; s++) {
-        int i;
-        if (store_edit_has(REC_AUDIO, from, (uint8_t)s) || !live_at(key_of(REC_AUDIO, from, (uint8_t)s), &i)) continue;
-        mv_t *m = &MV[mv_n++];                          /* (a sample deleted by an edit is not copied) */
-        m->kind = REC_AUDIO; m->num = to; m->sub = (uint8_t)s; m->aud = 1;
-        m->span = ent_span(&map[i]);
-        m->src = ent_addr(&map[i]);
-        m->ver = ent_ver(&map[i]);
-        na++;
-    }
-    if (move) {                                         /* the deleted records' room, counted as one */
-        mv_t *d = &MV[mv_n++];
-        memset(d, 0, sizeof *d);
-        d->span = (uint32_t)(na + 1) * STORE_HDR;
-    }
-    mv_t *c = &MV[mv_n++];                              /* the record: its room counted, written from rec */
-    memset(c, 0, sizeof *c);
-    c->kind = REC_SAMPLER; c->num = to; c->span = STORE_HDR + ALIGN4(len);
-    uint32_t run, at;
-    if (!mv_user_room(&run)) { r = STORE_ERR_FULL; goto out; }
-    uint32_t save = next_save++;
-    place_start();
-    if (run) {                                          /* the audio's blocks: taken, erased as entered */
-        uint32_t audio = 0;
-        for (int k = 0; k < mv_n; k++) if (MV[k].aud) audio += MV[k].span;
-        for (uint32_t a = run; a < run + audio; a += STORE_BLOCK) {
-            taken[BLK(a) >> 3] |= (uint8_t)(1u << (BLK(a) & 7));
-            if (prep_block(a & ~0xFFFu)) { r = move_fail(); goto out; }
-        }
-    }
-    at = run;
-    for (int k = 0; k < mv_n; k++) {
-        if (!MV[k].aud) continue;
-        if (wr_copy(at, &MV[k], 0, save)) { r = move_fail(); goto out; }
-        at += MV[k].span;
-    }
-    for (int k = 0; move && k <= mv_n; k++) {           /* a move: the old number's audio and record deleted */
-        if (k < mv_n && !MV[k].aud) continue;
-        if (k < mv_n ? wr_record(REC_AUDIO, from, MV[k].sub, MV[k].ver, 1, 0, save, 0, 0)
-                     : wr_record(REC_SAMPLER, from, 0, ver, 1, 0, save, 0, 0)) { r = move_fail(); goto out; }
-    }
-    if (wr_record(REC_SAMPLER, to, 0, ver, 0, 1, save, rec, len) || wr_flush()) { r = move_fail(); goto out; }
-    last_save = save;
-    head = pl_head; head_from = pl_from;
-    memset(taken, 0, sizeof taken);
-    blocks_count();
-out:
-    store_scratch_claim(0);
-    return r;
-}
-
 /* CHECK STORAGE: every record walked with its CRC checked; a record that fails counts when it mattered: the one in
  * use (damaged), or newer than the one in use (fell back), or with none in use (missing); an older copy failing
- * loses nothing */
+ * loses nothing. The old form's audio is never read: nothing of it counts. Then each sample in use whose entry and
+ * audio differ. A thing listed once. */
 static store_problem_t *ck_out;
 static int ck_max, ck_n;
-static void on_nothing(uint32_t pos, const uint8_t *h, uint32_t len) { (void)pos; (void)h; (void)len; }
-static void on_check_bad(uint32_t pos, const uint8_t *h, uint32_t len)
+static void ck_add(uint8_t kind, uint8_t num, uint8_t sub, int what)
 {
-    (void)len;
-    uint32_t key = key_of(h[0], h[1], h[2]), save = le32(h + 8);
-    int i = map_find(key, 0), what;
-    if (i >= 0 && ent_addr(&map[i]) == pos) {
-        what = STORE_DAMAGED;
-    } else {
-        uint8_t b[4];
-        uint32_t ms = i >= 0 && !rd(ent_addr(&map[i]) + 8, b, 4) ? le32(b) : 0;
-        if (i >= 0 && save <= ms) return;
-        what = i >= 0 && !ent_del(&map[i]) ? STORE_FELL_BACK : STORE_MISSING;
-    }
     int shown = ck_n < ck_max ? ck_n : ck_max;
     for (int k = 0; k < shown; k++)
-        if (ck_out[k].kind == h[0] && ck_out[k].num == h[1] && ck_out[k].sub == h[2]) return;
+        if (ck_out[k].kind == kind && ck_out[k].num == num && ck_out[k].sub == sub) return;
     if (ck_n < ck_max) {
         store_problem_t *p = &ck_out[ck_n];
-        p->kind = h[0]; p->num = h[1]; p->sub = h[2];
+        p->kind = kind; p->num = num; p->sub = sub;
         p->area = STORE_AREA_USER;
         p->what = (uint8_t)what;
     }
     ck_n++;
+}
+static void on_nothing(uint32_t pos, const uint8_t *h, uint32_t len) { (void)pos; (void)h; (void)len; }
+/* A plausible record walked whose CRC fails: what it costs (STORE_DAMAGED, STORE_FELL_BACK, STORE_MISSING), or 0 when it
+ * costs nothing: the old form's audio (never read), a copy older than the one in use (what a deleted sample leaves in its
+ * freed blocks among them). CHECK STORAGE names what costs; the mount counts it (n_bad): one rule for both. */
+static int bad_costs(uint32_t pos, const uint8_t *h)
+{
+    if (h[0] == REC_AUDIO_OLD) return 0;
+    uint32_t key = key_of(h[0], h[1], h[2]), save = le32(h + 8);
+    int i = map_find(key, 0);
+    if (i >= 0 && ent_addr(&map[i]) == pos) return STORE_DAMAGED;
+    uint8_t b[4];
+    uint32_t ms = i >= 0 && !rd(ent_addr(&map[i]) + 8, b, 4) ? le32(b) : 0;
+    if (i >= 0 && save <= ms) return 0;
+    return i >= 0 && !ent_del(&map[i]) ? STORE_FELL_BACK : STORE_MISSING;
+}
+static void on_check_bad(uint32_t pos, const uint8_t *h, uint32_t len)
+{
+    (void)len;
+    int what = bad_costs(pos, h);
+    if (what) ck_add(h[0], h[1], h[2], what);
+}
+static void on_mount_bad(uint32_t pos, const uint8_t *h, uint32_t len)
+{
+    (void)len;
+    if (bad_costs(pos, h)) n_bad++;
 }
 
 int store_check(store_problem_t *out, int max)
@@ -2283,6 +2253,13 @@ int store_check(store_problem_t *out, int max)
     walk_bad = on_check_bad;
     walk_all(on_nothing);
     walk_bad = 0;
+    for (int i = 0; i < map_n; i++) {                   /* (a sample's entry against its audio: its CRC alone would not
+                                                         * see them differ) */
+        const ent_t *e = &map[i];
+        const uint8_t *p;
+        if (ent_kind(e) != REC_SAMPLE || ent_del(e) || !(p = plat_flash_ptr(ent_addr(e) + STORE_HDR))) continue;
+        if (!store_sample_ok(p, ent_len(e))) ck_add(REC_SAMPLE, ent_num(e), ent_sub(e), STORE_DIFFER);
+    }
     return ck_n;
 }
 /* ---- for seeding ---- */
@@ -2293,7 +2270,7 @@ int store_saving(void) { return s_state == S_STAGING || s_state == S_WRITING; }
 static int kb_of(const ent_t *e)
 {
     uint8_t k = ent_kind(e);
-    return ent_del(e) ? STORE_KB_OTHER : k == REC_AUDIO ? STORE_KB_SAMPLES : is_cart(k) ? STORE_KB_INSTRUMENTS :
+    return ent_del(e) ? STORE_KB_OTHER : k == REC_SAMPLE ? STORE_KB_SAMPLES : is_cart(k) ? STORE_KB_INSTRUMENTS :
            k == REC_PATTERN ? STORE_KB_PATTERNS : k == REC_SONG ? STORE_KB_SONGS : k == REC_LOOPS ? STORE_KB_LOOPS :
            STORE_KB_OTHER;
 }

@@ -34,5 +34,11 @@ __attribute__((weak)) int plat_fast(void (*fn)(const plat_input_t *in, uint32_t 
 __attribute__((weak)) int plat_c2_half(void) { return 0; }
 __attribute__((weak)) void plat_c2_post(void (*job)(uint32_t), uint32_t j) { job(j); }
 __attribute__((weak)) void plat_c2_enable(int on) { (void)on; }
-__attribute__((weak)) void plat_c2_force_off(int off) { (void)off; }
 __attribute__((weak)) void plat_c2_wait(void) {}
+
+#ifdef PTFM_DEBUG
+/* (the debug part: linked in with the rest everywhere but on the FM-1) */
+__attribute__((weak)) int plat_dbg_part(void) { return 1; }
+__attribute__((weak)) void plat_dbg_part_recheck(void) {}
+__attribute__((weak)) void plat_dbg_part_stop(void) {}
+#endif

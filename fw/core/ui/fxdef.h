@@ -31,7 +31,7 @@ typedef struct {
     uint8_t nk;
     const fx_knob_t *k;
     const char *unit[8];                /* KF_UNIT's unit for each knob (" KHZ", " MS", " DB": a value's, not packed) */
-    uint8_t cpu10;                      /* the CPU it takes, % x 10 (estimates) */
+    uint8_t cpu10;                      /* the CPU it takes, % x 10 (the FM-1's measured figures, fxdef.c) */
 } fx_eff_t;
 extern const fx_eff_t FX_EFF[FE_N];
 extern const txt_t FX_SHORT_NAME[FE_N]; /* LIVE's words: METRONOME as `METRO` */
@@ -47,6 +47,7 @@ void fxd_set_chain(uint8_t *s, const uint8_t *items, int n);
 void fxd_set_routing(uint8_t *s, int sends);            /* GLOBAL: the sends where SENDS was; SENDS: SENDS before the first of them */
 void fxd_reset(uint8_t *s, int e);      /* the effect's knobs to their defaults */
 void fxd_default(uint8_t *s);           /* a new song's setup: only LIMITER on */
+void fxd_loops(uint8_t *s);             /* LOOPS' with none yet: a new song's, ROUTING SENDS */
 uint8_t fxd_code(int e, int k);         /* the knob's FX command (0x90-0xAC, 0xB0-0xB5), 0 none */
 int fxd_byte(int e, int k);             /* where the setup keeps it */
 void fxd_text(int e, int k, int v, char *out);          /* its value as the screens write it (`LP 3.8K`) */

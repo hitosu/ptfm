@@ -142,6 +142,8 @@ static void s_chip_tables(void) { instr_page(9, REC_CHIP, 2); }
 static void s_chip_wave(void) { instr_page(9, REC_CHIP, 3); }
 static void s_sampler_browse(void) { instr_cart(-6, REC_SAMPLER); }
 static void s_sampler_env(void) { instr_page(-6, REC_SAMPLER, 1); }
+/* THE SAMPLES list: ENV on the first page's SAMPLE row, in edit mode (the instrument's sample highlighted) */
+static void s_samples_list(void) { instr_page(-6, REC_SAMPLER, 0); tap(B_ENV); run(600); }
 static void s_fusion_browse(void) { instr_cart(-1, REC_FUSION); }
 static void s_fusion_edit(void) { instr_page(-1, REC_FUSION, 0); }
 
@@ -258,6 +260,28 @@ static void s_fx_duck(void) { fx_on(8, "DUCK"); }
 static void s_fx_filter_env(void) { fx_edit(1, "FILTER"); turn(K_ALG, 1); run(1300); }
 static void s_fx_props(void) { fx_edit(0, "GATE"); tap(B_GLO); }
 
+/* LOOPS' ADJUST (specs/ui/screens/loops.md#k1-k4-view-and-adjust): two loops, stopped at the start, 4 bars of 16 rows:
+ * 00 EL PIANO's chords, a bar played 4 times; 01 a TB-303 line, MONO, played once in bar 1, then resting; ADJUST on 01,
+ * K2 a bar and K1 a row: the line moved 17 rows later, into bar 2, drawn at once (ui3_test.c's helpers) */
+static void s_loops_adjust(void)
+{
+    static const lpc_t chords[12] = {{0, 0, 57}, {0, 1, 60}, {0, 2, 64}, {3, 0, REC_NOTE_OFF}, {3, 1, REC_NOTE_OFF},
+                                     {3, 2, REC_NOTE_OFF}, {8, 0, 55}, {8, 1, 59}, {8, 2, 62}, {11, 0, REC_NOTE_OFF},
+                                     {11, 1, REC_NOTE_OFF}, {11, 2, REC_NOTE_OFF}};
+    static const lpc_t line[9] = {{0, 0, 45}, {2, 0, 45}, {4, 0, 48}, {6, 0, 45}, {8, 0, 52}, {10, 0, 50}, {12, 0, 48},
+                                  {14, 0, 43}, {15, 0, REC_NOTE_OFF}};
+    lp_fresh(64, 120);
+    lp_add(UI_FIRST_INST, 16, 4, 0, 0, chords, 12);
+    lp_add(0xFA00u, 16, 1, 1, 0, line, 9);              /* (FA:00, the built-in TB-303's first) */
+    lp_select(1);
+    menu_pick("ADJUST");
+    turn(K_K2, 1);
+    turn(K_K1, 1);
+    run(2100);                                          /* (the knobs' readout gone) */
+    check(screen_is("LOOPS") && sub_is("ADJUST") && loops_n() == 2 && loops_shift(1) == 17 && loops_shift(0) == 0,
+          "LOOPS: ADJUST on loop 01, K2 a bar and K1 a row: SHIFT 17, ADJUST still open");
+}
+
 static const mshot_t SHOTS[] = {
     {"fx-live", 0, test_fx, "23_fx_live"},
     {"fx-edit", 0, test_fx, "23b_fx_edit"},
@@ -290,6 +314,11 @@ static const mshot_t SHOTS[] = {
     {"loops-menu", 0, loops_as_playground, "28g_loops_sel"},
     {"loops-full", 0, loops_as_playground, "28i_loops_full16"},
     {"loops-song", 0, loops_as_playground, "28h_loops_song"},
+    {"loops-staged", 0, loops_as_playground, "28j_loops_staged"},
+    {"loops-overwrite", 0, loops_as_playground, "28k_loops_overwrite"},
+    {"loops-stage-off", 0, loops_as_playground, "28s_loops_stage_off"},
+    {"loops-adjust", s_loops_adjust, 0, 0},
+    {"loops-tie", 0, test_loops, "ui3_loops_pattern_ties"},
     {"loops-save-to", 0, test_loops, "ui3_loops_save_to"},
     {"loops-record-live", 0, test_loops, "ui3_loops_record_live"},
     {"loops-repeats", 0, test_loops, "ui3_loops_repeats"},
@@ -350,6 +379,7 @@ static const mshot_t SHOTS[] = {
     {"instruments-chip-wave", s_chip_wave, 0, 0},
     {"instruments-sampler-browse", s_sampler_browse, 0, 0},
     {"instruments-sampler-envelope", s_sampler_env, 0, 0},
+    {"instruments-samples-list", s_samples_list, 0, 0},
     {"instruments-fusion-browse", s_fusion_browse, 0, 0},
     {"instruments-fusion-edit", s_fusion_edit, 0, 0},
     {"editor-grid", s_editor_grid, 0, 0},

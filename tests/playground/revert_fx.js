@@ -8,7 +8,7 @@
 module.exports = async t => {
     const { U, M, P, ok } = t;
     const A = t.PTFM.audio, J = JSON.stringify;
-    const i = M.state.songs.findIndex(s => s.name === "CITY LIGHTS");
+    const i = M.state.songs.findIndex(s => s && s.name === "CITY LIGHTS");
     if (i < 0) { ok(false, "REVERT ALL FX: CITY LIGHTS"); return; }
     ok(!M.unsaved, "REVERT ALL FX: nothing unsaved before it");
     U.song = i;

@@ -15,14 +15,15 @@ same sources, for the emulator (`../emulator/`). Engine only: no data but the bu
 | `core/plat.h` | everything the app needs from the hardware; nothing in `core/` touches anything else |
 | `core/app.h`, `app.c` | the entry points a platform calls: `app_init`, `app_poll`, `app_audio`, `app_sysex` |
 | `core/store/` | the store (`../specs/files/store.md`): the scan, the map, reading records, saving, compaction; seeding's device side (`../specs/files/blob.md`) |
-| `core/play/` | the player: the replay of songs and patterns tick by tick (`../specs/files/patterns.md`, `commands.md`, `songs.md`), the voice pool, the mix |
+| `core/play/` | the player: the replay of songs and patterns tick by tick (`../specs/files/patterns.md`, `commands.md`, `songs.md`), the voice pool, the mix; DJ (`dj.c`), LOOPS' record (`loops.c`), RECORD LIVE's song (`live.c`) |
 | `core/eng/` | the engines: DX7, Juno-106, TB-303, the sampler (PTR audio) |
 | `core/fx/` | the effects, the sends, the punch-ins, the METRONOME (`../specs/ui/screens/fx.md`) |
 | `core/ui/` | drawing, the fonts, the frame, the controls' grammar, every screen (`../specs/ui/`) |
 | `core/midi/` | MIDI in and out (`../specs/connections.md`): notes as the keys, MIDI learn and its record (`../specs/files/midi.md`), MIDI OUT, the clock in and out; USB and the MIDI IN jack alike, through `plat_midi_rx` / `plat_midi_tx` |
-| `device/` | the FM-1's side: boot, interrupts, audio, input, LEDs, the LCD, flash, USB-MIDI, the update protocol, the USB rescue |
+| `device/` | the FM-1's side: boot, interrupts, audio, input, LEDs, the LCD, flash, USB-MIDI, the update protocol |
 | `hal/` | the hardware layer (header-only: registers, the panel's scan, audio, LCD, flash, USB) |
-| `loader/` | the update loader the installers know, byte for byte |
+| `stub/` | the start check, the slot's first code (OCT-, the firmware's mark and CRC-32: the firmware, or update mode), its bytes pinned by `stub.lock` |
+| `loader/` | the update loader (pinned by its SHA-256 in `tools/build.py`): writes the slot, the mark's block first and last; asks PT/FM's pages for hashes; its screen |
 | `tools/` | the build (`build.py`), the packager, the install page's maker, the generators |
 | `web/` | the install page's template and its scripts (the installer's, seeding's) |
 | `tests/` | host tests: `run_tests.sh` runs every `run_*.sh` beside it |
@@ -63,10 +64,13 @@ record readers), `store/seed.h` (`seed_poll`, `seed_active`, `seed_sysex`), `pla
 ## The sound (`core/play/`, `core/eng/`, `core/fx/`)
 
 - **`play/player.h`** is all the UI needs: the transport's requests, the keys, mutes, the voice count, the FX
-  screen's knobs, a source of its own for LOOPS (`player_play_source`), and what the screens read (a snapshot
-  a half, the voices, the scopes, the costs).
+  screen's knobs, a source of its own for LOOPS (`player_play_source`), the tap RECORD LIVE's song is written from
+  (`player_tap`, `_peek`, `_next`, `_held`, `_lost`), and what the screens read (a snapshot a half, the voices, the
+  scopes, the costs).
 - **`play/rec.c`** reads the records (`../specs/files/`): songs, a cursor a pattern track, cartridges and their
-  slots, names. **`play/ibxm/`** is IBXM's replay, extended for PT/FM's cells (up to four commands each, E3x,
+  slots, names; it also holds the search for a free pattern (`rec_free_pattern`) and what the player and LOOPS' screen share: the stage's cells and a MONO stage's merge
+  (`rec_stage_cells`, `rec_stage_merge`, `rec_bridge`), the pattern recorder's note offs (`rec_note_offs`) and the
+  length's default (`rec_loops_rows_default`). **`play/ibxm/`** is IBXM's replay, extended for PT/FM's cells (up to four commands each, E3x,
   E5x, PANBRELLO, Kxx at its tick), without audio: the player's engines sound its notes.
 - **`eng/`**: the DX7 (MSFA in C), the Juno-106 (after KR-106), the TB-303 (Open303 in integer), the sampler
   (PTR decoded as it plays: 8 and 16 bits, START / END, sustain loops forward and ping-pong); each at its
@@ -95,13 +99,19 @@ record readers), `store/seed.h` (`seed_poll`, `seed_active`, `seed_sysex`), `pla
   - `--release`: `../dist/firmware/ptfm.fwsc` and `../dist/firmware/install.html`, the version that number
     alone;
   - `--debug`: the debug build, `../dist/debug/ptfm-debug.fwsc` and `../dist/debug/install.html`: the
-    same firmware with its figures, its bench and their page (`../specs/debug.md`; `core/dbg.c`,
-    `core/bench.c`, `device/bench_core.c`), its own build time with ` DEBUG`;
+    same firmware with its figures and their page (`../specs/debug.md`; `core/dbg.c`), its own build time
+    with ` DEBUG`;
   - `--bringup`: the device layer alone with `device/bringup.c` as the app (the panel on the screen, a
-    tone a key, the LEDs following), for trying the hardware side; never released.
-- **The package:** identity `FM-1_7101`; on USB the FM-1 is "FM-1 PT/FM". The update loader is the one the
-  installers know ("ota-FM-1_900"), byte for byte (the build checks its SHA-256), so the update path and the
-  USB rescue work as ever: hold OCT- alone at power-on, or two failed boots in a row, for USB RESCUE.
+    tone a key, the LEDs following), for trying the hardware side; never released;
+  - every build has its **code**, 8 hex digits on the crash screens beside the version: its time to the minute and
+    its kind, scrambled (`tools/buildcode.py CODE` reads one back; the build prints it). **`SOURCE_DATE_EPOCH`**
+    (seconds), when set, is the build's time: the same sources then give the same image.
+- **The package:** identity `FM-1_7101`; on USB the FM-1 is "FM-1 PT/FM". The update loader is PT/FM's own
+  ("ota-FM-1_901", pinned by its SHA-256), kept in the staging; the slot starts with the start check (pinned by
+  `stub/stub.lock`) and ends with the firmware's mark: hold OCT- alone at power-on, or two failed boots in a row,
+  or a firmware not whole, for update mode (`../specs/hardware.md`, Updates and rescue). `--renew-stub` writes a
+  new `stub.lock` (a change to the start check: the next install writes the slot's first block with nothing to
+  fall back on).
 - **What the build checks:** the image fits the slot (581,564 B; what is left of it is FWS's free part, the firmware's room to grow);
   the variables and the pool fit the data region with the spare zone's floor and 8 KB spare (the build prints them by object, also when the
   link fails); RAM code makes no calls; registers only in `hal/` (and `core/` includes nothing of `hal/`
@@ -114,8 +124,11 @@ record readers), `store/seed.h` (`seed_poll`, `seed_active`, `seed_sysex`), `pla
   buffer into the pool; `device/include/string.h` gives `core/` the few string routines a freestanding
   build has (`device/main.c` defines them); the generated sources get every `core/` header directory.
 - **The install page** (`web/install.html`, made by `tools/make_installer.py`) carries the package and
-  `../dist/firmware/demo.ptfmdsk`: INSTALL FIRMWARE (the FM-1's update path), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a
-  disk file picked) (seeding through `web/seed.js`: the device's layout, planned and written in one press).
+  `../dist/firmware/demo.ptfmdsk`: INSTALL FIRMWARE (the FM-1's update path, then what the new firmware no longer reads
+  converted on the FM-1: `web/seed.js`'s `convertDevice`, whole samplers a save in free blocks only,
+  `../specs/files/blob.md#converting-after-an-install`), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file picked,
+  converted as it loads when it is an older PT/FM's) (seeding through `web/seed.js`: the device's layout, planned and
+  written in one press).
 - **On the FM-1** (`device/main.c`): TIMER5 at 10 kHz scans the panel and keeps the clocks, USB-MIDI at
   2 kHz, the LEDs' levels at 1 kHz (lit from 96, else the dim glow); ALNK0 asks for each half and
   `app_audio` fills it; `device/out.h` then applies MASTER (squared), LINE GAIN, mono and the soft ceiling

@@ -8,7 +8,11 @@
  * another, a FUSION slot its pattern, LOOPS all its loops together. The worklet keeps the time: the repeat, the
  * arpeggios' notes and the end of a song or a pattern are its own, so they keep time whatever the page does.
  *   ED.player.canPlay(it), isPlaying(it), toggle(it, o), play(it, o), stop(), update(it) (a tab's draft heard at once),
- *   key(on, note, cart, slot) (a tab's keyboard), plan(it, st, o) -> { recs, play, label } (no DOM: the tests) */
+ *   key(on, note, cart, slot) (a tab's keyboard), plan(it, st, o) -> { recs, play, label } (no DOM: the tests)
+ * The page's own player (specs/editor.md, Recording and cutting sounds): a sound as it is (a take, an original, a sample
+ * the preview cannot hold) through the browser at its own rate and VOL, shown in the footer as the preview is;
+ * starting one stops the other. playOwn(snd, start, end, label, from); play(it, o) falls back to it (o.own, or the
+ * sample's own source) when the item does not fit the preview's room. */
 (function (ED) {
 "use strict";
 const M = ED.model, R = ED.rec, K = R.KIND;
@@ -166,7 +170,7 @@ function canPlay(it) {
     if (it.kind === K.SONG) return it.recs[0].payload[20] >= 0 && !(it.side === "R" && it.num === M.FE);
     if (it.kind === K.LOOPS) return it.recs[0].payload[5] > 0;
     if (M.isCart(it.kind)) { try { return slotsOf(it).length > 0; } catch (e) { return false; } }
-    return it.kind === K.PATTERN || it.kind === K.AUDIO;
+    return it.kind === K.PATTERN || it.kind === K.SAMPLE;
 }
 /* the items it needs, numbered as on an FM-1: an FM-1 panel's as they are, a TABLE's as a move to an empty one whose
  * room is the preview's (~1 MB, ED.flash.PREVIEW), so one bigger than an FM-1 holds plays too */
@@ -181,18 +185,15 @@ function imageItems(st, side, ids) {
     ids.forEach((id, i) => back.set(id, r.ids[i]));
     return { items: r.st.R, map: id => back.get(id) };
 }
-/* an extra instrument at the end of a sampler, playing one of its samples at its own rate (BASE NOTE C-4) */
-function withSampleInst(sampler, idx, entry) {
-    const b = sampler.recs[0].payload, s = R.unpackSampler(b);
-    const insts = s.instruments.map((_, i) => b.subarray(11 + i * R.SAMPLER_SLOT, 11 + (i + 1) * R.SAMPLER_SLOT));
-    const at = 11 + s.instruments.length * R.SAMPLER_SLOT;
-    const entries = s.samples.map((e, i) => e ? b.slice(at + i * R.SAMPLE_ENTRY, at + (i + 1) * R.SAMPLE_ENTRY) : null);
-    while (entries.length <= idx) entries.push(null);
-    entries[idx] = M.packedEntry(entry);            /* (the entry the sample's audio goes with: a draft's own) */
-    const slot = Object.assign(ED.defs.newSlot(K.SAMPLER, "PREVIEW"), { sample: idx, start: 0, end: entry.length, loop_start: 0,
+/* a sampler of the preview's own, at a free cartridge number among the items, with one instrument playing the sample
+ * number sampleNum whole at its own rate (BASE NOTE C-4) -> an item to put among the image's */
+function previewSampler(items, sampleNum, entry) {
+    const slot = Object.assign(ED.defs.newSlot(K.SAMPLER, "PREVIEW"), { sample: sampleNum, start: 0, end: entry.length, loop_start: 0,
         loop_end: entry.length, loop: 0, base_note: 60, tune: 128, volume: 127, level: 0 });
-    insts.push(R.packSamplerInst(slot));
-    return { item: Object.assign({}, sampler, { recs: [{ sub: 0, ver: sampler.recs[0].ver, payload: M.samplerBytes(s.name, insts, entries) }] }), slot: insts.length - 1 };
+    const num = M.pickNum(M.taken(items).c, null);
+    if (num < 0) throw new Error("no free cartridge number for the preview");
+    return { id: "preview-sampler", side: "R", kind: K.SAMPLER, num, link: {},
+        recs: [{ sub: 0, ver: R.VERSION[K.SAMPLER], payload: R.packSampler({ name: "PREVIEW", instruments: [slot] }) }] };
 }
 function arpEvents(t, cart, slot, out) {
     ARP.forEach((n, i) => {
@@ -236,20 +237,18 @@ function plan(it, st, o) {
         const im = imageItems(st, side, [it.id]);
         recs = M.toRecords(im.items);
         job = { kind: "loops" };
-    } else if (it.kind === K.AUDIO) {
-        /* a sample in a sampler: the sampler with its samples (an instrument added for it below); a loose one alone */
-        const im = imageItems(st, side, [it.owner || it.id]), m = M.byIdMap(im.items);
-        const s0 = it.owner ? im.items.find(x => x.owner === im.map(it.owner) && x.idx === it.idx) : m.get(im.map(it.id));
-        if (!s0) throw new Error("its sampler is not here");
-        /* (a tab's draft of it: its own audio and entry, in a copy: the panel's items stay as they are) */
-        const s = it.owner ? Object.assign({}, s0, { recs: it.recs, entry: it.entry || null }) : s0;
-        im.items = im.items.map(x => x === s0 ? s : x);
-        const host = m.get(s.owner);
+    } else if (it.kind === K.SAMPLE) {
+        /* a sample: itself, and a sampler of the preview's own with one instrument that plays it */
+        const im = imageItems(st, side, [it.id]), m = M.byIdMap(im.items);
+        const s0 = m.get(im.map(it.id));
+        if (!s0) throw new Error("its sample is not here");
+        /* (a tab's draft of it: its own record, in a copy: the panel's items stay as they are) */
+        const s = Object.assign({}, s0, { recs: it.recs });
         const e = M.sampleEntry(s, m);
-        const w = withSampleInst(host, s.idx, e);
-        recs = M.toRecords(im.items.map(x => x.id === host.id ? w.item : x));
+        const host = previewSampler(im.items, s.num, e);
+        recs = M.toRecords(im.items.map(x => x === s0 ? s : x).concat([host]));
         const dur = e.rate ? e.length / e.rate : 1;
-        job = { kind: "seq", events: [[0, "ed_key_on", [60, host.num, w.slot, 0x7F]], [dur, "ed_key_off", [60]]], length: dur + 0.05 };
+        job = { kind: "seq", events: [[0, "ed_key_on", [60, host.num, 0, 0x7F]], [dur, "ed_key_off", [60]]], length: dur + 0.05 };
     } else if (M.isCart(it.kind)) {
         const im = imageItems(st, side, [it.id]), c = M.byIdMap(im.items).get(im.map(it.id));
         recs = M.toRecords(im.items);
@@ -321,7 +320,7 @@ class Engine {
             for (const [k, c] of this.cur) if (!want.has(k)) dels.push(c);
             if (!puts.length && !dels.length) return false;
             const bytes = puts.reduce((n, r) => n + r.payload.length + 16, 0);
-            const big = puts.some(r => r.kind === K.AUDIO || r.payload.length > 8192) || dels.some(r => r.kind === K.AUDIO);
+            const big = puts.some(r => r.kind === K.SAMPLE || r.kind === K.AUDIO || r.payload.length > 8192) || dels.some(r => r.kind === K.SAMPLE || r.kind === K.AUDIO);
             if (!big && puts.length + dels.length <= 48 && this.editBytes + bytes < 40 * 1024) {
                 const sameSize = r => { const c = this.cur.get(key(r)); return c && r.kind === K.PATTERN && r.payload[0] === c.payload[0] && r.payload[1] === c.payload[1]; };
                 const cells = !dels.length && puts.every(r => sameSize(r) || r.kind === K.SONG);
@@ -345,16 +344,25 @@ class Engine {
 }
 
 const eng = new Engine();
-let now = null;                                     /* { it, side, job, label, slots, slotNames } */
-function isPlaying(it) { return !!now && now.it.id === it.id && now.side === it.side; }
+let now = null;                                     /* { it, side, job, label, slots, slotNames; own: the page's own player's } */
+function isPlaying(it) { return !!now && !!now.it && now.it.id === it.id && now.side === it.side; }
 async function play(it, o) {
     o = o || {};
     const U = ED.ui, app = ED.app;
+    if (now && now.own) stop();
     if (!canPlay(it)) { U.status("NOTHING TO PLAY IN " + ED.files.label(it, app.st[it.side]), { err: true }); return; }
+    if (M.isLong(it)) { ownSample(it, o); return; }     /* (too long for the FM-1: no record the preview could play) */
     let p;
     try { p = plan(it, o.st || app.st, o); } catch (e) { U.status("CANNOT PLAY IT: " + String(e.message || e).toUpperCase(), { err: true }); return; }
     try { await eng.start(); } catch (e) { U.status("THE SOUND DID NOT START: " + String(e.message || e).toUpperCase(), { err: true }); return; }
-    eng.load(p.recs);
+    try { eng.load(p.recs); }
+    catch (e) {
+        /* too big for the preview's room: a sound through the page's own player, else said */
+        if (it.kind === K.SAMPLE) { ownSample(it, o); return; }
+        if (o.own) { o.own(); return; }
+        U.status("CANNOT PLAY IT: " + String(e.message || e).toUpperCase(), { err: true });
+        return;
+    }
     if (keyImage && keyImage.it !== it) keyImage = null;   /* (another item's image: the keys load theirs again) */
     eng.post({ t: "play", job: p.job });
     now = { it, side: it.side, job: p.job, slots: p.slots, label: ED.files.label(it, app.st[it.side]) + " · " + (it.side === "R" ? "FM-1" : "TABLE") };
@@ -363,15 +371,73 @@ async function play(it, o) {
 }
 function stop() {
     if (!now) return;
-    eng.post({ t: "stop" });
+    if (now.own) ownStop();
+    else eng.post({ t: "stop" });
     now = null;
     paint();
     if (ED.files) ED.files.render();
 }
 function toggle(it, o) { if (isPlaying(it)) stop(); else play(it, o); }
+/* a sample through the page's own player: o.own (a tab's part), else its source's part as it is */
+function ownSample(it, o) {
+    if (o.own) { o.own(); return; }
+    const items = (o.st || ED.app.st)[it.side] || [], s = ED.optimize.source(it, items), c = s.cut || { start: 0, end: s.ch[0].length };
+    playOwn(s, c.start, c.end, ED.files.label(it, items), it);
+}
+
+/* ---- the page's own player: an AudioBufferSource at the sound's rate, VOL as a gain (the sound as it is at 0 DB) ---- */
+let ownCtx = null, ownSrc = null, ownGain = null, ownTimer = 0;
+const ownLevel = () => Math.pow(10, eng.vol / 20);
+function playOwn(snd, a, b, label, from) {
+    stop();
+    try { if (!ownCtx) ownCtx = new AudioContext({ latencyHint: "interactive" }); }
+    catch (e) { ED.ui.status("THE SOUND DID NOT START: " + String(e.message || e).toUpperCase(), { err: true }); return; }
+    a = a || 0;
+    b = b == null ? snd.ch[0].length : b;
+    const buf = ownCtx.createBuffer(snd.ch.length, Math.max(1, b - a), snd.rate);
+    for (let c = 0; c < snd.ch.length; c++) buf.getChannelData(c).set(snd.ch[c].subarray(a, b));
+    if (!ownGain) { ownGain = ownCtx.createGain(); ownGain.connect(ownCtx.destination); }
+    ownGain.gain.value = ownLevel();
+    now = { own: { buf, t0: 0 }, it: from || null, side: from ? from.side : null, job: { kind: "own", length: buf.duration },
+        label: (label || "A SOUND") + " · AS IT IS" };
+    ownAt(0);
+    paint();
+    if (ED.files) ED.files.render();
+}
+function ownAt(sec) {
+    const o = now.own;
+    if (ownSrc) { ownSrc.onended = null; try { ownSrc.stop(); } catch (e) { /* (ended) */ } }
+    const s = ownCtx.createBufferSource();
+    s.buffer = o.buf;
+    s.connect(ownGain);
+    s.onended = () => { if (now && now.own === o && ownSrc === s) stop(); };
+    ownCtx.resume();
+    s.start(0, sec);
+    ownSrc = s;
+    o.t0 = ownCtx.currentTime - sec;
+    clearInterval(ownTimer);
+    ownTimer = setInterval(ownProgress, 100);
+    ownProgress();
+}
+function ownProgress() {
+    if (!now || !now.own) { clearInterval(ownTimer); return; }
+    const $ = ED.ui.$, len = now.job.length, el = Math.max(0, Math.min(len, ownCtx.currentTime - now.own.t0));
+    $("#pfill").style.width = (100 * el / Math.max(1e-6, len)) + "%";
+    $("#ptime").textContent = el.toFixed(1) + " / " + len.toFixed(1) + " S";
+}
+/* where the page's own player is in what it plays, in seconds (o: only while that is what plays, ED.player.now as it
+ * was then); -1 when it plays nothing of its own (the recorder's line over its take) */
+function ownTime(o) {
+    if (!now || !now.own || (o && now !== o)) return -1;
+    return Math.max(0, Math.min(now.job.length, ownCtx.currentTime - now.own.t0));
+}
+function ownStop() {
+    clearInterval(ownTimer);
+    if (ownSrc) { ownSrc.onended = null; try { ownSrc.stop(); } catch (e) { /* (ended) */ } ownSrc = null; }
+}
 /* a tab's draft: what plays goes on with the change (the same item's records, changed) */
 function update(it, st) {
-    if (!now || now.it.id !== it.id) return;
+    if (!now || now.own || !now.it || now.it.id !== it.id) return;
     try {
         const p = plan(it, st, { slot: now.slots && now.slots.length === 1 ? now.slots[0] : undefined });
         /* mounted again (a big change: a sample's audio): what played starts again, as it now is */
@@ -421,7 +487,7 @@ function paint() {
 }
 function onState(st, job) {
     lastState = st;
-    if (!now || !st) return;
+    if (!now || !st || now.own) return;
     const $ = ED.ui.$, j = now.job;
     let frac = 0, txt = "";
     const gap = job && job.phase === "gap";
@@ -447,6 +513,7 @@ function wire() {
     vol.addEventListener("input", () => {
         paintVol();
         eng.volume(+vol.value);
+        if (ownGain) ownGain.gain.value = ownLevel();
         try { localStorage.setItem(VOL_KEY, vol.value); } catch (e) { /* (kept for this page only) */ }
     });
     vol.addEventListener("keydown", e => e.stopPropagation());
@@ -463,12 +530,13 @@ function wire() {
     $("#prog").addEventListener("click", e => {
         if (!now) return;
         const r = $("#prog").getBoundingClientRect(), f = Math.max(0, Math.min(0.999, (e.clientX - r.left) / r.width)), j = now.job;
-        if (j.kind === "song") eng.post({ t: "jump", pos: Math.floor(f * j.npos) });
+        if (now.own) ownAt(f * j.length);
+        else if (j.kind === "song") eng.post({ t: "jump", pos: Math.floor(f * j.npos) });
         else if (j.kind === "pattern") eng.post({ t: "jump", row: Math.floor(f * j.rows) });
         else if (j.kind === "seq") eng.post({ t: "jump", sec: f * j.length });
     });
 }
 
-ED.player = { canPlay, isPlaying, play, stop, toggle, update, key, plan, wire, slotsOf, SOURCE, get engine() { return eng; }, get state() { return lastState; },
+ED.player = { canPlay, isPlaying, play, playOwn, ownTime, stop, toggle, update, key, plan, wire, slotsOf, SOURCE, get engine() { return eng; }, get state() { return lastState; },
     get now() { return now; }, ARP, EIGHTH };
 })(globalThis.ED = globalThis.ED || {});

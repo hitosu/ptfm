@@ -44,7 +44,9 @@ in words only what this coding does not already say ([screens/](README.md#the-fi
   - the engine (DX7, Juno-106, TB-303, CHIP, samples, FUSION); CHIP shares light blue with the command
     columns: a cell's note and instrument stand at its left, its commands at its right, so the place tells them
     apart (on a CHIP track the EDITOR's `*40` sign is light blue as its commands; the sign itself says "a
-    parameter");
+    parameter"); FAVORITES, which mixes every engine, is light grey, the colour of no engine (its type in the
+    cartridge lists, its cartridge line, the footer's right), each favourite's name keeping its source engine's
+    colour ([screens/instruments.md](screens/instruments.md#favorites));
   - the field (volume, command);
   - the state (playing, recording, missing, built in).
 - **Brightness tells importance:** bright for the cursor and active things, normal for values, faint

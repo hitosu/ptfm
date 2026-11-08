@@ -80,7 +80,16 @@ module.exports = async t => {
     await t.key(8); await t.tap("PLAY"); await t.sleep(400);
     const djSong = P.dj && P.dj.decks ? P.dj.decks[0].song : null;
     ok(P.what === "dj" && P.playing, "DJ: the left deck plays");
-    await t.homeKey(8); await t.tap("GLO"); await t.turn("SELECT", 1);
+    await t.homeKey(8);
+    ok(A.fxSong() === M.state.dj && A.fxHeard() === M.state.dj, "the decks playing, DJ left: FX edits DJ's setup");
+    await t.tap("PLAY"); await t.sleep(300);
+    ok(P.what === "dj" && !P.playing && A.fxSong() === M.state.dj && A.fxHeard() === M.state.dj,
+       "... PLAY there pauses them: FX still edits DJ's setup, what the keys hear");
+    await t.tap("FX");
+    await t.tap("GLO");
+    ok(U.screen.name === "FX" && t.top() === "props" && U.top().sub === "DJ", "... FX's GLO: FX PROPERTIES FOR DJ");
+    await t.tap("GLO"); await t.tap("FX");
+    await t.tap("GLO"); await t.turn("SELECT", 1);
     const it = U.top() && U.top().items[1], itName = it && it.get();
     await t.tap("EDIT");
     ok(itName === "DJ" && !P.held() && !P.playing && A.fxHeard() === keys && (!P.dj || P.dj.decks[0].song === djSong),

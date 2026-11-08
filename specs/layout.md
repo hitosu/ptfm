@@ -28,8 +28,9 @@ ptfm/
   hardware layer. Patches, samples and songs reach the device as a data blob (the files proposal,
   section 12: [proposals/202610080050-fs.md](proposals/202610080050-fs.md)).
   - `fw/core/` the app, shared with the emulator and the host tests, touching the hardware only
-    through `fw/core/plat.h`; `fw/device/` boot, interrupts, flash, USB, update, rescue; `fw/hal/` the
-    device's hardware layer; `fw/loader/` the update loader the installers know; `fw/tools/`, `fw/web/` (the
+    through `fw/core/plat.h`; `fw/device/` boot, interrupts, flash, USB, update; `fw/hal/` the
+    device's hardware layer; `fw/stub/` the start check (update mode, pinned by `stub.lock`); `fw/loader/` the
+    update loader; `fw/tools/`, `fw/web/` (the
     install page, the seeding module), `fw/tests/` ([../fw/README.md](../fw/README.md)). The controller,
     SETTINGS' MIDI CONTROLLER ([controller.md](controller.md)), is part of it (`fw/core/ctl.h`,
     `fw/core/ctlmode.c`); its page side is `panel/midi.js`.
@@ -51,7 +52,8 @@ ptfm/
   each with its licence ([../demo-disk/README.md](../demo-disk/README.md)). The playground shows them,
   and later the demo disk (the disk proposal: [proposals/202610081349-disk.md](proposals/202610081349-disk.md))
   is built from them.
-- **`specs/`** holds the specifications, one subject per file ([README.md](README.md)).
+- **`specs/`** holds the specifications, one subject per file ([README.md](README.md)); `specs/proposals/` the
+  drafts, `specs/reports/` a report for each version (the work done, why and how, with its commits).
 - **`tools/`** holds the build scripts, the data packer, the texts' packer (the firmware's fixed texts
   and the help: [ui/texts.md](ui/texts.md)) and the converters (for example MOD / S3M to PT/FM's formats).
 - **`tests/`** holds the host tests. Tests that compare with reference code outside this repository
@@ -74,7 +76,7 @@ A folder for each kind of build; the pages are self-contained and open from the 
 | File | What |
 |---|---|
 | **`firmware/`** | **PT/FM's firmware, the release** |
-| `firmware/install.html` | installs the firmware on the FM-1 and uploads the demo disk (Chrome / Edge, Web MIDI): INSTALL FIRMWARE, the firmware alone (or, with CLEAN INSTALL switched on, everything erased after: an empty user area), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file picked) ([files/blob.md](files/blob.md#seeding)) |
+| `firmware/install.html` | installs the firmware on the FM-1 and uploads the demo disk (Chrome / Edge, Web MIDI): INSTALL FIRMWARE, the firmware, then what the new firmware no longer reads converted ([files/blob.md](files/blob.md#converting-after-an-install); or, with CLEAN INSTALL switched on, everything erased after: an empty user area), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file picked) ([files/blob.md](files/blob.md#seeding)) |
 | `firmware/ptfm.fwsc` | the firmware package, for other installers |
 | `firmware/demo.ptfmdsk` | the demo disk, built from `demo-disk/` by the packer ([files/disk.md](files/disk.md)) |
 | `firmware/seed.html` | the data uploader for the real device: opens a data blob or a disk and seeds it (the files proposal, 12.2) *(not built yet: the install page seeds the demo disk, the emulator's SEED any disk)* |
@@ -109,7 +111,7 @@ fast, and is none of them.
 | Made | by default | `fw/build.sh --debug` | `fw/build.sh --release` |
 | Goes to | `build/` (not committed) | `dist/debug/` (committed) | `dist/firmware/` (committed) |
 | The version (UI proposal, 6.8) | `fw/VERSION`'s number, `DEV` after it | the number, its own build time (month, day, hour, minute), `DEBUG` | the number alone, set by hand in `fw/VERSION` |
-| What it holds more | | the figures, the bench and their USB answers; nothing else differs | |
+| What it holds more | | the figures and their USB answers; nothing else differs | |
 | Its package identity (the installers take only `FM-1_<digits>`) | `FM-1_7101` | `FM-1_7102` | `FM-1_7101` |
 
 The emulator's build is made two ways, dev (`build/fw/web/`) and production (`dist/emulator/`).

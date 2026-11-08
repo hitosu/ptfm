@@ -26,7 +26,6 @@ int ed_builtin(uint8_t pat);            /* 1 built in (F0-FF) as the firmware ha
 int ed_new_pattern(uint8_t pat, int ntrk, int rows, int step);  /* an empty pattern: 0 done */
 int ed_copy_pattern(uint8_t from, uint8_t to);          /* its head and every track, as they are: 0 done */
 int ed_delete_pattern(uint8_t pat);
-int ed_first_free(void);                /* the first unused pattern number of the user's (00-EF), -1 none */
 
 /* the clipboard (the EDITOR's COPY, CUT, PASTE): a block of cells kept packed, until power-off. Cells are
  * read in rising rows for each column (a cursor a column) */

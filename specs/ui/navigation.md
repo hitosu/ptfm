@@ -18,7 +18,9 @@ the EDITOR deep. HOME's combination as a control is in [controls.md](controls.md
   kept, the EDITOR's own at first ([../files/settings.md](../files/settings.md)).
 - **The current instrument** is set by PRESETS, and by the cursor on INSTRUMENTS. The footer shows it
   on every screen ([frame.md](frame.md#the-footer)). SAVE keeps it: at power-on it is the one kept, F0:00
-  (the first built-in instrument) at first ([../files/settings.md](../files/settings.md)).
+  (the first built-in instrument) at first ([../files/settings.md](../files/settings.md)). **The current place,**
+  the cartridge and slot the cursor last stood on, is kept with it: in a FAVORITES cartridge a favourite's
+  (`FB:07`), whose source is the current instrument ([screens/instruments.md](screens/instruments.md#favorites)).
 - Switching screens keeps all three.
 
 ## The screens
@@ -34,7 +36,7 @@ the EDITOR deep. HOME's combination as a control is in [controls.md](controls.md
 | PIT | **VISUAL** ([screens/visual.md](screens/visual.md)) | HEAR | visualisers |
 | GLO | **STATUS** ([screens/status.md](screens/status.md)) | HEAR | the start screen: PT/FM, its version, how to get help; performance, storage, the device |
 | MONO | **SETTINGS** ([screens/settings.md](screens/settings.md)) | SYSTEM | global settings and tools |
-| POLY | **LOOPS** ([screens/loops.md](screens/loops.md)) | (SYSTEM's key, PLAY's colour) | live playing: a loop station, loops stacked over one length; a playback of its own |
+| POLY | **LOOPS** ([screens/loops.md](screens/loops.md)) | (SYSTEM's key, PLAY's colour) | live playing: a loop station, loops stacked over one length, the keys overdubbing a stage that REC keeps as a loop; a playback of its own |
 | (blank) | none | | kept for later |
 | FX button | **FX** ([screens/fx.md](screens/fx.md)) | PLAY | global effects, punch-in effects, the metronome, the mixer: its own button, no black key |
 
@@ -67,13 +69,16 @@ the EDITOR deep. HOME's combination as a control is in [controls.md](controls.md
   given to OP6 or the blank key later takes a place in it.
 - **What plays plays on** from screen to screen, until something else starts
   ([transport.md](transport.md#play)): a song or the EDITOR's pattern loop plays on into LOOPS until the
-  loops start there; the loops play on outside LOOPS until a song or a pattern starts. Leaving LOOPS
-  ends a take as REC does, disarms an armed one and ends a song's recording ([screens/loops.md](screens/loops.md)). DJ's decks are one more thing that
+  loops start there; the loops play on outside LOOPS, their stage with them, until a song or a pattern starts.
+  Leaving LOOPS disarms the loops, ends a count-in, cancels a song armed and ends a song's recording, cancels ADJUST,
+  closes the pattern recorder, and the keys down stop writing onto the stage, so the keys elsewhere never write it
+  ([screens/loops.md](screens/loops.md)). DJ's decks are one more thing that
   plays: a song playing when DJ opens moves onto its main deck, playing on; the pattern loop or the loops
   play on into DJ until a deck starts; the decks play on outside DJ until a song, a pattern or the loops
   start ([screens/dj.md](screens/dj.md)).
-- **FX from LOOPS does not leave LOOPS:** a take or a song's recording goes on, FX works on LOOPS' own
-  setup, and FX again goes back ([screens/fx.md](screens/fx.md)); going on elsewhere from that FX leaves LOOPS then.
+- **FX from LOOPS does not leave LOOPS:** an arm or a song's recording goes on (the keys down stop writing onto the
+  stage: on FX the keys are FX's), FX works on LOOPS' own setup, and FX again goes back
+  ([screens/fx.md](screens/fx.md)); going on elsewhere from that FX leaves LOOPS then.
   FX from DJ does not leave DJ either: it works on DJ's own setup.
 - **FX tap** goes to FX; pressed again, it goes back to the screen it came from.
 - **The screen at power-on** is STATUS, the start screen, unless SETTINGS → POWER-ON SCREEN says

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Vasily Kazantsev
 """Writing the demo disk's songs and FUSION patterns from Python, in its notation (../README.md).
 
-  pool = Pool()                                          # the disk's patterns, 00-FF
+  pool = Pool(PATTERN_FIRST)                             # the disk's patterns, from catalog.py's first
   s = Song(pool, "NAME", "what it is", tempo=120, tracks=8)
   p = s.pattern(64, "what it plays")                     # a pattern of the song's tracks
   p.note(1, 0, "C-4", KICK, 0x70)                        # track (1..), row, note, instrument (cart, slot), volume
@@ -120,12 +120,12 @@ def ref_text(ins):
 
 
 class Pool:
-    """the disk's patterns: numbers 00-FF, handed out in turn (or from a given start)"""
-    def __init__(self):
-        self.used = {}
+    """the disk's patterns: numbers handed out in turn from `first` (or a given one)"""
+    def __init__(self, first=0):
+        self.first, self.used = first, {}
 
     def take(self, owner, at=None):
-        n = at if at is not None else next(i for i in range(256) if i not in self.used)
+        n = at if at is not None else next(i for i in range(self.first, 256) if i not in self.used)
         if n in self.used or not 0 <= n <= 255:
             raise SystemExit(f"compose: pattern {n:02X} taken by {self.used.get(n)}")
         self.used[n] = owner

@@ -573,12 +573,13 @@
             if (c.note != null && c.note !== M.OFF && c.inst == null && M.trackInst(pat(), r, t) == null) c.inst = U.inst;
             U.showKnob(big ? "K2" : "K1", "NOTE " + M.noteName(c.note));
         } else if (l === L_INST) {                      /* as the track, then each instrument, cartridge by cartridge */
-            const refs = [null];
-            for (const ca of M.state.carts) ca.slots.forEach((sl, i) => { if (sl) refs.push(ca.id << 8 | i); });
+            const refs = [null], insts = M.state.carts.filter(ca => ca.type !== "FAVORITES");   /* (a cell names an
+                                                         * instrument's own number, never a favourite's) */
+            for (const ca of insts) ca.slots.forEach((sl, i) => { if (sl) refs.push(ca.id << 8 | i); });
             let i = Math.max(0, refs.indexOf(c.inst));
             if (big) {
                 const cart = c.inst == null ? null : c.inst >> 8;
-                const carts = M.state.carts.filter(ca => ca.slots.some(Boolean)).map(ca => ca.id);
+                const carts = insts.filter(ca => ca.slots.some(Boolean)).map(ca => ca.id);
                 const ci = U.clamp((cart == null ? -1 : carts.indexOf(cart)) + d, -1, carts.length - 1);
                 i = ci < 0 ? 0 : refs.findIndex(x => x != null && x >> 8 === carts[ci]);
             } else i = U.clamp(i + d, 0, refs.length - 1);

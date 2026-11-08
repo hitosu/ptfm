@@ -50,6 +50,12 @@ for (const f of files) {
         const back = R.ptrEncode(d.samples, d.bits);
         check(eq(back, f.payload), `sample ${R.hex2(f.num)}.${R.hex2(f.sub)} (${d.bits}-bit, ${d.samples.length}) codes back byte for byte`);
         n.audio++;
+    } else if (f.kind === K.SAMPLE) {                   /* a sample of its own: its entry, then its audio */
+        const s = R.unpackSample(f.payload), d = R.ptrDecode(s.audio);
+        check(eq(R.ptrEncode(d.samples, d.bits), s.audio) && eq(R.packSample(s.entry, s.audio), f.payload) && s.entry &&
+              s.entry.length === d.samples.length && s.entry.coding === (d.bits === 8 ? 1 : 2),
+              `sample ${R.hex2(f.num)} (${d.bits}-bit, ${d.samples.length}) codes back byte for byte, its entry its audio's`);
+        n.audio++;
     }
 }
 for (const [num, parts] of patterns) {
@@ -150,6 +156,12 @@ if (dumpPath && fs.existsSync(dumpPath)) {
             let sum = 0;
             for (const x of d.samples) sum = (sum * 31 + (x & 0xFFFF)) >>> 0;
             got = { bits: d.bits, length: d.samples.length, hash: sum };
+        } else if (f.kind === K.SAMPLE) {
+            const s = R.unpackSample(f.payload), d = R.ptrDecode(s.audio), e = s.entry;
+            let sum = 0;
+            for (const x of d.samples) sum = (sum * 31 + (x & 0xFFFF)) >>> 0;
+            got = { entry: e && { name: e.name, length: e.length, rate: e.rate, coding: e.coding }, bits: d.bits, length: d.samples.length,
+                    hash: sum };
         } else continue;
         check(JSON.stringify(got) === JSON.stringify(want), `${S.describe(f)} as tools/ptfm_records.py reads it`);
         compared++;
@@ -165,4 +177,163 @@ if (dumpPath && fs.existsSync(dumpPath)) {
     }
     check(compared > 50, "compared with tools/ptfm_records.py: " + compared);
 } else console.log("(no tools/ptfm_records.py dump given: that comparison skipped)");
+
+/* ---- samples of their own and sampler cartridges of version 2 (instruments.md#samples) ---- */
+const hexOf = b => Array.from(b, x => (x < 16 ? "0" : "") + x.toString(16)).join("");
+const unhex = h => Uint8Array.from(h.match(/../g) || [], x => parseInt(x, 16));
+const rec = (kind, num, sub, ver, payload) => ({ kind, num, sub, ver, len: payload.length, crc: S.crc32(payload), payload });
+check(K.SAMPLE === 0x11 && R.VERSION[0x11] === 1 && R.SAMPLER_VERSION === 2, "kind 0x11 version 1; the sampler cartridge's current version is 2");
+{
+    const inst = (sample, name, o) => Object.assign({ sample, start: 0, end: 100, loop_start: 0, loop_end: 0, loop: 0, base_note: 60, tune: 128,
+        level: 0, volume: 64, env: { r1: 99, r2: 90, r3: 80, r4: 70, l1: 99, l2: 90, l3: 80, l4: 0 }, name }, o);
+    const c = { name: "V2 SAMPLER", instruments: [inst(0xC3, "HIGH NUM"), null, inst(7, "SEVEN")] };
+    const b = R.packSampler(c);
+    check(b.length === 10 + 3 * 40 && b[9] === 3, "a version 2 sampler: 10 B + 40 B an instrument, no table (" + b.length + ")");
+    const u = R.unpackSampler(b);
+    check(u.instruments[0].sample === 0xC3 && u.instruments[2].sample === 7 && !u.instruments[1] && !("samples" in u) &&
+        u.instruments[0].name === "HIGH NUM" && u.instruments[2].level === 0, "SAMPLE is 8 bits: 0xC3 round-trips");
+    check(eq(R.unpackSampler(b, 2).instruments.map(s => s && s.sample), [0xC3, null, 7]) && eq(R.packSampler(u), b), "a version 2 sampler codes back byte for byte");
+    /* the spare bits (84) are kept: the last bit of the first slot, and a bit in the middle of the spare */
+    const sp = b.slice();
+    sp[10 + 39] |= 0x80; sp[10 + 24] |= 0x04;
+    check(eq(R.packSampler(R.unpackSampler(sp)), sp), "version 2: spare bits set in a record travel unchanged");
+    const edit = R.unpackSampler(sp); edit.instruments[0].sample = 0x11;
+    const eb = R.packSampler(edit);
+    check(eb[10] === 0x11 && eb[10 + 39] === sp[10 + 39] && eb[10 + 24] === sp[10 + 24], "SAMPLE changed: the spare bits stay");
+    check(R.unpackCart(K.SAMPLER, b).instruments[2].sample === 7 && eq(R.packCart(K.SAMPLER, R.unpackCart(K.SAMPLER, b)), b), "unpackCart / packCart take version 2");
+    /* the old form is still read: odd length (an old sampler and its audio of tools/ptfm_records.py's conversion cases:
+     * the demo disk holds the new form) */
+    const pyc = dumpPath && fs.existsSync(dumpPath) ? JSON.parse(fs.readFileSync(dumpPath, "utf8")).conv.basic.in : [];
+    const oldRec = pyc.find(([kind, , , ver]) => kind === K.SAMPLER && ver === 1), oldAudio = pyc.find(([kind]) => kind === K.AUDIO);
+    if (oldRec && oldAudio) {
+        const dsk = { payload: unhex(oldRec[4]) }, old = R.unpackSampler(dsk.payload);
+        check(old.samples && eq(R.packSampler(old), dsk.payload) && R.unpackSampler(dsk.payload, 1).samples.length === old.samples.length,
+              "the old sampler is read and coded as before");
+    } else console.log("(no tools/ptfm_records.py dump given: the old sampler's reading skipped)");
+    /* a sample record: the entry (16 B), then the audio; the index's offsets count from byte 16 */
+    const xs = Array.from({ length: 700 }, (_, i) => Math.round(Math.sin(i / 9) * 90));
+    const audio = R.ptrEncode(xs, 8), entry = { length: 700, rate: 22050, coding: 1, name: "SINE" };
+    const sb = R.packSample(entry, audio), su = R.unpackSample(sb);
+    check(sb.length === 16 + audio.length && eq(sb.subarray(16), audio), "a sample record: the entry, then the audio whole (" + sb.length + " B)");
+    check(su.entry.name === "SINE" && su.entry.length === 700 && su.entry.rate === 22050 && su.entry.coding === 1 && eq(su.audio, audio) &&
+        eq(R.packSample(su.entry, su.audio), sb), "a sample codes back byte for byte");
+    check(eq(Array.from(R.ptrDecode(sb.subarray(16)).samples), xs), "the index's offsets count from byte 16: the audio decodes from there");
+    check(R.unpackSample(R.packSample(null, audio)).entry === null, "an emptied entry reads as none");
+    /* an old audio record is the audio of a sample unchanged; the demo disk's samples' audio decodes as it */
+    if (oldAudio) {
+        const a0 = unhex(oldAudio[4]);
+        check(eq(R.unpackSample(R.packSample(entry, a0)).audio, a0), "an old audio record is the audio of a sample, unchanged");
+    }
+    const s0 = files.find(f => f.kind === K.SAMPLE);
+    check(s0 && R.ptrDecode(R.unpackSample(s0.payload).audio).samples.length === R.unpackSample(s0.payload).entry.length,
+          "the demo disk's samples: records of their own, the audio after the entry");
+}
+
+/* ---- the converter: hand-made sets from tools/ptfm_records.py (tests/editor/py_dump.py), converted here and there ---- */
+const py = dumpPath && fs.existsSync(dumpPath) ? JSON.parse(fs.readFileSync(dumpPath, "utf8")) : null;
+const toRecs = list => list.map(([kind, num, sub, ver, h]) => rec(kind, num, sub, ver, unhex(h)));
+const listOf = recs => recs.map(r => [r.kind, r.num, r.sub, r.ver, hexOf(r.payload)]);
+const sampleOf = (recs, num) => { const r = recs.find(x => x.kind === 0x11 && x.num === num); return r && R.unpackSample(r.payload); };
+const samplerOf = (recs, num) => { const r = recs.find(x => x.kind === K.SAMPLER && x.num === num); return r && R.unpackSampler(r.payload); };
+if (py) {
+    check(Object.keys(py.conv).length === 7, "the converter's cases: " + Object.keys(py.conv).join(", "));
+    check(JSON.stringify(py.conv.short.bad) === "[6]" && JSON.stringify(S.convertSamplers(toRecs(py.conv.short.in)).bad) === "[6]",
+        "an old sampler under 11 bytes: unreadable in both twins, kept as it is (" + JSON.stringify(py.conv.short.bad) + ")");
+    /* v2 forms: packed here as there */
+    const f = py.v2, insts = f.instruments.map(s => s && Object.assign({}, s));
+    check(hexOf(R.packSampler({ name: "V2 SAMPLER", instruments: insts })) === f.sampler, "a version 2 sampler packs here as tools/ptfm_records.py packs it");
+    check(hexOf(R.packSample(f.entry, unhex(f.audio))) === f.sample, "a sample record packs here as tools/ptfm_records.py packs it");
+    const back = R.unpackSampler(unhex(f.sampler));
+    check(JSON.stringify(back.instruments.map(s => s && { sample: s.sample, name: s.name, level: s.level, volume: s.volume, loop: s.loop, tune: s.tune })) ===
+        JSON.stringify(f.instruments.map(s => s && { sample: s.sample, name: s.name, level: s.level, volume: s.volume, loop: s.loop, tune: s.tune })),
+        "a version 2 sampler of tools/ptfm_records.py reads here with the same fields");
+    for (const [name, c] of Object.entries(py.conv)) {
+        const input = toRecs(c.in), r = S.convertSamplers(input);
+        check(JSON.stringify(listOf(r.recs)) === JSON.stringify(c.out), `${name}: the records converted here equal tools/ptfm_records.py's`);
+        check(JSON.stringify(r.older) === JSON.stringify(c.older) && r.samples === c.samples && r.dropped === c.dropped &&
+            JSON.stringify(r.bad) === JSON.stringify(c.bad),
+            `${name}: older ${JSON.stringify(r.older)}, ${r.samples} samples, ${r.dropped} dropped, unreadable ${JSON.stringify(r.bad)} as there`);
+        /* one sampler at a time numbers exactly so */
+        const old = input.filter(x => x.kind === K.SAMPLER && x.ver === 1).sort((a, b) => a.num - b.num);
+        const ex = input.filter(x => x.kind === 0x11).map(x => ({ num: x.num, len: x.payload.length, payload: x.payload })), named = new Set();
+        for (const x of input) if (x.kind === K.SAMPLER && x.ver === 2) R.unpackSampler(x.payload).instruments.forEach(s => s && named.add(s.sample));
+        const conv = S.samplerConverter({ samples: ex, named }), made = new Map(), samplers = new Map();
+        for (const o of old) {
+            if (conv.full) break;               /* (the caller leaves the rest in the old form once one did not fit) */
+            const audio = new Map(input.filter(x => x.kind === 0x10 && x.num === o.num).map(x => [x.sub, x.payload]));
+            let res;
+            try { res = conv.convert(o.num, o.payload, audio); } catch (e) { continue; }   /* (unreadable: kept, as convertSamplers does) */
+            if (!res) continue;
+            samplers.set(o.num, res.sampler);
+            for (const s of res.samples) if (!s.merged) made.set(s.num, s.payload);
+        }
+        const want = r.recs.filter(x => x.kind === 0x11 && !ex.some(e => e.num === x.num)).map(x => x.num + ":" + hexOf(x.payload));
+        check(JSON.stringify([...made].sort((a, b) => a[0] - b[0]).map(([n, p]) => n + ":" + hexOf(p))) === JSON.stringify(want) &&
+            [...samplers].every(([n, p]) => eq(p, r.recs.find(x => x.kind === K.SAMPLER && x.num === n).payload)) && samplers.size === r.converted.length,
+            `${name}: samplerConverter one at a time numbers as convertSamplers does`);
+        check(conv.full === (r.older.length > 0), `${name}: full is set when a sampler did not fit`);
+    }
+    /* what the cases must show */
+    const C = n => toRecs(py.conv[n].in), conv = n => S.convertSamplers(C(n));
+    {
+        const r = conv("basic"), s = r.recs;
+        check(["KICK", "SNARE", "HAT", "CLAP"].every((nm, i) => sampleOf(s, i).entry.name === nm) && s.filter(x => x.kind === 0x11).length === 4,
+            "samples 00 01 02 03: the shared one once, the numbers in sampler and table order");
+        const a = samplerOf(s, 2).instruments, b = samplerOf(s, 5).instruments;
+        check(a[0].sample === 0 && a[1].sample === 1 && a[2].sample === 2 && a[3] === null && a[4] === null, "sampler 02: its instruments name 00 01 02, one past the table's end is empty");
+        check(b[0].sample === 3 && b[1].sample === 1 && b[0].name === "CLAP" && b[1].name === "SNARE 2", "sampler 05 names 03 and the shared 01, names and slots kept");
+        check(!s.some(x => x.kind === 0x10) && r.dropped === 2 && r.samples === 4 && r.older.length === 0, "the old audio is gone: 2 with no entry dropped");
+        check(s.filter(x => x.kind === K.SAMPLER).every(x => x.ver === 2 && x.payload.length === 10 + (x.num === 2 ? 5 : 2) * 40), "the samplers are version 2, 40 B an instrument");
+        const u = R.upgrade(C("basic"));
+        check(u.conversion && u.conversion.samples === 4 && JSON.stringify(listOf(u)) === JSON.stringify(listOf(s)), "upgrade() delegates to the page's converter");
+        check(JSON.stringify(listOf(R.upgrade(C("basic"), { samplers: false }))) === JSON.stringify(py.conv.basic.in),"upgrade() leaves the samplers alone when asked");
+    }
+    {
+        const s = conv("named").recs;
+        check(sampleOf(s, 2).entry.name === "HELD" && ["KICK", "SNARE", "HAT"].every((nm, i) => sampleOf(s, [1, 3, 4][i]).entry.name === nm) && sampleOf(s, 5).entry.name === "CLAP",
+            "numbers an instrument names (00) and a record holds (02) are passed over: 01 03 04, then 05");
+        check(samplerOf(s, 7).instruments[0].sample === 0 && !sampleOf(s, 0), "the version 2 sampler is untouched (it names 00, which has no record)");
+    }
+    {
+        const r = conv("existing"), s = r.recs;
+        check(s.filter(x => x.kind === 0x11).length === 3 && sampleOf(s, 9).entry.name === "SNARE" && samplerOf(s, 2).instruments[1].sample === 9 &&
+            samplerOf(s, 2).instruments[0].sample === 0 && samplerOf(s, 2).instruments[2].sample === 1, "a sample equal to a record already there is that one (09); the others take 00 01");
+    }
+    {
+        const r = conv("emptied"), s = r.recs;
+        const g = samplerOf(s, 3).instruments;
+        check(g[0] === null && g[1].sample === 0 && sampleOf(s, 0).entry.name === "FIVE", "an emptied entry: its instruments are emptied, the other goes on");
+        const t = samplerOf(s, 4).instruments;
+        check(t[0].sample === 1 && t[1].sample === 2 && sampleOf(s, 1).entry.name === "AAA" && sampleOf(s, 2).entry.name === "BBB" &&
+            eq(sampleOf(s, 1).audio, sampleOf(s, 2).audio), "the same audio under two names stays two samples");
+    }
+    {
+        const r = conv("257"), s = r.recs;
+        check(r.samples === 256 && r.converted.join() === "1,2,3,4" && r.older.join() === "5", "257 samples: the last whole sampler stays old (" + r.older + ")");
+        check(s.filter(x => x.kind === 0x11).length === 256 && s.filter(x => x.kind === 0x10).length === 1 && s.find(x => x.kind === 0x10).older === true &&
+            s.find(x => x.kind === K.SAMPLER && x.num === 5).older === true && s.find(x => x.kind === K.SAMPLER && x.num === 5).ver === 1,
+            "it keeps its record and its audio, marked older");
+        const r2 = conv("stops");
+        check(r2.converted.join() === "1,2,3,4" && r2.older.join() === "5,6" && r2.samples === 252, "a sampler that does not fit stops the rest, a smaller one after it too (" + r2.older + ")");
+    }
+    /* back down to the old form (WRITE to an older PT/FM) and up again */
+    {
+        const up = S.convertSamplers(C("basic")).recs;
+        const dg = R.downgrade(up.filter(x => x.kind === K.SAMPLER || x.kind === 0x11), 1);
+        check(dg && R.canDowngrade(K.SAMPLER, 2, 1) && !R.canDowngrade(K.SAMPLER, 1, 0), "samplers 2 -> 1: a way down");
+        check(dg.recs.every(x => x.ver === 1) && dg.recs.filter(x => x.kind === K.SAMPLER).length === 2 && dg.recs.filter(x => x.kind === 0x10).length === 5 &&
+            !dg.recs.some(x => x.kind === 0x11), "each sampler an old sampler with copies of its samples as old audio (2 + 3 ... 5 copies), no samples sent");
+        check(dg.lost.length === 1 && /SEVERAL SAMPLERS NAME/.test(dg.lost[0]), "lost: the sample two samplers name, copied into each (" + dg.lost + ")");
+        const s5 = R.unpackSampler(dg.recs.find(x => x.kind === K.SAMPLER && x.num === 5).payload);
+        check(s5.samples.length === 2 && s5.instruments[0].sample === 0 && s5.instruments[1].sample === 1 && s5.instruments[0].name === "CLAP", "sampler 05 down: numbered 00.. under it in the order its instruments name them");
+        const again = S.convertSamplers(dg.recs.map(x => Object.assign({}, x)));
+        check(again.recs.filter(x => x.kind === 0x11).length === 4 && JSON.stringify(listOf(again.recs.filter(x => x.kind === K.SAMPLER))) === JSON.stringify(listOf(up.filter(x => x.kind === K.SAMPLER))),
+            "and up again: the same samplers, the same four samples");
+        const noName = up.filter(x => x.kind === K.SAMPLER && x.num === 2).concat(up.filter(x => x.kind === 0x11));
+        const d2 = R.downgrade(noName, 1);
+        check(d2.lost.length === 1 && /1 SAMPLE NO INSTRUMENT NAMES/.test(d2.lost[0]), "lost: a sample no instrument names is not sent (" + d2.lost + ")");
+        const missing = R.downgrade(up.filter(x => x.kind === K.SAMPLER && x.num === 5), 1);
+        check(missing.recs.filter(x => x.kind === 0x10).length === 0 && /MISSING SAMPLE/.test(missing.lost.join()), "an instrument naming a missing sample is emptied, and said so");
+    }
+}
 done("records");

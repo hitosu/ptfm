@@ -38,6 +38,7 @@ static uint32_t sample_at, avg_sum, avg2_sum, avg_n, avg2_n, cpu_sum0, cpu_n0, c
 /* the engines' voices on PERFORMANCE, counted again every 100 ms or a little more (specs/ui/screens/status.md) */
 static int eng_count[PL_ENG_CHIP + 1];   /* by PL_ENG_* */
 static uint32_t eng_at;
+static int fx_pm;                         /* EFFECTS, the effects' share of the audio's time, % x 10 */
 static uint32_t up0;
 
 static int cpu_col(int v) { return v < 50 ? C_GREEN : v < 80 ? C_YELLOW : C_RED; }
@@ -243,16 +244,20 @@ static void draw_performance(void)
         g_runs(w - g_tw(&FONT_T, v), y + 48, &FONT_T, r, 2);
     }
     ui_fmt(v, sizeof v, "%u", st.steals); fig(124, y + 48, T("STEALS"), v, st.steals ? C_RED : C_DGREY, w);
-    /* the engines: voices x the share of one (CHIP's: a triangle at A-4, measured on the FM-1) */
+    /* the engines: voices x the share of one, as measured on the FM-1 (specs/ui/screens/status.md: live at 4 voices,
+     * JUNO the mean of a resonant and a plain patch; CHIP's a triangle at A-4 alone) */
     static const struct { uint8_t pl, eng; char cost[6]; } ENGS[5] = {
-        {PL_ENG_DX7, ENG_DX7, "5.6%"}, {PL_ENG_JUNO, ENG_JUNO, "4.4%"}, {PL_ENG_TB303, ENG_TB303, "2.8%"},
-        {PL_ENG_SAMPLER, ENG_SAMPLER, "1.6%"}, {PL_ENG_CHIP, ENG_CHIP, "2.5%"}};
+        {PL_ENG_DX7, ENG_DX7, "3.9%"}, {PL_ENG_JUNO, ENG_JUNO, "3.4%"}, {PL_ENG_TB303, ENG_TB303, "3.3%"},
+        {PL_ENG_SAMPLER, ENG_SAMPLER, "1.1%"}, {PL_ENG_CHIP, ENG_CHIP, "2.5%"}};
     uint32_t now = ui_now();
     if (!eng_at || (int32_t)(now - eng_at) >= 100) {   /* (| 1: maybe 1 ms ahead) */
         pl_voice_info_t vi[PL_VOICES];
         int nv = ui_player_voices(vi, PL_VOICES);
+        uint32_t fus, fh;
         memset(eng_count, 0, sizeof eng_count);
         for (int i = 0; i < nv; i++) if (vi[i].on && vi[i].engine >= 1 && vi[i].engine <= PL_ENG_CHIP) eng_count[vi[i].engine]++;
+        player_fx_cost(&fus, &fh);                      /* EFFECTS: the tenth of a second just gone (and on) */
+        fx_pm = fh && c.half_us ? (int)((fus * 1000u + fh * c.half_us / 2u) / (fh * c.half_us)) : 0;
         eng_at = now | 1;
     }
     for (int i = 0; i < 5; i++) {                       /* two a line: DX7 JUNO, TB-303 SAMPLE, CHIP */
@@ -260,7 +265,8 @@ static void draw_performance(void)
         ui_fmt(v, sizeof v, "%d X %s", n, ENGS[i].cost);
         fig((i % 2) * 124, y + 64 + (i / 2) * 12, T(ENG_SHORT[eng]), v, n ? ENG_COL[eng] : C_DGREY, w);
     }
-    fig(124, y + 88, T("EFFECTS"), "0.0%", C_LGREY, w);
+    ui_fmt(v, sizeof v, "%d.%d%%", fx_pm / 10, fx_pm % 10);
+    fig(124, y + 88, T("EFFECTS"), v, C_LGREY, w);
     int gy = y + 106, gh = 100;
     g_box(0, gy, 240, gh, C_DGREY);
     g_hline(1, gy + gh - 50, 238, C_DEEP + C_YELLOW);
@@ -287,7 +293,8 @@ static void draw_storage(void)
 {
     store_usage_t u;
     store_usage(&u);
-    int y = BODY_Y + 2, ip = kind_at(REC_PATTERN), is = kind_at(REC_SONG), ia = kind_at(REC_AUDIO);
+    int y = BODY_Y + 2, ip = kind_at(REC_PATTERN), is = kind_at(REC_SONG), ia = kind_at(REC_SAMPLE);   /* (the samples:
+                                                         * records of their own, specs/files/instruments.md#samples) */
     char v[16];
     g_text(0, y, &FONT_T, T("FLASH"), C_CYAN);
     /* (the user area alone: nothing of the user's is ever in FWS; the room kept for compaction and the EDITOR's own
@@ -346,11 +353,14 @@ static void draw_flash_map(void)
         y = map_square(i, kb_at[i] == STORE_KB_FREE && ++seen > nfree - 40 ? C_MAGENTA : COL[kb_at[i]]);
     y += 8;
     static const struct { uint8_t lo, hi, col; } KINDS[6] = {
-        {REC_AUDIO, REC_AUDIO, C_YELLOW}, {REC_DX7, REC_CART_LAST, C_LBLUE}, {REC_PATTERN, REC_PATTERN, C_CYAN},
+        {REC_SAMPLE, REC_SAMPLE, C_YELLOW}, {REC_DX7, REC_CART_LAST, C_LBLUE}, {REC_PATTERN, REC_PATTERN, C_CYAN},
         {REC_SONG, REC_SONG, C_GREEN}, {REC_LOOPS, REC_LOOPS, C_LGREEN}, {REC_DJ, 0xFF, C_LGREY}};
     const char *name[6] = {T("SAMPLES"), T("INSTRUMENTS"), T("PATTERNS"), T("SONGS"), T("LOOPS"), T("OTHER")};
     for (int i = 0; i < 6; i++, y += 12) {
-        kb(k, kind_bytes(&u, KINDS[i].lo, KINDS[i].hi));
+        uint32_t b = kind_bytes(&u, KINDS[i].lo, KINDS[i].hi);
+        if (KINDS[i].lo == REC_DJ) b += kind_bytes(&u, REC_AUDIO_OLD, REC_AUDIO_OLD);   /* (OTHER holds the old form's
+                                                         * audio too, as the map colours it: the rows add up to every kind) */
+        kb(k, b);
         legend(0, y, KINDS[i].col, name[i], k, C_WHITE, 150);
     }
     kb(k, (STORE_MIN_FREE + STORE_EDITOR_ROOM) * STORE_BLOCK);

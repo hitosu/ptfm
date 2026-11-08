@@ -328,10 +328,7 @@ computer: USB AUDIO HERE on for its part</p>
         <button id="p-main" class="stop" disabled title="the main loop's stack run past its bottom: the crash screen, then a restart">MAIN STACK</button>
       </div>
       <button id="p-irq" class="stop" disabled title="the interrupts' stack run past its bottom: the crash screen, then a restart">INTERRUPTS' STACK</button>
-      <button id="p-c2f" class="stop" disabled title="core 2's next block faults on purpose (its own stack limit tripped): core 1 takes over at the next half (STOPPED: FAULT); no restart">CORE 2 FAULT</button>
-      <button id="p-c2m" class="stop" disabled title="the next block handed over with a wrong check word: core 2 refuses it, core 1 takes over (STOPPED: MISREAD); no restart">CORE 2 MISREAD</button>
-      <button id="p-c2s" class="stop" disabled title="core 2's next block never ends: core 1 takes over at the next half, 1 ms into its wait (STOPPED: STUCK); no restart">CORE 2 STUCK</button>
-      <p class="hint" id="p-hint">the layout's guards tried on purpose (a press counts down 3 s, again calls it off): the stacks and the watchdog restart the FM-1; core 2's stop it till the next start</p>
+      <p class="hint" id="p-hint">the layout's guards tried on purpose (a press counts down 3 s, again calls it off): each restarts the FM-1</p>
       <pre class="recs" id="p-out" hidden></pre>
     </section>
   </aside>
@@ -401,6 +398,7 @@ computer: USB AUDIO HERE on for its part</p>
   </footer>
 </div>
 </template>
+<script>/*DEBUGPART*/</script>
 <script>/*FIGURES*/</script>
 <script>/*AUTOTEST*/</script>
 <script>
@@ -590,7 +588,69 @@ computer: USB AUDIO HERE on for its part</p>
       tell();
     }
   }
-  window.addEventListener("beforeunload", (e) => { if (clr.running) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", (e) => { if (clr.running || partRunning) { e.preventDefault(); e.returnValue = ""; } });
+
+  /* the debug part (specs/debug.md#the-debug-part): the debug build's cold code, built with this page's firmware
+     (PTFM_debug_part: its head and code), written where the FM-1's layout reports its region, through seed.js's
+     blocks (session.write): INSTALL DEBUG FIRMWARE's last step, by itself once the install has ended well, on its key
+     (no key of its own: pressed again, the install skips the firmware already in and writes the part). Until it is in,
+     the FM-1 answers no FIGURES and runs no PROVE */
+  const PART = window.PTFM_debug_part ? Uint8Array.from(atob(window.PTFM_debug_part), (c) => c.charCodeAt(0)) : null;
+  const AGAIN = "press INSTALL DEBUG FIRMWARE again (the firmware already in is skipped, then the debug part is written)";
+  let partRunning = false, partPending = false;
+  async function partRun() {
+    if (!PART || partRunning || window.PTFM_busy) return;
+    const others = ["go", "disk", "upload", "replace", "clean", "d-clear"].map($).filter(Boolean), was = others.map((n) => n.disabled);
+    const bar = $("bar");
+    told = go; before = null;
+    window.PTFM_busy = partRunning = true;
+    others.forEach((n) => { n.disabled = true; });
+    if (bar) bar.hidden = true;
+    say("Installing the debug part: asking the FM-1 for its layout…");
+    let s = null;
+    try {
+      let midi;
+      try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+      catch (e) { say("MIDI was not allowed. Allow it for this page, then " + AGAIN + ".", "err"); return; }
+      const fin = pick(midi.inputs), fout = pick(midi.outputs);
+      if (!fin || !fout) { say("No FM-1 found. Is it connected by USB and switched on? Then " + AGAIN + ".", "err"); return; }
+      await fin.open(); await fout.open();
+      s = PTFM_seed.session(PTFM_seed.midiTransport(fin, fout), { log: (t) => console.log(t) });
+      const L = await s.hello();
+      const reg = L.regions.find((r) => r.area !== "user" && r.start === 0xF7000);
+      if (!reg || PART.length > reg.end - reg.start) {
+        say("This FM-1 has no room for the debug part: install the debug firmware first.", "err");
+        return;
+      }
+      const blocks = [];
+      for (let o = 0; o < PART.length; o += 4096) {
+        const image = new Uint8Array(4096).fill(0xFF);
+        image.set(PART.subarray(o, o + 4096));
+        blocks.push({ block: (reg.start + o) >>> 12, image, crc: PTFM_seed.crc32(image) });
+      }
+      await s.write({ ok: true, upToDate: false, saveNumber: L.lastSave + 1, blocks }, (p) => {
+        if (bar) { bar.hidden = false; bar.value = (p.done / p.total) * 100; }
+        say(`Installing the debug part: block ${p.done} of ${p.total}. Keep the FM-1 connected.`);
+      });
+      say("Done: the FM-1 runs PT/FM's debug build, its debug part in: it answers FIGURES and runs PROVE.", "done");
+    } catch (e) {
+      say(e && e.code === PTFM_seed.RESULT.UNSAVED ? "The debug part is not in: edits not saved on the FM-1. REVERT or SAVE them, then " + AGAIN + "."
+        : `The debug part is not in: ${e && e.message}. ${AGAIN[0].toUpperCase() + AGAIN.slice(1)}.`, "err");
+      console.error(e);
+    } finally {
+      if (s) s.close();
+      others.forEach((n, i) => { n.disabled = was[i]; });
+      window.PTFM_busy = partRunning = false;
+      tell();
+    }
+  }
+  if (go) go.addEventListener("click", () => { partPending = !!PART; });
+  new MutationObserver(() => {                          /* (an install ended: the part after it, by itself) */
+    const st = $("status");
+    if (!partPending || window.PTFM_busy || !st) return;
+    partPending = false;
+    if (st.classList.contains("done")) setTimeout(partRun, 1000);
+  }).observe(go || document.body, { attributes: true, attributeFilter: ["disabled"] });
   {                                                     /* HELP: the key beside install.html's keys */
     const dl = $("d-over").querySelector("dl.keys");
     if (dl) {
@@ -613,7 +673,6 @@ computer: USB AUDIO HERE on for its part</p>
   let recs = null, armed = null;                       /* (RESTARTS: the last RECORDS; a test counting down) */
   let lastFig = null, lastFigC2 = null;                 /* (the last 31: its 37 comes right after it; the last with one) */
   const figRecent = [];                                 /* (the last 60 windows, each with its arrival time) */
-  let proveC2 = null;                                   /* (PROVE 4-6 sent: {name, n}: the next 37s say how it went) */
   const live = [];
   const state = (t, cls) => { $("f-state").textContent = t; $("f-state").className = "chip" + (cls ? " " + cls : ""); };
   /* timers that keep their time with the page out of sight: a browser slows a hidden or covered page's own timers
@@ -641,7 +700,7 @@ computer: USB AUDIO HERE on for its part</p>
   /* ---- the autotests' side of the messages ---- */
   const asks = [];                                       /* 40 STATE? waiting for their 41 */
   let stNum = 0, stLost = 0, stLate = 0;                 /* the last answer's number; answers never got, came late */
-  let atWin = null, atBench = null, atStop = false, atPrompt = null, atRun = null, atList = [];
+  let atWin = null, atStop = false, atPrompt = null, atRun = null, atList = [];
   let figAt = 0;                                         /* (Date.now at the FM-1's last FIGURES answer) */
   let atStarting = false, atAudio = null;               /* (RUN waiting for the input; RECORD AUDIO's scenarios) */
   let atRecKey = null;                                  /* (the scenario recording itself: FILES', io.record) */
@@ -680,17 +739,11 @@ computer: USB AUDIO HERE on for its part</p>
     }
     const rr = FG.decodeRecords(e.data);                /* 36 RECORDS: RESTARTS' */
     if (rr) { recs = rr; $("p-out").textContent = FG.recordsLines(rr).join("\n"); $("p-out").hidden = false; buttons(); return; }
-    const r = FG.decodeBench(e.data);
-    if (r) {
-      if (atBench) { atBench.B.add(r); if (r.kind === "END") { const w = atBench; atBench = null; w.r(w.B); } }
-      return;
-    }
     const c2 = FG.decode2(e.data);                      /* 37: core 2's window, into its 31's (kept, measured, live) */
     if (c2) {
       figAt = Date.now();
       if (!FG.join(lastFig, c2)) return;
       lastFigC2 = lastFig;
-      if (proveC2) proveSeen(c2);
       if (answered) render();
       return;
     }
@@ -742,7 +795,7 @@ computer: USB AUDIO HERE on for its part</p>
     $("a-cont").disabled = !atPrompt;
     $("a-cont").classList.toggle("ask", !!atPrompt);
     $("f-conn").classList.toggle("on", !!timer);
-    ["p-read", "p-wdt", "p-main", "p-irq", "p-c2f", "p-c2m", "p-c2s"].forEach((id) => { $(id).disabled = !output || running; });
+    ["p-read", "p-wdt", "p-main", "p-irq"].forEach((id) => { $(id).disabled = !output || running; });
     $("p-copy").disabled = !recs;
     if (!running && !output) { $("a-state").textContent = "CONNECT first"; $("a-state").className = "chip"; }
     else if (!running && !atRun) { $("a-state").textContent = "ready"; $("a-state").className = "chip"; }
@@ -751,7 +804,8 @@ computer: USB AUDIO HERE on for its part</p>
     if (!output || window.PTFM_busy) return;            /* (not while an install or an upload runs) */
     const now = Date.now();
     if (waiting && now - sentAt < 3000) return;
-    if (waiting && !answered) state("no figures: not the debug build? (autotests still run)", "warn");
+    if (waiting && !answered) state("no figures: not the debug build, or its debug part not in (INSTALL DEBUG FIRMWARE again)",
+                                    "warn");
     try { output.send(Array.from(FG.ask(flags))); } catch (e) { state("the FM-1's port is gone: CONNECT again", "bad"); return; }
     flags = 0;
     sentAt = now;
@@ -778,7 +832,7 @@ computer: USB AUDIO HERE on for its part</p>
     await input.open(); await output.open();
     input.addEventListener("midimessage", onMessage);
     answered = false; waiting = false;
-    lastFig = lastFigC2 = proveC2 = null;
+    lastFig = lastFigC2 = null;
     state("asking…");
     $("f-conn").textContent = "DISCONNECT";
     timer = WT.every(poll, 1000);                       /* (FIGURES once a second, the page in sight or not) */
@@ -788,29 +842,11 @@ computer: USB AUDIO HERE on for its part</p>
   });
   /* RESTARTS (specs/debug.md, Proving the layout): 35 PROVE, 36 RECORDS. A test restarts the FM-1, so a press counts
      down 3 s on its button, a press in them calling it off; after the restart, CONNECT again: the records come by
-     themselves. Core 2's (4-6) restart nothing: core 1 takes over and core 2 stays off till the next start (the
-     header's CORE 2 says why, 37 its fault record); counted down too. They need core 2 taking the blocks, else the FM-1 does nothing: the
-     hint says so at once when 37 shows it not, or when three windows pass with core 2 not stopped (the half after
-     handed it no block: CUT, SECOND CORE OFF, 38) */
+     themselves */
   const PROVE_DO = { "p-wdt": [1, "WATCHDOG: the screen says each step; after the second restart, USB RESCUE (install again, or switch off and on)"],
                      "p-main": [2, "MAIN STACK: the crash screen names the main loop's stack; CONNECT again after the restart"],
-                     "p-irq": [3, "INTERRUPTS' STACK: the crash screen names the interrupts' stack; CONNECT again after the restart"],
-                     "p-c2f": [4, "CORE 2 FAULT: CORE 2 says STOPPED: FAULT at the next half, its fault record in the header's tooltip; no restart"],
-                     "p-c2m": [5, "CORE 2 MISREAD: CORE 2 says STOPPED: MISREAD at the next half; no restart"],
-                     "p-c2s": [6, "CORE 2 STUCK: CORE 2 says STOPPED: STUCK at the next half, 1 ms into its wait; no restart"] };
+                     "p-irq": [3, "INTERRUPTS' STACK: the crash screen names the interrupts' stack; CONNECT again after the restart"] };
   const hex8 = (v) => (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
-  function proveSeen(c) {                               /* (a 37 after PROVE 4-6: stopped, or still not after three) */
-    const P = proveC2;
-    if (c.state === 3) {
-      $("p-hint").textContent = `${P.name}: core 2 ${FG.c2Text(c)}, core 1 took over` +
-        (c.faultVec || c.faultPc ? `; its fault: vector ${c.faultVec}, pc ${hex8(c.faultPc)}` : "") + "; no restart";
-      proveC2 = null;
-    } else if (++P.n >= 3) {
-      $("p-hint").textContent = `${P.name} DID NOTHING: the half after handed core 2 no block (CUT, SECOND CORE OFF, 38); ` +
-        `core 2 ${FG.c2Text(c)}`;
-      proveC2 = null;
-    }
-  }
   function disarm() { if (armed) { clearInterval(armed.timer); armed.b.textContent = armed.b.dataset.t; armed = null; } }
   Object.keys(PROVE_DO).forEach((id) => $(id).addEventListener("click", () => {
     const b = $(id);
@@ -821,7 +857,7 @@ computer: USB AUDIO HERE on for its part</p>
       return;
     }
     disarm();                                           /* (another test counting down: called off for this one) */
-    const what = PROVE_DO[id][0] >= 4 ? "STOP CORE 2" : "RESTART";
+    const what = "RESTART";
     let left = 3;
     b.dataset.t = b.textContent;
     b.textContent = `${what} IN ${left}: PRESS TO CALL OFF`;
@@ -834,13 +870,6 @@ computer: USB AUDIO HERE on for its part</p>
   function prove(id, b) {
     try { output.send(Array.from(FG.proveAsk(PROVE_DO[id][0]))); } catch (e) { state("the FM-1's port is gone: CONNECT again", "bad"); return; }
     $("p-hint").textContent = PROVE_DO[id][1];
-    proveC2 = null;
-    if (PROVE_DO[id][0] >= 4) {
-      const c = lastFigC2 && lastFigC2.c2;
-      if (c && c.state !== 1) $("p-hint").textContent = `${b.textContent} DID NOTHING: it needs core 2 taking the blocks; ` +
-        `core 2 ${FG.c2Text(c)}`;
-      else proveC2 = { name: b.textContent, n: 0 };
-    }
   }
   $("p-read").addEventListener("click", () => {
     try { output.send(Array.from(FG.proveAsk(0))); } catch (e) { state("the FM-1's port is gone: CONNECT again", "bad"); }
@@ -1270,7 +1299,6 @@ computer: USB AUDIO HERE on for its part</p>
                lost: [0, 1].map((k) => w.reduce((a, f) => a + (f.c2 && f.c2.sxLost ? f.c2.sxLost[k] : 0), 0)) };
     },
     answers: () => ({ lost: stLost, late: stLate }),   /* (the state's answers lost on the way, or late) */
-    bench: () => new Promise((r) => { atBench = { B: FG.bench(), r }; output.send(Array.from(FG.benchAsk(1))); }),
     prompt: (text) => new Promise((r) => {
       atPrompt = r;
       atPause(true);                                    /* (the run's clock waits with it) */
@@ -1344,10 +1372,6 @@ computer: USB AUDIO HERE on for its part</p>
   $("a-cont").addEventListener("click", endPrompt);
   function stopAutotest() {
     atStop = true;
-    if (atBench) {                                      /* the bench stopped, and the run not left waiting for its end */
-      try { output.send(Array.from(FG.benchAsk(0))); } catch (e) { /* */ }
-      const w = atBench; atBench = null; w.r(w.B);
-    }
     endPrompt();
   }
   $("a-stop").addEventListener("click", stopAutotest);
@@ -1410,7 +1434,7 @@ computer: USB AUDIO HERE on for its part</p>
       $("a-state").textContent = atStop ? "stopped" : n ? `done: ${n} failed` : "done: all passed";
       $("a-state").className = "chip" + (n || atStop ? " warn" : " ok");
       $("a-now").textContent = "";
-      atWin = null; atBench = null;
+      atWin = null;
       buttons(); renderRuns(); markTree();
     });
   });
@@ -1485,8 +1509,7 @@ computer: USB AUDIO HERE on for its part</p>
       const fc = f.c2 ? f : lastFigC2, c2 = fc ? fc.c2 : null, cpu2 = c2 ? c2.sum / (fc.halves * fc.halfUs) * 100 : 0;
       $("f-cpu2").textContent = c2 ? cpu2.toFixed(1) + "%" : "–"; level("f-cpu2-box", cpu2);
       $("f-c2").textContent = c2 ? FG.C2_STATE[c2.state] || "?" : "–";
-      $("f-c2-k").textContent = c2 && c2.state === 3 && c2.why ? `CORE 2: ${FG.C2_WHY[c2.why] || c2.why}` :
-        c2 && c2.state === 2 && c2.forced ? "CORE 2: BY 38" : "CORE 2";
+      $("f-c2-k").textContent = c2 && c2.state === 3 && c2.why ? `CORE 2: ${FG.C2_WHY[c2.why] || c2.why}` : "CORE 2";
       $("f-c2-box").className = "num" + (c2 && c2.state === 3 ? " bad" : c2 && c2.state !== 1 ? " warn" : "");
       $("f-c2-box").title = !c2 ? "" : `${FG.c2Text(c2)}; blocks handed over ${c2.blocks}; core 1 waited ${c2.waitSum} µs ` +
         `(the longest ${c2.waitMax}); late halves: core 1's ${c2.late1}, core 2's ${c2.late2}; misreads ${c2.misreads}` +

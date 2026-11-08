@@ -99,6 +99,7 @@ void g_clip(int x, int y, int w, int h)
     clip_rows();
 }
 void g_noclip(void) { cx0 = 0; cy0 = 0; cx1 = G_W; cy1 = G_H; clip_rows(); }
+int g_shown(int y, int h) { return y < ey1 && y + h > ey0; }
 
 void g_band(int half)
 {
@@ -178,11 +179,11 @@ void g_disc(int x, int y, int r, int c)
 }
 
 /* ---- text ---- */
-static const uint16_t *glyph(const ui_font_t *f, int ch)
+static int glyph(const ui_font_t *f, int ch)                  /* the glyph's first row */
 {
     if (ch >= 'a' && ch <= 'z') ch -= 32;                       /* capitals only, everywhere */
     if (ch < f->first || ch >= f->first + f->count) ch = '?';
-    return f->rows + (ch - f->first) * f->gh;
+    return (ch - f->first) * f->gh;
 }
 int g_text_crop(int x, int y, const ui_font_t *f, const char *s, int c, int r0, int r1)
 {
@@ -191,11 +192,11 @@ int g_text_crop(int x, int y, const ui_font_t *f, const char *s, int c, int r0, 
     for (; *s; s++, x += f->w) {
         if (*s == ' ') continue;
         if (x >= cx1 || x + f->w <= cx0) continue;
-        const uint16_t *g = glyph(f, (unsigned char)*s);
+        int g = glyph(f, (unsigned char)*s);
         for (int r = r0; r < r1; r++) {
             int py = y + (r - r0) * k;
             if (py + k <= ey0 || py >= ey1) continue;
-            uint16_t bits = g[r];
+            uint16_t bits = f->rows8 ? f->rows8[g + r] : f->rows[g + r];   /* (a byte a row up to 8 pixels wide) */
             if (!bits) continue;
             for (int b = 0; b < f->gw; b++) {
                 if (!(bits & (top >> b))) continue;

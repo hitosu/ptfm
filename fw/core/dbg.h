@@ -48,7 +48,7 @@ extern uint32_t dbg2_half[DS_N];
 #define DBG2_ADD(s, t) (dbg2_half[s] += plat_c2_us() - (t))
 #define DBG2_ADD_US(s, us) (dbg2_half[s] += (us))
 /* the half whose stages (DS_TOP) summed most: its sum, voices, notes started, voice blocks by engine, stages; as
- * FIGURES and a bench step's record carry it (dbg_worst_put) */
+ * FIGURES carries it (dbg_worst_put) */
 typedef struct {
     uint16_t us, st[DS_N];
     uint8_t voices, notes, blocks[4];
@@ -60,7 +60,7 @@ void dbg_half_end(uint8_t voices);              /* the audio context, the next h
                                                  * jobs' stages with it) into the window */
 void dbg_frame(uint32_t us);                    /* the main loop: a frame drawn, its time */
 int dbg_frozen(void);                           /* FREEZE THE SCREEN on */
-int dbg_sysex(const uint8_t *msg, uint32_t n);  /* 30 FIGURES?, 32, 34, 38: 1 taken (30 answered from dbg_poll) */
+int dbg_sysex(const uint8_t *msg, uint32_t n);  /* 30 FIGURES?, 34 USB TONE: 1 taken (30 answered from dbg_poll) */
 void dbg_poll(void);                            /* the main loop: an answer waiting is sent (31, then its 37) */
 int dbg_figures(uint8_t *out, uint8_t *out2);   /* the window's FIGURES (DBG_FIGURES_LEN B) and core 2's FIGURES 2
                                                  * (DBG_FIGURES2_LEN B), a new window started */
@@ -105,30 +105,7 @@ typedef struct {
 } plat_dbg_t;
 void plat_dbg(plat_dbg_t *d);
 
-/* ---- the bench (specs/debug.md, The bench; core/bench.c): measurements run on the page's word (SysEx 32), each
- * sent as a record (33) ---- */
-#define DBG_BENCH_VERSION 5
-enum { DBU_CYCLES, DBU_BYTES, DBU_CALL, DBU_BLOCK };    /* what a measurement's ops are: an op, bytes, a call, a block */
-typedef struct {
-    char name[21];
-    uint8_t unit;                               /* DBU_* */
-    uint8_t runs;                               /* the runs after the first */
-    uint32_t ops;                               /* ops a run */
-    uint32_t first;                             /* the first run, ticks */
-    uint32_t min, max, sum;                     /* the runs after it, ticks */
-} dbg_bench_t;
 int dbg_send(uint8_t cmd, const uint8_t *b, uint32_t len);  /* a message out, packed: 0 not taken (dropped) */
-int bench_sysex(int cmd);                       /* 32 BENCH: 1 run it, 0 stop it; 1 taken */
-void bench_poll(void);                          /* the main loop: the bench's next piece, its records sent */
-
-/* the platform's side of the bench */
-#define PLAT_TICKS_HZ 24000000u
-uint32_t plat_ticks(void);                      /* a free-running counter at PLAT_TICKS_HZ (the FM-1: TIMER4) */
-void plat_cache_cold(void);                     /* the code cache emptied: the firmware's code and constants read
-                                                 * from the flash again at their next use (interrupts on between) */
-int plat_bench_core(int i, dbg_bench_t *r);     /* the platform's own measurement i (THE CORE): 1 done, 0 none (past
-                                                 * the last); runs with the interrupts off, a few ms in all. r NULL:
-                                                 * only whether there is an i */
 #else
 #define DBG_T(t)
 #define DBG_ADD(s, t) ((void)0)

@@ -28,7 +28,7 @@ static void usb_tap(const int32_t *lr, const int16_t *click, int n)
 static int src_song(rec_song_t *s)
 {
     static uint8_t order[1];
-    if (rec_song(8, s))
+    if (rec_song(0xA8, s))
         return -1;
     order[0] = s->order[0];
     s->order = order;
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         return 2;
     }
     player_init();
-    player_play_song(1, 0, 0);
+    player_play_song(0xA1,0, 0);
     run(3);
     s = st();
     check("a song plays: playing, sound", s.playing && s.what == PL_SONG && rms > -45);
@@ -98,7 +98,7 @@ int main(int argc, char **argv)
     run(0.05);
     s = st();
     check("PLAY held: stopped, back at the start", !s.playing && s.pos == 0 && s.row == 0);
-    player_play_song(5, 2, 0);
+    player_play_song(0xA5,2, 0);
     run(0.3);
     s = st();
     check("a song from position 02: there, playing", s.playing && s.pos == 2 && s.row < 8);
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
     player_stop();
     run(0.5);
     {
-        pl_inst_t fus = {0x06, 0};       /* the disk's FUSION's first: SPACE PAD, layers */
+        pl_inst_t fus = {0xA5, 0};       /* the disk's FUSION's first: SPACE PAD, layers */
         pl_inst_t tb = {0xFA, 0};
         player_key_on(60, fus, 127);
         run(0.3);
@@ -184,13 +184,13 @@ int main(int argc, char **argv)
         s = st();
         check("a source from row 05: its music clock on the pattern's beats", s.playing && s.row >= 5 && s.rows_played &&
               (s.rows_played - 1) % 16 == s.row % 16u);
-        player_play_song(1, 0, 0);
+        player_play_song(0xA1,0, 0);
         run(0.2);
         check("a song started: the source goes", st().what == PL_SONG);
     }
     {   /* PLAYBACK's stepping */
         player_state_t a, b;
-        player_play_song(1, 0, 0);
+        player_play_song(0xA1,0, 0);
         run(2);
         a = st();
         player_step(1);
@@ -291,7 +291,7 @@ int main(int argc, char **argv)
     run(0.3);
     check("then quiet again", rms < -70);
     player_voice_count(8);
-    player_play_song(3, 0, 0);
+    player_play_song(0xA3,0, 0);
     {
         int most = 0;
         for (i = 0; i < 60; i++) {
@@ -303,7 +303,7 @@ int main(int argc, char **argv)
     }
     player_voice_count(20);                             /* (more than the most, 16; one core here: 12 in force) */
     check("VOICES above the most, one core: 12 (PL_VOICES_C1)", (run(0.01), st().voice_count) == PL_VOICES_C1);
-    player_play_song(0, 2, 0);                          /* (PUNCH IN's break: a pad held over 16 rows) */
+    player_play_song(0xA0,2, 0);                          /* (PUNCH IN's break: a pad held over 16 rows) */
     run(1.0);
     {   /* a skip landing cuts every track's notes, as NOTE CUT: none from before it rings on into the new position */
         pl_voice_info_t was[PL_VOICES];
@@ -323,7 +323,7 @@ int main(int argc, char **argv)
     {   /* ... and the effects' tails emptied: every track muted, only the tails are heard, then none */
         double tails;
         int pos0, landed = 0;
-        player_play_song(8, 0, 0);                      /* (TECHNO LOOP: DELAY and REVERB) */
+        player_play_song(0xA8,0, 0);                      /* (TECHNO LOOP: DELAY and REVERB) */
         run(2);
         player_mutes(0xFFFFu);
         run(0.1);
@@ -343,7 +343,7 @@ int main(int argc, char **argv)
     }
     {   /* a K1 click while its clean start still runs through the rows before: from there instead, not lost */
         int pos0, landed = 0, k;
-        player_play_song(0, 0, 0);                      /* (PUNCH IN: 6 positions of 128 rows) */
+        player_play_song(0xA0,0, 0);                      /* (PUNCH IN: 6 positions of 128 rows) */
         run(1);
         pos0 = st().pos;
         player_skip(1);
@@ -359,7 +359,7 @@ int main(int argc, char **argv)
         check("a K1 click during a clean start's run-through: on to the next position, not lost",
               landed && s.playing && s.pos == pos0 + 2);
         /* K1, then SELECT in the same row: stepping, the skip given up (not played from the skip's position) */
-        player_play_song(0, 0, 0);
+        player_play_song(0xA0,0, 0);
         run(1);
         pos0 = st().pos;
         player_skip(1);
@@ -374,7 +374,7 @@ int main(int argc, char **argv)
          * let go, heard again where the song is */
         player_state_t a, b2;
         player_voice_count(12);
-        player_play_song(8, 1, 0);                      /* (TECHNO LOOP's loop: a note every beat, DELAY and REVERB) */
+        player_play_song(0xA8,1, 0);                      /* (TECHNO LOOP's loop: a note every beat, DELAY and REVERB) */
         run(2);
         a = st();
         player_usb = usb_tap;

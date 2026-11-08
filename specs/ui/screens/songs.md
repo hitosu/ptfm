@@ -92,17 +92,19 @@ current song's order of patterns. The cursor's song is the current song everywhe
 - **SEL menu on the list:** NEW, CLONE, MOVE, DELETE, RENAME, UNLOAD SONG, REVERT.
   - **NEW** first asks for the song's first pattern: the pattern list
     ([../dialogs.md](../dialogs.md#the-pattern-list)) titled `NEW SONG STARTS WITH`, `+ NEW PATTERN` its first
-    line. SEL picks the highlighted line; HOME makes nothing. Then `NEW SONG` is added at the end of the list
+    line. SEL picks the highlighted line; HOME makes nothing. Then `NEW SONG` is made at the smallest free number
     (TEMPO 120, 6 ticks, 4 rows a beat, LOOP, a new song's FX setup), its one position the pattern picked, or on
     `+ NEW PATTERN` a new empty one of 8 tracks × 64 rows at the first free number (`NO FREE PATTERN` when there
-    is none, and no song is made); it becomes current. A song always has at least one position. Past song
-    `FD` (`FE` is the keys' song): `NO FREE SONG NUMBER`.
-  - **CLONE** puts a copy after the song, named with ` 2` after its first 12 characters, and makes it
+    is none, and no song is made); it becomes current. A song always has at least one position. With every number
+    to `FD` taken (`FE` is the keys' song): `NO FREE SONG NUMBER`.
+  - **CLONE** makes a copy at the smallest free number, named with ` 2` after its first 12 characters, and makes it
     current.
   - **MOVE** floats the song along the list ([../dialogs.md](../dialogs.md)): SELECT shows it at its new
     place, boxed yellow (SEL lit); SEL puts it down; HOME takes it back. Nothing refers to songs, so
     moving one needs no reference update, and no question.
-  - **DELETE** asks first, its own patterns ticked to go with it ([DELETE's question](#deletes-question)).
+  - **DELETE** asks first, its own patterns ticked to go with it ([DELETE's question](#deletes-question)). Its number
+    is free then, the next song made takes it; the other songs keep theirs, and what plays plays on unless it was this
+    song.
   - **RENAME** opens the name entry; EDIT is its DONE. An empty name becomes `NO NAME`.
   - **UNLOAD SONG** lets go of what is held (whichever song the list's cursor is on): listed only while
     something other than THE KEYS is, playing or not: a song played since power-on, the EDITOR's pattern on the
@@ -110,7 +112,7 @@ current song's order of patterns. The cursor's song is the current song everywhe
     cuts it (every voice, the effects' tails), a song's place is forgotten, and the keys play through THE KEYS'
     setup and tempo again, as at power-on ([fx.md](fx.md#the-fx-setup)); FX edits THE KEYS' until something
     plays. The loops themselves and DJ's stand stay as they are (DJ's decks paused, DJ off). Toast `SONG
-    UNLOADED`. PLAYBACK's GLO has it too ([playback.md](playback.md#glo-the-views-options)). PLAY then plays the
+    UNLOADED`. PLAYBACK's GLO has it too, but for the loops ([playback.md](playback.md#glo-the-views-options)). PLAY then plays the
     current song from its start.
   - **REVERT** takes the song back as saved, the whole record: its order, name, properties, mixer and FX
     setup (not its patterns: each is the EDITOR's to revert), after a question (`REVERT SONG 00 TO SAVED?`, OCT+ `REVERT`, OCT-
@@ -429,7 +431,7 @@ UNLOAD SONG: ALL STOPS, AS AT POWER-ON
   THE {KEYS}: THEIR OWN EFFECTS AGAIN
 REVERT: THE SONG AS LAST SAVED
 
-{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO
-  {KEYS} HELD TAKE TURNS
+{ARP} (AUTOMATIC REPEAT PROCEDURE):
+  ARPEGGIO, THE {KEYS} HELD TAKE TURNS
   HOLD {ARP}: RHYTHM, ORDER, LATCH
 ```

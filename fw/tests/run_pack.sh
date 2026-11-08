@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Vasily Kazantsev
 # The packer (tools/pack.py): its codecs on made-up data, the demo disk packed again and read back against
-# the playground's content, dist/firmware/demo.ptfmdsk up to date, the built-in instruments' C, and a damaged disk
-# refused. Needs ffmpeg (the demo disk's FLAC files).
+# the playground's content, dist/firmware/demo.ptfmdsk up to date, the old form converted into it (both converters),
+# the built-in instruments' C, and a damaged disk refused. Needs ffmpeg (the demo disk's FLAC files) and node.
 set -e
 cd "$(dirname "$0")/../.."
 OUT=build/fw/pack
@@ -20,10 +20,19 @@ python3 -I tools/pack.py --selftest
 python3 -I tools/pack.py --out "$OUT/demo.ptfmdsk"
 python3 -I tools/pack.py --check "$OUT/demo.ptfmdsk"
 cmp "$OUT/demo.ptfmdsk" dist/firmware/demo.ptfmdsk || { echo "run_pack: dist/firmware/demo.ptfmdsk is out of date: python3 -I tools/pack.py"; exit 1; }
+# the samplers' conversion (specs/files/disk.md#the-samplers-conversion): the demo disk in the old form (samplers of
+# version 1 holding their samples, the audio under them, as an older PT/FM's) converted, by the PC's converter and by
+# the pages' (fw/web/seed.js), holds the demo disk's records, record for record, its samples at the conversion's own
+# numbers, from 00 (--low-samples)
+python3 -I tools/pack.py --old-form --out "$OUT/demo-old.ptfmdsk"
+python3 -I tools/pack.py --low-samples --out "$OUT/demo-conv.ptfmdsk"
+python3 -I fw/tests/convert_check.py "$OUT/demo-old.ptfmdsk" "$OUT/demo-conv.ptfmdsk"
+node fw/tests/convert_check.js "$OUT/demo-old.ptfmdsk" "$OUT/demo-conv.ptfmdsk"
 python3 -I tools/pack.py --dump dist/firmware/demo.ptfmdsk "$OUT/dump"      # decoded records for the firmware's tests
 python3 -I tools/pack.py --builtin "$OUT/gen"
-# (the 11 synth cartridges: FUSION and its patterns are the demo disk's)
-grep -q "const int builtin_count = 11;" "$OUT/gen/builtin.c" || { echo "run_pack: builtin.c: not 11 records"; exit 1; }
+# (the 11 synth cartridges and the empty FAVORITES FB: FUSION and its patterns are the demo disk's)
+grep -q "const int builtin_count = 12;" "$OUT/gen/builtin.c" || { echo "run_pack: builtin.c: not 12 records"; exit 1; }
+grep -q "{0x07, 0xfb, 0, 1, 10, bi_07_fb_0}" "$OUT/gen/builtin.c" || { echo "run_pack: builtin.c: no FAVORITES FB"; exit 1; }
 if command -v gcc >/dev/null; then
     gcc -std=c99 -Wall -Wextra -Werror -c -Ifw/core -o "$OUT/builtin.o" "$OUT/gen/builtin.c"
 fi

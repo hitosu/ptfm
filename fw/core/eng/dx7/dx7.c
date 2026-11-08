@@ -42,7 +42,7 @@ static void deltas(int32_t *t, int32_t last)   /* the SIN_DELTA layout: [2i] the
     t[2046] = last;
 }
 
-void dx7_init(void)
+PLAT_COLD void dx7_init(void)
 {
     int64_t u = 1 << 30, v = 0, tt;
     int i;

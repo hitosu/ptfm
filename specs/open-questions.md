@@ -10,10 +10,17 @@ playground), and its item leaves this file: the specs and the proposals are the 
   cutoff once a block (1.45 ms); whether those steps are heard with a high RESO and a short attack, to listen to
   on the FM-1 (16-frame steps where they are).
 - **LOOPS, to try** ([ui/screens/loops.md](ui/screens/loops.md), [files/loops.md](files/loops.md)):
-  - **its controls,** to be tried on the FM-1: whatever trying them changes (takes heard as written, CONTROL mode's
-    tap and hold, the pattern recorder, RECORD LIVE);
-  - **BEATS A BAR** (the METRONOME's) is the loops' bar: changing it with loops changes how many bars the length
-    is, or leaves a part bar.
+  - **its controls,** to be tried on the FM-1: whatever trying them changes (the overdub's feel: the span, the line;
+    LFO's tap and EDIT held's clear; SEQ held; the jumps; ADJUST; the recorder's ties; CONTROL mode's tap and hold;
+    RECORD LIVE; the stage's switch on ARP's tap, its grace wait, and ARP held + REC for the recorder);
+  - **BEATS A BAR** (the METRONOME's) is the loops' bar: changed with loops, or now with the length alone (it is
+    always set), the length keeps its rows and may be left a part bar (LENGTH then steps to the next whole bar each
+    way; a part bar shown in beats, `21 BEATS`);
+  - **the notes' colouring** in the strips, against the one specified (a note's attack and release in the deep
+    shade): a note's first cell bright and its held cells dim; or only the attack dimmed, no release cells; perhaps a
+    setting;
+  - **the release cells** from each instrument's envelope (its release at the tempo) in place of the engine's fixed
+    count (2 for a DX7 or JUNO-106, 1 for the others), if the fixed count misleads.
 - **The palette's values** ([ui/colours.md](ui/colours.md#the-default-palette-soft-ega)) *(proposed)*: first
   values, tuned in the playground; to look at on the FM-1's screen.
 - **STEREO SPREAD, a tool in the EDITOR's menu,** to make a pattern sound wider by pan commands: SEL → STEREO
@@ -66,10 +73,11 @@ playground), and its item leaves this file: the specs and the proposals are the 
 - **The spare zone** ([files/ram.md](files/ram.md#the-edit-memory-and-the-spare-zone)): what it is for beyond
   what borrows from it now (about 49 KB; DJ's 13 KB borrowed from its top, USB audio's 6.5 KB in reserve): left
   to a later review of the RAM.
-- **Safe installs:** an install cut short by a power cut does not resume at the next power-on
-  ([hardware.md](hardware.md#updates-and-rescue)); the USB rescue and the install page bring the FM-1 back. A boot
-  stub that runs a kept loader when the firmware's last-written check fails would make installs safe against power
-  cuts: a project of its own.
+- **The staging's place:** the update loader kept at 0x0E0000, between the user area's two regions; moving the
+  staging to the flash's end, 12 KB for PT/FM's loader (a bigger one, as the FM-1's own firmware's, staged over the
+  user area's last 8 KB, whatever is there: installing another firmware gives up PT/FM's data anyway), makes the user
+  area one region of 420 KB; the first start after it moves what lies in those 12 KB out
+  ([hardware.md](hardware.md#updates-and-rescue)).
 - **The CHIP engine's own tables** ([chip.md](chip.md#the-tables)): a CHIP instrument picks its
   volume, arpeggio, pitch, duty and noise lists and its wave from tables built into the engine, by number, which
   keeps an instrument at 28 B and a cartridge at 128 instruments. Custom tables could come later, beside the

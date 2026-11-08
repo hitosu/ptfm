@@ -15,9 +15,9 @@ it is in the round between VISUAL and LOOPS, in the PLAY group ([../navigation.m
   an effect while it is shaped. The effect picked is the same on LIVE and EDIT.
 - **MIXER:** each track's level, pan, duck amount and sends.
 
-**FX from LOOPS does not leave LOOPS:** a take or a song's recording goes on (going to any other screen
-ends it: [loops.md](loops.md)), LIVE and EDIT work on LOOPS' own setup, playing or not, and FX again goes
-back to LOOPS. Going on to another screen from there leaves LOOPS then. Wherever the loops play, FX shows
+**FX from LOOPS does not leave LOOPS:** an arm or a song's recording goes on (going to any other screen
+ends it: [loops.md](loops.md)), the keys down stop writing onto the stage (here the keys are FX's), LIVE and EDIT
+work on LOOPS' own setup, playing or not, and FX again goes back to LOOPS. A new one has ROUTING SENDS, so a loop's sends act from the start; a saved one keeps its own. Going on to another screen from there leaves LOOPS then. Wherever the loops play, FX shows
 their setup, as it shows the playing song's. Punch-ins played on LIVE are heard and, as FX held + a white
 key, written only by RECORD LIVE ([loops.md](loops.md#record-live)).
 
@@ -40,12 +40,13 @@ unheard: it is heard once DJ plays ([dj.md](dj.md)).
   THE KEYS' come back at the next power-on, or with UNLOAD SONG ([songs.md](songs.md), SONGS' SEL menu and
   PLAYBACK's GLO), which stops what plays at once. A pattern played from the EDITOR uses the current song's;
   the loops use their own. **With LOOPS on screen (FX from LOOPS too) and nothing playing,
-  the loops' setup and tempo are what the keys play through,** before the first loop too; a song paused
+  the loops' setup and tempo are what the keys play through,** with no loops too; a song paused
   meanwhile keeps its place, and once LOOPS is left it is what is held again (PLAY goes on with it). A
   song playing while LOOPS is shown is what is heard.
-- **Which setup the FX screen edits:** in LOOPS, the loops'; on DJ, DJ's; elsewhere the playing song's, so that what
-  you change is what you hear. With nothing playing, what played last's: the song's, or the loops' (`THE LOOPS`)
-  once they have played and stopped, as the keys hear them. Before anything has played (and
+- **Which setup the FX screen edits:** in LOOPS, the loops'; on DJ, DJ's; elsewhere what plays's (a song's, or
+  DJ's while its decks play), so that what you change is what you hear. With nothing playing, what played last's:
+  the song's, the loops' (`THE LOOPS`) or DJ's (`DJ`) once they have played and stopped, as the keys hear them,
+  until something else plays or UNLOAD SONG lets them go. Before anything has played (and
   with no song at all), **the keys' song's** (`THE KEYS`): a song the firmware carries for the keys (song `FE`), never listed, TEMPO 120 at 6
   ticks of 4 rows a beat with a new song's setup and the REVERB on at its own settings (SIZE 60, DAMP 40, PRE-DELAY
   10, MIX 25 %), so the FM-1 plays as a synth from its keys alone and sounds round at once; its TEMPO and
@@ -190,6 +191,10 @@ setup, saying so): `THROUGH FX` (at first) or `DRY`.
   ceiling (peaks above −1.9 dB rounded off) take them with the rest; USB audio and VISUAL get the whole mix, keys
   included. What the effects work on is then what plays in the background alone.
 - **What is recorded** is never touched: a take or a loop's notes play back through the effects as any notes.
+- **LOOPS' stage** ([loops.md](loops.md#the-stage)): while the loops play on LOOPS, the keys overdub the stage and
+  sound as it does, through the mix REC would put it in (the selected loop's MIXER column, on `+ NEW LOOP` the next
+  loop's mix, its sends the KEYS column's) and LOOPS' effects, never through KEYS GAIN or DRY, so a loop sounds as it
+  was played; stopped, the keys play as everywhere.
 - **Cost:** 4,640 B of RAM (the keys' own mix, a block's slot each, 2,048 B; their own Juno-106 chorus lines and
   buses, 2,592 B); about 5 µs a half while keys sound dry (a chorused Juno-106 patch: its chorus too, as it would
   cost anyway), nothing otherwise.
@@ -210,9 +215,15 @@ setup, saying so): `THROUGH FX` (at first) or `DRY`.
 | METRONOME | TEMPO FOLLOW or 30-300 BPM (FOLLOW); BEATS A BAR 1-16 (4); SOUND CLICK, BEEP, WOOD, COWBELL (BEEP); LEVEL (60 %). A count-in before a take is not the METRONOME's: COUNT-IN, [../transport.md](../transport.md#count-in) | the bar's beats |
 
 **The CPU an effect takes** is measured on the device: the timer read before and after each effect in
-each audio block, summed, the footer's figure the average of the last quarter second, redrawn 4 times a
-second; only while the FX screen is open. The playground, whose audio worklet has no fine timer, shows
-these figures as estimates (GATE 0.4 … REVERB 7.5, [Texts](#texts)).
+each audio block, summed (on DJ the decks' own GATE, FILTER, DRIVE and LO-FI with the mix's), the footer's
+figure the share of the audio's time over the last quarter second, redrawn 4 times a second; only while the
+FX screen is open (nothing is timed once it is left). Until a quarter second of the picked effect is
+measured (the screen just opened, another effect picked) the footer names the effect alone. An effect that is
+off, or asleep on silence, shows `0.0%`. DUCK, whose work is spread through the tracks' mixing, shows its
+estimate. The emulator, whose clock stands still inside an audio half, and the playground, whose audio worklet
+has no fine timer, show the FM-1's measured figures instead (GATE 1.1 … REVERB 8.3, [Texts](#texts)): CHORUS,
+DELAY, REVERB and the LIMITER as they work in the demo songs, GATE, FILTER, DRIVE and LO-FI a block alone, DUCK
+and the METRONOME estimated.
 
 A knob shown with only a default runs 0-100 %. In a new song, only LIMITER is on; THE KEYS' setup, which the keys
 play through at power-on, has the REVERB on too ([above](#the-fx-setup)).
@@ -244,7 +255,8 @@ song's effects are:
   is a sound of its own.
 - **A silent block at rest is not looked at:** a block (64 frames) to which no voice and no Juno-106 chorus gave
   anything, while every effect at work rests (the CHORUS, DELAY and REVERB resting, the LIMITER fully open, the
-  punch-ins' buffer holding only silence, the METRONOME with no click starting in that block; GATE, FILTER,
+  punch-ins' buffer holding only silence, the METRONOME with no beat starting in that block (on, or off while
+  something plays: it counts on, [below](#metronome)); GATE, FILTER,
   DRIVE, LO-FI, a click ringing, a punch-in or all sound off fading each count as at work), goes through as
   silence without a frame read: the effects'
   clocks and places move on as their rest moves them, the mix stays cleared for the next block, and VISUAL and
@@ -325,7 +337,7 @@ to eighth: page 1 K1 CUT, K2 RESO, K3 ENV, K4 SOURCE; page 2 (ALGORITHM) K1 ATTA
     note lengths follow it. A hit comes in the block the clock reaches it; a clock that jumps (a start, a skip back)
     counts from where it lands, so a song's start on a beat fires at once. With nothing playing it runs on from the
     last bar at the tempo, as [GATE](#gate) does: the keys, THROUGH FX, play into a filter pulsing in time.
-  - **In LOOPS** SOURCE keeps a track, as everywhere (a loop's number changes as a loop above it is peeled, its
+  - **In LOOPS** SOURCE keeps a track, as everywhere (a loop's number changes as a loop before it is deleted, its
     track does not), and shows the loop playing there: `LOOP 03`, or `TRACK 05` where no loop is.
   - **On DJ** each deck plays its song as made, its FILTER and the envelope with it, on that deck's own tracks and
     beat ([dj.md](dj.md#effects)); DJ's FX does not show them. `KEYS` does nothing there (the keys play no notes on
@@ -343,7 +355,10 @@ to eighth: page 1 K1 CUT, K2 RESO, K3 ENV, K4 SOURCE; page 2 (ALGORITHM) K1 ATTA
   since the start or UNLOAD SONG) it counts at THE KEYS' TEMPO, as ARP and GATE follow it. A number sets its
   own, so it works with nothing playing.
 - FX EDIT's picture lights the beat it clicked last, at FOLLOW or at a number, with nothing playing too.
-- BEATS A BAR in the loops' setup is also the loops' bar ([loops.md](loops.md#the-loops)).
+- **Off, it counts on unheard while something plays,** as it would click: PLAY's LEDs show its beats while the
+  loops play ([../transport.md](../transport.md#plays-two-leds)), and switched on then, it clicks on from where it
+  counted. Off with nothing playing, it does not count (at a number, its place in the beat waits).
+- BEATS A BAR in the loops' setup is also the loops' bar ([loops.md](loops.md#the-length)).
 - **Its sounds are its own,** made as it clicks: no sample, no instrument, nothing from the disk, so it
   works with an empty one. Each click lasts 80 ms, the same on both sides; *t* is the time since the
   click (s), the accent the bar's first beat:
@@ -470,13 +485,18 @@ pattern, so the mixer always has all 16; a track no pattern of the song uses is 
     words line ends in `  DRY`.
   - It is a setting: changed, it is unsaved until SAVE (SEL's REVERT on SETTINGS takes it back), and
     no command sets it.
+  - **Its CHO, DLY and REV are LOOPS' next loop's sends** ([loops.md](loops.md#the-loops)): the stage on `+ NEW LOOP`
+    (and the pattern recorder's preview there) sounds with them, a change heard from the next block, and REC writes
+    them into the loop it makes there; K1-K4 with a send's job on `+ NEW LOOP` turn them, as this column does.
   - The columns go 8 a page: `00`-`07`, `08`-`0F`, then KEYS alone on the third; the loops' MIXER has
     KEYS after the last loop, and alone before the first; the keys' song's has KEYS alone.
 - **The loops' mixer** is shown in LOOPS: `MIXER: THE LOOPS`. Its columns are the loops, up to 16, a
   column a loop (`00`-`0F`; a muted or silenced loop's dark), then KEYS, a loop being one track with
-  its mix ([../../files/loops.md](../../files/loops.md#the-record)): LEVEL, PAN, DELAY and REVERB SENDS
-  as K1-K4 on LOOPS set them, CHORUS and DUCK here alone ([loops.md](loops.md#the-loops)). The next
-  loop's mix is set on LOOPS, by K1-K4 on `+ NEW LOOP`. The footer and the words line name it `LOOP 03`.
+  its mix ([../../files/loops.md](../../files/loops.md#the-record)): LEVEL, PAN, DUCK and the three SENDS, here
+  and by K1-K4 on LOOPS, each knob the job GLO gives it ([loops.md](loops.md#k1-k4-view-and-adjust)). The next
+  loop's LEVEL, PAN and DUCK are set on LOOPS, by K1-K4 on `+ NEW LOOP`; its sends are the KEYS column's. The footer
+  and the words line name it `LOOP 03`. **The stage** sounds through the selected loop's column (on `+ NEW LOOP` the
+  next loop's mix, its sends the KEYS column's), whatever its mute or the solos ([loops.md](loops.md#the-stage)).
 
 ## Layout
 
@@ -553,7 +573,7 @@ K1 PATTRN K2 RATE   K3 DEPTH  K4 SMOOTH   T: the knobs' names
 STRAIGHT                                  the picture, to y 224
  |#| |#| |#| |#| |#| |#| |#| |#| ...
 ----------------------------------------
-10:12 EMPTY FUSION         GATE 0.4% CPU  T, the footer
+10:12 EMPTY FUSION         GATE 1.1% CPU  T, the footer
 ```
 
 In SENDS, `◆ SENDS` takes its place in the chain and CHORUS, DELAY and REVERB follow it, indented:
@@ -733,9 +753,9 @@ the value.
 ## Texts
 
 - **The header:** `FX`, in the PLAY group's colour; the subpage, white: `LIVE`, `EDIT` or `MIXER`.
-- **The footer's right:** on LIVE and EDIT the picked effect's CPU share, `GATE 0.4% CPU` (measured on
-  the device; the playground's estimates: GATE 0.4, FILTER 1.2, DRIVE 0.8, LO-FI 0.5, CHORUS 2.2, DELAY
-  1.4, REVERB 7.5, LIMITER 0.6, DUCK 0.3, METRONOME 0.1; nothing on `◆ SENDS`); on MIXER `TRACK 00`.
+- **The footer's right:** on LIVE and EDIT the picked effect's CPU share, `GATE 1.1% CPU` (measured on
+  the device; the playground's, the FM-1's measured figures: GATE 1.1, FILTER 1.2, DRIVE 2.2, LO-FI 1.0, CHORUS
+  2.1, DELAY 3.1, REVERB 8.3, LIMITER 0.2, DUCK 0.3, METRONOME 0.1; nothing on `◆ SENDS`); on MIXER `TRACK 00`.
   While a knob turns: the knob's name and value, `GATE RATE 1/16`, `FILTER ENV 60%`, `FILTER SOURCE 1/2 BEAT`,
   `FILTER DECAY 1.22 S`, `LVL 03 7A 96%`.
 - **LIVE:** `PUNCH-INS: HOLD A KEY; ARP HOLDS IT ON`, `HELD ON: ITS KEY OR ANOTHER STOPS IT`, the punch-ins' short names ([../../files/commands.md](../../files/commands.md#punch-ins));
@@ -791,7 +811,8 @@ the value.
 {LFO} (LEAVE FIELD OPEN): THE KNOB
   TURNED LAST BACK TO ITS DEFAULT
 {GLO}: HOW THE EFFECTS ARE WIRED
-{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO
+{ARP} (AUTOMATIC REPEAT PROCEDURE):
+  ARPEGGIO
 EFFECTS: EACH SONG HAS ITS OWN; HERE,
   THOSE OF WHAT PLAYS ({GLO} SAYS WHOSE)
 ```
@@ -799,13 +820,13 @@ EFFECTS: EACH SONG HAS ITS OWN; HERE,
 ```
 LIVE: PLAY THE EFFECTS
 {WHITE KEYS}: PUNCH-INS, WHILE HELD
-  + {ARP}: HOLDS ON; ITS KEY STOPS IT
+  + {ARP} (AUTOMATIC REPEAT PROCEDURE):
+  HOLDS IT ON; ITS KEY STOPS IT
   4 GROUPS: LOOPS, CHOPS, SWEEPS, TAPE
-{BLACK KEY}: PICK AN EFFECT
+{BLACK KEY} OR {SELECT}: PICK AN EFFECT
   GATE FILTER DRIVE  LO-FI CHORUS
   DELAY REVERB LIMITER  DUCK METRO
   THE LAST: BYPASS, ALL OFF WHILE HELD
-{SELECT}: PICK AN EFFECT TOO
 {OCT+} / {OCT-}: THE EFFECT ON / OFF
 {K1}-{K4}: ITS KNOBS
 {ALGORITHM}: ITS NEXT 4 KNOBS
@@ -866,7 +887,8 @@ KEYS: LAST COLUMN, SAME IN EVERY SONG
 {HOME}, {WHITE KEY}: MUTE A TRACK
 PUNCH-IN EFFECTS
 HOLD {FX} + {WHITE KEY}: EFFECT WHILE HELD
-  + {ARP}: HOLDS ON; ITS KEY STOPS IT
+  + {ARP} (AUTOMATIC REPEAT PROCEDURE):
+  HOLDS IT ON; ITS KEY STOPS IT
 {KEYS} 1-4: LOOP 1/4, 1/8, 1/16, 1/32
 {KEYS} 5-8: STUTTER, CRUSH, GATE 1/16, 32
 {KEYS} 9-12: LP, HP SWEEP, ECHO, REVERB

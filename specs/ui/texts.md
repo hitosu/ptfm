@@ -25,24 +25,27 @@ other text on the screens. One table and one decoder serve them all.
 
 ## Compression: a tokenizer
 
-- **Its size:** about 24 KB as plain text, measured on the playground's texts: the help ~14 KB, the
-  other texts ~10 KB in about 900 texts.
+- **Its size:** 1,821 texts (49 of them the help's pages), 44,469 B as plain text; **21,633 B packed**,
+  the table and the index included (10-bit tokens, 956 merges).
 - **The method: byte-pair encoding,** as language models tokenize text, trained by the build on all
   the fixed texts together:
   - it starts from the characters (the fonts', the line break and the indent);
-  - it merges the commonest pair of symbols into a new token, again and again, until the table is
-    full; common words and phrases (`HOLD `, `SELECT: `, `UNSAVED`, `HOME COMES BACK HERE`) become
-    single tokens;
-  - the table stores each token as its two halves (2 bytes a token with one-byte tokens, 3 with 12-bit
-    ones), never the spelled-out words;
-  - a token is one byte (a table of 256) or 12 bits (up to 4,096). The build tries several table
-    sizes and keeps the smallest total of texts, table and index.
+  - it merges the commonest pair of symbols into a new token, again and again; common words and
+    phrases (`HOLD `, `SELECT: `, `UNSAVED`, `HOME COMES BACK HERE`) become single tokens;
+  - a token is as many bits as the table's size needs (8 up to 256 tokens, 9 up to 512, 10 up to
+    1,024, ...). The build tries every table size, one merge at a time, and keeps the smallest total
+    of texts, table and index;
+  - the table stores each token as its two halves, bit-packed at the tokens' width, never the
+    spelled-out words;
+  - **each text is then spelled with the fewest tokens of the table** (any token anywhere, found by
+    dynamic programming), not in the order the merges were made: the decoder only expands tokens,
+    so any spelling unpacks the same.
 - **One table for all:** the help and the screens' texts share their words, so one table packs them
   as small as two would, with one decoder.
-- **Expected:** about 13 KB packed in all, the table included, for the 24 KB:
-  - the help about 7 KB;
-  - the other texts about 6 KB;
-  - an index of where each text starts, 2 bytes a text (plain strings would need pointers too).
+- **The index:** each text's length in tokens, a byte, and every 16th text's start (2 bytes); a
+  text's start is its sixteen's start plus the lengths before it there.
+- **Packing takes a few seconds,** so the build keeps its result in its own folder, keyed by the texts
+  and the tool: a build whose texts did not change reads it back.
 
 ## In the firmware's source
 
@@ -74,7 +77,8 @@ other text on the screens. One table and one decoder serve them all.
 
 ## Unpacking
 
-- **Into a line buffer, for what is drawn:** each token expands through its halves with a small stack.
+- **Into a line buffer, for what is drawn:** each token expands through its halves with a small stack
+  (the tokens and the halves read at their bit width).
   The line buffers are a ring of 12 (a line's runs hold up to 8 texts at once); a text kept longer,
   as a panel's lines waiting to be drawn, is copied first.
 - **A few µs a text:** even a full screen of texts unpacks in well under a millisecond, against a

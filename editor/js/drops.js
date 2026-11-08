@@ -7,7 +7,7 @@
  *   ED.drops.add(files) (the page); ED.drops.convert(name, bytes) -> Promise<{ items, what, warnings }> (no DOM) */
 (function (ED) {
 "use strict";
-const M = ED.model, R = ED.rec, K = R.KIND, C = () => ED.conv;
+const M = ED.model, C = () => ED.conv;
 const ext = n => (String(n).match(/\.([a-z0-9]+)$/i) || [, ""])[1].toLowerCase();
 const magic = (b, s) => s.split("").every((c, i) => b[i] === c.charCodeAt(0));
 const SOUND = ["wav", "flac", "mp3", "ogg", "oga", "opus", "m4a", "aac", "aif", "aiff", "webm"];
@@ -45,17 +45,16 @@ function count(items) {
     for (const it of items) { const k = M.oneOf(it); cnt[k] = (cnt[k] || 0) + 1; }
     return Object.entries(cnt).map(([k, n]) => n + " " + k + (n > 1 ? "S" : "")).join(", ") || "NOTHING";
 }
-/* a sound: a loose sample on the TABLE at the rate proposed, 8 bits, mixed to mono; the file's own audio kept */
+/* a sound: a loose sample on the TABLE at the rate proposed, 8 bits, mixed to mono; the file's own audio kept (one
+ * longer than a sample can be: TOO LONG, its original alone, till a cut makes it fit) */
 async function sound(name, bytes, src) {
     const snd = await C().decodeSound(name, bytes);
     const rate = C().suggestRate(snd);
     const base = String(name).replace(/\.[^.]*$/, "");
-    const s = C().soundToSample(snd, { start: 0, end: snd.length, chan: "mix", rate, bits: 8, name: base });
-    const entry = M.packedEntry(s.entry);
-    const it = { id: M.newId(), side: "L", kind: K.AUDIO, num: null, orig: null, link: {}, owner: null, entry,
-        recs: [{ sub: 0, ver: R.VERSION[K.AUDIO], payload: s.audio }], name: s.entry.name, src,
-        sound: { rate: snd.rate, ch: snd.ch, bits: snd.bits, cut: { start: 0, end: snd.length, chan: "mix", rate, bits: 8 } } };
-    return { items: [it], what: "A SAMPLE, " + (rate / 1000).toFixed(1) + " KHZ, 8 BITS", warnings: [] };
+    const it = ED.cutting.sampleOf(snd, { chan: "mix", rate, bits: 8 }, base, src, true);
+    it.side = "L";
+    const what = "A SAMPLE, " + (rate / 1000).toFixed(1) + " KHZ, 8 BITS" + (M.isLong(it) ? ", " + M.longText(it) : "");
+    return { items: [it], what, warnings: [] };
 }
 
 /* the page: each file in turn, all of them one step to UNDO */

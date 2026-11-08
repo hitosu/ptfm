@@ -10,6 +10,9 @@
  * Fixed point: the signal Q20 (1.0 = 2^20), coefficients, envelopes and octaves Q24. */
 #include "tb303.h"
 #include "tb303_tables.h"
+#ifndef PLAT_COLD
+#define PLAT_COLD                        /* (a knob's work: built for size on the FM-1, core/plat.h) */
+#endif
 
 #define Q20 (1 << 20)
 #define Q24 (1 << 24)
@@ -105,7 +108,7 @@ void tb_cut(tb_voice_t *v)
     v->dk_x1 = v->dk_x2 = v->dk_y1 = v->dk_y2 = 0;
 }
 
-void tb_knob(tb_voice_t *v, int k, int value)
+PLAT_COLD void tb_knob(tb_voice_t *v, int k, int value)
 {
     if (k < 0 || k >= TB_NK)
         return;

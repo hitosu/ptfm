@@ -11,7 +11,7 @@
 const M = ED.model, R = ED.rec, K = R.KIND, U = ED.ui, app = ED.app;
 const h = U.h, $ = U.$;
 const tabs = [];
-let shown = "files", seq = 1;
+let shown = "files", seq = 1, cartNums = "";
 const kinds = {};
 /* each tab's scrolling body's height as --edh on it (what a side list held in view is as tall as) */
 const bodySize = typeof ResizeObserver !== "undefined"
@@ -20,7 +20,8 @@ const bodySize = typeof ResizeObserver !== "undefined"
 function editorOf(it) {
     if (it.kind === K.PATTERN) return "pattern";
     if (it.kind === K.SONG) return "song";
-    if (it.kind === K.AUDIO) return "sample";
+    if (it.kind === K.SAMPLE) return "sample";
+    if (it.kind === K.FAVORITES) return "favorites";
     if (M.isCart(it.kind)) return "cart";
     return { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.DJ]: "dj" }[it.kind] || null;
 }
@@ -62,8 +63,9 @@ function open(it) {
 function build(t) {
     const it = t.draft, items = app.st[t.side];
     const SYSW = { [K.SETTINGS]: "SETTINGS", [K.MIDIMAP]: "MIDI MAP", [K.LOOPS]: "LOOPS", [K.DJ]: "DJ SETUP" };
-    const kindWord = SYSW[it.kind] || (it.kind === K.PATTERN ? "PATTERN" : it.kind === K.SONG ? "SONG" : it.kind === K.AUDIO ? "SAMPLE" : M.ENGINE[it.kind] || "");
-    const num = ED.files.numText(t.base, items);
+    const kindWord = SYSW[it.kind] || (it.kind === K.PATTERN ? "PATTERN" : it.kind === K.SONG ? "SONG" : it.kind === K.SAMPLE ? "SAMPLE" : M.ENGINE[it.kind] || "");
+    t.kindWord = kindWord;
+    t.kindEl = h("div", { class: "edkind" });
     t.nameEl = h("div", { class: "edname" });
     t.saveBtn = h("button", { class: "btn primary", onclick: () => save(t) }, "SAVE");
     t.notes = h("div");
@@ -71,7 +73,7 @@ function build(t) {
     if (bodySize) bodySize.observe(t.body);
     t.el = h("section", { class: "edview", "data-tab": t.id },
         h("div", { class: "edhead" }, h("span", { class: "edic", html: U.icon(t.base, true) }),
-            h("div", null, h("div", { class: "edkind" }, kindWord + (num && num !== "—" ? " " + num : "") + " · " + (t.side === "R" ? "FM-1" : "TABLE")), t.nameEl),
+            h("div", null, t.kindEl, t.nameEl),
             h("span", { class: "grow" }),
             h("button", { class: "btn small", title: "UNDO IN THIS TAB (CTRL+Z)", onclick: () => tabUndo(t) }, "UNDO"),
             h("button", { class: "btn small", title: "REDO IN THIS TAB (CTRL+Y)", onclick: () => tabRedo(t) }, "REDO"),
@@ -100,8 +102,10 @@ const api = t => ({
 });
 function stWith(t) {
     const st = app.st, items = st[t.side];
-    if (items.some(i => i.id === t.itemId)) return M.replaceItem(st, t.side, t.draft);
-    return Object.assign({}, st, { [t.side]: items.concat([Object.assign({}, t.draft, { id: t.itemId })]) });
+    /* (the samples a paste in a sampler's tab brought, added at SAVE: in the state meanwhile, for the preview and the pictures) */
+    const extra = (t.draft.pending || []).map(p => p.item).filter(it => !items.some(i => i.id === it.id));
+    if (items.some(i => i.id === t.itemId)) { const s2 = M.replaceItem(st, t.side, t.draft); return extra.length ? Object.assign({}, s2, { [t.side]: s2[t.side].concat(extra) }) : s2; }
+    return Object.assign({}, st, { [t.side]: items.concat([Object.assign({}, t.draft, { id: t.itemId })], extra) });
 }
 function renderTab(t) {
     paintHead(t);
@@ -112,7 +116,8 @@ function renderTab(t) {
     t.body.scrollTop = sc;
 }
 function paintHead(t) {
-    const items = app.st[t.side];
+    const items = app.st[t.side], num = ED.files.numText(t.base, items);
+    t.kindEl.textContent = t.kindWord + (num && num !== "—" ? " " + num : "") + " · " + (t.side === "R" ? "FM-1" : "TABLE");
     t.nameEl.textContent = ED.files.nameText(t.draft, items) || ED.files.label(t.draft, items);
     t.notes.textContent = "";
     if (t.deleted) t.notes.append(h("div", { class: "banner bad" }, "THIS ITEM WAS DELETED FROM ITS PANEL: THIS TAB CANNOT SAVE. CLOSE IT, OR UNDO THE DELETE."));
@@ -146,7 +151,11 @@ function save(t, anyway) {
         next = there ? M.replaceItem(st, t.side, M.pruned(it)) : Object.assign({}, st, { [t.side]: items.concat([M.pruned(it)]) });
     }
     let more = "";
-    if (t.onSave) { const r = t.onSave(next); next = r.st; more = r.what ? " · " + r.what : ""; }
+    if (t.onSave) {
+        const r = t.onSave(next);
+        if (r.refuse) { U.status(r.refuse, { err: true }); return false; }     /* (the tab stays, its changes kept) */
+        next = r.st; more = r.what ? " · " + r.what : "";
+    }
     if (t.side === "R") next = Object.assign({}, next, { R: M.linkChanged(next.R) });
     app.commit(next, "SAVED " + ED.files.label(t.draft, items) + more + (t.side === "R" ? " · THE FM-1 CHANGES WITH WRITE" : ""));
     drop(t);
@@ -191,6 +200,10 @@ function renderBar() {
 }
 /* the panels changed (a move, a delete, UNDO): a tab whose item is gone says so; one not changed follows its item */
 function stateChanged() {
+    /* (the FM-1 panel's cartridges took other numbers: a tab not changed draws its lists of them again) */
+    const nums = app.st.R.filter(i => M.isCart(i.kind)).map(i => i.id + ":" + i.num).join();
+    const numbered = nums !== cartNums;
+    cartNums = nums;
     for (const t of tabs) {
         const it = ED.files.item(t.side, t.itemId);
         const was = t.deleted;
@@ -199,6 +212,7 @@ function stateChanged() {
          * records it made for it) */
         if (it && !t.dirty && it !== t.base && it.isDefault && t.base.isDefault) { t.base = it; t.draft = Object.assign({}, it, { recs: t.draft.recs }); }
         else if (it && !t.dirty && it !== t.base) { t.base = it; t.draft = it; renderTab(t); }
+        else if (numbered && t.side === "R" && !t.dirty && !t.deleted) renderTab(t);
         else if (was !== t.deleted) paintHead(t);
     }
     renderBar();
@@ -253,7 +267,7 @@ const unsavedOn = side => tabs.some(t => t.side === side && t.dirty && !t.delete
 const current = () => tabs.find(t => t.id === shown) || null;
 if (typeof addEventListener !== "undefined") addEventListener("beforeunload", e => { if (tabs.some(t => t.dirty && !t.deleted)) { e.preventDefault(); e.returnValue = ""; } });
 
-ED.tabs = { kinds, open, show, close, save, renderBar, stateChanged, unsavedOn, current, editorOf, defaultRecs, undo: tabUndo, redo: tabRedo,
+ED.tabs = { kinds, open, show, close, save, renderBar, stateChanged, unsavedOn, current, editorOf, defaultRecs, undo: tabUndo, redo: tabRedo, find,
     field, slider, slotDefault, choice, text, card, wideCard, picSection,
     get list() { return tabs; } };
 })(globalThis.ED = globalThis.ED || {});

@@ -12,8 +12,10 @@
 #define ENTRY LP_ENTRY
 #define FX_LEN 64u
 #define NEXT_MIX 72                     /* the next loop's mix in the head */
+#define JOBS 78                         /* K1-K4's jobs and VIEW in the head (bytes 78-79) */
 static const uint8_t MIX_DEF[RM_N] = {0x7F, 0x80, 0, 0, 0, 0};
 static const uint8_t GRID_RPB[3] = {4, 6, 8};
+static const uint8_t JOB_DEF[4] = {LJ_LEVEL, LJ_PAN, LJ_REVERB, LJ_TEMPO};   /* K1-K4's jobs not stored */
 static const uint8_t ED0[2] = {0x0E, 0xD0};             /* a note delay with no note: a gap's bridge */
 static const uint8_t ZERO1[1] = {0};                    /* an empty stream */
 
@@ -26,16 +28,30 @@ static int all_zero(const uint8_t *p, uint32_t n)
 }
 
 void (*loops_fx_new)(uint8_t *s64);
+const uint8_t *loops_keys_mix;
+/* the next loop's mix as it is heard and as REC writes it into a new loop: its LEVEL, PAN and DUCK the head's (stored:
+ * its 6 bytes; NULL or all 0 a new song's track's), its CHORUS, DELAY and REVERB SENDS the KEYS column's (the head's sends
+ * kept as written, not read); with no KEYS column known (loops_keys_mix NULL) the head's own */
+static void next_mix(const uint8_t *stored, uint8_t *m)
+{
+    memcpy(m, !stored || all_zero(stored, RM_N) ? MIX_DEF : stored, RM_N);
+    if (loops_keys_mix) memcpy(m + RM_CHORUS, loops_keys_mix + RM_CHORUS, RM_N - RM_CHORUS);
+}
+static volatile uint8_t def_rows = 64;  /* the length of the last head made new (4 bars at 1/16): the loops' clock with
+                                         * no record (src_pattern, the audio context: no hook called there) */
 uint32_t loops_record_default(uint8_t *p)
 {
     memset(p, 0, TABLE);
     p[0] = 120;                         /* TEMPO 120 */
-    p[2] = 6;                           /* TICKS A ROW 6, COUNT-IN OFF, MONO LEGATO GLIDE */
+    p[2] = 6 | 0x80;                    /* TICKS A ROW 6, COUNT-IN OFF, MONO LEGATO JUMP (bit 7) */
     p[3] = 50;                          /* SWING 50 % */
-    /* (byte 4 0: the grid 1/16, QUANTIZE ROW, the next loops POLY; 5-7 0: no loops, the placeholder, no length) */
+    /* (byte 4 0: the grid 1/16, QUANTIZE ROW, the keys POLY; 5-6 0: no loops, the placeholder; 78-79 0: VIEW 2 BARS,
+     * K1-K4's jobs not stored) */
     if (loops_fx_new) loops_fx_new(p + 8);   /* the FX setup: a new song's (an all-0 one has no chain: the FX
                                               * screen could switch nothing on) */
     memcpy(p + NEXT_MIX, MIX_DEF, RM_N);     /* the next loop's mix: plain, as a new song's track */
+    p[7] = (uint8_t)rec_loops_rows_default(p);   /* the length: 4 bars */
+    def_rows = p[7];
     return TABLE;
 }
 
@@ -107,13 +123,12 @@ static uint32_t need_for(uint16_t id, uint32_t len)
 }
 static int sel_in(int s, int n) { return clamp(s, 0, n < LP_MAX ? n : LP_MAX - 1); }
 /* the head h written (its selection the RAM's), the streams' head with it when the count or the length changed (none
- * without loops) */
+ * without loops; the length kept in byte 7 with loops or none) */
 static int put_head(uint8_t *h)
 {
     const uint8_t *was = head();
     int n = h[5], ph = n != was[5] || (n && h[7] != was[7]);
     uint32_t hl = TABLE + ENTRY * (uint32_t)n;
-    if (!n) h[7] = 0;
     h[6] = (uint8_t)sel_in(sel_ram, n);
     if (store_edit_room() < need_for(STORE_PC_HEAD, hl) + (ph && n ? need_for(STORE_PC_PHEAD, 3) : 0u))
         return LP_FULL;
@@ -136,20 +151,17 @@ static int set_bits(int at, int mask, int v)
     return put_head(h);
 }
 
-void (*loops_hook)(int what, int i, int was, int now);
 int loops_n(void) { return head()[5]; }
 int loops_tempo(void) { const uint8_t *h = head(); return clamp(h[0] | h[1] << 8, (int)REC_TEMPO_MIN, (int)REC_TEMPO_MAX); }
 int loops_set_tempo(int t)
 {
     uint8_t h[LP_HEAD_MAX];
-    int was = loops_tempo(), r;
     copy_head(h);
     t = clamp(t, (int)REC_TEMPO_MIN, (int)REC_TEMPO_MAX);
     if ((h[0] | h[1] << 8) == t) return LP_OK;
     h[0] = (uint8_t)t;
     h[1] = (uint8_t)(t >> 8);
-    if ((r = put_head(h)) == LP_OK && loops_hook) loops_hook(LH_TEMPO, 0, was, t);
-    return r;
+    return put_head(h);
 }
 int loops_ticks(void) { int t = head()[2] & 31; return t ? t : 6; }
 int loops_set_ticks(int t) { return set_bits(2, 31, clamp(t, 1, 31)); }
@@ -169,11 +181,47 @@ int loops_set_legato(int j)             /* (LEGATO: byte 4's bit 6, byte 2's bit
 int loops_swing(void) { return clamp(head()[3], 50, 75); }
 int loops_set_swing(int s) { return set_bits(3, 0xFF, clamp(s, 50, 75)); }
 int loops_grid(void) { int g = head()[4] & 3; return g > 2 ? 0 : g; }
-int loops_set_grid(int g) { return loops_n() ? LP_NO : set_bits(4, 3, clamp(g, 0, 2)); }   /* (only before the first loop) */
+int loops_set_grid(int g)               /* (only with no loops; the length its whole bars, as many as fit) */
+{
+    uint8_t h[LP_HEAD_MAX];
+    if (loops_n()) return LP_NO;
+    g = clamp(g, 0, 2);
+    if (g == loops_grid()) return LP_OK;
+    copy_head(h);
+    int bars = h[7] / loops_bar_rows(), nb = GRID_RPB[g] * loops_beats(), most = clamp((int)PAT_ROWS_MAX / nb, 1, 16);
+    h[4] = (uint8_t)((h[4] & ~3) | g);
+    h[7] = (uint8_t)(clamp(bars, 1, most) * nb);
+    return put_head(h);
+}
 int loops_quant(void) { int q = head()[4] >> 2 & 7; return q > LQ_REAL ? LQ_ROW : q; }
 int loops_set_quant(int q) { return set_bits(4, 0x1C, clamp(q, 0, LQ_REAL) << 2); }
-int loops_next_mono(void) { return head()[4] >> 5 & 1; }
-int loops_set_next_mono(int m) { return set_bits(4, 0x20, m ? 0x20 : 0); }
+int loops_keys_mono(void) { return head()[4] >> 5 & 1; }
+int loops_set_keys_mono(int m) { return set_bits(4, 0x20, m ? 0x20 : 0); }
+int loops_view(void) { int v = head()[JOBS] >> 6; return v == 1 ? 1 : v == 2 ? 4 : 2; }
+int loops_set_view(int bars)
+{
+    if (bars != 1 && bars != 2 && bars != 4) return LP_NO;
+    return set_bits(JOBS, 0xC0, (bars == 1 ? 1 : bars == 4 ? 2 : 0) << 6);
+}
+int loops_job(int k)                    /* (K1 and K2 in byte 78's bits 2-0 and 5-3, K3 and K4 in byte 79's) */
+{
+    const uint8_t *h = head();
+    if (k < 0 || k > 3) return LJ_LEVEL;
+    return h[JOBS + 1] & 0x40 ? h[JOBS + k / 2] >> (3 * (k & 1)) & 7 : JOB_DEF[k];
+}
+int loops_set_job(int k, int job)
+{
+    uint8_t h[LP_HEAD_MAX];
+    int j[4];
+    if (k < 0 || k > 3 || job < 0 || job > LJ_VIEW) return LP_NO;
+    for (int x = 0; x < 4; x++) j[x] = x == k ? job : loops_job(x);
+    copy_head(h);
+    int b78 = (h[JOBS] & 0xC0) | j[0] | j[1] << 3, b79 = (h[JOBS + 1] & 0x80) | j[2] | j[3] << 3 | 0x40;
+    if (b78 == h[JOBS] && b79 == h[JOBS + 1]) return LP_OK;
+    h[JOBS] = (uint8_t)b78;
+    h[JOBS + 1] = (uint8_t)b79;
+    return put_head(h);
+}
 int loops_sel(void) { head(); return sel_in(sel_ram, loops_n()); }
 void loops_set_sel(int s) { head(); sel_ram = (uint8_t)sel_in(s, loops_n()); }
 int loops_keep_sel(void)               /* (only when LOOPS has changes: alone it is none) */
@@ -185,22 +233,23 @@ int loops_keep_sel(void)               /* (only when LOOPS has changes: alone it
 const uint8_t *loops_fx(void) { return head() + 8; }
 int loops_set_fx(const uint8_t *s64)
 {
-    uint8_t h[LP_HEAD_MAX], was[FX_LEN];
-    int r;
+    uint8_t h[LP_HEAD_MAX];
     copy_head(h);
     if (!memcmp(h + 8, s64, FX_LEN)) return LP_OK;
-    memcpy(was, h + 8, FX_LEN);
     memcpy(h + 8, s64, FX_LEN);
-    if ((r = put_head(h)) == LP_OK && loops_hook)
-        for (int b = 0; b < (int)FX_LEN; b++) if (was[b] != s64[b]) loops_hook(LH_FX, b, was[b], s64[b]);
-    return r;
+    return put_head(h);
 }
 int loops_rpb(void) { return GRID_RPB[loops_grid()]; }
 int loops_beats(void) { int b = head()[8 + 11]; return b < 1 ? 4 : b > 16 ? 16 : b; }   /* the METRONOME's BEATS A BAR */
 int loops_bar_rows(void) { return loops_rpb() * loops_beats(); }
 int loops_max_bars(void) { return clamp((int)PAT_ROWS_MAX / loops_bar_rows(), 1, 16); }
 int loops_max_rows(void) { return loops_max_bars() * loops_bar_rows(); }
-int loops_rows(void) { return loops_n() ? head()[7] : 0; }
+int loops_rows(void) { return head()[7]; }
+int loops_rows_step(int rows, int d)
+{
+    int br = loops_bar_rows();
+    return clamp(d > 0 ? rows / br + 1 : (rows + br - 1) / br - 1, 1, loops_max_bars()) * br;
+}
 int loops_bpm(void) { return (loops_tempo() * 24 * 2 / (loops_ticks() * loops_rpb()) + 1) / 2; }
 
 /* ------------------------------------------------------------------ the loops --- */
@@ -213,18 +262,37 @@ int loops_soloed(int i) { return real(i) ? solo_ram >> i & 1 : 0; }
 int loops_lanes(int i) { return real(i) ? (entry(i)[3] & 3) + 1 : 1; }
 int loops_base(int i) { return real(i) ? clamp(entry(i)[4] + 1, 1, (int)PAT_ROWS_MAX) : 0; }
 int loops_repeats(int i) { return real(i) ? (entry(i)[5] ? entry(i)[5] : 1) : 0; }
-const uint8_t *loops_mix(int i) { return real(i) ? entry(i) + 6 : head() + NEXT_MIX; }
+int loops_shift(int i) { return real(i) ? REC_LOOP_SHIFT(entry(i)) % loops_rows() : 0; }
+static void shift_put(uint8_t *e, int s)        /* an entry's SHIFT (0-127): byte 2's bit 7 its bit 6, byte 3's bits 7-2 */
+{
+    e[2] = (uint8_t)((e[2] & 0x7F) | (s >> 6 & 1) << 7);
+    e[3] = (uint8_t)((e[3] & 3) | (s & 63) << 2);
+}
+int loops_set_shift(int i, int s)
+{
+    uint8_t h[LP_HEAD_MAX];
+    int n = copy_head(h), len = h[7];
+    if (i < 0 || i >= n) return LP_NO;
+    uint8_t *e = h + TABLE + ENTRY * i, was2 = e[2], was3 = e[3];
+    shift_put(e, (s % len + len) % len);
+    return e[2] == was2 && e[3] == was3 ? LP_OK : put_head(h);
+}
+const uint8_t *loops_mix(int i)
+{
+    static uint8_t nx[RM_N];            /* (the next loop's, as heard: next_mix) */
+    if (real(i)) return entry(i) + 6;
+    next_mix(head() + NEXT_MIX, nx);
+    return nx;
+}
 int loops_set_mix(int i, int k, int v)
 {
     uint8_t h[LP_HEAD_MAX];
     int n = copy_head(h);
     if (i < 0 || i > n || k < 0 || k >= RM_N) return LP_NO;
     uint8_t *m = i < n ? h + TABLE + ENTRY * i + 6 : h + NEXT_MIX;
-    int was = m[k], r;
     if (m[k] == (uint8_t)v) return LP_OK;
     m[k] = (uint8_t)v;
-    if ((r = put_head(h)) == LP_OK && loops_hook && i < n) loops_hook(LH_MIX, i * RM_N + k, was, (uint8_t)v);
-    return r;
+    return put_head(h);
 }
 static int set_entry(int i, int at, int mask, int v)
 {
@@ -242,23 +310,28 @@ int loops_set_inst(int i, uint8_t cart, uint8_t slot)
     int r = set_entry(i, 0, 0xFF, cart);
     return r ? r : set_entry(i, 1, 0xFF, slot);
 }
-static int silent_told(int r, uint32_t was)    /* (a mute or solo changed: the loops not heard told when they differ) */
+int loops_set_sound(int i, uint8_t cart, uint8_t slot, int mono)   /* (one head written) */
 {
-    if (r == LP_OK && loops_hook && loops_silent_mask() != was) loops_hook(LH_SILENT, 0, (int)was, (int)loops_silent_mask());
-    return r;
+    uint8_t h[LP_HEAD_MAX];
+    int n = copy_head(h);
+    if (i < 0 || i >= n) return LP_NO;
+    uint8_t *e = h + TABLE + ENTRY * i, m = (uint8_t)((e[2] & ~0x10) | (mono ? 0x10 : 0));
+    if (e[0] == cart && e[1] == slot && e[2] == m) return LP_OK;
+    e[0] = cart;
+    e[1] = slot;
+    e[2] = m;
+    return put_head(h);
 }
-int loops_set_muted(int i, int m) { uint32_t was = loops_silent_mask(); return silent_told(set_entry(i, 2, 0x20, m ? 0x20 : 0), was); }
+int loops_set_muted(int i, int m) { return set_entry(i, 2, 0x20, m ? 0x20 : 0); }
 int loops_set_soloed(int i, int s)
 {
-    uint32_t was = loops_silent_mask();
     if (!real(i)) return LP_NO;
     solo_ram = (uint16_t)(s ? solo_ram | 1u << i : solo_ram & ~(1u << i));
-    return silent_told(LP_OK, was);
+    return LP_OK;
 }
 int loops_set_mutes(uint32_t muted, uint32_t soloed)
 {
     uint8_t h[LP_HEAD_MAX];
-    uint32_t was = loops_silent_mask();
     int n = copy_head(h), any = 0;
     for (int i = 0; i < n; i++) {
         uint8_t *e = h + TABLE + ENTRY * i + 2, v = (uint8_t)((*e & ~0x60) | (muted >> i & 1u ? 0x20 : 0));
@@ -267,7 +340,7 @@ int loops_set_mutes(uint32_t muted, uint32_t soloed)
     }
     int r = any ? put_head(h) : LP_OK;
     if (r == LP_OK) solo_ram = (uint16_t)(soloed & ((1u << n) - 1u));
-    return silent_told(r, was);
+    return r;
 }
 uint32_t loops_muted_mask(void)
 {
@@ -288,10 +361,7 @@ uint32_t loops_silent_mask(void)
 }
 
 /* ---------------------------------------------------------------- the streams --- */
-static int bridge(const rec_cell_t *c)  /* a gap's bridge, nothing in it: an ED0 alone */
-{
-    return !(c->has & (RC_NOTE | RC_VOL)) && c->n == 1 && c->cmd[0][0] == ED0[0] && c->cmd[0][1] == ED0[1];
-}
+int loops_bridge(const rec_cell_t *c) { return rec_bridge(c); }   /* (the player's reading: rec.c's) */
 void loops_enc_start(lp_enc_t *e, uint8_t *buf, uint32_t max)
 {
     e->b = buf;
@@ -307,14 +377,22 @@ void loops_enc_track(lp_enc_t *e, uint8_t *buf, uint32_t max)
     loops_enc_start(e, buf, max);
     e->last = -1;                       /* (a pattern track's: none yet) */
 }
-/* a cell's bytes (ins: its instrument, cart << 8 | slot, or -1) */
+#define ENC_STAGE (-3)                  /* e->last: the stage's stream; enc_put's ins: a played cell's mark */
+void loops_enc_stage(lp_enc_t *e, uint8_t *buf, uint32_t max)
+{
+    loops_enc_start(e, buf, max);
+    e->last = ENC_STAGE;
+}
+/* a cell's bytes (ins: its instrument, cart << 8 | slot; ENC_STAGE the stage's mark: the instrument bits 01, no
+ * bytes; -1 none) */
 static void enc_put(lp_enc_t *e, int srow, const uint8_t *note, int ins, const uint8_t *vol, const uint8_t *cmd, int ncmd)
 {
     int skip = srow - e->prev - 1, im = 0;
-    if (ins >= 0 && e->last >= -1) im = ins == e->last ? 1 : e->last >= 0 && ins >> 8 == e->last >> 8 ? 2 : 3;
+    if (ins == ENC_STAGE) im = 1;
+    else if (ins >= 0 && e->last >= -1) im = ins == e->last ? 1 : e->last >= 0 && ins >> 8 == e->last >> 8 ? 2 : 3;
     uint32_t k = 1u + (note ? 1u : 0u) + (im == 2 ? 1u : im == 3 ? 2u : 0u) + (vol ? 1u : 0u) + (ncmd > 1 ? 2u : 0u) +
                  2u * (uint32_t)ncmd + (skip >= 7 ? 1u : 0u);
-    if (im) e->last = ins;
+    if (im && ins >= 0) e->last = ins;
     if (e->b && !e->over && e->n + k + 1u > e->max) e->over = 1;   /* (its 0x00 kept room for) */
     if (e->b && !e->over) {
         uint8_t *o = e->b + e->n;
@@ -333,7 +411,7 @@ static void enc_put(lp_enc_t *e, int srow, const uint8_t *note, int ins, const u
 void loops_enc_cell(lp_enc_t *e, int srow, const rec_cell_t *c)
 {
     int note = (c->has & RC_NOTE) != 0, vol = (c->has & RC_VOL) != 0, n = c->has & RC_CMD ? c->n : 0;
-    int ins = (c->has & RC_INS) && e->last >= -1 ? c->cart << 8 | c->slot : -1;
+    int ins = !(c->has & RC_INS) ? -1 : e->last >= -1 ? c->cart << 8 | c->slot : e->last == ENC_STAGE ? ENC_STAGE : -1;
     uint8_t v = (uint8_t)(c->vol > 0x7F ? 0x7F : c->vol);
     if ((!note && !vol && !n && ins < 0) || srow <= e->prev || srow >= (int)STORE_LOOP_ROWS) return;   /* (nothing, or
                                                                                               * out of order: not stored) */
@@ -373,6 +451,13 @@ static uint32_t stream_len(const uint8_t *s, const uint8_t *end)   /* its bytes 
     return (uint32_t)(cu.p - s) + 1u;
 }
 static const rec_cell_t NOTE_OFF = {RC_NOTE, REC_NOTE_OFF, 0, 0, 0, 0, {{0, 0}}};
+int loops_is_note(const rec_cell_t *c) { return (c->has & RC_NOTE) && c->note != REC_NOTE_OFF; }
+static void stop_in(rec_cell_t *c)      /* a stop (a note off) into a cell with no note there: it takes one, unmarked */
+{
+    if (c->has & RC_NOTE) return;
+    c->has = (uint8_t)((c->has | RC_NOTE) & ~RC_INS);
+    c->note = REC_NOTE_OFF;
+}
 /* 1: a lane's note still sounds after cell c (was: before it): a note starts one, a note off or a key off ends it */
 static int sounding(int was, const rec_cell_t *c)
 {
@@ -403,7 +488,7 @@ static int wrap_stops(lp_enc_t *e, int w, int srow, rec_cell_t *c)
     for (int l = 0; w && l < LP_LANES && l <= srow; l++) {
         if (!(w >> l & 1)) continue;
         if (l < srow) loops_enc_cell(e, l, &NOTE_OFF);
-        else if (!(c->has & RC_NOTE)) { c->has |= RC_NOTE; c->note = REC_NOTE_OFF; }
+        else stop_in(c);
         w &= ~(1 << l);
     }
     return w;
@@ -428,7 +513,7 @@ static PLAT_COLD uint32_t encode(int i, uint8_t *b, int base4, int at, const rec
             int r = cu.row;
             rec_cur_at(&cu, r, &c);
             if (!placed && r >= at) { loops_enc_cell(&e, off + at, put); placed = 1; }
-            if (r == at || bridge(&c)) continue;
+            if (r == at || loops_bridge(&c)) continue;
             w = wrap_stops(&e, w, off + r, &c);
             loops_enc_cell(&e, off + r, &c);
         }
@@ -465,13 +550,207 @@ static int restream(int i, int at, const rec_cell_t *put)
     return r;
 }
 
+/* ------------------------------------------------------- a loop as it is heard --- */
+/* Loop i read as it is heard over n rows: its notes written out (its repeats one after another), a note off where the
+ * player stops its lanes with a note sounding (stop: its rest's first row, or row 0 where n cuts its last repeat and
+ * wrap is set), then turned sh rows round n. Rows asked for in rising order cost a step each (one cursor: the turn and
+ * each repeat start it again) */
+typedef struct { rec_cur_t cu; const uint8_t *s; int base, reps, end, n, sh, held, stop; } lp_heard_t;
+static void heard_start(lp_heard_t *o, int i, int n, int sh, int wrap)
+{
+    const uint8_t *e;
+    o->s = loops_stream(i, &e);
+    o->base = loops_base(i);
+    o->reps = loops_repeats(i);
+    o->end = o->base * o->reps;
+    o->n = n;
+    o->sh = (sh % n + n) % n;
+    o->stop = o->end < n ? o->end : wrap && n % o->base && o->end > n ? 0 : -1;
+    o->held = o->stop >= 0 ? held_at_end(o->s, e, 4 * o->base, o->reps, 4 * n) : 0;
+    rec_cur_set_end(&o->cu, o->s, e);
+}
+static int heard_cell(lp_heard_t *o, int r, int l, rec_cell_t *c)    /* 1: a cell at row r, lane l (0 <= r < n) */
+{
+    int f = r - o->sh, got = 0;
+    if (f < 0) f += o->n;
+    if (o->s && f < o->end) got = rec_cur_at(&o->cu, 4 * (f % o->base) + l, c) && !loops_bridge(c);
+    if (f != o->stop || !(o->held >> l & 1)) return got;
+    if (!got) *c = NOTE_OFF;
+    else stop_in(c);
+    return 1;
+}
+/* loop i as heard over n rows (sh, wrap as heard_start), its rows below lim, with a note off at row 0 on each lane still
+ * sounding at lim when lim < n (a cut: the stop at the wrap), into b (NULL: counted); its length (0: past
+ * STORE_LOOP_STREAM_MAX), *lanes those used */
+static PLAT_COLD uint32_t write_heard(int i, uint8_t *b, int n, int sh, int wrap, int lim, int *lanes)
+{
+    lp_heard_t o;
+    lp_enc_t e;
+    rec_cell_t c;
+    int cut = 0;
+    for (int l = 0; lim < n && l < LP_LANES; l++) {    /* (the lanes sounding at the cut) */
+        int on = 0;
+        heard_start(&o, i, n, sh, wrap);
+        for (int r = 0; r < lim; r++) if (heard_cell(&o, r, l, &c)) on = sounding(on, &c);
+        cut |= on << l;
+    }
+    heard_start(&o, i, n, sh, wrap);
+    loops_enc_start(&e, b, STORE_LOOP_STREAM_MAX);
+    for (int r = 0; r < lim; r++)
+        for (int l = 0; l < LP_LANES; l++) {
+            int got = heard_cell(&o, r, l, &c);
+            if (!r && cut >> l & 1) { if (!got) c = NOTE_OFF; else stop_in(&c); got = 1; }
+            if (got) loops_enc_cell(&e, 4 * r + l, &c);
+        }
+    if (lanes) *lanes = e.lanes;
+    uint32_t len = loops_enc_end(&e);
+    return b || len <= STORE_LOOP_STREAM_MAX ? len : 0u;
+}
+uint32_t loops_heard(int i, uint8_t *buf, uint32_t max)
+{
+    lp_heard_t o;
+    lp_enc_t e;
+    rec_cell_t c;
+    int n = loops_rows();
+    if (!real(i)) return 0;
+    heard_start(&o, i, n, loops_shift(i), 1);
+    loops_enc_start(&e, buf, max);
+    for (int r = 0; r < n; r++)
+        for (int l = 0; l < LP_LANES; l++) if (heard_cell(&o, r, l, &c)) loops_enc_cell(&e, 4 * r + l, &c);
+    uint32_t len = loops_enc_end(&e);
+    return buf || len <= max ? len : 0u;
+}
+
+/* ------------------------------------------------------------------ the stage --- */
+/* the stage made `to` rows long, or played twice (twice: to 2 x rows), as loops_stage_length and _double */
+static PLAT_COLD uint32_t stage_fit(const uint8_t *s, uint32_t len, int rows, int to, int twice, uint8_t *buf, uint32_t max)
+{
+    lp_enc_t e;
+    rec_cur_t cu;
+    rec_cell_t c;
+    int held = to < rows ? held_at_end(s, s + len, 4 * to, 1, 4 * to) : 0;   /* (the lanes sounding at the cut) */
+    int lim = to < rows ? to : rows;
+    loops_enc_stage(&e, buf, max);
+    for (int k = 0; k < (twice ? 2 : 1); k++) {
+        int w = k ? 0 : held;
+        rec_cur_set_end(&cu, s, s + len);
+        while (cu.row < 4 * lim) {
+            int r = cu.row;
+            rec_cur_at(&cu, r, &c);
+            if (loops_bridge(&c)) continue;
+            if (k) c.has &= (uint8_t)~LP_PLAYED;        /* (the second time unmarked) */
+            w = wrap_stops(&e, w, r, &c);           /* (a lane held at the cut has a cell at or after its row 0: w ends
+                                                     * here) */
+            loops_enc_cell(&e, 4 * rows * k + r, &c);
+        }
+    }
+    uint32_t n = loops_enc_end(&e);
+    return buf || n <= max ? n : 0u;
+}
+uint32_t loops_stage_length(const uint8_t *s, uint32_t len, int rows, int to, uint8_t *buf, uint32_t max)
+{
+    return stage_fit(s, len, rows, to, 0, buf, max);
+}
+uint32_t loops_stage_double(const uint8_t *s, uint32_t len, int rows, uint8_t *buf, uint32_t max)
+{
+    return stage_fit(s, len, rows, 2 * rows, 1, buf, max);
+}
+int loops_stage_row(lp_st_rd_t *d, int r, rec_cell_t *c4)   /* (read and merged as the player does: rec.c's) */
+{
+    int has = rec_stage_cells(&d->cu, r, c4), w;
+    int8_t from = (int8_t)d->from;                      /* (-1 to 3) */
+    if (!d->mono) return has;
+    w = rec_stage_merge(has, c4, &from);
+    d->from = from;
+    if (w < 0) return 0;
+    c4[0] = c4[w];
+    return 1;
+}
+PLAT_COLD int loops_stage_write(int i, const uint8_t *s, uint32_t len, uint8_t cart, uint8_t slot, int mono)
+{
+    uint8_t h[LP_HEAD_MAX], *b;
+    lp_st_rd_t d;
+    lp_enc_t e;
+    rec_cell_t c4[LP_LANES];
+    int n = copy_head(h), rows = h[7], on[LP_LANES] = {0}, mark = 0, notes = 0, held = 0, wrap, r, k;
+    int stage = s && s == store_stage(0);              /* (the stage itself: it goes with the write) */
+    if (i < 0 || i > n || i >= LP_MAX || !s || !len) return LP_NO;
+    if (stage && store_stage_check(1) == STORE_ERR_STATE) return LP_BUSY;
+    rec_cur_set_end(&d.cu, s, s + len);                 /* the lanes sounding at the length's end, and how their notes came */
+    d.mono = mono;
+    d.from = -1;
+    for (r = 0; r < rows; r++) {
+        int has = loops_stage_row(&d, r, c4);
+        for (int l = 0; l < LP_LANES; l++) {
+            if (!(has >> l & 1)) continue;
+            notes += loops_is_note(&c4[l]);
+            if (!sounding(on[l], &c4[l])) on[l] = 0;
+            else if (loops_is_note(&c4[l])) { on[l] = 1; mark = (mark & ~(1 << l)) | ((c4[l].has & LP_PLAYED) != 0) << l; }
+        }
+    }
+    if (!notes) return LP_NO;
+    for (int l = 0; l < LP_LANES; l++) held |= on[l] << l;
+    wrap = held & mark;                                 /* (played onto the stage: no wrap, it ends at the line) */
+    if (!(b = store_scratch_claim(1))) return LP_BUSY;
+    loops_enc_start(&e, b, STORE_LOOP_STREAM_MAX);      /* (a loop's: no mark written) */
+    rec_cur_set_end(&d.cu, s, s + len);
+    d.from = -1;
+    for (int l = 0; l < LP_LANES; l++) on[l] = held >> l & 1;
+    for (r = 0; r < rows; r++) {
+        int has = loops_stage_row(&d, r, c4);
+        for (int l = 0; l < LP_LANES; l++) {
+            if (!r && wrap >> l & 1) {                  /* (a note off at row 0, where its cell has no note) */
+                if (!(has >> l & 1)) c4[l] = NOTE_OFF;
+                else stop_in(&c4[l]);
+                has |= 1 << l;
+            }
+            if (!(has >> l & 1) || (!loops_is_note(&c4[l]) && !on[l])) continue;   /* (an end that ends nothing: left out) */
+            on[l] = sounding(on[l], &c4[l]);
+            loops_enc_cell(&e, 4 * r + l, &c4[l]);
+        }
+    }
+    uint32_t sl = loops_enc_end(&e);
+    int lanes = e.lanes;
+    uint8_t *en = h + TABLE + ENTRY * i;
+    if (i == n) {                                       /* (a new loop: the next colour, the next loop's mix, its sends the
+                                                         * KEYS column's) */
+        en[2] = (uint8_t)(n ? (loops_colour(n - 1) + 1) % 12 : 0);
+        next_mix(h + NEXT_MIX, en + 6);
+        h[5] = (uint8_t)(n + 1);
+    }
+    en[0] = cart;
+    en[1] = slot;
+    en[2] = (uint8_t)((en[2] & 0x2F) | (mono ? 0x10 : 0));   /* (its colour and mute kept, SHIFT 0) */
+    en[3] = (uint8_t)(lanes - 1);
+    en[4] = (uint8_t)(rows - 1);
+    en[5] = 1;
+    uint32_t need = need_for((uint16_t)i, sl) + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)h[5]) +
+                    (i == n ? need_for(STORE_PC_PHEAD, 3) : 0u), room = store_edit_room();
+    k = !sl ? LP_BIG : room + (stage ? store_stage_room() : 0u) < need ? LP_FULL : LP_OK;   /* (the stage's room the
+                                                         * loop's: not counted twice) */
+    if (k == LP_OK && stage && room < need) {           /* (its room wanted: the stage goes first, its sound told) */
+        player_lp_stage_end(i);
+        store_stage_drop();
+        stage = 0;
+    }
+    if (k == LP_OK) k = result(store_edit_piece(REC_LOOPS, 0, (uint16_t)i, LOOPS_REC_VER, b, sl));
+    store_scratch_claim(0);
+    if (k == LP_OK) k = put_head(h);
+    if (k == LP_OK && stage) {                          /* (the loop written: what of the stage sounds goes on as its,
+                                                         * then the stage goes) */
+        player_lp_stage_end(i);
+        store_stage_drop();
+    }
+    return k ? k : i;
+}
+
 int loops_cell(int i, int row, int lane, rec_cell_t *c)
 {
     const uint8_t *end, *s;
     rec_cur_t cu;
     if (!real(i) || row < 0 || row >= loops_base(i) || lane < 0 || lane >= LP_LANES || !(s = loops_stream(i, &end))) return 0;
     rec_cur_set_end(&cu, s, end);
-    return rec_cur_at(&cu, 4 * row + lane, c) && !bridge(c);
+    return rec_cur_at(&cu, 4 * row + lane, c) && !loops_bridge(c);
 }
 int loops_cell_put(int i, int row, int lane, const rec_cell_t *c)
 {
@@ -495,7 +774,7 @@ int loops_set_stream(int i, const uint8_t *s, uint32_t len)
     while (cu.row < base4) {
         int row = cu.row;
         rec_cur_at(&cu, row, &c);
-        if (!bridge(&c)) loops_enc_cell(&e, row, &c);
+        if (!loops_bridge(&c)) loops_enc_cell(&e, row, &c);
     }
     uint32_t n = loops_enc_end(&e);
     r = n ? put_stream(i, b, n, e.lanes) : LP_FULL;
@@ -538,17 +817,16 @@ PLAT_COLD int loops_new(uint8_t cart, uint8_t slot)
     uint8_t h[LP_HEAD_MAX];
     int n = copy_head(h), r;
     if (n >= LP_MAX) return LP_NO;
-    int rows = n ? h[7] : loops_max_rows();
     uint8_t *e = h + TABLE + ENTRY * n;
     e[0] = cart;
     e[1] = slot;
-    e[2] = (uint8_t)((n ? (loops_colour(n - 1) + 1) % 12 : 0) | (loops_next_mono() ? 0x10 : 0));
+    e[2] = (uint8_t)((n ? (loops_colour(n - 1) + 1) % 12 : 0) | (loops_keys_mono() ? 0x10 : 0));   /* (SHIFT 0) */
     e[3] = 0;                           /* 1 lane */
-    e[4] = (uint8_t)(rows - 1);         /* its base: the length (the first: the most rows, as long as it records) */
+    e[4] = (uint8_t)(h[7] - 1);         /* its base: the length */
     e[5] = 1;                           /* once */
-    memcpy(e + 6, h + NEXT_MIX, RM_N);
+    memcpy(e + 6, h + NEXT_MIX, RM_N);  /* (the next loop's mix as stored: the tests' constructor; the UI's new loops are
+                                         * REC's, loops_stage_write) */
     h[5] = (uint8_t)(n + 1);
-    if (!n) h[7] = (uint8_t)rows;
     if (store_edit_room() < need_for((uint16_t)n, 1) + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)(n + 1)) +
                             need_for(STORE_PC_PHEAD, 3))
         return LP_FULL;
@@ -595,57 +873,67 @@ PLAT_COLD int loops_peel(int i)
     if ((r = put_head(h)) == LP_OK) solo_ram = s;       /* (the solos after it move up with their loops) */
     return r;
 }
-/* where a note at base row r of a loop (base, reps) plays last within a length of len rows; -1 never */
-static int last_play(int r, int base, int reps, int len)
-{
-    if (r >= len) return -1;
-    int j = (len - 1 - r) / base;
-    if (j > reps - 1) j = reps - 1;
-    return r + j * base;
-}
 int loops_cut_drops(int rows)
 {
+    int len = loops_rows();
     for (int i = 0; i < loops_n(); i++) {
-        const uint8_t *end, *s = loops_stream(i, &end);
-        rec_cur_t cu;
+        lp_heard_t o;
         rec_cell_t c;
-        int base = loops_base(i), reps = loops_repeats(i), len = loops_rows();
-        rec_cur_set_end(&cu, s, end);
-        while (s && cu.row < 4 * base) {
-            int r = cu.row >> 2;
-            rec_cur_at(&cu, cu.row, &c);
-            if ((c.has & RC_NOTE) && c.note != REC_NOTE_OFF && last_play(r, base, reps, len) >= rows) return 1;
-        }
+        heard_start(&o, i, len, loops_shift(i), 1);
+        for (int r = rows; r < len; r++)
+            for (int l = 0; l < LP_LANES; l++) if (heard_cell(&o, r, l, &c) && loops_is_note(&c)) return 1;
     }
     return 0;
 }
+/* LENGTH's way with loop i (entry e, the old length old, the new rows): its stream written again, as write_heard does
+ * (LW_SHIFT: as heard over old, SHIFT 0, cut at rows when shorter; LW_OVER: longer, over old with no stop at the wrap,
+ * its last repeat's cut written out; LW_CUT: shorter, its base past rows cut there), or LW_KEEP (its entry alone: the
+ * repeats past the new end, or never reached, dropped); e's base and repeats set, its SHIFT 0 */
+enum { LW_KEEP, LW_SHIFT, LW_OVER, LW_CUT };
+static int length_way(uint8_t *e, int sh, int old, int rows)
+{
+    int base = e[4] + 1, reps = e[5] ? e[5] : 1, way = LW_KEEP;
+    if (sh) { way = LW_SHIFT; base = old; reps = 1; }
+    else if (rows > old && base * reps > old) {
+        if (old % base) { way = LW_OVER; base = old; reps = 1; }
+        else reps = old / base;
+    }
+    if (rows < old) {
+        if (base > rows) { if (way == LW_KEEP) way = LW_CUT; base = rows; reps = 1; }
+        else if (reps > (rows + base - 1) / base) reps = (rows + base - 1) / base;
+    }
+    e[4] = (uint8_t)(base - 1);
+    e[5] = (uint8_t)reps;
+    shift_put(e, 0);
+    return way;
+}
+static uint32_t length_write(int i, int way, uint8_t *b, int old, int rows, int *lanes)
+{
+    return write_heard(i, b, old, way == LW_SHIFT ? loops_shift(i) : 0, way == LW_SHIFT, rows < old ? rows : old, lanes);
+}
 PLAT_COLD int loops_set_rows(int rows)
 {
-    uint8_t h[LP_HEAD_MAX];
+    uint8_t h[LP_HEAD_MAX], way[LP_MAX];
     int n = copy_head(h), old = h[7], r;
     uint32_t need = 0;
-    if (!n || rows < 1 || rows > (int)PAT_ROWS_MAX) return LP_NO;
+    if (rows < 1 || rows > (int)PAT_ROWS_MAX) return LP_NO;
     if (rows == old) return LP_OK;
-    for (int i = 0; i < n && rows < old; i++) {     /* shorter: each loop's base and repeats cut at the new end */
-        uint8_t *e = h + TABLE + ENTRY * i;
-        int base = e[4] + 1, reps = e[5] ? e[5] : 1;
-        if (base > rows) {                      /* (its cut base: its notes still sounding at the new end stop at
-                                                 * the wrap, as the player stopped them) */
-            uint32_t l = encode(i, 0, 4 * base, -1, 0, 1, 4 * rows, 0);
-            need += need_for((uint16_t)i, l);
-            e[4] = (uint8_t)(rows - 1);
-            e[5] = 1;
-        } else if (reps > (rows + base - 1) / base) e[5] = (uint8_t)((rows + base - 1) / base);
+    for (int i = 0; i < n; i++) {       /* the room first: the streams written again */
+        way[i] = (uint8_t)length_way(h + TABLE + ENTRY * i, loops_shift(i), old, rows);
+        if (way[i] == LW_KEEP) continue;
+        uint32_t l = length_write(i, way[i], 0, old, rows, 0);
+        if (!l) return LP_FULL;
+        need += need_for((uint16_t)i, l);
     }
     h[7] = (uint8_t)rows;
     if (store_edit_room() < need + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)n) + need_for(STORE_PC_PHEAD, 3))
         return LP_FULL;
-    for (int i = 0; i < n && rows < old; i++) {     /* the cells past a cut base dropped, the lanes left counted */
+    for (int i = 0; i < n; i++) {       /* (each built in the store's scratch from the loop as it was: the head written last) */
         uint8_t *e = h + TABLE + ENTRY * i, *b;
         int lanes;
-        if (loops_base(i) <= rows) continue;
+        if (way[i] == LW_KEEP) continue;
         if (!(b = store_scratch_claim(1))) return LP_BUSY;
-        uint32_t l = encode(i, b, 4 * loops_base(i), -1, 0, 1, 4 * rows, &lanes);
+        uint32_t l = length_write(i, way[i], b, old, rows, &lanes);
         r = l ? store_edit_piece(REC_LOOPS, 0, (uint16_t)i, LOOPS_REC_VER, b, l) : STORE_ERR_FULL;
         store_scratch_claim(0);
         if (r != STORE_OK) return result(r);
@@ -684,6 +972,83 @@ PLAT_COLD int loops_double(void)
     h[7] = (uint8_t)(2 * len);
     return put_head(h);
 }
+/* SEL's QUANTIZE, in ticks (sp a row; exact, a half rounded up): each lane's notes, in order, each with its start (its
+ * row and note delay) and its end (a note off, a key off: its own after its start, or a later cell's; the next note
+ * leaves it none), placed at the nearest line of q rows where it is heard (start + SHIFT round the length), back in the
+ * base (modulo it), bare of note delays and key offs; its end a note off its length on (a row at least), where nothing
+ * lies yet. src: the base row each row's note comes from (0xFF none), off: a note off there (bit r) */
+#define Q_NONE 0xFFu
+static PLAT_COLD void q_place(uint8_t *src, uint32_t *off, int r, int st, int en, int Q, int sp, int sh, int rows, int base)
+{
+    int ht = (st + sh * sp) % (rows * sp), at = (2 * ht + Q * sp) / (2 * Q * sp) * Q;
+    int ns = ((st + at * sp - ht) / sp % base + base) % base;   /* (st - ht is whole rows: exact) */
+    src[ns] = (uint8_t)r;
+    off[ns >> 5] &= ~(1u << (ns & 31));
+    if (en < 0) return;
+    int len = (2 * (en - st) + sp) / (2 * sp), ne = ns + (len < 1 ? 1 : len);
+    if (ne < base && src[ne] == Q_NONE) off[ne >> 5] |= 1u << (ne & 31);
+}
+PLAT_COLD int loops_quantize(int i, int q)
+{
+    static const uint8_t QR[4] = {1, 2, 3, 4};      /* (LQ_ROW, LQ_2_ROWS, LQ_3_ROWS, LQ_4_ROWS) */
+    uint8_t src[LP_LANES][PAT_ROWS_MAX], *b;
+    uint32_t off[LP_LANES][PAT_ROWS_MAX / 32];
+    rec_cur_t cu[LP_LANES];
+    const uint8_t *end, *s;
+    lp_enc_t e;
+    rec_cell_t c;
+    int Q, sp = loops_ticks(), base = loops_base(i), rows = loops_rows(), sh = loops_shift(i), lanes, r;
+    if (!real(i) || q < LQ_ROW || q > LQ_4_ROWS) return LP_NO;
+    Q = QR[q];
+    s = loops_stream(i, &end);
+    memset(src, Q_NONE, sizeof src);
+    memset(off, 0, sizeof off);
+    for (int l = 0; l < LP_LANES; l++) {    /* each lane's notes placed in order (the later wins a row) */
+        int cr = -1, cs = 0, ce = -1;       /* (the note pending: its row, start, end) */
+        rec_cur_set_end(&cu[l], s, end);
+        for (r = 0; s && r < base; r++) {
+            int d = -1, k = -1, note;
+            if (!rec_cur_at(&cu[l], 4 * r + l, &c) || loops_bridge(&c)) continue;
+            note = loops_is_note(&c);
+            for (int j = 0; j < c.n; j++) {     /* (each command's first) */
+                if (c.cmd[j][0] == 0x14 && k < 0) k = c.cmd[j][1];
+                else if (note && c.cmd[j][0] == 0x0E && c.cmd[j][1] >> 4 == 0xD && d < 0) d = c.cmd[j][1] & 15;
+            }
+            if (d < 0) d = 0;
+            if (k >= 0 && (!note || k < d) && cr >= 0) { ce = r * sp + k; q_place(src[l], off[l], cr, cs, ce, Q, sp, sh, rows, base); cr = -1; }
+            if ((c.has & RC_NOTE) && !note && cr >= 0) { q_place(src[l], off[l], cr, cs, r * sp, Q, sp, sh, rows, base); cr = -1; }
+            if (!note) continue;
+            if (cr >= 0) q_place(src[l], off[l], cr, cs, -1, Q, sp, sh, rows, base);
+            cr = r;
+            cs = r * sp + d;
+            ce = -1;
+            if (k >= 0 && k > d) { q_place(src[l], off[l], cr, cs, r * sp + k, Q, sp, sh, rows, base); cr = -1; }
+        }
+        if (cr >= 0) q_place(src[l], off[l], cr, cs, ce, Q, sp, sh, rows, base);
+        rec_cur_set_end(&cu[l], s, end);
+    }
+    if (!(b = store_scratch_claim(1))) return LP_BUSY;
+    loops_enc_start(&e, b, STORE_LOOP_STREAM_MAX);
+    for (r = 0; r < base; r++)
+        for (int l = 0; l < LP_LANES; l++) {
+            if (src[l][r] != Q_NONE && rec_cur_at(&cu[l], 4 * src[l][r] + l, &c)) {
+                int n = 0;                  /* (bare: its note delay and key off gone) */
+                for (int j = 0; j < c.n; j++)
+                    if (c.cmd[j][0] != 0x14 && !(c.cmd[j][0] == 0x0E && c.cmd[j][1] >> 4 == 0xD)) {
+                        c.cmd[n][0] = c.cmd[j][0];
+                        c.cmd[n++][1] = c.cmd[j][1];
+                    }
+                c.n = (uint8_t)n;
+                if (!n) c.has &= (uint8_t)~RC_CMD;
+                loops_enc_cell(&e, 4 * r + l, &c);
+            } else if (off[l][r >> 5] >> (r & 31) & 1u) loops_enc_cell(&e, 4 * r + l, &NOTE_OFF);
+        }
+    lanes = e.lanes;
+    uint32_t len = loops_enc_end(&e);
+    r = len ? put_stream(i, b, len, lanes) : LP_FULL;
+    store_scratch_claim(0);
+    return r;
+}
 int loops_revert(void)
 {
     int r = store_edit_forget(REC_LOOPS, 0, 0);
@@ -695,8 +1060,7 @@ int loops_revert(void)
 const uint8_t LP_MIX_KEY[RM_N] = {RM_LEVEL, RM_PAN, RM_DELAY, RM_REVERB, RM_CHORUS, RM_DUCK};
 const uint8_t LP_MIX_CODE[RM_N] = {0x80, 0x08, 0x82, 0x83, 0x81, 0x84};
 #define TRACK_MAX (STORE_MAX_REC - STORE_HDR - 5u)     /* a pattern track's stream at most: a part's payload, its head */
-static int is_note(const rec_cell_t *c) { return (c->has & RC_NOTE) && c->note != REC_NOTE_OFF; }
-static void cmd_add(rec_cell_t *c, int code, int v)
+void loops_cmd_add(rec_cell_t *c, int code, int v)
 {
     if (c->n >= 4) return;
     c->cmd[c->n][0] = (uint8_t)code;
@@ -704,45 +1068,29 @@ static void cmd_add(rec_cell_t *c, int code, int v)
     c->n++;
     c->has |= RC_CMD;
 }
-/* a loop's notes written out over the length: lane l's cell at row r of the loops, its repeats one after another (the
- * last cut at the length, nothing past them); its cursor read in rising rows, back to the stream's start at a repeat */
-typedef struct { rec_cur_t cu; const uint8_t *s; int base, reps; } lp_out_t;
-static void out_start(lp_out_t *o, int i)
-{
-    const uint8_t *end;
-    o->s = loops_stream(i, &end);
-    o->base = loops_base(i);
-    o->reps = loops_repeats(i);
-    rec_cur_set_end(&o->cu, o->s, end);
-}
-static int out_cell(lp_out_t *o, int r, int l, rec_cell_t *c)
-{
-    return o->s && r / o->base < o->reps && rec_cur_at(&o->cu, 4 * (r % o->base) + l, c) && !bridge(c);
-}
-
-/* SAVE TO PATTERN's plan: each lane's rows (from its first cell to its last; a note still sounding there: to its rest's
- * row, where the player stops it, else to the end) and its track (-1: none free over them) */
+/* SAVE TO PATTERN's plan, over each loop as it is heard (heard_cell): each lane's rows (from its first cell to its last;
+ * a note still sounding at the length's end rings into the start: all of them) and its track (-1: none free over them) */
 typedef struct { uint8_t from[LP_MAX][LP_LANES], to[LP_MAX][LP_LANES]; int8_t trk[LP_MAX][LP_LANES]; } st_plan_t;
 static int store_plan(st_plan_t *pl, int n, int rows, int *left)
 {
     int used = 0;
     for (int i = 0; i < n; i++) {
-        lp_out_t o;
-        out_start(&o, i);
+        lp_heard_t o;
         for (int l = 0; l < LP_LANES; l++) {
             rec_cell_t c;
-            int first = -1, last = 0, held = 0, notes = 0, t, rest = o.base * o.reps;
+            int first = -1, last = 0, held = 0, notes = 0, t;
             pl->trk[i][l] = -1;
+            heard_start(&o, i, rows, loops_shift(i), 1);
             for (int r = 0; r < rows; r++) {
-                if (!out_cell(&o, r, l, &c)) continue;
+                if (!heard_cell(&o, r, l, &c)) continue;
                 if (first < 0) first = r;
                 last = r;
                 held = sounding(held, &c);
-                notes += is_note(&c);
+                notes += loops_is_note(&c);
             }
             if (!notes) continue;
-            pl->from[i][l] = (uint8_t)first;
-            pl->to[i][l] = (uint8_t)(!held ? last + 1 : rest < rows ? rest + 1 : rows);
+            pl->from[i][l] = (uint8_t)(held ? 0 : first);
+            pl->to[i][l] = (uint8_t)(held ? rows : last + 1);
             for (t = 0; t < 16; t++) {          /* (the first track the lanes on it so far leave free over these rows) */
                 int ov = 0;
                 for (int k = 0; k <= i && !ov; k++)
@@ -757,13 +1105,13 @@ static int store_plan(st_plan_t *pl, int n, int rows, int *left)
     }
     return used > 0 ? used : 1;
 }
-/* track t of the stored pattern, encoded into b (NULL: counted): row by row the cell of the lane on it there, a note
- * naming its loop's instrument, a note off where the lane's loop goes to rest; the lane's first note its loop's mix as
- * commands where the track's mix there differs (as the lanes before it in time left it), as far as it has room. Its
- * length (0: past a part) */
+/* track t of the stored pattern, encoded into b (NULL: counted): row by row the cell of the lane on it there, as heard
+ * (heard_cell: a note off where the lane's loop goes to rest, the stop at the wrap, its SHIFT), a note naming its loop's
+ * instrument; the lane's first note its loop's mix as commands where the track's mix there differs (as the lanes before
+ * it in time left it), as far as it has room. Its length (0: past a part) */
 static PLAT_COLD uint32_t store_track(const st_plan_t *pl, int n, int rows, int t, uint8_t *b)
 {
-    lp_out_t o;
+    lp_heard_t o;
     lp_enc_t e;
     uint8_t have[RM_N];
     int ci = -1, cl = 0, first = 0;
@@ -776,12 +1124,9 @@ static PLAT_COLD uint32_t store_track(const st_plan_t *pl, int n, int rows, int 
             for (int l = 0; l < LP_LANES; l++)
                 if (pl->trk[i][l] == t && pl->from[i][l] <= r && r < pl->to[i][l]) { ai = i; al = l; }
         if (ai < 0) continue;
-        if (ai != ci || al != cl) { ci = ai; cl = al; first = 1; out_start(&o, ai); }
-        if (!out_cell(&o, r, al, &c)) {
-            if (r != o.base * o.reps) continue;
-            c = NOTE_OFF;                       /* (its rest's row: in its rows only with a note still sounding) */
-        }
-        if (is_note(&c)) {
+        if (ai != ci || al != cl) { ci = ai; cl = al; first = 1; heard_start(&o, ai, rows, loops_shift(ai), 1); }
+        if (!heard_cell(&o, r, al, &c)) continue;
+        if (loops_is_note(&c)) {
             uint16_t in = loops_inst(ai);
             const uint8_t *mix = loops_mix(ai);
             c.has |= RC_INS;
@@ -790,7 +1135,7 @@ static PLAT_COLD uint32_t store_track(const st_plan_t *pl, int n, int rows, int 
             for (int k = 0; k < RM_N && first; k++) {
                 int key = LP_MIX_KEY[k];
                 if (have[key] == mix[key] || c.n >= 4) continue;
-                cmd_add(&c, LP_MIX_CODE[k], mix[key]);
+                loops_cmd_add(&c, LP_MIX_CODE[k], mix[key]);
                 have[key] = mix[key];
             }
             first = 0;
@@ -874,7 +1219,7 @@ static PLAT_COLD void ld_run(const rec_pat_t *p, int lim, int k, lp_enc_t *e, ld
             int note, kx = -1, dl = 0;
             back[t] = -1;
             if (!(has[t] = (uint8_t)rec_cur_at(&cu[t], r, &cl[t]))) continue;
-            note = is_note(c);
+            note = loops_is_note(c);
             if (c->has & RC_INS) ins[t] = c->cart << 8 | c->slot;
             for (int j = 0; j < c->n; j++) {
                 int code = c->cmd[j][0], v = c->cmd[j][1];
@@ -897,7 +1242,7 @@ static PLAT_COLD void ld_run(const rec_pat_t *p, int lim, int k, lp_enc_t *e, ld
         for (int t = 0; t < p->ntrk; t++) {     /* each note onto its instrument's loops */
             const rec_cell_t *c = &cl[t];
             int L, l = 0;
-            if (!has[t] || !is_note(c) || ins[t] < 0) continue;
+            if (!has[t] || !loops_is_note(c) || ins[t] < 0) continue;
             for (L = 0; L < d->n; L++) {
                 if (d->inst[L] != ins[t]) continue;
                 for (l = 0; l < LP_LANES && busy[L][l] > r && back[t] != (L << 2 | l); l++)
@@ -931,7 +1276,7 @@ static PLAT_COLD void ld_run(const rec_pat_t *p, int lim, int k, lp_enc_t *e, ld
             put[l].has = (uint8_t)(c->has & (RC_NOTE | RC_VOL));
             put[l].note = c->note;
             put[l].vol = c->vol;
-            for (int j = 0; j < c->n; j++) if (ld_keep(c->cmd[j][0], c->cmd[j][1])) cmd_add(&put[l], c->cmd[j][0], c->cmd[j][1]);
+            for (int j = 0; j < c->n; j++) if (ld_keep(c->cmd[j][0], c->cmd[j][1])) loops_cmd_add(&put[l], c->cmd[j][0], c->cmd[j][1]);
             placed |= 1 << l;
         }
         for (int l = 0; k >= 0 && l < LP_LANES; l++) {
@@ -940,7 +1285,7 @@ static PLAT_COLD void ld_run(const rec_pat_t *p, int lim, int k, lp_enc_t *e, ld
             else if (off[l] == r) {             /* (a note off, EDx: ticks late; or the key off alone) */
                 x = NOTE_OFF;
                 if (ofc[l][0] == 0x14) x.has = 0;
-                if (ofc[l][0]) cmd_add(&x, ofc[l][0], ofc[l][1]);
+                if (ofc[l][0]) loops_cmd_add(&x, ofc[l][0], ofc[l][1]);
                 loops_enc_cell(e, 4 * r + l, &x);
             }
             if (off[l] == r) off[l] = 0xFF;
@@ -998,14 +1343,12 @@ PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res)
         en[5] = 1;
         memcpy(en + 6, d.mixed[k] ? d.mix[k] : MIX_DEF, RM_N);
     }
-    if (n) {                            /* (the timing theirs) */
-        h[0] = (uint8_t)tm.tempo;
-        h[1] = (uint8_t)(tm.tempo >> 8);
-        h[2] = (uint8_t)((h[2] & ~31) | tm.ticks);
-        h[3] = tm.swing;
-        h[4] = (uint8_t)((h[4] & ~3) | (tm.rpb == 6 ? 1 : tm.rpb == 8 ? 2 : 0));
-        h[7] = (uint8_t)rows;
-    }
+    h[0] = (uint8_t)tm.tempo;           /* (the pattern's timing and length, with notes or none) */
+    h[1] = (uint8_t)(tm.tempo >> 8);
+    h[2] = (uint8_t)((h[2] & ~31) | tm.ticks);
+    h[3] = tm.swing;
+    h[4] = (uint8_t)((h[4] & ~3) | (tm.rpb == 6 ? 1 : tm.rpb == 8 ? 2 : 0));
+    h[7] = (uint8_t)rows;
     h[5] = (uint8_t)n;
     sel_ram = 0;
     if ((r = put_head(h)) != LP_OK) return r;
@@ -1017,9 +1360,9 @@ PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res)
 /* ----------------------------------------------------------------- the player ---
  * The audio context calls the source's functions: they read the store (rec_loops), never the main loop's copy */
 static const uint8_t ORDER0 = 0;
-static const uint8_t DEF_HEAD[8] = {120, 0, 6, 50, 0, 0, 0, 0};    /* (no loops record: its setup's first bytes) */
-/* the loops' song: each loop's mix its track's, the next loop's (next; NULL: a plain one) its place's (track n: the
- * pattern recorder's preview and a new loop's take play there) */
+static const uint8_t DEF_HEAD[8] = {120, 0, 6 | 0x80, 50, 0, 0, 0, 0};    /* (no loops record: its setup's first bytes) */
+/* the loops' song: each loop's mix its track's, the next loop's as heard (next: next_mix's) its place's (track n: the
+ * pattern recorder's preview and the stage on `+ NEW LOOP` play there) */
 static void song_of(const uint8_t *h, int n, const uint8_t *next, const uint8_t *fx, rec_song_t *s)
 {
     int g = h[4] & 3;
@@ -1033,28 +1376,33 @@ static void song_of(const uint8_t *h, int n, const uint8_t *next, const uint8_t 
     s->len = 1;
     s->order = &ORDER0;
     for (int t = 0; t < 16; t++)
-        memcpy(s->mix[t], t < n ? h + TABLE + ENTRY * t + 6 : t == n && next ? next : MIX_DEF, RM_N);
+        memcpy(s->mix[t], t < n ? h + TABLE + ENTRY * t + 6 : t == n ? next : MIX_DEF, RM_N);
     s->fx = fx;
 }
 static int src_song(rec_song_t *s)
 {
     rec_loops_t l;
+    uint8_t nx[RM_N];
     if (rec_loops(&l, 0)) {
-        song_of(DEF_HEAD, 0, 0, def_ok ? fx_def : 0, s);
+        next_mix(0, nx);
+        song_of(DEF_HEAD, 0, nx, def_ok ? fx_def : 0, s);
         return 0;
     }
     memcpy(fx_au, l.head + 8, FX_LEN);
     fx_mend(fx_au, def_ok ? fx_def : 0);
-    song_of(l.head, l.n, all_zero(l.head + NEXT_MIX, RM_N) ? 0 : l.head + NEXT_MIX, all_zero(fx_au, FX_LEN) ? 0 : fx_au, s);
+    next_mix(l.head + NEXT_MIX, nx);
+    song_of(l.head, l.n, nx, all_zero(fx_au, FX_LEN) ? 0 : fx_au, s);
     return 0;
 }
-static int src_pattern(uint8_t num, rec_pat_t *pt)     /* the clock: the length's rows, no streams */
+/* the clock: the length's rows, no streams; with loops or none (PLAY plays the loops with none: the length goes round),
+ * no record yet the length a new head has (def_rows) */
+static int src_pattern(uint8_t num, rec_pat_t *pt)
 {
     rec_loops_t l;
-    if (num || rec_loops(&l, 0) || !l.n) return -1;
+    if (num) return -1;
     memset(pt, 0, sizeof *pt);
     pt->ntrk = 16;
-    pt->rows = l.rows;
+    pt->rows = rec_loops(&l, 0) ? def_rows : l.rows;
     pt->step = 1;
     return 0;
 }
@@ -1072,7 +1420,9 @@ static const pl_source_t SRC = {src_song, src_pattern, src_inst, 1};
 int loops_song(rec_song_t *s)
 {
     const uint8_t *h = head();
-    song_of(h, h[5], h + NEXT_MIX, h + 8, s);
+    uint8_t nx[RM_N];
+    next_mix(h + NEXT_MIX, nx);
+    song_of(h, h[5], nx, h + 8, s);
     return 0;
 }
 /* the loops' mutes and solos to the player, now (always; else only when they differ from what it was given last: a

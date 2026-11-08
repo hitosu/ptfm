@@ -10,10 +10,12 @@
 #include "../play/rec.h"
 #include "../play/player.h"
 
-const txt_t ENG_SHORT[ENG_COUNT] = {TX(""), TX("DX7"), TX("JUNO"), TX("TB-303"), TX("SAMPLE"), TX("FUSION"), TX("CHIP")};
-const txt_t ENG_TYPE[ENG_COUNT] = {TX(""), TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("SAMPLER"), TX("FUSION"), TX("CHIP")};
-const uint8_t ENG_COL[ENG_COUNT] = {C_DGREY, C_LRED, C_LCYAN, C_LGREEN, C_YELLOW, C_LMAGENTA, C_LBLUE};
-const uint8_t ENG_SLOTS[ENG_COUNT] = {0, 32, 128, 128, 64, 64, 128};
+const txt_t ENG_SHORT[ENG_COUNT] = {TX(""), TX("DX7"), TX("JUNO"), TX("TB-303"), TX("SAMPLE"), TX("FUSION"), TX("CHIP"),
+                                    TX("FAVORITES")};
+const txt_t ENG_TYPE[ENG_COUNT] = {TX(""), TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("SAMPLER"), TX("FUSION"), TX("CHIP"),
+                                   TX("FAVORITES")};
+const uint8_t ENG_COL[ENG_COUNT] = {C_DGREY, C_LRED, C_LCYAN, C_LGREEN, C_YELLOW, C_LMAGENTA, C_LBLUE, C_LGREY};
+const uint8_t ENG_SLOTS[ENG_COUNT] = {0, 32, 128, 128, 64, 64, 128, 128};
 
 /* the names' characters by their 6-bit codes: 0 space, 1-26 A-Z, 27-36 0-9, 37-48 signs */
 static const char NAME6[49] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-?|/\\*#$@%";
@@ -42,16 +44,6 @@ void ui_put_name6(uint8_t *p, uint32_t bit, int n, const char *name)
         for (uint32_t k = 0; k < sizeof NAME6 - 1; k++) if (NAME6[k] == c) code = k;
         ui_put_bits(p, bit + 6u * (uint32_t)i, 6, code);
     }
-}
-int ui_free_pattern(void)
-{
-    uint8_t nums[256];
-    int n = store_list(REC_PATTERN, nums, 256), k = 0;
-    for (int f = 0; f < 0xF0; f++) {
-        while (k < n && nums[k] < f) k++;
-        if (k == n || nums[k] != f) return f;
-    }
-    return -1;
 }
 int ui_name6(const uint8_t *p, uint32_t bit, int n, char *dst)
 {
@@ -92,6 +84,12 @@ int ui_songs(uint8_t *nums, int max)
     for (int i = 0; i < n && k < max; i++)
         if (all[i] != UI_KEYS_SONG) nums[k++] = all[i];
     return k;
+}
+int ui_free_song(void)
+{
+    ui_song_t s;
+    for (int n = 0; n <= UI_SONG_LAST; n++) if (!ui_song((uint8_t)n, &s)) return n;
+    return -1;
 }
 static uint8_t keys_song[21 + 1 + 1 + 64 + 8];          /* (the keys' song's record: one position, no mixer, its FX
                                                          * setup, the spare bytes) */
@@ -175,15 +173,27 @@ int ui_cart_slots(uint8_t cart)
     rec_cart_t c;
     return rec_cart(cart, &c) ? 0 : c.nslots;
 }
+/* the cartridge lists' one order (specs/ui/dialogs.md#the-cartridge-list): the built-in FAVORITES first (0), the user's
+ * FAVORITES by number (1), then the others by number (2) */
+int ui_cart_rank(uint8_t cart) { return ui_cart_kind(cart) != ENG_FAV ? 2 : cart != 0xFB; }
+int ui_cart_order(uint8_t *nums, int n)
+{
+    uint8_t t[256];
+    int k = 0;
+    for (int r = 0; r < 3; r++) for (int i = 0; i < n; i++) if (ui_cart_rank(nums[i]) == r) t[k++] = nums[i];
+    memcpy(nums, t, (size_t)k);
+    return k;
+}
 int ui_carts(uint8_t *nums, int max)
 {
-    /* the six kinds share one number space: merged in numbers' order */
+    /* the seven kinds share one number space: merged, in the lists' order */
     int n = 0;
     for (int c = 0; c < 256 && n < max; c++) if (ui_cart_kind((uint8_t)c)) nums[n++] = (uint8_t)c;
-    return n;
+    return ui_cart_order(nums, n);
 }
 /* a slot's bytes (NULL: empty or not stored) and where its name and LEVEL are (instruments.md: each type's slot) */
-static const uint16_t NAME_BIT[ENG_COUNT] = {0, 784, 123, 42, 174, 8, 121};
+static const uint16_t NAME_BIT[ENG_COUNT] = {0, 784, 123, 42, 176, 8, 121, 0};   /* (a favourite: no name, no slot;
+                                                         * a sampler's in version 2) */
 static const uint8_t *slot_of(uint16_t ref, int *eng)
 {
     rec_cart_t c;
@@ -198,6 +208,23 @@ int ui_inst_name(uint16_t ref, char *dst)
     const uint8_t *s = slot_of(ref, &e);
     if (!s) { dst[0] = 0; return 0; }
     return ui_name6(s, NAME_BIT[e], 10, dst);
+}
+int ui_fav(uint16_t ref, uint16_t *src)
+{
+    rec_cart_t c;
+    char nm[12];
+    if (rec_cart((uint8_t)(ref >> 8), &c) || c.kind != REC_FAV) return UI_FAV_NOT;
+    const uint8_t *s = rec_fav(&c, (uint8_t)ref);
+    if (!s) return UI_FAV_EMPTY;
+    uint16_t r = (uint16_t)(s[0] << 8 | s[1]);
+    if (src) *src = r;
+    return ui_inst_name(r, nm) ? UI_FAV_OK : UI_FAV_MISSING;    /* (a FAVORITES cartridge's number: no instrument) */
+}
+int ui_slot_has(uint16_t ref, int playable)
+{
+    char nm[12];
+    int f = ui_fav(ref, 0);
+    return f ? f >= (playable ? UI_FAV_OK : UI_FAV_MISSING) : ui_inst_name(ref, nm);
 }
 int ui_inst_level(uint16_t ref)
 {

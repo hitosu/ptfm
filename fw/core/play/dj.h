@@ -47,6 +47,8 @@ typedef struct {
     uint8_t stop, stopped;                      /* a stop held (PL_STOP_*), it stands */
     uint8_t loop, loop_pos, loop_row, roll;     /* a loop (PL_DLOOP_*), where it starts, a ROLL */
     uint16_t loop_rows;
+    uint8_t land, loads, jumps;                 /* what waits in the player for its bar line or beat, its landings so
+                                                 * far (player_state_t's deck[]) */
     uint32_t halves;                            /* the player's halves at the reading (0 from the stand) */
 } dj_deck_state_t;
 extern void (*dj_read_state)(player_state_t *s);   /* how the decks' state is read (the screen's frame), or none */
@@ -65,6 +67,11 @@ void dj_deck_load(int d, uint8_t song);
 void dj_deck_play(int d, int on);               /* from where the stand has it */
 void dj_deck_arm(int d);                        /* starts on the other deck's next bar line */
 void dj_deck_place(int d, int pos, int row);
+/* what waits for a playing deck's next bar line or beat, landed there by the player (player_deck_load_at, _jump_at):
+ * a LOAD of song at bpm10 (its share of the song's own; a synced right deck's fixed), DJ_NO_SONG cancelling one; a
+ * JUMP (move 0) or a MOVE (1) to (pos, row), a REPEAT's bars going along on their grid */
+void dj_deck_load_at(int d, uint8_t song, int bpm10);
+void dj_deck_jump_at(int d, int pos, int row, int move);
 void dj_deck_hand(int d, int pos, int row, int ms);   /* HOLD's hand: that row heard (player_deck_hand) */
 void dj_deck_tempo(int d, int bpm10);
 void dj_deck_volume(int d, int db);

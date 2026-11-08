@@ -24,8 +24,9 @@ playground has their content built in (`tools/gen_playground.py`).
 ## What it holds
 
 The synth cartridges are the firmware's **built-in instruments**, numbered `F0`-`FA` in the range `F0`-`FF` kept
-for them; the sampler cartridges, FUSION, the samples and the songs are the **uploaded disk**, from `01`, FUSION's
-patterns `E0`-`E5` and the songs' from `00` ([../specs/files/instruments.md](../specs/files/instruments.md#built-in-instruments),
+for them; the sampler cartridges, FUSION, the samples and the songs are the **uploaded disk**, numbered from `A0` in
+every kind so that the user's own things take `00` and up, FUSION's patterns `A0`-`A5` and the songs' from `A6`, none past
+`DF` ([../specs/files/instruments.md](../specs/files/instruments.md#built-in-instruments),
 [../specs/files/disk.md](../specs/files/disk.md#the-demo-disk)).
 
 | No. | Cartridge | Engine | Slots | What |
@@ -55,7 +56,8 @@ patterns `E0`-`E5` and the songs' from `00` ([../specs/files/instruments.md](../
 - **The TB-303 presets** are our own and six of mpc-vst-303's (GPL-3.0-only).
 - **The samplers** keep 8-bit audio; instruments on one sample share it (the toms are one tom retuned, the
   congas one conga, a choked crash, muted strokes, short stabs and slow swells are other envelopes on the
-  same samples).
+  same samples). On the disk each sample is a record of its own, numbered from `A0` sampler by sampler in
+  the cartridges' order and in each in its `samples.json` order; the samplers' instruments name them by number.
 - **FUSION:** SPACE PAD (two pads and a deep bass on every key, a bell from C-4), DUB CHORDS (a minor 9
   chord, rolled, a sub bass on every key), SPLIT (a held bass under C-4, a space lead from C-4), CHIPIN (a
   chip arpeggio on any key in C minor pentatonic, its echo, a triangle bass on C, a blip), COIN (a game's
@@ -141,12 +143,13 @@ All files are JSON (ASCII), and FLAC for audio. Every JSON file starts with `"fo
 ## `index.json`
 
 ```json
-{"format": "demo-disk/index", "version": 2, "name": "DEMO",
- "cartridges": [{"number": 1, "type": "dx7", "path": "patches/dx7/keys-organs.json", "name": "KEYS/ORGANS"}, ...],
- "songs": [{"number": 0, "path": "songs/<song>/song.json", "name": "..."}, ...]}
+{"format": "demo-disk/index", "version": 2, "name": "DEMO", "first": 160,
+ "cartridges": [{"number": 160, "type": "sampler", "path": "samples/drum-kit/samples.json", "name": "DRUM KIT"}, ...],
+ "songs": [{"number": 160, "path": "songs/<song>/song.json", "name": "..."}, ...]}
 ```
 
-- **`number`:** the cartridge's number (`01`-`FF`) or the song's (`00`-`FF`) on the device.
+- **`first`:** the number the disk's cartridges, songs, patterns and samples start from (`catalog.py`'s `DISK_FIRST`).
+- **`number`:** the cartridge's number or the song's on the device.
 - **`type`:** `dx7`, `juno106`, `tb303`, `sampler` or `fusion`.
 - **Patterns** live in one pool, `00`-`FF`, as on the device: each song's and FUSION's files hold the
   patterns they use, with their numbers, and no number is used twice.

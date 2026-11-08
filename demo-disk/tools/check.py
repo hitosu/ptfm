@@ -13,7 +13,8 @@ that loops, after an intro if it has one).
 import sys
 
 import voices
-from catalog import BUILT_IN, CARTRIDGES, CAT, DJ_LOOPS, DJ_VOICES, FUSION_CART, FUSION_FIRST, FUSION_PATH
+from catalog import (BUILT_IN, CARTRIDGES, CAT, DISK_FIRST, DISK_LAST, DJ_LOOPS, DJ_VOICES, FUSION_CART, FUSION_FIRST,
+                     FUSION_PATH, PATTERN_FIRST)
 from common import DISK, LICENSES, OWN_LICENSE, flac_read, read_json
 from compose import CHAIN, FX_DEFAULTS, MIX_DEFAULT, cmd_key, midi
 
@@ -116,6 +117,9 @@ def main():
     index = read_json(DISK / "index.json")
     if [(c["number"], c["type"], c["path"], c["name"]) for c in index["cartridges"]] != [tuple(c) for c in CARTRIDGES]:
         bad("index.json: its cartridges are not catalog.py's (run index.py)")
+    songs_at = [s["number"] for s in index["songs"]]
+    if index["first"] != DISK_FIRST or songs_at != list(range(DISK_FIRST, DISK_FIRST + len(songs_at))) or songs_at[-1] > DISK_LAST:
+        bad(f"index.json: its songs do not run from {DISK_FIRST:02X}, up to {DISK_LAST:02X} at most (run index.py)")
     pool = {}
     fp = {}
     for c in index["cartridges"]:
@@ -166,8 +170,8 @@ def main():
             for n, p in ps.items():
                 if n in pool:
                     bad(f"pattern {n:02X}: twice ({pool[n]}, FUSION)")
-                if not FUSION_FIRST <= n < BUILT_IN:
-                    bad(f"FUSION pattern {n:02X}: FUSION's patterns are numbered {FUSION_FIRST:02X}-{BUILT_IN - 1:02X}")
+                if not FUSION_FIRST <= n < PATTERN_FIRST:
+                    bad(f"FUSION pattern {n:02X}: FUSION's patterns are numbered {FUSION_FIRST:02X}-{PATTERN_FIRST - 1:02X}")
                 pool[n] = "FUSION"
                 check_pattern(p, f"FUSION pattern {n:02X}", fusion=True)
             if c["path"] == FUSION_PATH:
@@ -183,8 +187,8 @@ def main():
         for n, p in pats.items():
             if n in pool:
                 bad(f"pattern {n:02X}: twice ({pool[n]}, {what})")
-            if n >= FUSION_FIRST:
-                bad(f"{what} pattern {n:02X}: {FUSION_FIRST:02X}-FF are FUSION's and the built-in instruments' numbers")
+            if not PATTERN_FIRST <= n <= DISK_LAST:
+                bad(f"{what} pattern {n:02X}: the songs' patterns are {PATTERN_FIRST:02X}-{DISK_LAST:02X}: E0-EF stay free for the built-in instruments")
             pool[n] = what
             check_pattern(p, f"{what} pattern {n:02X}")
         for n in song["positions"]:

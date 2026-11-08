@@ -232,6 +232,9 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .dlg .sw { display: flex; gap: 8px; align-items: center; margin: 10px 0; cursor: pointer; }
 .dlg .box { border: 1px solid var(--line); background: #000; padding: 8px 10px; margin: 8px 0; font-size: 13px; }
 .dlg .lbl { font: 700 11px/1 var(--sans); letter-spacing: .12em; color: var(--lcyan); margin: 12px 0 6px; }
+.dlg input.num { width: 5ch; padding: 4px 6px; font-size: 16px; text-transform: uppercase; }
+.dlg .numsay { margin: 10px 0 0; min-height: 40px; color: var(--lcyan); }
+.dlg .numsay.no { color: var(--lred); }
 .menu { position: fixed; z-index: 60; background: var(--raise); border: 1px solid var(--dgrey); min-width: 220px; padding: 4px 0; box-shadow: 0 6px 24px #000; }
 .menu button { display: flex; justify-content: space-between; gap: 20px; width: 100%; text-align: left; padding: 7px 12px; background: none; border: 0; color: var(--lgrey); font-size: 13px; cursor: pointer; }
 .menu button:hover { background: var(--blue-d); color: var(--white); }
@@ -348,9 +351,18 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .octrow { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
 /* a sample */
 .wavebox { position: relative; }
+.dlg.rec { width: min(760px, 100%); }
+.dlg.rec h3 { display: flex; align-items: center; }
+.dlg.rec .wavebox canvas { height: 120px; cursor: default; }
+.dlg.rec .meter { flex: 1; height: 16px; min-width: 0; background: #111; border: 1px solid var(--line); }
+.dlg.rec .clip { color: var(--lred); font: 700 12px/16px var(--sans); letter-spacing: .1em; padding: 0 6px; }
+.slicelist { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; }
+.slicelist .slice { white-space: nowrap; }
+.slicelist .slice.on .btn { border-color: var(--lblue); color: var(--lblue); }
 .wavebox canvas { width: 100%; height: 220px; display: block; background: #000; border: 1px solid var(--line); cursor: crosshair; touch-action: none; }
 .sinfo { display: grid; gap: 4px; font-size: 12px; margin-top: 10px; }
 .sinfo b { color: var(--lcyan); font: 700 10px var(--sans); letter-spacing: .12em; display: inline-block; width: 84px; }
+.sinfo .bad { color: var(--lred); }
 /* a cartridge */
 .cartwrap { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 12px; min-height: 0; }
 /* a cartridge's instruments: a side list held in view while the page scrolls, as tall as the tab's body shows */
@@ -377,7 +389,7 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .gates span { color: var(--dgrey); align-self: center; }
 .maprow { display: grid; grid-template-columns: 74px 74px 66px minmax(0, 1fr) minmax(0, 1.2fr) 28px; gap: 6px; align-items: center; margin-bottom: 4px; }
 .maprow.head { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); }
-.looprow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 90px 70px 80px 28px; gap: 6px; align-items: center; margin-bottom: 4px; }
+.looprow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 90px 70px 80px 56px 28px; gap: 6px; align-items: center; margin-bottom: 4px; }
 
 /* ---- narrow ---- */
 @media (max-width: 860px) {

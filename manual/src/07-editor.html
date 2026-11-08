@@ -207,11 +207,22 @@ becomes the current one (the toast names it, <b>01:05 EL PIANO DX7</b>); none th
 
 <section class="topic" id="editor-record-pattern">
 <h3>RECORD PATTERN: steps on the white keys</h3>
-<p><kbd>SEL</kbd>, RECORD PATTERN opens a step sequencer: the white keys switch 16 steps on and off, and REC writes
-their notes into the cursor's track from the cursor's row (<samp class="msg" data-t="PATTERN: # NOTES">PATTERN: 12
-NOTES</samp>). It is the same recorder LOOPS has; <a href="#loops-recorder">LOOPS</a> explains its keys. Here
-<kbd>K4</kbd> picks <b>TO THE END</b> (the steps repeated down to the pattern's last row) or <b>ONCE</b>. Nothing
-already there is removed: a step off leaves its cell as it is.</p>
+<p><kbd>SEL</kbd>, RECORD PATTERN opens a step sequencer of one note: the white keys switch up to 16 steps on and
+off, and REC writes their notes into the cursor's track from the cursor's row
+(<samp class="msg" data-t="PATTERN: # NOTES">PATTERN: 12 NOTES</samp>), in the current instrument. Nothing already
+there is removed: a step off leaves its cell as it is. (LOOPS has a pattern recorder of its own, of four rows:
+<a href="#loops-recorder">chapter 14</a>.)</p>
+<ul>
+<li><kbd>K1</kbd> the note, a semitone a click (<kbd>SEL</kbd> held: an octave); or <kbd>SEQ</kbd>, and the keys set
+the note (<samp class="msg">KEYS: THE NOTE</samp>; SEQ again: <samp class="msg">KEYS: THE STEPS</samp>).
+<kbd>OCT-</kbd> / <kbd>OCT+</kbd> move it with the octave.</li>
+<li><kbd>K2</kbd> the step's length (1/16 at first), <kbd>K3</kbd> the size (1-16 steps), <kbd>K4</kbd> how it is
+written: <b>TO THE END</b> (the steps repeated down to the pattern's last row) or <b>ONCE</b>.</li>
+<li><kbd>SELECT</kbd> the notes' length: <b>RING TO THE NEXT</b> (each note rings until the track's next) or <b>A STEP
+LONG</b> (a note off after it, on an empty cell).</li>
+<li><kbd>PLAY</kbd> plays the steps on their own, round and round; <kbd>REC</kbd> writes and closes (no step on:
+<samp class="msg">NO STEPS ON</samp>); <kbd>HOME</kbd> closes, nothing written.</li>
+</ul>
 </section>
 
 <section class="topic" id="editor-props">

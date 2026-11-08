@@ -48,6 +48,12 @@ module.exports = async api => {
         return [cap, picked, s0 !== PP.sig("EDIT: TABLES")];
     })()`);
     check(r[0] === "EDIT: TABLES · ARP" && r[1] === "ARP" && r[2], "pictures: CHIP's TABLES follows the row touched, drawn as it moves: " + JSON.stringify(r));
+    /* a sampler (version 2: its head is the cartridges' 10 bytes): the EDIT picture drawn from the slot, again while END moves */
+    await open(4);
+    await api.until(`!!PP.sig("EDIT")`, 10);
+    const sa = await evaluate(`PP.sig("EDIT")`);
+    await evaluate(`PP.input("END", 100)`);
+    check(sa && sa !== await evaluate(`PP.sig("EDIT")`) && await evaluate("!ED.tabs.current().dirty"), "pictures: the sampler's EDIT picture drawn again while END moves, nothing changed yet");
     /* the FX setup's picture drawn while a knob moves */
     await evaluate(`(() => { const s = ED.app.st.L.find(i => i.kind === 0x21); ED.tabs.list.slice().forEach(t => ED.tabs.close(t)); ED.tabs.open(s); return 1; })()`);
     const fx = await api.until(`(() => { const k = [...PP.body().querySelectorAll(".fxbox")].find(x => x.querySelector(".fxname") && x.querySelector("canvas")); if (!k) return null;

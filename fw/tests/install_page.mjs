@@ -26,10 +26,17 @@
 // - CLEAR USER DATA (the debug page's: seed.js session.clear): the user area erased, a damaged record too, FWS
 //   untouched; refused with edits not saved; planned again after a SAVE on the FM-1
 // - UPLOAD with edits not saved: the page says SAVE OR REVERT; a device that is not PT/FM: it says so
+// - the conversion after INSTALL FIRMWARE (specs/files/blob.md#converting-after-an-install) over an FM-1 holding an older
+//   PT/FM's samplers: whole samplers a save as the free room holds, free blocks only, reading back only what the spec lists,
+//   everything else kept, numbered as one run, its status lines and no Done before the end; the cable pulled after a save,
+//   then INSTALL FIRMWARE again; edits not saved (at the start, between saves); a SAVE on the FM-1 meanwhile (CHANGED); a
+//   sampler too big for the free room, past the map's room; past 256 samples; none after CLEAN INSTALL; an old-form disk
+//   uploaded is converted as it loads
 // - a damaged embedded package is refused
 // - end to end, when fw/tests/run_store.sh has built build/fw/store/seed_bridge: the built page uploads
 //   dist/firmware/demo.ptfmdsk into the device's own seeding code (fw/core/store on a fake flash), every record as the disk;
-//   CLEAR USER DATA then leaves no record
+//   CLEAR USER DATA then leaves no record; the demo disk in the old form (tools/pack.py --old-form) converted after an
+//   install, as the demo disk uploads now
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -84,13 +91,107 @@ function makeDisk() {
   return Uint8Array.from(out);
 }
 
+/* ---- an older PT/FM's samplers (specs/files/instruments.md#the-old-form), for the conversion after an install ---- */
+const fill = (n, k) => Uint8Array.from({ length: n }, (_, i) => (i * k + 7) & 255);
+/* audio of n bytes whose head (coding 1, length n) agrees with an entry of length n, as a sample's must */
+const aud = (n, k) => { const a = fill(n, k); a[0] = 1; a[1] = n & 255; a[2] = n >> 8 & 255; a[3] = n >> 16 & 255; return a; };
+const bitsInto = (b, at, v, n) => { for (let i = 0; i < n; i++, at++) if ((v >>> i) & 1) b[at >> 3] |= 1 << (at & 7); };
+function oldEntry(len, name) {            /* length 20, rate 18, coding 4, name 60 (null: an emptied entry), spare 26 */
+  const b = new Uint8Array(16);
+  bitsInto(b, 0, len, 20); bitsInto(b, 20, 22050, 18); bitsInto(b, 38, 1, 4);
+  for (let i = 0; i < 10; i++) bitsInto(b, 42 + 6 * i, name === null ? (i ? 0 : 63) : i < name.length ? 1 + name.charCodeAt(i) - 65 : 0, 6);
+  return b;
+}
+function oldSlot(sample, name) {          /* an old instrument: SAMPLE 6 bits, its name at bit 174 */
+  const b = new Uint8Array(40);
+  bitsInto(b, 0, sample, 6); bitsInto(b, 6, 99, 20); bitsInto(b, 174, 1, 6); bitsInto(b, 180, name.charCodeAt(0) - 64, 6);
+  return b;
+}
+function oldSampler(n, entries) {         /* n instruments, instrument i playing sample i; then the table */
+  const b = new Uint8Array(11 + 40 * n + 16 * entries.length);
+  b[9] = n; b[10] = entries.length;
+  for (let i = 0; i < n; i++) b.set(oldSlot(i, "I"), 11 + 40 * i);
+  entries.forEach((e, i) => b.set(e, 11 + 40 * n + 16 * i));
+  return b;
+}
+const R_ = (kind, num, sub, ver, payload) => ({ kind, num, sub, ver, payload, len: payload.length, crc: SEED.crc32(payload) });
+/* what an older PT/FM left: samplers 01-03 of the old form (02 holding 01's KICK again, entry and audio: one sample then; 03 an
+ * emptied entry whose audio stayed), old audio of no sampler (09), a sample already there (01), a version 2 sampler naming
+ * 00, records of other kinds and versions (a song, patterns, one of version 9, the loops of version 3, the settings), and
+ * fillBlocks patterns of a block each (laid by lay: 13 blocks and these, so 90 - fillBlocks left free) */
+function olderShapes(fillBlocks) {
+  const recs = [
+    R_(4, 1, 0, 1, oldSampler(2, [oldEntry(6000, "KICK"), oldEntry(5000, "SNARE")])),
+    R_(4, 2, 0, 1, oldSampler(2, [oldEntry(7000, "HAT"), oldEntry(6000, "KICK")])),
+    R_(4, 3, 0, 1, oldSampler(2, [oldEntry(9000, "BASS"), oldEntry(3000, null)])),
+    R_(4, 7, 0, 2, Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, ...Array.from({ length: 40 }, (_, i) => i === 22 ? 1 : 0)])),
+    R_(0x21, 0, 0, 1, fill(150, 3)), R_(0x20, 0, 0, 1, fill(700, 5)), R_(0x20, 5, 0, 9, fill(64, 9)),
+    R_(0x22, 0, 0, 3, fill(80, 11)), R_(0x30, 0, 0, 1, fill(133, 5)),
+    R_(0x11, 1, 0, 1, Uint8Array.from([...oldEntry(4000, "CLAP"), ...aud(4000, 13)])),
+    R_(0x10, 1, 0, 1, aud(6000, 17)), R_(0x10, 1, 1, 1, aud(5000, 19)),
+    R_(0x10, 2, 0, 1, aud(7000, 23)), R_(0x10, 2, 1, 1, aud(6000, 17)),
+    R_(0x10, 3, 0, 1, aud(9000, 29)), R_(0x10, 3, 1, 1, aud(3000, 31)),
+    R_(0x10, 9, 0, 1, aud(2000, 37)),
+  ];
+  for (let i = 0; i < fillBlocks; i++) recs.push(R_(0x20, 0x10 + i, 0, 1, fill(4000, i + 1)));
+  return recs;
+}
+/* records laid as one save (1) of an older PT/FM: the others packed block by block from the user area's start, then the
+ * audio, each number's from a block of its own */
+function lay(dev, recs) {
+  const blocks = [];
+  for (const [s, e] of USER) for (let a = s; a < e; a += 4096) blocks.push(a);
+  const audio = (r) => (r.kind & 0xFE) === 0x10, size = (r) => 16 + ((r.payload.length + 3) & ~3), at = [];
+  let bi = 0, off = 0;
+  for (const r of recs.filter((x) => !audio(x))) {
+    if (off + size(r) > 4096) { bi++; off = 0; }
+    at.push([blocks[bi] + off, r]);
+    off += size(r);
+  }
+  let num = -1;
+  const regionEnd = (a) => USER.find(([s, e]) => a >= s && a < e)[1];
+  for (const r of recs.filter(audio)) {
+    if ((r.kind << 8 | r.num) !== num && off) { bi++; off = 0; }
+    num = r.kind << 8 | r.num;
+    if (blocks[bi] + off + size(r) > regionEnd(blocks[bi])) { bi = blocks.indexOf(USER[1][0]); off = 0; }   /* (a run in one region) */
+    at.push([blocks[bi] + off, r]);
+    off += size(r);
+    while (off >= 4096) { bi++; off -= 4096; }
+  }
+  at.forEach(([a, r], i) => dev.put(a, r.kind, r.num, r.sub, r.ver, r.payload, 1, i === at.length - 1));
+  dev.lastSave = 1;
+}
+/* the FM-1's live records are what the converter makes of `before` at once (kind, number, sub, version, bytes) */
+function asOneRun(dev, before) {
+  const want = SEED.convertSamplers(before).recs, live = dev.live();
+  return live.length === want.length && want.every((w) => live.some((r) => r.kind === w.kind && r.num === w.num && r.sub === w.sub &&
+    r.ver === w.ver && eq(Array.from(r.payload), Array.from(w.payload))));
+}
+/* a read the conversion may make (blob.md): the old samplers and their audio, the version 2 samplers, the samples of a length an
+ * old sample would have */
+function convRead(map, a, n) {
+  const live = map.filter((r) => !(r.flags & 2)), lens = new Set(live.filter((r) => r.kind === 0x10).map((r) => 16 + r.len));
+  return live.some((r) => a >= r.addr && a + n <= r.addr + 16 + r.len &&
+    ((r.kind === 4 && (r.ver === 1 || r.ver === 2)) || (r.kind === 0x10 && r.ver === 1) || (r.kind === 0x11 && lens.has(r.len))));
+}
+/* the records of other kinds and versions: where they were, as they were */
+const keptWhere = (dev, before) => before.filter((r) => ![4, 0x10, 0x11].includes(r.kind) || (r.kind === 4 && r.ver === 2) || r.kind === 0x11)
+  .every((b) => dev.live().some((r) => r.kind === b.kind && r.num === b.num && r.sub === b.sub && r.ver === b.ver && r.save === 1 &&
+    eq(Array.from(r.payload), Array.from(b.payload))));
+
 /* the FM-1 on Web MIDI: the update path (identity, reads of the image), and PT/FM's seeding */
 class FakeFM1 {
-  constructor(image, { running = "FM-1_924", unsaved = false, loaderIn = null, loaderOut = null, gs = false } = {}) {
+  constructor(image, { running = "FM-1_924", unsaved = false, loaderIn = null, loaderOut = null, gs = false, form = "old",
+                       mapRoom = 0, reserve = 16, unsavedOnBoot = false, pullAfterEnds = 0 } = {}) {
     /* (at first another FM-1 firmware; loaderIn / loaderOut: the update loader's port names as Windows may give
-     * them; gs: Windows' own "Microsoft GS Wavetable Synth" output beside the FM-1's) */
+     * them; gs: Windows' own "Microsoft GS Wavetable Synth" output beside the FM-1's; form "new": PT/FM taking samplers of
+     * version 2 and samples, no longer the old form (an older PT/FM's "old"); mapRoom: the records its store lists (0:
+     * not said); unsavedOnBoot: an edit made as soon as PT/FM starts; pullAfterEnds: the cable pulled after that many
+     * seedings (END)) */
     this.image = image; this.served = 0; this.bad = 0; this.unsaved = unsaved;
     this.loaderIn = loaderIn; this.loaderOut = loaderOut; this.gs = gs;
+    this.form = form; this.mapRoom = mapRoom; this.reserve = reserve; this.unsavedOnBoot = unsavedOnBoot;
+    this.pullAfterEnds = pullAfterEnds; this.ends = 0; this.over = 0; this.readLog = [];
     this.flash = new Uint8Array(1 << 20).fill(0xFF);
     this.lastSave = 0; this.mounts = 0; this.outside = 0;
     this.access = { inputs: new Map(), outputs: new Map(), onstatechange: null };
@@ -100,7 +201,8 @@ class FakeFM1 {
     const ota = identity.startsWith("ota-");
     const name = identity === "FM-1_7101" ? "FM-1 PT/FM" : ota ? this.loaderIn || "Felucca Update" : "FM-1";   /* (the update loader's USB name) */
     this.identity = identity; this.waiting = null; this.queue = []; this.blk = null;
-    for (const m of [this.access.inputs, this.access.outputs]) { for (const p of m.values()) p.state = "disconnected"; m.clear(); }
+    if (identity === "FM-1_7101" && this.unsavedOnBoot) this.unsaved = true;
+    this.unplug();
     const id = Math.random().toString(36).slice(2), listeners = [];
     this.input = { id: "i" + id, name, state: "connected", onmidimessage: null, open: async () => {},
       addEventListener: (t, f) => { if (t === "midimessage") listeners.push(f); }, listeners };
@@ -113,6 +215,9 @@ class FakeFM1 {
     if (this.gs) this.access.outputs.set("gs", { id: "gs", name: "Microsoft GS Wavetable Synth", state: "connected",
                                                  open: async () => {}, send: () => {} });
   }
+  unplug() {                              /* the cable pulled: its ports gone */
+    for (const m of [this.access.inputs, this.access.outputs]) { for (const p of m.values()) p.state = "disconnected"; m.clear(); }
+  }
   tx(bytes) {
     const i = this.input;
     setTimeout(() => {
@@ -124,6 +229,7 @@ class FakeFM1 {
   }
   rx(d) {
     if (d.length > 5 && d[1] === 0x7D && d[2] === 0x50 && d[3] === 0x54) {
+      if (this.pulled) { this.pulled = false; this.unplug(); return; }   /* (the cable pulled: this message is lost) */
       if (this.identity === "FM-1_7101") this.seed(d[4], SEED.unpack7(d.slice(5, -1)));
     } else if (eq(d, HS)) {
       const t = [...new TextEncoder().encode(this.identity)];
@@ -175,7 +281,7 @@ class FakeFM1 {
         const h = this.flash.subarray(o, o + 16), len = h[4] | h[5] << 8 | h[6] << 16;
         const del = !!(h[7] & 2), plen = del ? 0 : len;
         const plausible = h[0] && h[0] < 0xE0 && !(h[7] & ~3) && !(del && len) && o + 16 + plen <= hi &&
-          (h[0] === 0x10 || (o & 0xFFF) + 16 + plen <= 4096);
+          ((h[0] & 0xFE) === 0x10 || (o & 0xFFF) + 16 + plen <= 4096);     /* (audio of both kinds may cross blocks) */
         const body = plausible ? this.flash.subarray(o + 16, o + 16 + plen) : null;
         if (!plausible || SEED.crc32(body, SEED.crc32(h.subarray(0, 12))) !== u32(h, 12)) { o += 4; continue; }
         out.push({ kind: h[0], num: h[1], sub: h[2], ver: h[3], len, flags: h[7], save: u32(h, 8), addr: o,
@@ -184,6 +290,24 @@ class FakeFM1 {
       }
     }
     return out;
+  }
+  map() {                                 /* the store's map: the newest record of each (kind, num, sub), a deleted one too
+                                             (in one save a live record wins over a deleted one) */
+    const m = new Map();
+    for (const r of this.records()) {
+      const k = r.kind << 16 | r.num << 8 | r.sub, o = m.get(k);
+      if (!o || r.save > o.save || (r.save === o.save && !(r.flags & 2))) m.set(k, r);
+    }
+    return [...m.values()].sort((a, b) => (a.kind << 16 | a.num << 8 | a.sub) - (b.kind << 16 | b.num << 8 | b.sub));
+  }
+  live() { return this.map().filter((r) => !(r.flags & 2)); }
+  occupied() {                            /* the blocks the map's records touch (a deleted one: its header) */
+    const s = new Set();
+    for (const r of this.map()) {
+      const end = r.addr + 16 + ((r.flags & 2) ? 0 : (r.len + 3) & ~3);
+      for (let b = r.addr >>> 12; b <= (end - 1) >>> 12; b++) s.add(b);
+    }
+    return s;
   }
   put(addr, kind, num, sub, ver, payload, save, last, del) {   /* a record written straight into the flash (del: a
                                                                    deleted record, no payload) */
@@ -196,11 +320,13 @@ class FakeFM1 {
     return addr + 16 + ((payload.length + 3) & ~3);
   }
   layout() {
-    const recs = this.records().filter((r) => r.ok);
+    const recs = this.map();
     const b = [..."PTLY"].map((c) => c.charCodeAt(0));
     const regions = [[0x093000, 0x0E0000, 0], [0x0E5000, 0x0FF000, 0]];
-    const accepts = [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [0x10, 1], [0x20, 1], [0x21, 1], [0x22, 3], [0x23, 1], [0x30, 1], [0x31, 1]];
-    b.push(1, 1, 0, 0, ...le32(1), ...le32(FW_END), ...le16(512), ...le16(16), regions.length, accepts.length,
+    const accepts = this.form === "new"
+      ? [[1, 1], [2, 1], [3, 1], [4, 2], [5, 1], [0x11, 1], [0x20, 1], [0x21, 1], [0x22, 4], [0x23, 1], [0x30, 1], [0x31, 1]]
+      : [[1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [0x10, 1], [0x20, 1], [0x21, 1], [0x22, 3], [0x23, 1], [0x30, 1], [0x31, 1]];
+    b.push(1, 1, ...le16(this.mapRoom), ...le32(1), ...le32(FW_END), ...le16(512), ...le16(this.reserve), regions.length, accepts.length,
       ...le16(0), ...le32(this.lastSave), ...le32(recs.length), this.unsaved ? 1 : 0, 0, 0, 0);
     for (const [s, e, a] of regions) b.push(...le32(s), ...le32(e), a, a ? 0 : 1, 0, 0);
     for (const [k, v] of accepts) b.push(k, v);
@@ -219,10 +345,12 @@ class FakeFM1 {
     if (cmd === C.READ) {                               /* the backup: flash bytes back, any area */
       const a = u32(d, 0), n = u16(d, 4);
       this.reads = (this.reads || 0) + 1;
+      this.readLog.push({ a, n, ok: convRead(this.map(), a, n) });
       return this.send(C.DATA, [...le32(a), ...this.flash.subarray(a, a + n)]);
     }
     if (cmd === C.BEGIN) {
       if (u32(d, 0) !== this.lastSave + 1) return this.ack(C.BEGIN, 0, R.CHANGED);   /* saved since the HELLO */
+      this.occ = this.occupied();                       /* (the blocks holding records now: a block written over counted) */
       this.begun = { save: u32(d, 0), blocks: u16(d, 4) }; this.blk = null; return this.ack(C.BEGIN, 0, R.OK);
     }
     if (!this.begun && cmd !== C.ABORT) return this.ack(cmd, 0, R.NOT_BEGUN);
@@ -240,6 +368,8 @@ class FakeFM1 {
       if (a < ROM_END) this.romBlocks = (this.romBlocks || 0) + 1;      /* (a plan never writes FWS) */
       if (!USER.some(([lo, hi]) => a >= lo && a + 4096 <= hi)) { this.outside++; return this.ack(C.BLOCK, blk, R.BAD_BLOCK); }
       if (SEED.crc32(data) !== crc) return this.ack(C.BLOCK, blk, R.BAD_CRC);
+      if (this.occ && this.occ.has(blk)) this.over++;
+      if (data.some((x) => x !== 0xFF)) this.wroteRecords = true;      /* (not only erasing) */
       this.flash.set(data, a);
       this.blk = null;
       this.blocksAcked = (this.blocksAcked || 0) + 1;
@@ -251,7 +381,13 @@ class FakeFM1 {
       this.mounts++;
       this.lastSave = recs.reduce((m, r) => Math.max(m, r.save), this.lastSave);
       this.begun = null;
-      return this.ack(cmd, 0, R.OK, [...le16([...live.values()].filter((r) => !(r.flags & 2)).length), ...le16(0), ...le32(this.lastSave)]);
+      if (cmd === C.END) { this.ends++; if (this.wroteRecords) this.recSaves = (this.recSaves || 0) + 1; }
+      this.wroteRecords = false;
+      if (cmd === C.END && this.editAfterEnds && this.ends >= this.editAfterEnds) this.unsaved = true;   /* (an edit made) */
+      this.ack(cmd, 0, R.OK, [...le16([...live.values()].filter((r) => !(r.flags & 2)).length), ...le16(this.badOnEnd || 0),
+        ...le32(this.lastSave)]);                         /* (badOnEnd: damaged records the mount counts, as a test sets) */
+      if (cmd === C.END && this.pullAfterEnds && this.ends >= this.pullAfterEnds) this.pulled = true;   /* (gone at the next) */
+      return;
     }
   }
 }
@@ -411,13 +547,15 @@ const parsed = SEED.parseData(disk);
      `UPLOAD after a SAVE on the FM-1: refused (CHANGED), planned again, written (the song saved meanwhile deleted)`);
 }
 { /* the debug page's INSTALL FIRMWARE: a clean install (the user area erased, damaged records too; no demo disk;
-     FWS never written by a plan) */
+     FWS never written by a plan; an older PT/FM's sampler erased, not converted: nothing read) */
   execFileSync("python3", ["-I", `${ROOT}fw/tools/make_installer.py`, PKG, `${OUT}/install_clean.html`, `${OUT}/test.ptfmdsk`, "--clean"]);
   const chtml = readFileSync(`${OUT}/install_clean.html`, "utf8");
-  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101" });
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101", form: "new" });
   const bytes = (n, k) => Uint8Array.from({ length: n }, (_, i) => (i * k + 7) & 255);
   const a = dev.put(0x093000, 0x21, 0x03, 0, 1, bytes(150, 3), 1, false);   /* the user's song and pattern */
-  dev.put(a, 0x20, 0x09, 0, 1, bytes(700, 5), 1, true);
+  const o = dev.put(a, 0x20, 0x09, 0, 1, bytes(700, 5), 1, false);
+  dev.put(o, 0x04, 0x01, 0, 1, oldSampler(1, [oldEntry(500, "A")]), 1, true);   /* an older PT/FM's sampler and its audio */
+  dev.put(0x094000, 0x10, 0x01, 0, 1, bytes(500, 9), 1, false);
   dev.flash.set(Uint8Array.from([0x10, 0x02, 0x00, 1, 40, 0, 0, 0, 1, 0, 0, 0, 9, 9, 9, 9, ...bytes(40, 9)]), 0x0E6000);   /* a damaged record */
   dev.lastSave = 1;
   const el = runPage(chtml, dev.access);
@@ -511,6 +649,218 @@ ok(!/FWS/.test(html.replace(/<script>[\s\S]*?<\/script>|<style>[\s\S]*?<\/style>
   ok(/^Done: the FM-1 runs PT\/FM/.test(el("status").textContent) && dev.served >= 10 && !dev.reads &&
      eq(userBefore, Array.from(dev.flash.subarray(0x093000, 0x0FF000))) && !dev.romBlocks && !dev.outside,
      "INSTALL: the firmware alone, no backup, nothing written to the user area");
+}
+/* ---- the conversion after an install (specs/files/blob.md#converting-after-an-install) ---- */
+const press = async (el, ms = 120000) => {             /* INSTALL FIRMWARE, then until the page is free again; the lines it said */
+  const seen = [], watch = setInterval(() => { const t = el("status").textContent; if (seen[seen.length - 1] !== t) seen.push(t); }, 2);
+  el("go").on.click();
+  await until(() => !el("go").disabled, ms);
+  clearInterval(watch);
+  seen.push(el("status").textContent);
+  return seen;
+};
+const DONE = "Done: the FM-1 runs PT/FM (FM-1_7101)";
+const AGAIN = "delete something on the FM-1 and press INSTALL FIRMWARE again, or on the EDITOR page READ, then WRITE (it writes " +
+  "the user area anew, after its backup).";
+{ /* INSTALL FIRMWARE (CLEAN INSTALL off) over an FM-1 holding an older PT/FM's samplers: PT/FM back, the samplers converted
+     in saves of whole samplers, as many a save as the free room holds keeping the reserve (here one a save), into free
+     blocks only, reading back only what the spec lists; everything else kept where it was; numbered as one run; no Done
+     before it is all over */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101", form: "new", reserve: 2 });
+  const before = olderShapes(84);
+  lay(dev, before);
+  const free = 103 - dev.occupied().size;
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  const lines = await press(el);
+  const done = `${DONE}; 3 samplers converted to the new form, 4 samples. Deleted: 2 pieces of old audio with no sample entry ` +
+    "(nothing could play them).";
+  ok(el("status").textContent === done && el("status").className === "status done",
+     `CONVERT after INSTALL: "${el("status").textContent}"`);
+  ok([0, 1, 2, 3].every((n) => lines.includes(`Converting the samplers to the new form: ${n} of 3. Keep the FM-1 connected.`)) &&
+     lines.filter((t) => /^Done/.test(t)).every((t) => t === done),
+     `CONVERT: its steps, 0 to 3 of 3, and no Done before the end (${lines.filter((t) => /^Converting/.test(t)).length} lines)`);
+  ok(free === 6 && dev.recSaves === 3 && dev.ends === 3 && asOneRun(dev, before) && keptWhere(dev, before),
+     `CONVERT: one sampler a save (${dev.recSaves} saves; ${free} blocks free at first), numbered as one run, the rest kept where it was`);
+  ok(dev.readLog.length > 0 && dev.readLog.every((r) => r.ok) && !dev.over,
+     `CONVERT: read back only what the spec lists (${dev.readLog.length} reads), no block holding records written over`);
+}
+{ /* the cable pulled after the first save: what was converted is whole, the rest as it was; the next INSTALL FIRMWARE goes on,
+     numbered as one run */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101", form: "new", reserve: 2, pullAfterEnds: 1 });
+  const before = olderShapes(84);
+  lay(dev, before);
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  const first = el("status").textContent, mid = dev.live();
+  const old = (n) => mid.some((r) => r.kind === 4 && r.num === n && r.ver === 1) &&
+    before.filter((b) => b.kind === 0x10 && b.num === n).every((b) => mid.some((r) => r.kind === 0x10 && r.num === n && r.sub === b.sub));
+  ok(first.startsWith(`${DONE}; 1 of 3 samplers converted, then the FM-1 stopped answering. Switch it off and on, then press ` +
+     "INSTALL FIRMWARE again") && el("status").className === "status err" &&
+     mid.some((r) => r.kind === 4 && r.num === 1 && r.ver === 2) && old(2) && old(3),
+     `CONVERT, the cable pulled after a save: "${first}"; 01 converted, 02 and 03 as they were`);
+  dev.pullAfterEnds = 0;
+  dev.boot("FM-1_7101");                                 /* (connected again) */
+  await press(el);
+  ok(el("status").textContent === `${DONE}; 2 samplers converted to the new form, 2 samples. Deleted: 1 piece of old audio with no ` +
+     "sample entry (nothing could play it)." && asOneRun(dev, before) && keptWhere(dev, before) && !dev.over,
+     `CONVERT, INSTALL FIRMWARE again: "${el("status").textContent}"; numbered as one run`);
+}
+{ /* edits not saved: as PT/FM starts (nothing checked, nothing read), or made between two saves; a resumed install converts
+     too */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new", unsavedOnBoot: true });
+  lay(dev, olderShapes(0));
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(el("status").textContent === `${DONE}. It has edits not saved, so what an older PT/FM left on it was not converted: SAVE ` +
+     "them (or REVERT) on the FM-1, then press INSTALL FIRMWARE again." && !dev.readLog.length && !dev.ends,
+     `CONVERT, edits not saved at PT/FM's start: "${el("status").textContent}"`);
+  const d2 = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new", reserve: 2 });
+  d2.editAfterEnds = 1;
+  lay(d2, olderShapes(84));
+  const e2 = runPage(html, d2.access);
+  await until(() => !e2("go").disabled, 5000);
+  await press(e2);
+  ok(e2("status").textContent === `${DONE}; 1 of 3 samplers converted. The FM-1 has edits not saved: SAVE them (or REVERT) on ` +
+     "the FM-1, then press INSTALL FIRMWARE again." && d2.ends === 1,
+     `CONVERT (a resumed install), an edit made after the first save: "${e2("status").textContent}"`);
+}
+{ /* a SAVE on the FM-1 between the conversion's layout and its BEGIN: refused (CHANGED), the layout read and planned again;
+     the save kept */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new" });
+  const before = olderShapes(0), song = R_(0x21, 0x07, 0, 1, Uint8Array.from([1, 2, 3, 4]));
+  lay(dev, before);
+  dev.onHello = () => {
+    const occ = dev.occupied();
+    let b = 0x0FE;
+    while (occ.has(b)) b--;
+    dev.put(b * 4096, song.kind, song.num, song.sub, song.ver, song.payload, dev.lastSave + 1, true);
+    dev.lastSave++;
+  };
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(el("status").textContent.startsWith(`${DONE}; 3 samplers converted to the new form, 4 samples.`) && !dev.onHello &&
+     asOneRun(dev, before.concat([song])) && !dev.over,
+     `CONVERT after a SAVE on the FM-1 meanwhile: planned again, converted, the save kept`);
+}
+{ /* a sampler too big for the free blocks even alone: it stops before it, saying how much more room */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new", reserve: 2 });
+  const before = [R_(4, 1, 0, 1, oldSampler(1, [oldEntry(30000, "PAD")])), R_(0x10, 1, 0, 1, fill(30000, 3))]
+    .concat(Array.from({ length: 89 }, (_, i) => R_(0x20, 0x10 + i, 0, 1, fill(4000, i + 1))));
+  lay(dev, before);
+  const free = 103 - dev.occupied().size;
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(free === 5 && el("status").textContent === `${DONE}; 0 of 1 samplers converted. Sampler 01 needs 16 KB more room: ${AGAIN}` &&
+     el("status").className === "status warn" && !dev.ends && dev.live().some((r) => r.kind === 4 && r.num === 1 && r.ver === 1),
+     `CONVERT, a sampler too big for the free room: "${el("status").textContent}"`);
+}
+{ /* too big, and the FM-1 left with too little room to save even a delete (2 free blocks): the EDITOR page's way alone */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new", reserve: 2 });
+  const before = [R_(4, 1, 0, 1, oldSampler(1, [oldEntry(30000, "PAD")])), R_(0x10, 1, 0, 1, fill(30000, 3))]
+    .concat(Array.from({ length: 92 }, (_, i) => R_(0x20, 0x10 + i, 0, 1, fill(4000, i + 1))));
+  lay(dev, before);
+  const free = 103 - dev.occupied().size;
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(free === 2 && /^Done: the FM-1 runs PT\/FM \(FM-1_7101\); 0 of 1 samplers converted\. Sampler 01 needs \d+ KB more room, and the FM-1 has too little left to save even a delete: on the EDITOR page READ, then WRITE \(it writes the user area anew, after its backup\)\.$/
+     .test(el("status").textContent) && !dev.ends, `CONVERT, too big with ${free} blocks free: "${el("status").textContent}"`);
+}
+{ /* a sampler whose records do not fit in the store's list (the map's room): it stops before it, saying how many more */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new" });
+  const before = olderShapes(0);
+  lay(dev, before);
+  dev.mapRoom = dev.map().length + 1;
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(el("status").textContent === `${DONE}; 0 of 3 samplers converted. Sampler 01 needs room for 1 more record in the FM-1's ` +
+     `list of records (it lists ${dev.mapRoom} at most): on the EDITOR page READ, then WRITE (it writes the user area anew, ` +
+     "after its backup). Deleted: 1 piece of old audio with no sample entry (nothing could play it)." &&
+     dev.map().length <= dev.mapRoom && dev.live().some((r) => r.kind === 4 && r.num === 1 && r.ver === 1),
+     `CONVERT, past the map's room: "${el("status").textContent}"`);
+}
+{ /* past 256 samples: the samplers whose samples find no number stay in the old form, the line says how many */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new" });
+  const before = [];
+  for (let s = 1; s <= 5; s++) {
+    const n = s === 5 ? 3 : 64;
+    before.push(R_(4, s, 0, 1, oldSampler(n, Array.from({ length: n }, (_, i) => oldEntry(8, "S" + i)))));
+    for (let i = 0; i < n; i++) before.push(R_(0x10, s, i, 1, Uint8Array.from([s, i, 1, 2, 3, 4, 5, 6])));   /* (all different) */
+  }
+  lay(dev, before);
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(el("status").textContent === `${DONE}; 4 samplers converted to the new form, 256 samples. 1 sampler stays in the older ` +
+     "form: its 3 samples find no free sample number (256 at most). The EDITOR page lists it as OLDER FORM; deleting it, or " +
+     "other samples, frees numbers." && el("status").className === "status warn" && asOneRun(dev, before),
+     `CONVERT past 256 samples: "${el("status").textContent.slice(0, 90)}..."`);
+}
+{ /* free room in pieces: enough blocks free, but none of the runs holds the new sample: the line says how much in one piece
+     and names the EDITOR page's READ, then WRITE alone */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new" });
+  const before = [R_(4, 1, 0, 1, oldSampler(1, [oldEntry(20000, "PAD")])), R_(0x10, 1, 0, 1, fill(20000, 3))];
+  lay(dev, before);                                      /* (the sampler's block and its audio's five: blocks 93-98) */
+  let n = 0;
+  for (const [s, e] of USER) for (let a = s; a < e; a += 3 * 4096) if (a >= 0x099000) dev.put(a, 0x20, 0x10 + n++, 0, 1, fill(2000, n), 1, false);
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  ok(el("status").textContent === `${DONE}; 0 of 1 samplers converted. Sampler 01 needs 20 KB in one piece, and the free room on ` +
+     "the FM-1 lies in smaller pieces: on the EDITOR page READ, then WRITE (it writes the user area anew, after its backup)." &&
+     !dev.ends, `CONVERT, free room in pieces (${103 - dev.occupied().size} blocks free): "${el("status").textContent.slice(0, 120)}..."`);
+}
+{ /* the damaged records a mount counts, said true: none of them written now (every block written is checked), CHECK STORAGE
+     naming them; after a conversion and after an upload */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "ota-FM-1_900", form: "new" });
+  dev.badOnEnd = 1;
+  lay(dev, olderShapes(0));
+  const el = runPage(html, dev.access);
+  await until(() => !el("go").disabled, 5000);
+  await press(el);
+  const conv = el("status").textContent;
+  dev.badOnEnd = 2;
+  el("upload-pick").files = [{ name: "MINE.ptfmdsk", arrayBuffer: async () => SEED.makeDisk([{ kind: 0x21, num: 0x33, sub: 0, ver: 1,
+    payload: fill(40, 7) }]).buffer }];
+  Object.assign(el("status"), { textContent: "", className: "status" });
+  await el("upload-pick").on.change();
+  await until(() => /^Done|cannot|stopped/.test(el("status").textContent) || /err/.test(el("status").className), 30000);
+  ok(conv.startsWith(`${DONE}; 3 samplers converted to the new form, 4 samples.`) &&
+     conv.endsWith(" The FM-1 counts 1 damaged record, not one written now (SETTINGS > TOOLS > CHECK STORAGE names it).") &&
+     el("status").textContent === "Done: the FM-1 holds 1 files. The FM-1 counts 2 damaged records, none of them written now " +
+     "(SETTINGS > TOOLS > CHECK STORAGE names them).", `damaged records said: "...${conv.slice(-90)}" / "${el("status").textContent}"`);
+}
+{ /* a sample whose entry and audio differ: written as it is, the line saying the FM-1 reads it as missing */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101", form: "new" });
+  const good = R_(0x11, 4, 0, 1, Uint8Array.from([...oldEntry(300, "OK"), ...aud(300, 3)]));
+  const odd = R_(0x11, 5, 0, 1, Uint8Array.from([...oldEntry(400, "ODD"), ...aud(300, 5)]));
+  const el = runPage(html, dev.access);
+  await until(() => !el("upload").disabled, 5000);
+  el("upload-pick").files = [{ name: "ODD.ptfmdsk", arrayBuffer: async () => SEED.makeDisk([good, odd]).buffer }];
+  Object.assign(el("status"), { textContent: "", className: "status" });
+  await el("upload-pick").on.change();
+  await until(() => /^Done|cannot|stopped/.test(el("status").textContent) || /err/.test(el("status").className), 30000);
+  ok(el("status").textContent === "Done: the FM-1 holds 2 files. 1 sample on it the FM-1 reads as missing (its entry and audio " +
+     "differ): SAMPLE 05." && el("status").className === "status warn", `UPLOAD, a sample whose entry and audio differ: "${el("status").textContent}"`);
+}
+{ /* UPLOAD CUSTOM DISK of the old form (an older backup) onto PT/FM that takes the new form only: converted as it loads */
+  const dev = new FakeFM1(Uint8Array.from(logical), { running: "FM-1_7101", form: "new" });
+  const files = olderShapes(0).filter((r) => [4, 0x10, 0x11, 0x21].includes(r.kind));
+  const el = runPage(html, dev.access);
+  await until(() => !el("upload").disabled, 5000);
+  el("upload-pick").files = [{ name: "OLD.ptfmdsk", arrayBuffer: async () => SEED.makeDisk(files).buffer }];
+  await el("upload-pick").on.change();
+  await until(() => /^Done|stopped|cannot/.test(el("status").textContent) || /err/.test(el("status").className), 30000);
+  const n = SEED.convertSamplers(files).recs.length;
+  ok(el("status").textContent === `Done: the FM-1 holds ${n} files. The disk's samplers were converted to the new form as it ` +
+     "loaded: 3 samplers, 4 samples." && asOneRun(dev, files),
+     `UPLOAD CUSTOM DISK of the old form: "${el("status").textContent}"`);
 }
 { /* the update loader under a name Windows gives (no FM-1 word in it), its output named otherwise, and Windows' GS
      synth beside: found by its answer to the handshake (fm1ota.js find's deep pass, probe's pairing) */
@@ -638,6 +988,33 @@ ok(!/FWS/.test(html.replace(/<script>[\s\S]*?<\/script>|<style>[\s\S]*?<\/style>
     ok(/^Done: a clean FM-1, PT\/FM \(FM-1_7101\), its user area empty\.$/.test(elc("status").textContent) &&
        clean.length === 0 && c3.bad === 0 && c3.records === 0,
        `end to end: CLEAN INSTALL: "${elc("status").textContent}" (${clean.length} records, ${c3.bad} damaged)`);
+
+    /* an FM-1 holding the demo disk as an older PT/FM uploaded it (the old form: tools/pack.py --old-form), then INSTALL
+       FIRMWARE: the conversion through the device's own code, in saves of whole samplers; the FM-1 then holds the records the
+       demo disk uploads now */
+    execFileSync("python3", ["-I", `${ROOT}tools/pack.py`, "--old-form", "--out", `${OUT}/demo-old.ptfmdsk`]);
+    execFileSync("python3", ["-I", `${ROOT}tools/pack.py`, "--low-samples", "--out", `${OUT}/demo-conv.ptfmdsk`]);
+    const oldDisk = SEED.parseData(readFileSync(`${OUT}/demo-old.ptfmdsk`));
+    const converted = new Map(SEED.parseData(readFileSync(`${OUT}/demo-conv.ptfmdsk`)).files.map((f) => [`${f.kind}.${f.num}.${f.sub}`, f]));   /* (its samples from 00) */
+    {
+      const d = bridged();
+      sink = (b) => to.cb(Uint8Array.from(b));
+      const L4 = await d.hello();
+      const older = Object.assign({}, L4, { accepts: L4.accepts.concat([{ kind: 4, ver: 1 }, { kind: 0x10, ver: 1 }]) });
+      await d.write(SEED.planClean(older, oldDisk), () => {});
+      d.close();
+    }
+    sink = (b) => dev.tx(b);
+    const elo = runPage(readFileSync(PAGE, "utf8"), dev.access);   /* (the release page, CLEAN INSTALL off) */
+    await until(() => !elo("go").disabled, 8000);
+    const said = await press(elo, 300000);
+    const conv = (await cmd("DUMP")).filter((l) => l.startsWith("R ")).map((l) => l.slice(2).split(" ").map((x) => parseInt(x, 16)));
+    const bad4 = conv.filter(([k, n, s, v, len, crc]) => { const f = converted.get(`${k}.${n}.${s}`); return !f || f.ver !== v || f.len !== len || f.crc !== crc >>> 0; });
+    ok(elo("status").textContent === `${DONE}; 5 samplers converted to the new form, 33 samples.` &&
+       said.some((t) => /^Converting the samplers to the new form: [1-4] of 5\. Keep the FM-1 connected\.$/.test(t)) &&
+       conv.length === demo.files.length && !bad4.length,
+       `end to end: INSTALL over the old demo disk: "${elo("status").textContent}" (${conv.length} records, ${bad4.length} differ ` +
+       `from the demo disk's)`);
     br.stdin.end("Q\n");
     br.kill();
   } else {

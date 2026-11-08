@@ -52,14 +52,28 @@ ${CC:-cc} -std=gnu11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-paramete
 "$OUT/ctlmode_test" general "$SHOTS" fast          # (the platform's 1 kHz tick runs it, as on the FM-1)
 mkdir -p "$OUT/fast"
 "$OUT/ctlmode_test" mirror "$OUT/fast" fast        # (the same in mirror mode; its shots aside, the others' kept)
+# RECORD LIVE's full log and full ring: the same built with a log of 8 entries and a ring of 4 (live.c's two limits),
+# only those tests run
+mkdir -p "$OUT/small"
+${CC:-cc} -std=gnu11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-type-limits \
+    -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all \
+    -DUI3_LIVE_SMALL -DLIVE_LOG_BYTES=64u -DLIVE_RING_N=4u \
+    $INC -I"$GEN" $SRC "$GEN"/builtin.c "$GEN"/fonts.c "$GEN"/texts.c fw/tests/ui3_test.c -o "$OUT/ui3_small" -lm
+"$OUT/ui3_small" dist/firmware/demo.ptfmdsk "$OUT/small"
 node fw/tests/ui_shots.js "$SHOTS" build/playground
-# the debug build (specs/debug.md): the same with PTFM_DEBUG, its figures asked for and answered, a whole bench
-# run (THE CORE, ALONE); the page's side (fw/web/figures.js) on the answers and records caught
+# one RECORD LIVE session (live_session.txt) on both twins, in replay ticks on their virtual clocks: the same song, cell for
+# cell, ticks included; a difference fails here and is printed (firmware <, playground >)
+"$OUT/ui3_test" dist/firmware/demo.ptfmdsk "$OUT/keys" fw/tests/live_session.txt "$OUT/live_twin.txt"
+node tests/playground/harness.js tests/playground/live_twin.js
+diff "$OUT/live_twin.txt" build/playground/live_twin.txt || { echo "run_ui3.sh: the twins' RECORD LIVE songs differ"; exit 1; }
+echo "RECORD LIVE's session: the twins' songs the same"
+# the debug build (specs/debug.md): the same with PTFM_DEBUG, its figures asked for and answered; the page's side
+# (fw/web/figures.js) on the answers caught
 mkdir -p "$OUT/debug"
 ${CC:-cc} -std=gnu11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-type-limits \
     -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all \
     -DPTFM_DEBUG '-DPTFM_VERSION="TEST DEBUG"' \
     $INC -I"$GEN" $SRC "$GEN"/builtin.c "$GEN"/fonts.c "$GEN"/texts.c fw/tests/ui3_test.c -o "$OUT/ui3_debug" -lm
 "$OUT/ui3_debug" dist/firmware/demo.ptfmdsk "$OUT/debug"
-node fw/tests/figures_test.js "$OUT/debug/figures1.syx" "$OUT/debug/figures2.syx" "$OUT/debug/bench.syx" \
+node fw/tests/figures_test.js "$OUT/debug/figures1.syx" "$OUT/debug/figures2.syx" \
     "$OUT/debug/figures3.syx" "$OUT/debug/figures1c2.syx" "$OUT/debug/figures3c2.syx"

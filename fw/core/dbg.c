@@ -22,7 +22,7 @@ uint8_t dbg_notes_half;
 volatile uint8_t dbg_usb_tone;
 static uint32_t tone_resets;            /* plat_usb_resets when the tone went on */
 static const int32_t *tone_sin;         /* the DX7's sine table (dx7_table(0)): the tone's code, in core 2's room,
-                                         * reads it and calls nothing; taken before 32 BENCH or 34 USB TONE runs it */
+                                         * reads it and calls nothing; taken before 34 USB TONE runs it */
 
 /* the window: written by the audio context (dbg_half_end), read and cleared by the main loop under plat_lock */
 typedef struct {
@@ -38,7 +38,6 @@ static uint32_t win_t0, steals0;
 static uint8_t frozen, thaw, asked, win_frozen;   /* (win_frozen: the window started frozen) */
 static uint8_t unsent;                  /* FIGURES answers USB could not send whole, since power-on (mod 256) */
 static uint8_t win_no;                  /* the window's number (mod 256): its 31 and its 37 carry it */
-static uint8_t c2_off;                  /* 38 SECOND CORE 0: core 2 off, whatever SETTINGS says */
 typedef char figures_fit[8 + (DBG_FIGURES_LEN * 8 + 6) / 7 <= 640 ? 1 : -1];   /* (remote_send's largest message) */
 typedef char figures2_fit[8 + (DBG_FIGURES2_LEN * 8 + 6) / 7 <= 640 ? 1 : -1];
 
@@ -82,7 +81,7 @@ void dbg_half_end(uint8_t voices)
     if (voices > win.voices_most) win.voices_most = voices;
 }
 
-void dbg_frame(uint32_t us)
+PLAT_DBG void dbg_frame(uint32_t us)
 {
     if (fwin.frames < 65535u) fwin.frames++;
     fwin.frame_sum += us;
@@ -91,10 +90,10 @@ void dbg_frame(uint32_t us)
 
 int dbg_frozen(void) { return frozen; }
 
-static void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
-static void put32(uint8_t *p, uint32_t v) { put16(p, v); put16(p + 2, v >> 16); }
+static PLAT_DBG void put16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static PLAT_DBG void put32(uint8_t *p, uint32_t v) { put16(p, v); put16(p + 2, v >> 16); }
 
-void dbg_worst_put(uint8_t *p, const dbg_worst_t *w)
+PLAT_DBG void dbg_worst_put(uint8_t *p, const dbg_worst_t *w)
 {
     put16(p, w->us);
     p[2] = w->voices;
@@ -108,7 +107,7 @@ typedef char dj_len_ok[DBG_DJ_LEN == REMOTE_DJ_LEN ? 1 : -1];
 #define dj_put remote_dj_put
 
 /* core 2's window (specs/debug.md, Core 2's bytes): 37 FIGURES 2, sent right after its 31 */
-static void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
+static PLAT_DBG void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
 {
     plat_cpu_t c;
     plat_cpu(&c, 0);
@@ -117,9 +116,10 @@ static void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
     f[1] = win_no;
     f[2] = c.c2_state;
     f[3] = c.c2_why;
-    f[4] = (uint8_t)((ui_set[S_SECOND_CORE] ? 0u : 1u) |  /* SETTINGS' SECOND CORE on; off by 38; its start needed
-                                                           * the clock-divider bit; the blocks on core 2 all the window */
-                     (c2_off ? 2u : 0u) | (d->c2.clk ? 4u : 0u) | (d->halves && d->c2.halves >= d->halves ? 8u : 0u));
+    f[4] = (uint8_t)((ui_set[S_SECOND_CORE] ? 0u : 1u) |  /* SETTINGS' SECOND CORE on; (bit 1 spare); its start
+                                                           * needed the clock-divider bit; the blocks on core 2 all the
+                                                           * window */
+                     (d->c2.clk ? 4u : 0u) | (d->halves && d->c2.halves >= d->halves ? 8u : 0u));
     put16(f + 6, d->c2.start_10ns);
     put32(f + 8, d->c2.sum_us);
     put16(f + 12, d->c2.max_us);
@@ -146,7 +146,7 @@ static void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
     f[55] = (uint8_t)(d->sx_lost[1] > 255u ? 255u : d->sx_lost[1]);
 }
 
-int dbg_figures(uint8_t *f, uint8_t *f2)
+PLAT_DBG int dbg_figures(uint8_t *f, uint8_t *f2)
 {
     plat_dbg_t d;
     player_state_t st;
@@ -223,23 +223,14 @@ int dbg_figures(uint8_t *f, uint8_t *f2)
     return DBG_FIGURES_LEN;
 }
 
-int dbg_sysex(const uint8_t *msg, uint32_t n)
+PLAT_DBG int dbg_sysex(const uint8_t *msg, uint32_t n)
 {
     if (n != 7 || msg[0] != 0xF0 || msg[1] != 0x7D || msg[2] != 0x50 || msg[3] != 0x54 || msg[6] != 0xF7)
         return 0;
-    if (msg[4] == 0x32 || msg[4] == 0x34)
-        tone_sin = dx7_table(0);
-    if (msg[4] == 0x32)                                /* F0 7D 50 54 32 cmd F7: the bench */
-        return bench_sysex(msg[5]);
     if (msg[4] == 0x34) {                              /* F0 7D 50 54 34 on F7: the USB test tone */
+        tone_sin = dx7_table(0);
         dbg_usb_tone = msg[5] & 1;
         tone_resets = plat_usb_resets();
-        return 1;
-    }
-    if (msg[4] == 0x38) {                              /* F0 7D 50 54 38 on F7: core 2 off (0) till a 38 with 1, or as
-                                                        * SETTINGS says (1); the setting untouched, nothing saved */
-        c2_off = !(msg[5] & 1);
-        plat_c2_force_off(c2_off);
         return 1;
     }
     if (msg[4] != 0x30)
@@ -268,13 +259,12 @@ PLAT_C2 void dbg_tone_block(int16_t *lr, int n)
 
 /* a message out (F0 7D 50 54 cmd, the bytes packed as seeding's: 7 in 8, F7): remote.c's (FIGURES, 606 B on the
  * wire, the largest, of USB's 640); 0 when USB did not take it (it is dropped) */
-int dbg_send(uint8_t cmd, const uint8_t *b, uint32_t len) { return remote_send(cmd, b, len); }
+PLAT_DBG int dbg_send(uint8_t cmd, const uint8_t *b, uint32_t len) { return remote_send(cmd, b, len); }
 
-void dbg_poll(void)
+PLAT_DBG void dbg_poll(void)
 {
     if (dbg_usb_tone && plat_usb_resets() != tone_resets)
         dbg_usb_tone = 0;                              /* (a USB bus reset ends the test tone) */
-    bench_poll();                                      /* (its next piece, a record) */
     if (asked) {                                       /* the window, then core 2's */
         uint8_t f[DBG_FIGURES_LEN], f2[DBG_FIGURES2_LEN];
         dbg_figures(f, f2);

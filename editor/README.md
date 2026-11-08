@@ -24,9 +24,9 @@ a repeating preview through the firmware's sound code. Its spec: [`../specs/edit
 | File | What |
 |---|---|
 | `index.html`, `editor.css` | the page and its look: the header with the tabs, the work area, the footer with the mini player and the status line; no sidebar; one panel at a time under 860 px |
-| `js/model.js` | the panels' items and their rules, no DOM: items from records and back, references (patched in place, so what does not change keeps its bytes), content hashes, sizes, moves (reuse by hash, numbers kept or given, loose samples into a sampler, the system items replaced, changed built-ins), DELETE and ALSO WHAT ONLY IT USES, the space as the uploader's planner places it, what WRITE would change, UNDO |
+| `js/model.js` | the panels' items and their rules, no DOM: items from records and back, references (patched in place, so what does not change keeps its bytes), content hashes, sizes, moves (reuse by hash, numbers kept or given, samples of their own numbered past the numbers references name, the system items replaced, changed built-ins, a built-in moved to the TABLE as a copy), DELETE and ALSO WHAT ONLY IT USES, the space as the uploader's planner places it, what WRITE would change, UNDO |
 | `js/files.js` | FILES: both panels (groups, DETAILS / LIST / ICONS, filter, sorting, picking, keys, the menu, the selection bar, renaming, dragging, the space bar, the FM-1 panel's header, its built-ins and defaults) |
-| `js/fm1.js` | READ, WRITE (the plan, CHANGED, the dialog), UPLOAD DISK, DOWNLOAD DISK, REVERT, over `../fw/web/seed.js` |
+| `js/fm1.js` | READ, WRITE (the plan, CHANGED, the dialog), UPLOAD DISK, DOWNLOAD DISK, DOWNLOAD AS DISK (the TABLE's selection), REVERT, over `../fw/web/seed.js` |
 | `js/drops.js` | files dropped on the TABLE: disks, MOD / S3M / XM, MIDI files, DX7 `.syx`, sounds |
 | `js/player.js` | the preview: the firmware in an AudioWorklet, each kind's flash image, the repeat, the mini player |
 | `js/pics.js` | the FM-1's pictures, drawn by the firmware (`wasm/ed_pics.c`) from an item's bytes |
@@ -34,6 +34,10 @@ a repeating preview through the firmware's sound code. Its spec: [`../specs/edit
 | `js/ui.js`, `js/keep.js`, `js/main.js` | the page's state, status line, dialogs, menus and icons; kept in the browser, one page at a time; the start |
 | `js/records.js` | every record both ways, byte for byte (`tools/ptfm_records.py`'s twin: `tests/editor` keeps them equal); older versions converted wherever records come in (the loops' version 3 to 4) |
 | `js/defs.js`, `js/cmds.js`, `js/util.js` | what is shown and edited, as tables (the FX's knobs, the settings, the engines' parameters, the MIDI map's controls); the commands as the grid shows and lists them; helpers |
+| `js/cutting.js`, `js/slices.js` | cutting sounds, no DOM: the naming rule, TRIM SILENCE, slices found from a sound's level or placed by hand, joins with a crossfade, a kit's records (`slices.js`); new samples and kits put on a panel (SAVE AS A NEW SAMPLE, SAVE AS SAMPLES, MAKE A KIT) with the FM-1 panel's room checked as a move's (`cutting.js`) |
+| `js/recorder.js` | the recorder over the page (● RECORD): the input, the meter, a take with its waveform, a selection, ▶ and SAVE as a loose sample |
+| `js/slotops.js` | a cartridge's slots and what names them (cells, loops, favourites, the current instrument): the uses counted, a rearranging's SAVE rewriting every one |
+| `js/tab_favorites.js` | a FAVORITES cartridge's tab: its 128 slots, each naming an instrument of another cartridge |
 | `js/optimize.js` | samples made smaller, shared by the SAMPLE tab's OPTIMIZE and the TABLE's OPTIMIZE SAMPLES: a sample's source, its instruments' use of it, the levels, a new cut put in a panel with its sampler following |
 | `js/conv_mod.js`, `js/ibxm_load.js`, `js/conv_midi.js`, `js/conv_syx.js`, `js/conv_sound.js` | the converters: modules read as IBXM's loaders read them, MIDI files, DX7 bulk and single-voice dumps, sounds |
 | `js/flash.js` | a flash image of records as a clean seeding lays them; `ED.Firmware`, one instance of the firmware on the page's thread (pictures, AUTO LEVEL, the tests' virtual FM-1) |
@@ -43,9 +47,11 @@ a repeating preview through the firmware's sound code. Its spec: [`../specs/edit
 ## Tests
 
 `sh tests/editor/run_tests.sh [MODULE...]` (from `ptfm/`; it builds first): the records against `tools/ptfm_records.py`,
-the loops' record, the panels' rules (`model_test.js`), READ and WRITE against the virtual FM-1 (`device_test.js`), the
-preview's worklet playing each kind (`preview_test.js`), the converters (`conv_test.js`, modules given as arguments),
-the pictures against the firmware's own screens (`pictures_test.js`).
+the loops' record (`loops_test.js`), the panels' rules (`model_test.js`), READ and WRITE against the virtual FM-1
+(`device_test.js`), the preview's worklet playing each kind (`preview_test.js`) and the loops' SHIFT
+(`loops_preview_test.js`), the converters (`conv_test.js`, modules given as arguments), the pictures against the
+firmware's own screens (`pictures_test.js`), cutting (`slices_test.js`), a cartridge's slots (`slotops_test.js`) and
+FAVORITES (`favorites_test.js`).
 
 `sh tests/editor/run_page.sh [SCENARIO...]` (from `ptfm/`; it builds first; needs Chrome or Chromium, `CHROME=` to
 name it): the page itself in a headless Chrome (`page_test.js`, through its DevTools protocol with Node's own fetch and
@@ -53,4 +59,4 @@ WebSocket), on `dist/editor/editor.html?virtual`, a scenario a file in `tests/ed
 the views, WRITE and READ, each kind's tab), `dialogs` (DELETE with what uses it, ALSO WHAT ONLY IT USES, REPLACE,
 UNDO), `tabs` (each kind edited and saved, the FX chain dragged), `pictures`, `keys` (the side list, MIDI, the keyboard's
 input kept, FILES' group headers), `new` (+ NEW), `backup` (WRITE's BACKUP), `down` (WRITE converting down), `whole` (WRITE of the whole user area), `optimize`
-(a sample's OPTIMIZE, its instruments following on SAVE), `narrow` (a phone's width). Screenshots to look at in `build/editor/page/`. Run it before handing a build over.
+(a sample's OPTIMIZE, its instruments following on SAVE), `sampler` (a sampler's instruments naming any sample: SAMPLE, REPLACE SAMPLE, CREATE, DELETE, THE SAMPLES IT USES, PASTE bringing a sample, samples dropped on a sampler, PLAYED BY), `narrow` (a phone's width), `builtin` (a built-in moved to the TABLE as a copy), `loops_shift` (the LOOPS tab's SHIFT), `seldisk` (DOWNLOAD AS DISK), `favorites` (a FAVORITES cartridge), `recorder` (● RECORD), `slices` (the SAMPLE tab's cutting), `slots` (many instruments at once) and `toolong` (a sample too long for the FM-1), `renumber` (SET NUMBER). Screenshots to look at in `build/editor/page/`. Run it before handing a build over.

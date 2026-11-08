@@ -38,14 +38,17 @@ PTFM.model = (function () {
     M.envSource = v => v === 0 ? "KEYS" : v <= 16 ? "TRACK " + M.hex(v - 1) : M.ENV_SOURCES[Math.min(4, v - 17)];
     M.refText = r => M.hex(r >> 8) + ":" + M.hex(r & 255);
 
+    /* FAVORITES (specs/files/instruments.md#favorites): a cartridge of references, no engine, light grey */
     M.ENGINES = {
         DX7: { col: 12, short: "DX7" }, JUNO: { col: 11, short: "JUNO" }, TB303: { col: 10, short: "TB-303" },
         SAMPLER: { col: 14, short: "SAMPLE" }, FUSION: { col: 13, short: "FUSION" }, CHIP: { col: 9, short: "CHIP" },
+        FAVORITES: { col: 7, short: "FAVORITES" },
     };
-    M.SIZES = { DX7: 32, JUNO: 128, TB303: 128, SAMPLER: 64, FUSION: 64, CHIP: 128 };
-    M.TYPE_NAMES = { DX7: "DX7", JUNO: "JUNO-106", TB303: "TB-303", SAMPLER: "SAMPLER", FUSION: "FUSION", CHIP: "CHIP" };
+    M.SIZES = { DX7: 32, JUNO: 128, TB303: 128, SAMPLER: 64, FUSION: 64, CHIP: 128, FAVORITES: 128 };
+    M.TYPE_NAMES = { DX7: "DX7", JUNO: "JUNO-106", TB303: "TB-303", SAMPLER: "SAMPLER", FUSION: "FUSION", CHIP: "CHIP",
+                     FAVORITES: "FAVORITES" };
 
-    /* the samples' audio stays out of the edited state: M.audio[id], the sample records refer to it */
+    /* the samples' audio stays out of the edited state: M.audio[id], the samples refer to it */
     M.audio = [];
     function b64(s) {
         const bin = atob(s), a = new Int8Array(bin.length);
@@ -79,21 +82,34 @@ PTFM.model = (function () {
     M.init = (type, name) => ({ name: name || "INIT", level: 0, p: INIT[type]() });
 
     /* -------------------------------------------------------------------------- loading --- */
+    /* the samples (specs/files/instruments.md#samples): records of their own, numbered 00-FF apart from the cartridges,
+     * M.state.samples[n] ({name, kind, rate, length, audio}, null none); a sampler cartridge holds instruments only, each
+     * naming a sample by its number (p.sample). The audio in content's order, the samples' (ids a user area kept in the
+     * browser refers to) */
+    M.SAMPLES_MAX = 256;
+    const samples = new Array(M.SAMPLES_MAX).fill(null);
+    for (const s of C.samples) {
+        const id = M.audio.length, data = b64(s.audio);
+        M.audio.push(data);
+        samples[s.n] = { name: s.name, kind: s.kind, rate: s.rate, length: data.length, audio: id };
+    }
     const carts = C.cartridges.map(c => {
         const cart = { id: c.id, name: c.name, type: c.type, size: c.size, slots: new Array(c.size).fill(null) };
-        if (c.samples) {
-            cart.samples = c.samples.map(s => {
-                const id = M.audio.length, data = b64(s.audio);
-                M.audio.push(data);
-                return { name: s.name, kind: s.kind, rate: s.rate, length: data.length, audio: id };
-            });
-        }
         c.slots.forEach((s, i) => {
             const p = s.dx7 || s.juno || s.tb303 || s.sampler || s.fusion || s.chip;
             cart.slots[i] = { name: s.name, level: s.level || 0, p };
         });
         return cart;
     });
+    /* the built-in FAVORITES, FB (specs/files/instruments.md#favorites): the firmware's own, empty. A FAVORITES slot is
+     * { src }: the instrument it names, cartridge << 8 | slot; it holds no sound of its own */
+    M.FB = 0xFB;
+    carts.push({ id: M.FB, name: "FAVORITES", type: "FAVORITES", size: 128, slots: new Array(128).fill(null) });
+    /* the cartridge lists' one order (specs/ui/dialogs.md#the-cartridge-list), M.state.carts kept so: the built-in
+     * FAVORITES first, the user's FAVORITES by number, then the other cartridges by number */
+    M.cartRank = (c, id = c.id) => c.type !== "FAVORITES" ? 2 : id === M.FB ? 0 : 1;
+    M.cartCmp = (a, b) => M.cartRank(a) - M.cartRank(b) || a.id - b.id;
+    carts.sort(M.cartCmp);
 
     /* a cell from content.js: [row, track, note (0 none, 1 off), instrument, volume, code, value, ...] */
     function cellOf(a) {
@@ -236,10 +252,12 @@ PTFM.model = (function () {
     M.newFx = fxDefaults;
     M.newMixer = () => mixer(16);
 
-    const songs = C.songs.map(s => ({
+    /* M.state.songs[n]: song n, null none, as the patterns and the samples are kept: its number stays what it is */
+    const songs = new Array(256).fill(null);
+    for (const s of C.songs) songs[s.n] = {
         name: s.name, what: s.what, tempo: s.tempo, ticks: s.ticks, rpb: s.rpb, swing: s.swing, atEnd: s.atEnd,
         loopFrom: s.loopFrom, slides: s.slides, fastVol: s.fastVol, gvol: s.gvol, order: s.order.slice(),
-        fx: fxOf(s.fx), mixer: s.mixer.map(mixRow) }));
+        fx: fxOf(s.fx), mixer: s.mixer.map(mixRow) };
     M.newSong = () => ({ name: "NEW SONG", what: "", tempo: 120, ticks: 6, rpb: 4, swing: 50, atEnd: "LOOP", loopFrom: 0,
                          slides: "linear", fastVol: false, gvol: 64, order: [], fx: fxDefaults(), mixer: mixer(16) });
     /* the keys' song (specs/ui/screens/fx.md#the-fx-setup): the firmware's own song FE, never listed, a new song's
@@ -275,22 +293,40 @@ PTFM.model = (function () {
     ].map(([name, s]) => ({ name, steps: G(s) }));
     for (let i = 0; i < 16; i++) gates.push({ name: "MY GATE " + M.hex(16 + i), steps: new Array(16).fill(i ? 0 : 1) });
 
-    /* LOOPS (specs/files/loops.md): one length for all (rows, whole bars; 0 before the first loop), the setup, the next
-     * loops' mode and the next loop's mix, and the loops, 16 at most, in the order they were made: each its instrument,
-     * colour (0-11, M.LOOP_COLS), MONO or POLY, lanes (1-4), base (rows) and repeat count, muted, soloed, and its notes
-     * once: cells[4 r + l], lane l's cell at row r of its base (no instrument in them: the loop's). Loop i is track
-     * 16 + i: its mix is mixer[i]; the mixers past the last loop are the next loop's mix (a new loop's take and the
-     * pattern recorder's preview sound through it). sel: the selection as SAVE kept it (the screen keeps its own).
-     * The playground starts with none: the demo disk keeps no loops */
+    /* LOOPS (specs/files/loops.md): one length for all (rows, whole bars; always set, 4 bars at first), the setup, the
+     * keys' mode (nextMono: how the keys play and REC keeps the stage) and the next loop's mix, VIEW (the bars a screen
+     * shows: 1, 2 or 4), K1-K4's jobs (M.LOOP_KNOBS), and the loops, 16 at most, in the order they were made: each its
+     * instrument, colour (0-11, M.LOOP_COLS), MONO or POLY, lanes (1-4), base (rows) and repeat count, SHIFT (rows it
+     * plays later, round the length; 0 none), muted, soloed, and its notes once: cells[4 r + l], lane l's cell at row r
+     * of its base (no instrument in them: the loop's). Loop i is track 16 + i: its mix is mixer[i]; the mixers past the
+     * last loop are the next loop's mix (the stage on + NEW LOOP and the pattern recorder's preview sound through it, its
+     * sends the KEYS column's: M.loopsMixer).
+     * sel: the selection as SAVE kept it (the screen keeps its own). The playground starts with none: the demo disk
+     * keeps no loops */
     M.LOOPS_MAX = 16;
     M.LOOP_COLS = [12, 14, 10, 11, 9, 13, 6, 2, 3, 4, 5, 7];   /* light red, yellow, light green ... light grey */
     M.QUANTIZES = ["2 ROWS", "3 ROWS", "4 ROWS", "ROW", "REAL TIME"];
     M.LOOP_COUNT_INS = ["OFF", "1 BAR", "2 BARS"];
-    M.newLoops = () => ({ tempo: 120, ticks: 6, rpb: 4, swing: 50, quantize: "ROW", legato: "GLIDE", countIn: "OFF",
-                          nextMono: false, nextMix: mixer(1)[0], sel: 0, rows: 0, list: [], mixer: mixer(16), fx: fxDefaults() });
+    /* the jobs GLO can give K1-K4: a mix value of the selected loop, the loops' TEMPO, VIEW */
+    M.LOOP_KNOBS = ["LEVEL", "PAN", "DUCK", "CHORUS SEND", "DELAY SEND", "REVERB SEND", "TEMPO", "VIEW"];
+    const loopsFx = () => Object.assign(fxDefaults(), { routing: "SENDS" });   /* (LOOPS' with none yet: a new song's, ROUTING SENDS) */
+    M.newLoops = () => ({ tempo: 120, ticks: 6, rpb: 4, swing: 50, quantize: "ROW", legato: "JUMP", countIn: "OFF",
+                          nextMono: false, nextMix: mixer(1)[0], sel: 0, rows: 64, list: [], mixer: mixer(16), fx: loopsFx(),
+                          view: 2, knobs: ["LEVEL", "PAN", "REVERB SEND", "TEMPO"] });
     const loops = M.newLoops();
     /* a record kept in an older shape (the first LOOPS: one pattern of 16 tracks) is not read: LOOPS starts empty */
     const loopsOk = j => !!(j && Array.isArray(j.list) && j.nextMix && !j.pattern && j.list.every(l => Array.isArray(l.cells)));
+    /* a record written before its new fields (specs/files/loops.md#the-record), read with their defaults: the length with
+     * no loops 4 bars (or the most whole bars that fit 128 rows where 4 do not), VIEW 2 BARS, K1-K4 LEVEL, PAN, REVERB
+     * SEND, TEMPO, each loop SHIFT 0. Filled where the record is loaded, so no change comes of it */
+    M.loopsFilled = j => {
+        const bar = j.rpb * ((((j.fx || {}).knobs || {}).METRONOME || [])[1] || 4);
+        if (!j.rows) j.rows = Math.max(1, Math.min(4, Math.floor(M.PAT_ROWS_MAX / bar))) * bar;
+        if (![1, 2, 4].includes(j.view)) j.view = 2;
+        if (!Array.isArray(j.knobs) || j.knobs.length !== 4) j.knobs = ["LEVEL", "PAN", "REVERB SEND", "TEMPO"];
+        for (const L of j.list) if (L.shift == null) L.shift = 0;
+        return j;
+    };
 
     /* COUNT-IN's choices, as the settings record keeps them (0-3): KEY, the take waits for the first note
      * (specs/ui/transport.md); LOOPS' own are M.LOOP_COUNT_INS. The rhythms ARP repeats in, # a note, _ a rest
@@ -370,6 +406,15 @@ PTFM.model = (function () {
      * KEYS GAIN's; one for every setup, kept with the settings (not on SETTINGS' list) */
     M.KEYS_MIX_DEF = { pan: 128, dck: 0, cho: 127, dly: 127, rev: 127 };
     settings["KEYS MIX"] = { ...M.KEYS_MIX_DEF };
+    /* the next loop's mix as it is heard and as REC writes it into a new loop (specs/ui/screens/loops.md#the-loops): its
+     * LEVEL, PAN and DUCK the loops' nextMix, its CHORUS, DELAY and REVERB SENDS the KEYS column's (nextMix's own sends
+     * kept as written, not read); the loops' 16 mixers as heard: the loops', then that one past them (the stage on
+     * + NEW LOOP and the pattern recorder's preview sound there) */
+    M.nextLoopMix = j => {
+        const km = (M.state.settings && M.state.settings["KEYS MIX"]) || M.KEYS_MIX_DEF;
+        return Object.assign({}, j.nextMix, { cho: km.cho, dly: km.dly, rev: km.rev });
+    };
+    M.loopsMixer = j => j.mixer.map((m, k) => k < j.list.length ? m : M.nextLoopMix(j));
     /* the MIDI map (specs/files/midi.md): {ch 0-15, msg "CC" / "NOTE", num 0-127, ctl (the FM-1's control's
      * number), kind 0-5}, in the order learned; 64 at most */
     const midi = [];
@@ -377,28 +422,98 @@ PTFM.model = (function () {
     M.MIDI_MAX = 64;
 
     const keys = M.newKeys();
+    /* the old form's samplers (specs/files/instruments.md#the-old-form): a sampler record of the version before samples
+     * were records of their own, with its audio, kept untouched and never read ({id, bytes, audio}: its number, its
+     * record's bytes and its old audio's). Its number is taken (NEW, CLONE and MOVE pass it over), CHECK REFERENCES lists
+     * it once (OLDER FORM), STATUS counts its record among the instruments and its audio in OTHER. The demo disk has none;
+     * a user area kept in the older form is converted as it loads (load), and only samplers past 256 samples stay so */
+    const older = [];
     /* the demo disk, as content.js has it; the user area starts without it (a new FM-1's: the built-ins alone, the
      * EDITOR's own pattern, every record at its default), and UPLOAD DEMO DISK writes it in (M.demoDisk) */
-    const DEMO = structuredClone({ carts, patterns, songs, gates, loops, settings, midi, dj, keys });
+    const DEMO = structuredClone({ carts, samples, older, patterns, songs, gates, loops, settings, midi, dj, keys });
     function cleanState() {
         const s = structuredClone(DEMO);
         s.carts = s.carts.filter(c => c.builtin);
+        s.samples = new Array(M.SAMPLES_MAX).fill(null);
         s.patterns = s.patterns.map(p => p && (p.builtin || p.n === M.EDITOR_PATTERN) ? p : null);
-        s.songs = [];
+        s.songs = new Array(256).fill(null);
         return s;
     }
     M.state = cleanState();
     /* song i, or the keys' song where there is none (no song at all) */
     M.songOrKeys = i => M.state.songs[i] || M.state.keys;
+    /* the songs there, in numbers' order; their numbers; the smallest number free, -1 none (the keys' song, FE, never one) */
+    M.songList = () => M.state.songs.filter(Boolean);
+    M.songNums = () => { const out = []; M.state.songs.forEach((s, n) => { if (s) out.push(n); }); return out; };
+    M.freeSong = () => { for (let n = 0; n <= M.SONG_LAST; n++) if (!M.state.songs[n]) return n; return -1; };
 
     /* ---------------------------------------------------------------------------- lookups --- */
     M.cart = id => M.state.carts.find(c => c.id === id);
     M.cartIndex = id => M.state.carts.findIndex(c => c.id === id);
-    M.inst = ref => { const c = ref == null ? null : M.cart(ref >> 8); return c ? c.slots[ref & 255] : null; };
-    M.instType = ref => { const c = ref == null ? null : M.cart(ref >> 8); return c ? c.type : null; };
+    /* an old-form sampler's number (above): taken, though no cartridge there is read */
+    M.olderAt = id => M.state.older.some(o => o.id === id);
+    M.cartTaken = id => !!M.cart(id) || M.olderAt(id);
+    /* THE SAMPLES list's keys play the highlighted sample through no instrument of a cartridge: its instrument, as ENV
+     * would make it, under a reference no cartridge has, FE:FF (a sampler has 64 slots); M.keysSample while the list is
+     * open, null else (the firmware's player_keys_sample) */
+    M.KEYS_SAMPLE = 0xFEFF;
+    M.keysSample = null;
+    /* an instrument (null: none there; a FAVORITES slot is none: nothing takes FB:07 as an instrument) */
+    M.inst = ref => {
+        if (ref === M.KEYS_SAMPLE) return M.keysSample;
+        const c = ref == null ? null : M.cart(ref >> 8);
+        return c && c.type !== "FAVORITES" ? c.slots[ref & 255] : null;
+    };
+    M.instType = ref => {
+        if (ref === M.KEYS_SAMPLE) return M.keysSample ? "SAMPLER" : null;
+        const c = ref == null ? null : M.cart(ref >> 8);
+        return c ? c.type : null;
+    };
     M.instCol = ref => { const t = M.instType(ref); return t && M.inst(ref) ? M.ENGINES[t].col : 4; };
+    /* a favourite (specs/files/instruments.md#favorites): the slot { src } of a FAVORITES cartridge, null none (empty, or
+     * not a FAVORITES cartridge); its source is missing when no instrument is there (a deleted cartridge, an emptied
+     * slot, a number now a FAVORITES cartridge's) */
+    M.isFav = id => { const c = M.cart(id); return !!c && c.type === "FAVORITES"; };
+    M.fav = ref => { const c = ref == null ? null : M.cart(ref >> 8); return c && c.type === "FAVORITES" ? c.slots[ref & 255] : null; };
+    M.favMissing = f => !M.inst(f.src);
+    /* the instrument a place stands for (specs/ui/screens/instruments.md#favorites): itself; a favourite's source while
+     * it is there; null an empty or missing favourite */
+    M.placeInst = ref => { if (!M.isFav(ref >> 8)) return ref; const f = M.fav(ref); return f && M.inst(f.src) ? f.src : null; };
+    /* a slot holds something: an instrument, a favourite (missing or not); playable: an instrument, a favourite whose
+     * source is there (what PRESETS steps through) */
+    M.slotUsed = (c, i, playable) => c.type !== "FAVORITES" ? !!c.slots[i] : !!c.slots[i] && (!playable || !M.favMissing(c.slots[i]));
     M.pattern = n => M.state.patterns[n];
-    M.sample = (cart, i) => cart.samples[i];
+    /* sample n (00-FF), null none (never there, or deleted) */
+    M.sample = n => n >= 0 && n < M.SAMPLES_MAX && M.state.samples[n] || null;
+    /* THE SAMPLES list's rows (specs/ui/screens/instruments.md#the-samples): every sample on the FM-1 by number, and those
+     * whose deletion waits for SAVE (gone: the sample as saved, its row `(DELETED)`) */
+    M.sampleRows = () => {
+        const out = [];
+        for (let n = 0; n < M.SAMPLES_MAX; n++) {
+            const s = M.state.samples[n], f = !s && flash.samples ? flash.samples[n] : null;
+            if (s || f) out.push({ n, s: s || f, gone: !s });
+        }
+        return out;
+    };
+    /* the instruments that play sample n, in every sampler cartridge: [{c, k}] */
+    M.sampleUsers = n => {
+        const out = [];
+        for (const c of M.state.carts) if (c.type === "SAMPLER") c.slots.forEach((s, k) => { if (s && s.p.sample === n) out.push({ c, k }); });
+        return out;
+    };
+    /* a new sample instrument on sample n (specs/files/instruments.md#sample-instruments): it plays the sample whole
+     * (START 0, END its length, LOOP OFF), BASE NOTE C-4 at its own rate, TUNE none, VOLUME 64, LEVEL 0 dB, a new
+     * instrument's envelope; named after its sample (INIT when there is none: a number with no sample) */
+    M.wholeSample = (p, n) => {
+        const s = M.sample(n), len = s ? s.length : 0;
+        return Object.assign(p, { sample: n, start: 0, end: len, loop: "OFF", loopStart: 0, loopEnd: len });
+    };
+    M.newSampleInst = n => {
+        const ins = M.init("SAMPLER"), s = M.sample(n);
+        M.wholeSample(ins.p, n);
+        if (s) ins.name = s.name;
+        return ins;
+    };
     /* the instrument a track plays at a row: the cell's, else the last one above it in the pattern */
     M.trackInst = (p, r, t) => {
         for (let k = r; k >= 0; k--) { const c = p.cells[k * 16 + t]; if (c && c.inst != null) return c.inst; }
@@ -407,14 +522,15 @@ PTFM.model = (function () {
 
     M.patternUses = n => {
         let k = 0;
-        for (const s of M.state.songs) for (const o of s.order) if (o === n) k++;
+        for (const s of M.songList()) for (const o of s.order) if (o === n) k++;
         for (const c of M.state.carts) if (c.type === "FUSION") for (const sl of c.slots) if (sl && sl.p.pattern === n) k++;
         return k;
     };
-    M.songsUsing = n => M.state.songs.filter(s => s.order.includes(n)).length;
-    M.instUses = ref => {
+    M.songsUsing = n => M.songList().filter(s => s.order.includes(n)).length;
+    M.instUses = ref => {                /* (a favourite naming it is a use too) */
         let k = 0;
         for (const p of M.state.patterns) if (p) for (const c of p.cells) if (c && c.inst === ref) k++;
+        for (const c of M.state.carts) if (c.type === "FAVORITES") for (const f of c.slots) if (f && f.src === ref) k++;
         return k;
     };
     /* the patterns' numbers every list shows: never the EDITOR's own */
@@ -423,12 +539,9 @@ PTFM.model = (function () {
     M.patternHolds = n => { const p = M.pattern(n); return !!p && p.cells.some((c, i) => !M.cellEmpty(c) && i % 16 < p.tracks && i < p.rows * 16); };
     /* the first free number of the user's (00-EF), or -1 */
     M.freePattern = () => { for (let n = 0; n <= M.USER_LAST; n++) if (!M.state.patterns[n]) return n; return -1; };
-    /* a new cartridge's number: after the last of the user's, so it ends the user's part of the list; once EF
-     * is taken, the first free one (specs/ui/screens/instruments.md) */
+    /* a new cartridge's number: the smallest free one (specs/ui/screens/instruments.md); an old-form sampler's is taken */
     M.freeCart = () => {
-        const last = Math.max(-1, ...M.state.carts.filter(c => !M.builtinCart(c.id)).map(c => c.id));
-        if (last < M.USER_LAST) return last + 1;
-        for (let n = 0; n <= M.USER_LAST; n++) if (!M.cart(n)) return n;
+        for (let n = 0; n <= M.USER_LAST; n++) if (!M.cartTaken(n)) return n;
         return -1;
     };
     M.cell = (p, r, t) => p.cells[r * 16 + t];
@@ -436,24 +549,26 @@ PTFM.model = (function () {
     /* ----------------------------------------------------------- edits, REVERT, the "flash" --- */
     M.EDITS_MAX = 68608;                 /* the edit memory, 67 KB, the edits' alone (specs/files/ram.md) */
     M.unsaved = 0;
-    M.editsUsed = 0;                     /* what the changes take: each changed piece once (specs/ui/saving.md) */
+    /* what the edit memory holds: the changes, each changed piece once (specs/ui/saving.md), and LOOPS' stage, a piece of
+     * its own beside them (M.stagePiece, its bytes there: the screen's), never saved and no change, so a SAVE's end and
+     * REVERT ALL keep it (specs/files/ram.md#the-stage-in-the-edit-memory). Set: the changes' share */
+    let editsBase = 0;
+    M.stagePiece = () => 0;
+    Object.defineProperty(M, "editsUsed", { get: () => editsBase + M.stagePiece(), set: v => { editsBase = v; }, enumerable: true });
+    M.editsWithout = () => editsBase;    /* (the changes alone: the room the stage has besides them) */
     M.version = 0;                       /* bumps on every change: views and the sound follow it */
     const snap = () => structuredClone(M.state);
     let flash = snap();
     /* the changes are what differs from what the flash holds, not a log (specs/ui/saving.md), counted as the
-     * firmware's records: a pattern, a song, a cartridge, each sample, a GATE pattern one each; the settings,
+     * firmware's records: a pattern, a song, a cartridge, a sample, a GATE pattern one each; the settings,
      * the LOOPS, the MIDI mappings, DJ's setup one each (the DJ stand: U.unsavedCount's). The flash's side is
-     * kept as text, made again when the flash changes (SAVE, a move) */
+     * kept as text, made again when the flash changes (SAVE, REVERT ALL, a power-on) */
     let flashText = null;
     function texts(st) {
         const J = JSON.stringify, out = new Map();
         for (const k in st) {
             const v = st[k];
-            if (k === "carts") for (const c of v) {
-                const { samples, ...body } = c;
-                out.set("cart" + c.id, J(body));
-                (samples || []).forEach((s, i) => out.set("sample" + c.id + ":" + i, J(s)));
-            }
+            if (k === "carts") for (const c of v) out.set("cart" + c.id, J(c));
             else if (k === "dj") { const { stand, ...rest } = v; out.set(k, J(rest)); }
             else if (k === "loops") out.set(k, J({ ...v, list: v.list.map(l => ({ ...l, soloed: false })) }));   /* (a solo is never saved) */
             else if (Array.isArray(v)) v.forEach((x, i) => { if (x != null) out.set(k + i, J(x)); });
@@ -463,9 +578,10 @@ PTFM.model = (function () {
     }
     /* The edit memory's bytes (specs/files/ram.md#editing-and-saving): the pieces that differ from the flash, each
      * once, a room rounded up to 4 and 8 B of list a piece: a pattern's changed tracks and its head (LOOPS' too),
-     * a cartridge's changed slots, head and samples' table, a sample's delete, every other thing whole (an
-     * estimate from the records' sizes, as STATUS's) */
+     * a cartridge's changed slots and head, a sample's delete, every other thing whole (an estimate from the records'
+     * sizes, as STATUS's) */
     const J = JSON.stringify, room = b => ((b + 3) & ~3) + 8;
+    M.pieceRoom = room;
     const cellBytes = c => c ? 2 + (c.note != null) + (c.inst != null) * 2 + (c.vol != null) + c.cmds.length * 2 : 0;
     /* a loop's stream (specs/files/loops.md#a-loops-stream): a note with its volume 3 B, a note off 2 B, a command 2 B
      * more, a key off alone 3 B; the payload's head 5 B */
@@ -486,7 +602,7 @@ PTFM.model = (function () {
     }
     function cartPieces(c, d) {
         if (!c) return d ? 8 : 0;
-        const { slots, samples, ...h } = c, { slots: s2 = [], samples: m2, ...h2 } = d || {};
+        const { slots, ...h } = c, { slots: s2 = [], ...h2 } = d || {};
         let b = !d || J(h) !== J(h2) ? room(26) : 0;
         for (let k = 0; k < Math.max(slots.length, s2.length); k++)
             if (J(slots[k] ?? null) !== J(s2[k] ?? null) && (d || slots[k])) b += room(SLOT_BYTES[c.type]);
@@ -494,7 +610,7 @@ PTFM.model = (function () {
     }
     function piecesOf(k, st, fl) {
         if (k.startsWith("cart")) { const id = +k.slice(4); return cartPieces(st.carts.find(c => c.id === id), fl.carts.find(c => c.id === id)); }
-        if (k.startsWith("sample")) return room(16);
+        if (k.startsWith("samples")) return room(16);   /* (a sample: only ever deleted on the FM-1) */
         if (k.startsWith("patterns")) { const n = +k.slice(8); return patPieces(st.patterns[n], fl.patterns[n]); }
         if (k.startsWith("songs")) { const s = st.songs[+k.slice(5)]; return s ? room(songBytes(s)) : 8; }
         if (k.startsWith("gates")) return room(6);
@@ -597,9 +713,56 @@ PTFM.model = (function () {
         keeping = keeping.then(() => store && store.put(v)).catch(e => console.warn("PT/FM playground: not kept:", e));
     }
     M.kept = () => keeping;                             /* (a promise: what SAVE wrote is kept) */
+    /* A user area kept in the older form (each sampler holding its samples' table, an instrument naming its place in it:
+     * specs/files/instruments.md#the-old-form) is converted as it loads, as the emulator converts the flash it keeps
+     * (specs/emulator.md; the converter's rules, specs/files/disk.md#the-samplers-conversion): whole samplers in number
+     * order, each sample a record of its own at the lowest free number, passing over the numbers samples hold and those
+     * instruments already of the new form name, in each sampler in its table's order; the same sample (name, rate,
+     * audio) once, its samplers naming it; an instrument naming an emptied entry (or one past the table) an empty slot;
+     * a sampler whose samples find no number left stays in the old form (M.state.older), whole */
+    function newForm(s) {
+        if (Array.isArray(s.samples) && Array.isArray(s.older) && !s.carts.some(c => c.samples)) return s;
+        s = Object.assign({}, s, { carts: structuredClone(s.carts) });
+        let smp = Array.isArray(s.samples) ? s.samples.slice() : new Array(M.SAMPLES_MAX).fill(null);
+        const older = Array.isArray(s.older) ? s.older.slice() : [], named = new Set();
+        for (const c of s.carts) if (c.type === "SAMPLER" && !c.samples) for (const sl of c.slots) if (sl) named.add(sl.p.sample);
+        const sameAudio = (a, b) => a === b || (!!M.audio[a] && !!M.audio[b] && M.audio[a].length === M.audio[b].length &&
+                                                 M.audio[a].every((v, i) => v === M.audio[b][i]));
+        const same = (a, b) => a.name === b.name && a.rate === b.rate && a.length === b.length && sameAudio(a.audio, b.audio);
+        for (const c of s.carts.filter(x => x.samples).sort((a, b) => a.id - b.id)) {
+            const t = smp.slice(), plan = [];
+            let fits = true;
+            for (const e of c.samples) {
+                if (!e || e.deleted) { plan.push(-1); continue; }
+                const x = { name: e.name, kind: e.kind, rate: e.rate, length: e.length, audio: e.audio };
+                let n = t.findIndex(y => y && same(y, x));
+                if (n < 0) n = t.findIndex((y, k) => !y && !named.has(k));
+                if (n < 0) { fits = false; break; }
+                t[n] = x;
+                plan.push(n);
+            }
+            if (!fits) {
+                older.push({ id: c.id, bytes: 26 + c.slots.filter(Boolean).length * 40 + c.samples.length * 16,
+                             audio: c.samples.reduce((a, e) => a + (e && !e.deleted ? 16 + Math.round(e.length * .41) : 0), 0) });
+                s.carts.splice(s.carts.indexOf(c), 1);
+                continue;
+            }
+            smp = t;
+            c.slots = c.slots.map(sl => {
+                const n = sl ? plan[sl.p.sample] : -1;
+                if (n == null || n < 0) return null;
+                sl.p.sample = n;
+                return sl;
+            });
+            delete c.samples;
+        }
+        return Object.assign(s, { samples: smp, older });
+    }
     function load(s) {
+        s = newForm(s);
         if (!loopsOk(s.loops)) s = Object.assign({}, s, { loops: M.newLoops() });
         s = unsoloed(structuredClone(s));
+        M.loopsFilled(s.loops);                         /* (the flash's copy and the state alike: no change of its own) */
         restore(structuredClone(s));
         flash = structuredClone(s);
         flashText = null;
@@ -610,6 +773,7 @@ PTFM.model = (function () {
     M.startUp = async function () {
         let s = null;
         try { s = store ? await store.get() : null; } catch (_) { s = null; }
+        if (M.onPowerOn) M.onPowerOn();                 /* (what RAM alone holds goes: LOOPS' stage) */
         load(s && s.carts && s.songs ? s : cleanState());
         return !!(s && s.carts && s.songs);
     };
@@ -632,19 +796,9 @@ PTFM.model = (function () {
         M.editsUsed = 0;
         M.version++;
     };
-    /* a sampler's CLONE or MOVE (specs/ui/screens/instruments.md) writes the flash at once, so it is made in what
-     * is held and in what the flash holds alike. fn(state) gets either root */
-    M.commit = function (fn) {
-        fn(M.state);
-        fn(flash);
-        flashText = null;
-        recount();
-        M.version++;
-        keep();
-    };
-    /* One thing, in the state held or as the flash holds it (st): kind "pattern" (n), "song" (its index), "cart"
-     * (id), "slot" ([cart id, slot]), "sample" ([cart id, index]), "loops", "settings" (with the GATE patterns:
-     * one record), "midi" (the MIDI map), "fx" (an FX setup: a song's index, "loops", "dj" or "keys") */
+    /* One thing, in the state held or as the flash holds it (st): kind "pattern" (n), "song" (its number), "cart"
+     * (id), "slot" ([cart id, slot]), "sample" (its number), "loops", "settings" (with the GATE patterns:
+     * one record), "midi" (the MIDI map), "fx" (an FX setup: a song's number, "loops", "dj" or "keys") */
     const fxOwner = (st, w) => w === "loops" ? st.loops : w === "dj" ? st.dj : w === "keys" ? st.keys : st.songs[w];
     const PICK = {
         fx: (st, w) => (fxOwner(st, w) || {}).fx,
@@ -652,14 +806,14 @@ PTFM.model = (function () {
         song: (st, i) => st.songs[i],
         cart: (st, id) => st.carts.find(c => c.id === id),
         slot: (st, k) => (st.carts.find(c => c.id === k[0]) || { slots: [] }).slots[k[1]],
-        sample: (st, k) => (st.carts.find(c => c.id === k[0]) || { samples: [] }).samples[k[1]],
+        sample: (st, n) => (st.samples || [])[n],
         loops: st => st.loops,
         settings: st => [st.settings, st.gates],
         midi: st => st.midi,
     };
     /* whether a thing has unsaved changes: what is held against what the flash holds */
     /* (an FX setup with none saved: a new song's, the loops' or DJ's first, as REVERT brings it) */
-    const savedOf = (kind, key) => { const v = PICK[kind](flash, key); return v == null && kind === "fx" ? (key === "dj" ? djFx() : fxDefaults()) : v; };
+    const savedOf = (kind, key) => { const v = PICK[kind](flash, key); return v == null && kind === "fx" ? (key === "dj" ? djFx() : key === "loops" ? loopsFx() : fxDefaults()) : v; };
     M.unsavedThing = (kind, key) => J(PICK[kind](M.state, key) ?? null) !== J(savedOf(kind, key) ?? null);
     /* DJ's setup changed, its stand aside (the UI counts the stand: U.unsavedCount) */
     M.djSetupUnsaved = () => { const { stand: a, ...x } = M.state.dj || {}, { stand: b, ...y } = flash.dj || {}; return J(x) !== J(y); };
@@ -675,18 +829,31 @@ PTFM.model = (function () {
         return asBuilt.m.get(k);
     };
     M.savedThing = (kind, key) => { const v = savedOf(kind, key); return v == null ? null : structuredClone(v); };
-    /* REVERT (specs/ui/saving.md#revert): one thing as the flash holds it, nothing else's changes; what plays hears
-     * it at once (the state's objects are replaced: whoever keeps one looks it up again) */
+    /* a REVERT that brings back sample instruments naming a sample whose deletion waits for SAVE takes that deletion
+     * back too (specs/ui/saving.md#revert: the one REVERT that takes back more than its own thing's changes), so no
+     * REVERT leaves an instrument naming a sample about to go; one whose sample's deletion is saved stays naming it */
+    function samplesBack(c, slots) {
+        if (!c || c.type !== "SAMPLER") return;
+        for (const sl of slots) {
+            const n = sl ? sl.p.sample : -1;
+            if (n >= 0 && !M.state.samples[n] && flash.samples && flash.samples[n]) M.state.samples[n] = structuredClone(flash.samples[n]);
+        }
+    }
+    /* REVERT (specs/ui/saving.md#revert): one thing as the flash holds it, nothing else's changes (a sample's deletion
+     * aside: samplesBack); what plays hears it at once (the state's objects are replaced: whoever keeps one looks it up
+     * again) */
     M.revertThing = function (kind, key) {
         const S = M.state, was = M.savedThing(kind, key);
         if (kind === "pattern") S.patterns[key] = was;
-        else if (kind === "song") { if (was) S.songs[key] = was; else S.songs.splice(key, 1); }
+        else if (kind === "song") S.songs[key] = was || null;
         else if (kind === "cart") {
             const i = S.carts.findIndex(c => c.id === key);
             if (was && i >= 0) S.carts[i] = was;
-            else if (was) { S.carts.push(was); S.carts.sort((a, b) => a.id - b.id); }
+            else if (was) { S.carts.push(was); S.carts.sort(M.cartCmp); }
             else if (i >= 0) S.carts.splice(i, 1);
-        } else if (kind === "slot") { const c = M.cart(key[0]); if (c) c.slots[key[1]] = was; }
+            if (was) samplesBack(was, was.slots);
+        } else if (kind === "slot") { const c = M.cart(key[0]); if (c) { c.slots[key[1]] = was; samplesBack(c, [was]); } }
+        else if (kind === "sample") S.samples[key] = was;
         else if (kind === "loops") S.loops = solosKept(was, S.loops);
         else if (kind === "settings") { S.settings = was[0]; S.gates = was[1]; }
         else if (kind === "midi") S.midi = was;
@@ -702,11 +869,13 @@ PTFM.model = (function () {
      * What a thing takes is estimated from its records (3.4 B a cell, the slots' sizes, PTR at 41 % for 8-bit
      * audio); the built-ins as the firmware has them are the firmware's, not counted */
     M.FLASH = { user: 412 * 1024, reserve: 40 * 1024 };
-    const SLOT_BYTES = { DX7: 112, JUNO: 28, TB303: 24, SAMPLER: 40, FUSION: 16, CHIP: 28 };
+    const SLOT_BYTES = { DX7: 112, JUNO: 28, TB303: 24, SAMPLER: 40, FUSION: 16, CHIP: 28, FAVORITES: 3 };
     const patBytes = p => p.cells.reduce((a, c) => a + (c ? 2 + (c.note != null) + (c.inst != null) * 2 + (c.vol != null) + c.cmds.length * 2 : 0), 21);
-    const smpBytes = s => s.deleted ? 0 : 16 + Math.round(s.length * .41);
+    /* a sample's record: its header, its entry (16 B: specs/files/instruments.md#samples) and its audio; a cartridge's: its
+     * header, its head and its slots (a sampler's instruments only, no samples' table) */
+    const smpBytes = s => 16 + 16 + Math.round(s.length * .41);
     const songBytes = s => 16 + 21 + s.order.length + 1 + 16 * 6 + 44 + 8;
-    const cartBytes = c => 26 + c.slots.filter(Boolean).length * SLOT_BYTES[c.type] + (c.samples ? c.samples.length * 16 : 0);
+    const cartBytes = c => 26 + c.slots.filter(Boolean).length * SLOT_BYTES[c.type];
     M.bytes = { pattern: patBytes, sample: smpBytes, song: songBytes, cart: cartBytes };
     M.kb = b => b < 1024 ? Math.max(0, Math.round(b)) + " B" : (b / 1024).toFixed(b < 10240 ? 1 : 0) + "K";   /* `1.3K` */
     /* a song's own patterns (SONGS' DELETE): in its order, the user's (under F0), no other song's or FUSION slot's;
@@ -730,32 +899,36 @@ PTFM.model = (function () {
         for (const c of M.state.carts) {
             if (c.builtin && c.rom) continue;
             inst += cartBytes(c);
-            if (c.samples) for (const s of c.samples) smp += smpBytes(s);
         }
-        for (const s of M.state.songs) song += songBytes(s);
+        for (const s of M.state.samples) if (s) smp += smpBytes(s);
+        for (const s of M.songList()) song += songBytes(s);
         /* (the keys' song as shipped is the firmware's; changed, a copy in the user area) */
         if (J(M.state.keys) !== J(M.newKeys())) song += songBytes(M.state.keys);
-        /* LOOPS' record once it holds loops; the rest (the settings, DJ's stand, the MIDI map) 2 KB */
-        const lp = M.state.loops, loops = lp && lp.list.length ? 80 + lp.list.reduce((a, l) => a + 12 + M.streamBytes(l), 0) : 0, other = 2048;
+        /* LOOPS' record once it holds loops; the rest (the settings, DJ's stand, the MIDI map) 2 KB, and the old form's
+         * audio (specs/ui/screens/status.md: OTHER); an old-form sampler's record among the instruments */
+        let other = 2048;
+        for (const o of M.state.older) { inst += o.bytes; other += o.audio; }
+        const lp = M.state.loops, loops = lp && lp.list.length ? 80 + lp.list.reduce((a, l) => a + 12 + M.streamBytes(l), 0) : 0;
         const F = M.FLASH, userUsed = patt + inst + smp + song + loops + other + F.reserve;
         return { patt, inst, smp, song, loops, other, userUsed, userFree: F.user - userUsed, used: userUsed, free: F.user - userUsed };
     };
     /* what CLEAN UP can delete, each with the bytes it frees: patterns no song position or FUSION slot
-     * plays; samples no instrument of their cartridge uses; instruments no cell plays, nor a loop */
+     * plays; samples no instrument names, in any sampler (their numbers; an old-form sampler and its audio left alone);
+     * instruments no cell plays, no loop and no favourite names (a FAVORITES cartridge is never listed) */
     M.cleanable = function () {
         /* (never the firmware's: the built-in instruments and patterns stay) */
         const patterns = M.state.patterns.filter(p => p && !p.builtin && !M.patternUses(p.n));
-        const samples = [], instruments = [], played = new Set();
-        for (const c of M.state.carts) if (c.samples) c.samples.forEach((s, k) => {
-            if (!s.deleted && !c.slots.some(sl => sl && sl.p.sample === k)) samples.push({ c, k });
-        });
+        const samples = [], instruments = [], played = new Set(), named = new Set();
+        for (const c of M.state.carts) if (c.type === "SAMPLER") c.slots.forEach(sl => { if (sl) named.add(sl.p.sample); });
+        M.state.samples.forEach((s, n) => { if (s && !named.has(n)) samples.push(n); });
         const cellsOf = p => p.cells.forEach(cl => { if (cl && cl.inst != null) played.add(cl.inst); });
         M.state.patterns.forEach(p => p && cellsOf(p));
         M.state.loops.list.forEach(l => played.add(l.inst));
-        for (const c of M.state.carts) if (!c.builtin) c.slots.forEach((sl, k) => { if (sl && !played.has(c.id << 8 | k)) instruments.push({ c, k }); });
+        for (const c of M.state.carts) if (c.type === "FAVORITES") c.slots.forEach(f => { if (f) played.add(f.src); });
+        for (const c of M.state.carts) if (!c.builtin && c.type !== "FAVORITES") c.slots.forEach((sl, k) => { if (sl && !played.has(c.id << 8 | k)) instruments.push({ c, k }); });
         return {
             patterns: { items: patterns, bytes: patterns.reduce((a, p) => a + patBytes(p), 0) },
-            samples: { items: samples, bytes: samples.reduce((a, x) => a + smpBytes(x.c.samples[x.k]), 0) },
+            samples: { items: samples, bytes: samples.reduce((a, n) => a + smpBytes(M.state.samples[n]), 0) },
             instruments: { items: instruments, bytes: instruments.reduce((a, x) => a + SLOT_BYTES[x.c.type], 0) },
         };
     };

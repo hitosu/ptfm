@@ -7,7 +7,7 @@
 "use strict";
 module.exports = async t => {
     const { U, M, P, ok } = t;
-    const i = M.state.songs.findIndex(s => s.name === "CITY LIGHTS");
+    const i = M.state.songs.findIndex(s => s && s.name === "CITY LIGHTS");
     if (i < 0) { ok(false, "CUT FX: CITY LIGHTS"); return; }
     const on = () => Object.keys(M.state.songs[i].fx.on).filter(k => M.state.songs[i].fx.on[k]).join();
     const on0 = on();

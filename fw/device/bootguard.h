@@ -16,7 +16,7 @@ static uint32_t bootguard_begin(bootguard_t *b)
 {
     if (b->magic != BOOTGUARD_MAGIC || b->failed > 2u || b->pending > 2u)
         bootguard_clear(b);
-    if (b->pending == 2u) {           /* recovery itself reset: keep ROM fallback */
+    if (b->pending == 2u) {           /* (update mode asked and cleared it: not reached) */
         bootguard_clear(b);
         return BOOT_ROM;
     }

@@ -21,14 +21,21 @@
 #define MAXSLOT 112
 static struct {
     uint8_t edit, marking, mv, mv_swap, changed;
+    uint8_t fe;                         /* edit mode is a favourite's (which instrument it names) */
+    uint16_t fe_was;                    /* the current instrument at its EDIT (HOME: back to it) */
     int page, group, last, mark, mv_from, mv_at;
     int clip_n, clip_kind;
 } st = {.last = -1, .mark = -1};
 #define CLIP_SLOTS 4
 static uint8_t clip[CLIP_SLOTS][MAXSLOT], clip_used[CLIP_SLOTS];    /* COPY's slots (4 at most) */
 
-static uint8_t cart(void) { return (uint8_t)(ui_cur.inst >> 8); }
-static int slot(void) { return ui_cur.inst & 255; }
+/* the cursor is the current place (a favourite's in a FAVORITES cartridge); while the details below show a favourite's
+ * source, that instrument stands in its place (det) */
+static uint16_t det = 0xFFFFu;
+static uint16_t at(void) { return det != 0xFFFFu ? det : ui_cur.place; }
+static uint8_t cart(void) { return (uint8_t)(at() >> 8); }
+static int slot(void) { return at() & 255; }
+int scr_instr_edit(void) { return st.fe ? 2 : st.edit; }
 #ifdef PTFM_EDITOR
 /* the editor page's pictures (the end of the file): while one is drawn, the current slot holds the bytes the page gave,
  * of the kind it said, not the store's */
@@ -71,39 +78,93 @@ static int put_slot(int s, const uint8_t *b)
     return 0;
 }
 
-/* ------------------------------------------------------------------- the sample's samples --- */
-static int sample_info(int idx, rec_sample_t *sm, char *name)
+/* -------------------------------------------------------------------------------- the samples --- */
+/* a sample, by its number (specs/files/instruments.md#samples: a record of its own, any sampler's instruments naming
+ * it); 0 when it is not there (or read as missing) */
+static int sample_info(int num, rec_sample_t *sm, char *name)
 {
-    rec_cart_t c;
-    if (rec_cart(cart(), &c) || rec_sample(&c, (uint8_t)idx, sm)) return 0;
-    if (name) rec_name(rec_sample_entry(&c, (uint8_t)idx), 42, 10, name);
+    if (num < 0 || num > 255 || rec_sample((uint8_t)num, sm)) return 0;
+    if (name) rec_name(sm->entry, 42, 10, name);
     return 1;
 }
-/* a sample's waveform, its peaks a column, kept for the one shown */
-static int8_t wv_lo[240], wv_hi[240];
-static int wv_key = -1, wv_w;
-static void wave_scan(int idx, int w)
+/* THE SAMPLES list's rows (specs/ui/screens/instruments.md#the-samples), kept while the store stays as it was
+ * (store_gen): every sample on the FM-1 by number, a bit each, those read (K1 on SAMPLE's steps, what ENV picks; a
+ * sample whose entry and audio differ is none) and those whose deletion waits for SAVE (a `(DELETED)` row: rec_sample
+ * reads it no more); the rows, those that can be picked, and their bytes (the cartridge list's ALL SAMPLES line) */
+static struct { uint32_t gen, bytes; uint16_t n, picks; uint8_t ok, has[32]; } sr;
+static int bit(const uint8_t *b, int k) { return b[k >> 3] >> (k & 7) & 1; }
+static void rows(void)
 {
-    int key = cart() << 8 | idx;
-    if (wv_key == key && wv_w == w) return;
-    wv_key = key;
-    wv_w = w;
-    memset(wv_lo, 0, sizeof wv_lo);
-    memset(wv_hi, 0, sizeof wv_hi);
-    rec_sample_t sm;
+    if (sr.ok && sr.gen == store_gen()) return;
+    uint8_t nums[256];
+    rec_sample_t s;
     uint32_t len;
     uint8_t ver;
-    const uint8_t *rec = store_get(REC_AUDIO, cart(), (uint8_t)idx, &len, &ver);
-    if (!rec) return;
-    if (!sample_info(idx, &sm, 0) || !sm.length) return;
+    int n = store_list(REC_SAMPLE, nums, 256);
+    memset(&sr, 0, sizeof sr);
+    for (int i = 0; i < n; i++)
+        if (!rec_sample(nums[i], &s)) { sr.has[nums[i] >> 3] |= (uint8_t)(1u << (nums[i] & 7)); sr.picks++; sr.bytes += 16u + s.audio_len; }
+    sr.n = sr.picks;
+    for (int k = 0; k < 256; k++) {                     /* (a deletion waiting: the record as saved, whole) */
+        const uint8_t *p = store_edit_has(REC_SAMPLE, (uint8_t)k, 0) == 2 ? store_get_saved(REC_SAMPLE, (uint8_t)k, 0, &len, &ver) : 0;
+        if (p && ver == 1 && store_sample_ok(p, len) && rec_bits(p, 42, 6) != REC_NAME_EMPTY) {
+            sr.has[k >> 3] |= (uint8_t)(1u << (k & 7));
+            sr.n++;
+            sr.bytes += len;
+        }
+    }
+    sr.gen = store_gen();
+    sr.ok = 1;
+}
+static int row_num(int row)             /* the row's sample, -1 none */
+{
+    rows();
+    for (int k = 0; k < 256; k++) if (bit(sr.has, k) && !row--) return k;
+    return -1;
+}
+static int row_of(int num)              /* the sample's row, -1 none */
+{
+    rows();
+    int r = 0;
+    for (int k = 0; k < 256; k++) if (bit(sr.has, k)) { if (k == num) return r; r++; }
+    return -1;
+}
+static int pickable(int num)            /* a row read (not one whose deletion waits) */
+{
+    rec_sample_t s;
+    rows();
+    return num >= 0 && num < 256 && bit(sr.has, num) && !rec_sample((uint8_t)num, &s);
+}
+/* THE SAMPLES list (below): opened as ENV on SAMPLE, REPLACE SAMPLE, CREATE, or the cartridge list's ALL SAMPLES line */
+enum { SM_INST, SM_REPLACE, SM_CREATE, SM_ALL };
+static void sm_open(int mode, int num, int edit);
+/* a sample's waveform, its peaks a column, kept for the one shown: its number, width and audio (where it lies, its
+ * length, 32 of its bytes), so another sample under the same number is drawn anew; nothing kept for a missing one */
+static int8_t wv_lo[240], wv_hi[240];
+static struct { int16_t num, w; const uint8_t *audio; uint32_t fp; } wv = {-1, 0, 0, 0};
+static uint32_t audio_fp(const uint8_t *p, uint32_t n)
+{
+    uint32_t f = n;
+    for (uint32_t i = 0; i < 32u; i++) f = f * 31u + p[(n / 32u) * i];
+    return f;
+}
+static void wave_scan(int num, int w, const rec_sample_t *sm)
+{
+    uint32_t fp = audio_fp(sm->audio, sm->audio_len);  /* (its length among them) */
+    if (wv.num == num && wv.w == w && wv.audio == sm->audio && wv.fp == fp) return;
+    wv.num = (int16_t)num; wv.w = (int16_t)w; wv.audio = sm->audio; wv.fp = fp;
+    memset(wv_lo, 0, sizeof wv_lo);
+    memset(wv_hi, 0, sizeof wv_hi);
+    const uint8_t *rec = sm->audio;
+    uint32_t len = sm->audio_len;
     static ptr_dec_t d;
     memset(&d, 0, sizeof d);
     /* each column's peaks from up to 16 samples spread over it (the playground's way) */
     for (int i = 0; i < w; i++) {
-        int32_t a = (int32_t)(sm.length * (uint32_t)i / (uint32_t)w), b = (int32_t)(sm.length * (uint32_t)(i + 1) / (uint32_t)w), step;
+        int32_t a = (int32_t)(sm->length * (uint32_t)i / (uint32_t)w), b = (int32_t)(sm->length * (uint32_t)(i + 1) / (uint32_t)w), step;
         if (b < a + 1) b = a + 1;
         step = (b - a) / 16 > 1 ? (b - a) / 16 : 1;
-        for (int32_t k = a; k < b && k < (int32_t)sm.length; k += step) {
+        for (int32_t k = a; k < b && k < (int32_t)sm->length; k += step) {
             int16_t x;
             ptr_read(&d, rec, len, k, 1, &x);
             int v = x >> 8;
@@ -115,8 +176,8 @@ static void wave_scan(int idx, int w)
 static void wave(int idx, int x, int y, int w, int h, int col, const uint32_t *marks, const uint8_t *mcol, int nm)
 {
     rec_sample_t sm;
-    if (!sample_info(idx, &sm, 0) || !sm.length) return;
-    wave_scan(idx, w);
+    if (!sample_info(idx, &sm, 0) || !sm.length) { if (wv.num == idx) wv.num = -1; return; }
+    wave_scan(idx, w, &sm);
     for (int i = 0; i < w; i++) {                       /* (rounded as the playground draws it) */
         int top = y + (128 * h - wv_hi[i] * h + 128) / 256, len = ((wv_hi[i] - wv_lo[i]) * h + 128) / 256;
         g_vline(x + i, top, len > 1 ? len : 1, col);
@@ -129,20 +190,13 @@ static void wave(int idx, int x, int y, int w, int h, int col, const uint32_t *m
 /* the instrument being edited as the sampler plays it: its sample's audio; 0 if not there */
 static int samp_of(const uint8_t *slot, samp_t *s)
 {
-    rec_cart_t rc;
     rec_sinst_t si;
     rec_sample_t sa;
-    uint32_t len;
-    uint8_t ver;
-    if (rec_cart(cart(), &rc))
-        return 0;
     rec_sampler_inst(slot, &si);
-    if (rec_sample(&rc, si.sample, &sa))
+    if (rec_sample(si.sample, &sa) || !sa.length)
         return 0;
-    s->rec = store_get(REC_AUDIO, cart(), si.sample, &len, &ver);
-    if (!s->rec || ver != 1 || !sa.length)
-        return 0;
-    s->rec_len = len;
+    s->rec = sa.audio;
+    s->rec_len = sa.audio_len;
     s->length = (int32_t)sa.length;
     s->rate = sa.rate ? sa.rate : 44100u;
     s->start = (int32_t)si.start;
@@ -288,7 +342,9 @@ static void samp_picture(const uint8_t *slot, int y, int col)
     hw -= hw & 1;
     ye = y + hw + 4;
     wave(si.sample, 0, y, 240, hw, C_BROWN, mk, mc, play_marks(si.sample, mk, mc, nm));
-    if (sample_info(si.sample, &sm, 0) && sm.length) {
+    if (!sample_info(si.sample, &sm, 0))                /* (where the waveform would be: grey, a reference to nothing) */
+        g_text(0, y + 30, &FONT_T, T("THE SAMPLE IS MISSING"), C_DGREY);
+    else if (sm.length) {
         g_hline(0, ye + he - 1, 240, C_DGREY);           /* (gain 0) */
         for (int k = 0; k < nm; k++)
             if (mk[k] <= sm.length) g_vline((int)((mk[k] * (uint32_t)239 * 2 + sm.length) / (2 * sm.length)), ye, he, mc[k]);
@@ -840,7 +896,10 @@ static void details(int y)
     uint8_t s[MAXSLOT];
     int k = kind(), h = 226 - y, col = ENG_COL[k];
     char b[48], lv[16];
-    if (!used(s)) { g_text(4, y + 30, &FONT_T, T("EMPTY SLOT: SEL MENU, INIT OR PASTE"), C_DGREY); return; }
+    if (!used(s)) {                                     /* (a sampler's: CREATE, an instrument needing a sample) */
+        g_text(4, y + 30, &FONT_T, k == REC_SAMPLER ? T("EMPTY SLOT: SEL MENU, CREATE OR PASTE") : T("EMPTY SLOT: SEL MENU, INIT OR PASTE"), C_DGREY);
+        return;
+    }
     level_text((int8_t)bits(s, ins_level_pos(k), 8), lv);
     if (k == REC_DX7) {
         int alg = bits(s, 678 + 56, 5) + 1;
@@ -899,11 +958,17 @@ static void details(int y)
         rec_sample_t sm;
         char nm[16];
         rec_sampler_inst(s, &si);
-        if (!sample_info(si.sample, &sm, nm)) { g_text(0, y + 20, &FONT_T, T("THE SAMPLE IS DELETED"), C_RED); return; }
+        if (!sample_info(si.sample, &sm, nm)) {        /* (a number with no sample: grey, as every reference to nothing) */
+            g_text(0, y + 20, &FONT_T, T("THE SAMPLE IS MISSING"), C_DGREY);
+            return;
+        }
         uint32_t cs = sm.rate ? (sm.length * 100 + sm.rate / 2) / sm.rate : 0;      /* (hundredths, rounded) */
+        char hd[16];
+        ui_fmt(hd, sizeof hd - 1, T("SAMPLE %02X"), si.sample);   /* (its number, then its name: `SAMPLE 23 KICK`) */
+        strcat(hd, " ");
         ui_fmt(b, sizeof b, "  %u.%02u S  %u HZ", cs / 100, cs % 100, sm.rate);
-        g_run_t r[2] = {{nm, (uint8_t)col}, {b, C_LGREY}};
-        g_runs(0, y, &FONT_T, r, 2);
+        g_run_t r[3] = {{hd, C_LGREY}, {nm, (uint8_t)col}, {b, C_LGREY}};
+        g_runs(0, y, &FONT_T, r, 3);
         uint32_t mk[4 + PL_VOICES] = {si.start, si.end, si.loop_start, si.loop_end};
         uint8_t mc[4 + PL_VOICES] = {C_WHITE, C_WHITE, C_GREEN, C_GREEN};
         wave(si.sample, 0, y + 16, 240, h - 34, C_BROWN, mk, mc, play_marks(si.sample, mk, mc, si.loop ? 4 : 2));   /* (and
@@ -956,6 +1021,31 @@ static void details(int y)
                          {hz, C_WHITE}, {T("LEVEL "), C_CYAN}, {lv, C_WHITE}};
         g_runs(0, y + 81, &FONT_T, b2, 7);
     }
+}
+
+/* a favourite's details (specs/ui/screens/instruments.md#favorites): its source as its own cartridge shows it; nothing
+ * for a missing one; an empty one says how to fill it */
+static void fav_details(int y)
+{
+    uint16_t src;
+    int f = ui_fav(ui_cur.place, &src);
+    if (f == UI_FAV_EMPTY) g_text(4, y + 30, &FONT_T, T("EMPTY SLOT: EDIT PICKS AN INSTRUMENT"), C_DGREY);
+    if (f != UI_FAV_OK) return;
+    det = src;
+    details(y);
+    det = 0xFFFFu;
+}
+/* a favourite's edit mode: which instrument it names, the picked one's details below */
+static void draw_fav_edit(void)
+{
+    char rt[8];
+    g_rect(0, BODY_Y, 240, BODY_H, C_BLACK);
+    ui_ref_text(rt, ui_cur.place);
+    g_text(4, 20, &FONT_T, ui_txt_v(T("FAVORITE #"), rt), C_CYAN);
+    g_text(4, 33, &FONT_T, T("SOURCE"), C_DGREY);
+    ui_fav_draw(46, 33, ui_cur.place, 0);
+    g_text(4, 46, &FONT_T, T("K1: CARTRIDGE  PRESETS: INSTRUMENT"), C_DGREY);
+    fav_details(100);
 }
 
 /* a value in its 7-character cell: past 7, the space before its unit goes (`-12.5DB`) */
@@ -1059,7 +1149,7 @@ static void draw_edit(void)
         ins_lay_t lay;
         int own = ins_layout(gg, &lay);                 /* (CHIP's wider values, TABLES' rows: columns of their own) */
         for (int q = 0; q < gg->np; q++) {
-            ins_text(s, &gg->p[q], cart(), b, sizeof b);
+            ins_text(s, &gg->p[q], b, sizeof b);
             if (own) b[lay.cw[q] < (int)sizeof b ? lay.cw[q] : (int)sizeof b - 1] = 0;
             else cell7(b);
             g_text(own ? lay.cx[q] : 60 + q * 45, yy, &FONT_T, b, on && q == st.last ? C_WHITE : C_LGREY);
@@ -1110,6 +1200,16 @@ static void whole(uint8_t *s, int idx)                 /* another sample: the in
     ins_set(s, &g[1].p[1], 0);
     ins_set(s, &g[1].p[2], (int)len);
 }
+/* a new instrument on sample num (specs/files/instruments.md#sample-instruments): whole, BASE NOTE C-4 at its rate, TUNE
+ * none, VOLUME 64, LEVEL 0 dB, a new instrument's envelope; named after its sample (INIT, a missing one's) */
+static void new_inst(uint8_t *s, int num)
+{
+    rec_sample_t sm;
+    char nm[16];
+    ins_init(REC_SAMPLER, s);
+    whole(s, num);
+    if (sample_info(num, &sm, nm)) ins_name_set(s, ins_name_pos(REC_SAMPLER), 10, nm);
+}
 static void turn(const ins_prm_t *p, int sv, int coarse)
 {
     uint8_t s[MAXSLOT];
@@ -1124,15 +1224,23 @@ static void turn(const ins_prm_t *p, int sv, int coarse)
         if (n) nv = nums[ui_clamp(at + sign(sv), 0, n - 1)];
     } else if (p->kind == PK_LIST) nv = ui_clamp(v + sign(sv), 0, p->max);
     else if (p->kind == PK_CHTAB) nv = ui_clamp(v + sv * (coarse ? 16 : 1), 0, CHIP_TAB_N[p->min]);   /* (its kind's) */
-    else {
+    else if (p->kind == PK_SAMPLE) {                    /* every sample on the FM-1 by number, a click a sample, passing
+                                                         * over deletions waiting for SAVE (from a missing one: the next
+                                                         * there either way) */
+        for (int c = sv > 0 ? sv : -sv; c > 0; c--) {
+            int f = nv + sign(sv);
+            while (f >= 0 && f < 256 && !pickable(f)) f += sign(sv);
+            if (f < 0 || f > 255) break;
+            nv = f;
+        }
+        if (nv == v) return;                            /* (none further: nothing changes) */
+    } else {
         int mx = p->max, step = coarse ? 16 : 1;
         if (k == REC_SAMPLER) {
             rec_sinst_t si;
             rec_sample_t sm;
             rec_sampler_inst(s, &si);
-            rec_cart_t c;
-            if (p->kind == PK_SAMPLE) { mx = !rec_cart(cart(), &c) && c.nsamples ? c.nsamples - 1 : 0; step = 1; }
-            else if (p->kind == PK_POS && sample_info(si.sample, &sm, 0)) {
+            if (p->kind == PK_POS && sample_info(si.sample, &sm, 0)) {
                 mx = (int)sm.length;
                 step = ((int)sm.length + 100) / 200;
                 if (step < 1) step = 1;
@@ -1146,7 +1254,7 @@ static void turn(const ins_prm_t *p, int sv, int coarse)
     if (p->kind == PK_SAMPLE) whole(s, nv);
     if (put_slot(slot(), s)) return;
     char t[24];
-    ins_text(s, p, cart(), t, sizeof t);
+    ins_text(s, p, t, sizeof t);
     ui_show_knob(T(p->lng ? p->lng : p->n), t);
 }
 static void reset(const ins_prm_t *p)
@@ -1157,7 +1265,7 @@ static void reset(const ins_prm_t *p)
     ins_set(s, p, p->kind == PK_LEVEL ? 0 : ins_get(def, p));
     if (put_slot(slot(), s)) return;
     char t[24], v[40];
-    ins_text(s, p, cart(), t, sizeof t);
+    ins_text(s, p, t, sizeof t);
     ui_fmt(v, sizeof v, T("%s (DEFAULT)"), t);
     ui_show_knob(T(p->lng ? p->lng : p->n), v);
 }
@@ -1165,8 +1273,112 @@ static void edit_close(int keep)
 {
     if (!keep && st.changed) ui_edit_session_drop();    /* HOME: the instrument as it was at EDIT */
     else ui_edit_session(0);
-    st.edit = 0;
+    if (st.fe && !keep) { ui_cur.inst = st.fe_was; ui_set_inst(ui_cur.place); }    /* (a favourite's: its source again) */
+    st.edit = st.fe = 0;
     st.changed = 0;
+}
+
+/* ---------------------------------------------------------------------- a favourite's edit mode --- */
+/* (specs/ui/screens/instruments.md#favorites) K1 the source's cartridge over every cartridge with an instrument, the
+ * cartridge list showing; PRESETS and SELECT that cartridge's instruments; ENV the same list, ENV again picks. Each
+ * change written into the slot at once (the mode's copy kept: HOME drops it), the instrument following it */
+static int first_inst(uint8_t c)        /* its first instrument's slot, -1 none (a FAVORITES cartridge has none) */
+{
+    char nm[12];
+    for (int s = 0, n = ui_cart_slots(c); s < n; s++) if (ui_inst_name((uint16_t)(c << 8 | s), nm)) return s;
+    return -1;
+}
+static int reach(uint8_t *nums)         /* K1's cartridges, in the lists' order */
+{
+    int n = ui_carts(nums, 256), k = 0;
+    for (int i = 0; i < n; i++) if (first_inst(nums[i]) >= 0) nums[k++] = nums[i];
+    return k;
+}
+static void fav_put(uint16_t src)       /* the favourite at the cursor names src: the instrument follows */
+{
+    uint8_t s[3] = {(uint8_t)(src >> 8), (uint8_t)src, 0};
+    if (!put_slot(slot(), s)) ui_set_inst(ui_cur.place);
+}
+static void fav_step(int d)             /* PRESETS, SELECT: the next instrument of the source's cartridge (from its first
+                                         * when the source is missing; with no cartridge there, K1's first) */
+{
+    uint16_t src = 0;
+    uint8_t nums[256];
+    char nm[12];
+    int ok = ui_fav(ui_cur.place, &src) == UI_FAV_OK, c = src >> 8;
+    if (first_inst((uint8_t)c) < 0) { if (!reach(nums)) return; c = nums[0]; ok = 0; }
+    for (int j = 0, n = ui_cart_slots((uint8_t)c); j < n; j++) {
+        int i = ok ? ui_wrap((src & 255) + d * (j + 1), n) : j;
+        if (ui_inst_name((uint16_t)(c << 8 | i), nm)) { fav_put((uint16_t)(c << 8 | i)); break; }
+    }
+    ui_il_show();
+}
+/* the cartridge list over the screen (dialogs.md#the-cartridge-list), the cartridges K1 reaches: K1's (closing a second
+ * after its last click), or ENV's (its own highlight, ENV picks) */
+static struct { uint8_t env; int sel; uint32_t at; } fl;
+static int fl_sel(const uint8_t *nums, int n)
+{
+    uint16_t src = 0;
+    ui_fav(ui_cur.place, &src);
+    for (int k = 0; k < n; k++) if (nums[k] == src >> 8) return k;
+    return 0;
+}
+static void fl_draw(ui_overlay_t *o)
+{
+    (void)o;
+    uint8_t nums[256];
+    int n = reach(nums);
+    ui_cart_lines(T("CARTRIDGES"), nums, nums, n, fl.env ? fl.sel : fl_sel(nums, n), 0);
+}
+static void knob(int e, int s, int coarse);
+static void fav_cart(int d);
+static void fl_knob(ui_overlay_t *o, int e, int s, int c)
+{
+    uint8_t nums[256];
+    if (e == K_K1) { fav_cart(sign(s)); return; }
+    if (e == K_SELECT && fl.env) { fl.sel = ui_clamp(fl.sel + s, 0, reach(nums) - 1); return; }
+    ui_close(o);                                        /* (any other control: its own job) */
+    knob(e, s, c);
+}
+static int fl_tap(ui_overlay_t *o, int b)
+{
+    uint8_t nums[256];
+    if (b != B_ENV) return 0;                           /* (passes: the list closes, the tap does its job) */
+    int n = reach(nums);
+    if (fl.env && fl.sel < n) { ui_close(o); fav_put((uint16_t)(nums[fl.sel] << 8 | first_inst(nums[fl.sel]))); return 1; }
+    fl.env = 1;                                         /* (open from K1: ENV's now, kept open) */
+    fl.sel = fl_sel(nums, n);
+    return 1;
+}
+static ui_overlay_t *fl_find(void) { ui_overlay_t *o = ui_top(); return o && o->draw == fl_draw ? o : 0; }
+static void fl_open(int env)
+{
+    uint8_t nums[256];
+    fl.at = ui_now() | 1u;
+    fl.env = (uint8_t)env;
+    if (env) fl.sel = fl_sel(nums, reach(nums));
+    if (fl_find()) return;
+    ui_overlay_t o = {.kind = OV_LIST, .opener = (int8_t)(env ? B_ENV : -1), .passes = 1, .knob = fl_knob, .tap = fl_tap,
+                      .draw = fl_draw};
+    ui_open(&o);
+}
+static void fav_cart(int d)             /* K1: the source's cartridge; a missing source starts at its own cartridge */
+{
+    uint8_t nums[256];
+    uint16_t src = 0;
+    int ok = ui_fav(ui_cur.place, &src) == UI_FAV_OK, n = reach(nums), i = -1;
+    if (!n) return;
+    for (int k = 0; k < n; k++) if (nums[k] == src >> 8) i = k;
+    i = i < 0 ? 0 : ok ? ui_wrap(i + d, n) : i;
+    fav_put((uint16_t)(nums[i] << 8 | first_inst(nums[i])));
+    fl_open(0);
+}
+static void fav_edit(void)              /* EDIT on a favourite: an empty one starts at the current instrument */
+{
+    uint8_t s[3];
+    st.edit = st.fe = 1; st.changed = 0; st.fe_was = ui_cur.inst;
+    ui_edit_session(1);
+    if (!ins_slot_bytes(cart(), slot(), s)) fav_put(ui_cur.inst);
 }
 
 /* ------------------------------------------------------------------------------- the menus --- */
@@ -1190,7 +1402,7 @@ static void rename(void)
     char nm[16], title[24];
     if (!used(s)) return;
     rec_slot_name((uint8_t)kind(), s, nm);
-    ui_ref_text(title + 11, ui_cur.inst);
+    ui_ref_text(title + 11, ui_cur.place);
     ui_fmt(title, sizeof title, T("INSTRUMENT %s"), title + 11);
     ui_text_entry(title, nm, 10, B_EDIT, rename_done);
 }
@@ -1236,7 +1448,7 @@ static void put_down(void)
     q_mode = st.mv_swap ? Q_SWAP : Q_MOVE; q_from = from; q_at = at;
     char label[8];
     ui_ref_text(label, (uint16_t)(cart() << 8 | from));
-    ask_refs(label, ed_inst_uses((uint16_t)(cart() << 8 | from)) + (st.mv_swap ? ed_inst_uses((uint16_t)(cart() << 8 | at)) : 0));
+    ask_refs(label, kind() == REC_FAV ? 0 : ed_inst_uses((uint16_t)(cart() << 8 | from)) + (st.mv_swap ? ed_inst_uses((uint16_t)(cart() << 8 | at)) : 0));   /* (nothing refers to a favourite's place) */
 }
 static void float_step(int d)
 {
@@ -1250,7 +1462,62 @@ static void float_step(int d)
     }
     st.mv_at = k;
 }
-enum { S_MARK = 1, S_PATTERN, S_COPY, S_PASTE, S_MOVE, S_SWAP, S_DELETE, S_INIT, S_RENAME, S_AUTO, S_REVERT };
+enum { S_MARK = 1, S_PATTERN, S_COPY, S_PASTE, S_MOVE, S_SWAP, S_DELETE, S_INIT, S_RENAME, S_AUTO, S_REVERT, S_REMOVE,
+       S_REPLACE, S_CREATE,             /* (a sampler's: REPLACE SAMPLE; CREATE in INIT's place on an empty slot) */
+       S_NEWC = 0x100,                  /* NEW CARTRIDGE's types: + the kind */
+       S_ADDTO = 0x200 };               /* ADD TO FAVORITES: + the FAVORITES cartridge */
+/* NEW's types, in the menus' order, and their kinds; a new one made at the number after the last of the user's */
+static const txt_t NEW_TN[7] = {TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("CHIP"), TX("SAMPLER"), TX("FUSION"), TX("FAVORITES")};
+static const uint8_t NEW_TK[7] = {REC_DX7, REC_JUNO, REC_TB303, REC_CHIP, REC_SAMPLER, REC_FUSION, REC_FAV};
+static void new_items(ui_mitem_t *t, int base) { for (int k = 0; k < 7; k++) t[k] = (ui_mitem_t){NEW_TN[k], base + NEW_TK[k], 0, 0}; }
+static int new_cart(int kind)
+{
+    static const txt_t NEWN[7] = {TX("NEW DX7"), TX("NEW JUNO-106"), TX("NEW TB-303"), TX("NEW SAMPLER"), TX("NEW FUSION"),
+                                  TX("NEW CHIP"), TX("MY FAVORITES")};      /* (by kind) */
+    int id = ins_free_cart();
+    char v[24];
+    if (id < 0) { ui_toast(T("ALL CARTRIDGE NUMBERS USED")); return -1; }
+    ins_new_cart((uint8_t)id, kind, T(NEWN[kind - 1]));
+    ui_fmt(v, sizeof v, T("CARTRIDGE %02X MADE"), id);
+    ui_toast(v);
+    return id;
+}
+/* the FAVORITES cartridges, in the lists' order (at most max) */
+static int favs(uint8_t *f, int max)
+{
+    uint8_t nums[256];
+    int n = ui_carts(nums, 256), k = 0;
+    for (int i = 0; i < n && k < max; i++) if (ui_cart_rank(nums[i]) < 2) f[k++] = nums[i];
+    return k;
+}
+/* ADD TO FAVORITES (specs/ui/screens/instruments.md#favorites): the slots' instruments (r0-r1), each into fc's first
+ * empty slot, those there already and the empty slots skipped; nothing added unless they all fit */
+static void fav_add(uint8_t fc, int r0, int r1)
+{
+    uint16_t have[128], add[128];
+    uint8_t s[MAXSLOT];
+    char rt[8];
+    int n = 0, there = -1, empty = 0, first = -1;
+    for (int k = 0; k < 128; k++) { have[k] = 0xFFFFu; if (ins_slot_bytes(fc, k, s)) have[k] = (uint16_t)(s[0] << 8 | s[1]); else empty++; }
+    for (int k = r0; k <= r1; k++) {
+        uint16_t src = (uint16_t)(cart() << 8 | k);
+        int j = 0;
+        if (!ins_slot_bytes(cart(), k, s)) continue;
+        while (j < 128 && have[j] != src) j++;
+        if (j < 128) { if (there < 0) there = j; continue; }
+        add[n++] = src;
+    }
+    if (!n) { if (there >= 0) { ui_ref_text(rt, (uint16_t)(fc << 8 | there)); ui_toast(ui_txt_v(T("ALREADY IN #"), rt)); } return; }
+    if (empty < n) { ui_toast(T("FAVORITES FULL")); return; }
+    for (int k = 0, i = 0; k < 128 && i < n; k++) {
+        if (have[k] != 0xFFFFu) continue;
+        uint8_t b[3] = {(uint8_t)(add[i] >> 8), (uint8_t)add[i], 0};
+        if (ins_put_slot(fc, k, b)) return;             /* (MEMORY FOR EDITS IS FULL: said) */
+        if (!i++) first = k;
+    }
+    ui_ref_text(rt, (uint16_t)(fc << 8 | first));
+    ui_toast(ui_txt_v(T("ADDED TO #"), rt));
+}
 /* REVERT (specs/ui/saving.md#revert): the slot as saved, its sound so from its next note */
 static void slot_revert_go(void) { ui_edit_revert_slot(cart(), (uint8_t)slot()); }
 static int slot_unsaved(void)
@@ -1265,8 +1532,21 @@ static void slot_pick(int a)
     uint8_t s[MAXSLOT];
     char v[40];
     st.marking = 0;
+    if (a >= S_ADDTO) { fav_add((uint8_t)(a - S_ADDTO), r0, r1); st.mark = -1; return; }
+    if (a > S_NEWC) {                                   /* NEW CARTRIDGE: made and opened */
+        int id = new_cart(a - S_NEWC);
+        if (id >= 0) set_inst(id, 0);
+        st.mark = -1;
+        return;
+    }
     switch (a) {
     case S_MARK: st.marking = 1; st.mark = i; ui_toast(T("SELECT, ALG: MARK  SEL: ITS MENU")); return;
+    case S_REMOVE:                                      /* the favourites go, their sources stay; FB emptied is the
+                                                         * firmware's own again: its record goes */
+        for (int k = r0; k <= r1; k++) put_slot(k, 0);
+        if (cart() == 0xFB && !ui_cart_slots(0xFB) && !ins_builtin(0xFB) && ui_cart_name(0xFB, v) && !strcmp(v, T("FAVORITES")))
+            ui_edit_del(REC_FAV, 0xFB, 0);
+        break;
     case S_PATTERN: open_fusion(); break;
     case S_COPY:
         st.clip_n = 0;
@@ -1284,17 +1564,27 @@ static void slot_pick(int a)
         }
         for (int k = 0; k < st.clip_n && i + k < size(); k++) put_slot(i + k, clip_used[k] ? clip[k] : 0);
         break;
-    case S_INIT:
-        for (int k = r0; k <= r1; k++) { ins_init(kind(), s); put_slot(k, s); }
+    case S_INIT:                                        /* (a sampler's: its sample kept, a new instrument's values; an
+                                                         * empty slot left empty: an instrument needs a sample) */
+        for (int k = r0; k <= r1; k++) {
+            if (kind() != REC_SAMPLER) ins_init(kind(), s);
+            else if (ins_slot_bytes(cart(), k, s)) new_inst(s, s[0]);
+            else continue;
+            put_slot(k, s);
+        }
         break;
+    case S_REPLACE: if (used(s)) sm_open(SM_REPLACE, s[0], 0); break;
+    case S_CREATE: sm_open(SM_CREATE, -1, 0); break;
     case S_RENAME: rename(); break;
     case S_AUTO: if (used(s)) ui_auto_level(cart(), i, auto_done); break;
-    case S_DELETE: {                                    /* (marked slots: their uses together) */
+    case S_DELETE: {                                    /* (marked slots: their uses together; in edit mode, a sample
+                                                         * instrument's: edit mode left first, its changes kept) */
+        if (st.edit) edit_close(1);
         int uses = 0;
         for (int k = r0; k <= r1; k++) if (ins_slot_bytes(cart(), k, s)) uses += ed_inst_uses((uint16_t)(cart() << 8 | k));
         q_mode = Q_DELETE; q_r0 = r0; q_r1 = r1;
         char label[16];
-        if (r0 == r1) ui_ref_text(label, ui_cur.inst); else ui_fmt(label, sizeof label, T("SLOTS %02X-%02X"), r0, r1);
+        if (r0 == r1) ui_ref_text(label, ui_cur.place); else ui_fmt(label, sizeof label, T("SLOTS %02X-%02X"), r0, r1);
         ask_refs(label, uses);
         break;
     }
@@ -1310,7 +1600,7 @@ static void slot_pick(int a)
     case S_REVERT: {                                    /* the slot as saved, after a question */
         static char q[32];
         char rt[8];
-        ui_ref_text(rt, ui_cur.inst);
+        ui_ref_text(rt, ui_cur.place);
         ui_fmt(q, sizeof q, T("REVERT SLOT %s TO SAVED?"), rt);
         ui_ask_revert(q, 0, slot_revert_go);
         break;
@@ -1321,62 +1611,100 @@ static void slot_pick(int a)
 }
 static void slot_menu(void)
 {
-    uint8_t s[MAXSLOT];
-    ui_mitem_t m[12];                                   /* (the menu copies its items) */
+    uint8_t s[MAXSLOT], fv[6];
+    ui_mitem_t m[14], nc[7], fa[6];                     /* (the menu copies its items) */
     char title[32];
-    int n = 0, i = slot(), has = used(s);
+    int n = 0, i = slot(), has = used(s), fav = kind() == REC_FAV, nf = favs(fv, 6), sampler = kind() == REC_SAMPLER;
     int fusion = st.edit && kind() == REC_FUSION && has && s[0] != 0xFF && ui_pattern_rows(s[0]);
+    /* a sampler's: REPLACE SAMPLE on one instrument; CREATE in INIT's place on one empty slot (an instrument needs a
+     * sample: specs/ui/screens/instruments.md, Sampler cartridges) */
+    ui_mitem_t init = sampler && !has && st.mark < 0 ? (ui_mitem_t){TX("CREATE"), S_CREATE, 0, 0} : (ui_mitem_t){TX("INIT"), S_INIT, 0, 0};
+    int replace = sampler && has && st.mark < 0;
+    /* ADD TO FAVORITES on an instrument, while a FAVORITES cartridge is there: one, an action; several, a group of them
+     * (named as listed, below) */
+    for (int k = 0; k < nf; k++) fa[k] = (ui_mitem_t){TX("FAVORITES"), S_ADDTO + fv[k], 0, 0};
+    ui_mitem_t add = nf == 1 ? fa[0] : (ui_mitem_t){0, 0, fa, (uint8_t)nf};
+    add.name = TX("ADD TO FAVORITES");
+    int can_add = nf && !fav && (has || st.mark >= 0);
+    new_items(nc, S_NEWC);
     if (st.edit) {                                      /* (built in: edited as any) */
         if (fusion) m[n++] = (ui_mitem_t){TX("EDIT PATTERN"), S_PATTERN, 0, 0};
+        if (can_add) m[n++] = add;
         m[n++] = (ui_mitem_t){TX("COPY"), S_COPY, 0, 0};
         m[n++] = (ui_mitem_t){TX("PASTE"), S_PASTE, 0, 0};
-        m[n++] = (ui_mitem_t){TX("INIT"), S_INIT, 0, 0};
+        if (replace) m[n++] = (ui_mitem_t){TX("REPLACE SAMPLE"), S_REPLACE, 0, 0};
+        m[n++] = init;
         m[n++] = (ui_mitem_t){TX("RENAME"), S_RENAME, 0, 0};
         m[n++] = (ui_mitem_t){TX("AUTO LEVEL"), S_AUTO, 0, 0};
+        if (sampler && has) m[n++] = (ui_mitem_t){TX("DELETE"), S_DELETE, 0, 0};   /* (edit mode left first) */
         if (slot_unsaved()) m[n++] = (ui_mitem_t){TX("REVERT"), S_REVERT, 0, 0};
     } else {
         if (st.mark < 0) m[n++] = (ui_mitem_t){TX("MARK"), S_MARK, 0, 0};
+        if (can_add) m[n++] = add;
         m[n++] = (ui_mitem_t){TX("COPY"), S_COPY, 0, 0};
         m[n++] = (ui_mitem_t){TX("PASTE"), S_PASTE, 0, 0};
+        if (replace) m[n++] = (ui_mitem_t){TX("REPLACE SAMPLE"), S_REPLACE, 0, 0};
         m[n++] = (ui_mitem_t){TX("MOVE"), S_MOVE, 0, 0};
         m[n++] = (ui_mitem_t){TX("SWAP"), S_SWAP, 0, 0};
-        m[n++] = (ui_mitem_t){TX("DELETE"), S_DELETE, 0, 0};
-        m[n++] = (ui_mitem_t){TX("INIT"), S_INIT, 0, 0};
-        m[n++] = (ui_mitem_t){TX("RENAME"), S_RENAME, 0, 0};
-        m[n++] = (ui_mitem_t){TX("AUTO LEVEL"), S_AUTO, 0, 0};
+        if (fav) m[n++] = (ui_mitem_t){TX("REMOVE"), S_REMOVE, 0, 0};    /* (a favourite: no sound or name of its own) */
+        else {
+            m[n++] = (ui_mitem_t){TX("DELETE"), S_DELETE, 0, 0};
+            m[n++] = init;
+            m[n++] = (ui_mitem_t){TX("RENAME"), S_RENAME, 0, 0};
+            m[n++] = (ui_mitem_t){TX("AUTO LEVEL"), S_AUTO, 0, 0};
+        }
+        m[n++] = (ui_mitem_t){TX("NEW CARTRIDGE"), 0, nc, 7};
         if (st.mark < 0 && slot_unsaved()) m[n++] = (ui_mitem_t){TX("REVERT"), S_REVERT, 0, 0};
     }
     char rt[8];
-    ui_ref_text(rt, ui_cur.inst);
-    if (st.mark >= 0) ui_fmt(title, sizeof title, T("SLOTS %02X-%02X"), st.mark < i ? st.mark : i, st.mark > i ? st.mark : i);
-    else ui_fmt(title, sizeof title, T("SLOT %s"), rt);
+    ui_ref_text(rt, ui_cur.place);
+    int a0 = st.mark < i ? st.mark : i, a1 = st.mark > i ? st.mark : i;
+    if (st.mark < 0) ui_fmt(title, sizeof title, T("SLOT %s"), rt);
+    else if (fav) ui_fmt(title, sizeof title, T("SLOTS %02X:%02X-%02X"), cart(), a0, a1);
+    else ui_fmt(title, sizeof title, T("SLOTS %02X-%02X"), a0, a1);
     ui_menu(st.edit ? "slot-edit" : "slots", title, m, n, slot_pick, B_SEL);
+    for (int k = 0; k < nf && nf > 1; k++) {            /* the group's names: `FB FAVORITES`, `07 MY FAVORITES` */
+        char nm[16], b[20];
+        ui_cart_name(fv[k], nm);
+        ui_fmt(b, sizeof b, "%02X %s", fv[k], nm);
+        ui_menu_name(S_ADDTO + fv[k], b);
+    }
 }
 
 /* ---------------------------------------------------------------------- the cartridge list --- */
 static struct { uint8_t nums[256]; int n, sel, mv, mv_from, mv_at, act; } cl;
-static void cl_refill(void) { cl.n = ui_carts(cl.nums, 256); cl.sel = ui_clamp(cl.sel, 0, cl.n - 1 > 0 ? cl.n - 1 : 0); }
+/* its lines: the cartridges, then ALL SAMPLES while the FM-1 holds a sample (the line after the last: cl.n) */
+static int cl_lines(void) { rows(); return cl.n + (sr.n > 0); }
+static void cl_refill(void) { cl.n = ui_carts(cl.nums, 256); cl.sel = ui_clamp(cl.sel, 0, cl_lines() - 1 > 0 ? cl_lines() - 1 : 0); }
 static void cl_select(int id) { for (int i = 0; i < cl.n; i++) if (cl.nums[i] == id) cl.sel = i; }
 static void cl_knob(ui_overlay_t *o, int e, int s, int c)
 {
     (void)o; (void)c;
     if (e != K_SELECT) return;
-    if (cl.mv) {                                         /* within the user's numbers, 00-EF */
+    if (cl.mv) {                                         /* within the user's numbers, 00-EF, to free ones (an old
+                                                         * sampler's is taken: rec_cart_taken) */
         int k = cl.mv_at;
-        do k += sign(s); while (k >= 0 && k <= 0xEF && ins_kind((uint8_t)k) && k != cl.mv_from);
+        do k += sign(s); while (k >= 0 && k <= 0xEF && rec_cart_taken((uint8_t)k) && k != cl.mv_from);
         if (k >= 0 && k <= 0xEF) cl.mv_at = k;
         return;
     }
-    if (cl.n) cl.sel = ui_clamp(cl.sel + s, 0, cl.n - 1);
+    if (cl_lines()) cl.sel = ui_clamp(cl.sel + s, 0, cl_lines() - 1);
 }
 static int cl_uses(uint8_t c)
 {
-    int u = 0, ns = ui_cart_slots(c);
+    int u = 0, ns = ui_cart_kind(c) == ENG_FAV ? 0 : ui_cart_slots(c);    /* (nothing refers to a FAVORITES one) */
     uint8_t s[MAXSLOT];
     for (int k = 0; k < ns; k++) if (ins_slot_bytes(c, k, s)) u += ed_inst_uses((uint16_t)(c << 8 | k));
     return u;
 }
 static void cl_remap_cart(int from, int to) { ed_remap(from, to, 0, 1); }
+/* a cartridge moved: the place and the current instrument go with it, each on its own (the place a favourite naming
+ * one of its instruments: the instrument moves, the favourite as its references were answered) */
+static void cart_follow(int from, int to)
+{
+    if (cart() == from) set_inst(to, slot());
+    else if (ui_cur.inst >> 8 == from) ui_cur.inst = (uint16_t)(to << 8 | (ui_cur.inst & 255));
+}
 static int cl_q_from, cl_q_to;
 static void cl_delete(int upd)
 {
@@ -1386,60 +1714,10 @@ static void cl_delete(int upd)
     if (!ins_kind(cart()) && cl.n) set_inst(cl.nums[0], 0);
     if (upd) ui_save_refs(q_uses);
 }
-/* CLONE or MOVE of a sampler cartridge with samples (specs/ui/screens/instruments.md): the audio cannot wait in
- * the edit memory, so the copy (its record as it stands, its samples' audio) is written to the flash at once, as
- * one save: playback paused, a progress bar; a MOVE deletes the old number's in the same save, then updates the
- * references (saved, as a MOVE's always are) */
-static struct { uint8_t from, to, move, upd; } cs;
-static void cs_write(void)
-{
-    uint32_t len;
-    uint8_t ver;
-    char nm[16], v[40];
-    rec_cart_t c;                                       /* (its record as the edits make it: a CLONE copies them) */
-    if (ins_cart_copy(cs.from, &c, ui_scratch, &len, &ver) || c.kind != REC_SAMPLER) return;
-    if (!cs.move) {
-        rec_name(ui_scratch, 0, 12, nm);
-        nm[9] = 0;
-        ui_fmt(v, sizeof v, "%s 2", nm);
-        ins_name_set(ui_scratch, 0, 12, v);
-    }
-    int r = store_clone_sampler(cs.from, cs.to, ver, ui_scratch, len, cs.move);
-    player_store_changed();                             /* (records were written and deleted) */
-    if (r == STORE_ERR_STATE) { ui_toast(T("SAVE IT FIRST")); return; }
-    if (r == STORE_ERR_FULL || r == STORE_ERR_BIG) { ui_toast(T("NO ROOM IN THE USER AREA")); return; }
-    if (r != STORE_OK) { ui_toast(T("CLONE FAILED: FLASH ERROR")); return; }
-    if (cs.move) {
-        if (cs.upd) cl_remap_cart(cs.from, cs.to);
-        if (cart() == cs.from) set_inst(cs.to, slot());
-    }
-    cl_refill();
-    cl_select(cs.to);
-    if (cs.move) { if (cs.upd) ui_save_refs(q_uses); }
-    else {
-        ui_fmt(v, sizeof v, T("%02X CLONED TO %02X"), cs.from, cs.to);
-        ui_toast(v);
-    }
-}
-static void cs_start(int from, int to, int move, int upd)
-{
-    store_key_t k[STORE_MOVE_MAX];
-    int n = store_thing(REC_SAMPLER, (uint8_t)from, 0, k, STORE_MOVE_MAX);
-    uint32_t b = store_thing_bytes(k, n);
-    cs.from = (uint8_t)from; cs.to = (uint8_t)to; cs.move = (uint8_t)move; cs.upd = (uint8_t)upd;
-    player_pause();                                     /* writing the flash silences the audio */
-    player_keys_off();
-    ui_progress(move ? T("MOVING ITS SAMPLES") : T("CLONING ITS SAMPLES"), (int)(400u + (b / 64u > 1600u ? 1600u : b / 64u)),
-                cs_write);
-}
-
+/* MOVE of a cartridge, a sampler's as any (its instruments only: the samples are things of their own) */
 static void cl_move(int upd)
 {
     rec_cart_t c;
-    if (!rec_cart((uint8_t)cl_q_from, &c) && c.kind == REC_SAMPLER && c.nsamples) {   /* (its audio moves too) */
-        cs_start(cl_q_from, cl_q_to, 1, upd);
-        return;
-    }
     if (!rec_cart((uint8_t)cl_q_from, &c)) {
         char nm[16];
         rec_cart_name(&c, nm);
@@ -1447,7 +1725,7 @@ static void cl_move(int upd)
         ui_edit_del(c.kind, (uint8_t)cl_q_from, 0);
     }
     if (upd) cl_remap_cart(cl_q_from, cl_q_to);
-    if (cart() == cl_q_from) set_inst(cl_q_to, slot());
+    cart_follow(cl_q_from, cl_q_to);
     cl_refill();
     cl_select(cl_q_to);
     if (upd) ui_save_refs(q_uses);
@@ -1472,7 +1750,7 @@ static void cl_rename_done(const char *name)
 {
     if (name) ins_rename_cart((uint8_t)cl.act, name[0] ? name : T("NO NAME"));
 }
-enum { CM_DX7 = 1, CM_JUNO, CM_TB, CM_SAMPLER, CM_FUSION, CM_CHIP, CM_CLONE, CM_MOVE, CM_DELETE, CM_RENAME, CM_AUTO,
+enum { CM_DX7 = 1, CM_JUNO, CM_TB, CM_SAMPLER, CM_FUSION, CM_CHIP, CM_FAV, CM_CLONE, CM_MOVE, CM_DELETE, CM_RENAME, CM_AUTO,
        CM_BUILTIN, CM_REVERT };                        /* (NEW's types: their kinds, REC_*) */
 /* REVERT (specs/ui/saving.md#revert): the whole cartridge as saved, every slot and its name (a cartridge made anew
  * goes; one of another kind at its number comes back) */
@@ -1487,19 +1765,12 @@ static void cl_pick(int a)
 {
     int c = cl.act, id = ins_free_cart();
     char v[40], nm[16];
-    static const txt_t NEWN[6] = {TX("NEW DX7"), TX("NEW JUNO-106"), TX("NEW TB-303"), TX("NEW SAMPLER"), TX("NEW FUSION"),
-                                  TX("NEW CHIP")};
-    if (a >= CM_DX7 && a <= CM_CHIP) {
-        if (id < 0) { ui_toast(T("ALL CARTRIDGE NUMBERS USED")); return; }
-        ins_new_cart((uint8_t)id, a, T(NEWN[a - CM_DX7]));
-        cl_refill(); cl_select(id);
-        ui_fmt(v, sizeof v, T("CARTRIDGE %02X MADE"), id);
-        ui_toast(v);
+    if (a >= CM_DX7 && a <= CM_FAV) {
+        if ((id = new_cart(a)) >= 0) { cl_refill(); cl_select(id); }
     } else if (a == CM_CLONE) {                          /* an editable copy in the user area */
         rec_cart_t rc;
         if (id < 0) { ui_toast(T("ALL CARTRIDGE NUMBERS USED")); return; }
         if (rec_cart((uint8_t)c, &rc)) return;
-        if (rc.kind == REC_SAMPLER && rc.nsamples) { cs_start(c, id, 0, 0); return; }   /* (its audio: at once) */
         rec_cart_name(&rc, nm);
         nm[9] = 0;
         ui_fmt(v, sizeof v, "%s 2", nm);
@@ -1534,26 +1805,24 @@ static void cl_pick(int a)
 }
 static void cl_menu(void)
 {
-    if (!cl.n) return;
+    if (cl.sel >= cl.n) return;                         /* (ALL SAMPLES: not a cartridge, no menu) */
     int c = cl.nums[cl.sel];
     cl.act = c;
-    ui_mitem_t m[8], types[6];                          /* (the menu copies its items) */
+    ui_mitem_t m[8], types[7];                          /* (the menu copies its items) */
     char title[32];
-    static const txt_t TN[6] = {TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("CHIP"), TX("SAMPLER"), TX("FUSION")};
-    static const uint8_t TA[6] = {CM_DX7, CM_JUNO, CM_TB, CM_CHIP, CM_SAMPLER, CM_FUSION};
-    for (int k = 0; k < 6; k++) types[k] = (ui_mitem_t){TN[k], TA[k], 0, 0};
-    int n = 0;
-    m[n++] = (ui_mitem_t){TX("NEW"), 0, types, 6};
+    int n = 0, fav = ui_cart_kind((uint8_t)c) == ENG_FAV;  /* (FAVORITES: no AUTO LEVEL ALL, no sounds of its own) */
+    new_items(types, 0);                                /* (CM_DX7 .. CM_FAV are the kinds) */
+    m[n++] = (ui_mitem_t){TX("NEW"), 0, types, 7};
     m[n++] = (ui_mitem_t){TX("CLONE"), CM_CLONE, 0, 0};
     if (c >= 0xF0) {                                    /* built in: edited as any; changed, the change can go */
         m[n++] = (ui_mitem_t){TX("RENAME"), CM_RENAME, 0, 0};
-        m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
+        if (!fav) m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
         if (!ins_builtin((uint8_t)c)) m[n++] = (ui_mitem_t){TX("BACK TO BUILT-IN"), CM_BUILTIN, 0, 0};
     } else {
         m[n++] = (ui_mitem_t){TX("MOVE"), CM_MOVE, 0, 0};
         m[n++] = (ui_mitem_t){TX("DELETE"), CM_DELETE, 0, 0};
         m[n++] = (ui_mitem_t){TX("RENAME"), CM_RENAME, 0, 0};
-        m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
+        if (!fav) m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
     }
     if (ui_edit_unsaved(REC_DX7, (uint8_t)c, 0)) m[n++] = (ui_mitem_t){TX("REVERT"), CM_REVERT, 0, 0};
     ui_fmt(title, sizeof title, T("CARTRIDGE %02X"), c);
@@ -1565,19 +1834,13 @@ static int cl_tap(ui_overlay_t *o, int b)
         if (b == B_SEL) {
             cl.mv = 0;
             if (cl.mv_at != cl.mv_from) {
-                rec_cart_t c;                           /* (a sampler with samples moves in the flash at once: its
-                                                         * changes saved first, before the question) */
-                int edited = store_edit_has(REC_SAMPLER, (uint8_t)cl.mv_from, 0);
-                for (int s = 0; s < 64; s++) edited |= store_edit_has(REC_AUDIO, (uint8_t)cl.mv_from, (uint8_t)s);
-                if (!rec_cart((uint8_t)cl.mv_from, &c) && c.kind == REC_SAMPLER && c.nsamples && edited) {
-                    ui_toast(T("SAVE IT FIRST"));
-                    return 1;
-                }
                 cl_q_from = cl.mv_from; cl_q_to = cl.mv_at; cl_ask(cl.mv_from, cl_uses((uint8_t)cl.mv_from), cl_move);
             }
         }
         return 1;
     }
+    if (b == o->opener && cl.sel >= cl.n) { sm_open(SM_ALL, -1, 0); return 1; }   /* ALL SAMPLES: THE SAMPLES list,
+                                                         * the cartridge list kept under it */
     if (b == o->opener) {
         int c = cl.n ? cl.nums[cl.sel] : -1;
         ui_close(o);
@@ -1600,37 +1863,31 @@ static void cl_cancel(ui_overlay_t *o)
 static void cl_draw(ui_overlay_t *o)
 {
     (void)o;
-    int y = BODY_Y + 2, rows = 13;
-    ui_panel(2, y, 236, 206, T("CARTRIDGES"), C_CYAN);
-    g_text(8, y + 16, &FONT_T, T("ID NAME         TYPE      SLOTS"), C_DGREY);
     /* a cartridge afloat is listed under the number it would take, boxed yellow */
-    uint8_t ids[256], who[256];
+    uint8_t ids[256], who[256], rk[256];
     int n = 0, sel = cl.sel;
     for (int i = 0; i < cl.n; i++) {
-        int id = cl.mv && cl.nums[i] == cl.mv_from ? cl.mv_at : cl.nums[i];
-        int k = n;
-        while (k > 0 && ids[k - 1] > id) { ids[k] = ids[k - 1]; who[k] = who[k - 1]; k--; }
-        ids[k] = (uint8_t)id; who[k] = cl.nums[i];
+        int id = cl.mv && cl.nums[i] == cl.mv_from ? cl.mv_at : cl.nums[i], r = cl.mv ? ui_cart_rank(cl.nums[i]) : 0;
+        int k = n;                                      /* (in the lists' order: among its rank's, by number) */
+        while (cl.mv && k > 0 && (rk[k - 1] << 8 | ids[k - 1]) > (r << 8 | id)) { ids[k] = ids[k - 1]; who[k] = who[k - 1]; rk[k] = rk[k - 1]; k--; }
+        ids[k] = (uint8_t)id; who[k] = cl.nums[i]; rk[k] = (uint8_t)r;
         n++;
     }
     if (cl.mv) for (int i = 0; i < n; i++) if (who[i] == cl.mv_from) sel = i;
-    int top = sel - 6 < n - rows ? sel - 6 : n - rows;
-    if (top < 0) top = 0;
-    for (int i = top; i < n && i < top + rows; i++) {
-        int c = who[i], yy = y + 30 + (i - top) * 13, on = i == sel, k = ins_kind((uint8_t)c), us = 0;
-        uint8_t s[MAXSLOT];
-        char nm[16], cnt[12];
-        rec_cart_t rc;
-        if (rec_cart((uint8_t)c, &rc)) continue;
-        for (int q = 0; q < rc.nslots; q++) if (ins_slot_bytes((uint8_t)c, q, s)) us++;
-        if (on) g_box(4, yy - 1, 232, 13, cl.mv ? C_YELLOW : C_WHITE);
-        g_text(8, yy, &FONT_T, ui_hex2(ids[i]), ins_builtin((uint8_t)c) ? C_BROWN : on ? C_WHITE : C_LGREY);
-        rec_cart_name(&rc, nm);
-        g_text(26, yy, &FONT_T, nm, on ? C_WHITE : C_LGREY);
-        g_text(110, yy, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
-        ui_fmt(cnt, sizeof cnt, "%03d/%03d", us, ENG_SLOTS[k]);
-        g_text(170, yy, &FONT_T, cnt, C_LGREY);
-    }
+    int more = cl_lines() - cl.n, y = ui_cart_lines_more(T("CARTRIDGES"), ids, who, n, more, sel, cl.mv);
+    if (y < 0) return;
+    /* the samples' line (specs/ui/screens/instruments.md#the-cartridges-env): nothing in the ID column, ALL SAMPLES
+     * yellow as the samples' names (the cursor's white), their size as STATUS writes sizes, their count of 256 */
+    char sz[12], cnt[12];
+    int on = !cl.mv && sel == cl.n;
+    if (on) g_box(4, y - 1, 232, 13, C_WHITE);
+    g_text(26, y, &FONT_T, T("ALL SAMPLES"), on ? C_WHITE : C_YELLOW);
+    if (sr.bytes < 1024u) ui_fmt(sz, sizeof sz, "%u B", sr.bytes);
+    else if (sr.bytes < 10240u) { uint32_t t = (sr.bytes * 10u + 512u) / 1024u; ui_fmt(sz, sizeof sz, "%u.%uK", t / 10u, t % 10u); }
+    else ui_fmt(sz, sizeof sz, "%uK", (sr.bytes + 512u) / 1024u);
+    g_text(110, y, &FONT_T, sz, C_LGREY);
+    ui_fmt(cnt, sizeof cnt, "%03d/256", sr.n);
+    g_text(170, y, &FONT_T, cnt, C_LGREY);
 }
 static void cart_list(void)
 {
@@ -1641,87 +1898,159 @@ static void cart_list(void)
     ui_open(&o);
 }
 
-/* ------------------------------------------------------------------------ the samples' list --- */
-static struct { int sel, n; } sm;
-
-/* Its SEL menu (specs/ui/screens/instruments.md): `SAMPLE 03`: DELETE (not on a deleted one: no menu there) */
-enum { SMM_DELETE = 1 };
-static int sm_users(int idx)                    /* the cartridge's instruments that play the sample */
+/* ---------------------------------------------------------------------------- THE SAMPLES list --- */
+/* every sample on the FM-1, a row a sample in number order (rows(): those whose deletion waits for SAVE among them,
+ * `(DELETED)`), titled SAMPLES (23) however it opens (specs/ui/screens/instruments.md#the-samples):
+ *   SM_INST     ENV on a sample instrument's SAMPLE (edit mode): the keys play the highlighted sample through the
+ *               instrument, ENV picks it (played whole), HOME leaves the instrument as it was;
+ *   SM_REPLACE  REPLACE SAMPLE: the keys play it as a new instrument would, ENV makes the instrument play it as a new one
+ *               would (its name following when it was the old sample's), HOME leaves it as it was;
+ *   SM_CREATE   CREATE (and EDIT on an empty sampler slot: edit then opens on the new instrument): ENV makes one there,
+ *               named after its sample, HOME makes nothing;
+ *   SM_ALL      the cartridge list's ALL SAMPLES line: to look, listen and delete; ENV or HOME back to the line.
+ * A `(DELETED)` row is not picked (ENV refused) and SEL there opens nothing. sel the row highlighted */
+static struct {
+    int16_t sel;
+    uint8_t mode, edit, keys;
+    uint8_t del;                                /* DELETE's sample (its question's) */
+    uint16_t del_n;                             /* ... and the instruments that use it */
+} sm;
+static int sm_num(void) { return row_num(sm.sel); }     /* the highlighted row's sample, -1 none */
+static void sm_close(ui_overlay_t *o)
 {
-    rec_cart_t c;
-    int n = 0;
-    if (rec_cart(cart(), &c)) return 0;
-    for (int s = 0; s < c.nslots; s++) {
-        const uint8_t *x = rec_slot(&c, (uint8_t)s);
-        rec_sinst_t si;
-        if (!x) continue;
-        rec_sampler_inst(x, &si);
-        if (si.sample == idx) n++;
+    if (sm.keys) player_keys_off();                     /* (its keys' notes: their let-go would find no list) */
+    sm.keys = 0;
+    player_keys_sample(0);
+    ui_close(o);
+}
+
+/* Its SEL menu (specs/ui/screens/instruments.md): `SAMPLE 03`: DELETE. Deleting a sample deletes the instruments that
+ * use it in every sampler (specs/files/instruments.md#deleting), counted in its warning */
+enum { SMM_DELETE = 1 };
+static int sm_users(int num)                    /* every sampler's instruments that play the sample */
+{
+    uint8_t carts[256];
+    int nc = store_list(REC_SAMPLER, carts, 256), n = 0;
+    for (int i = 0; i < nc; i++) {
+        rec_cart_t c;
+        if (rec_cart(carts[i], &c) || c.kind != REC_SAMPLER) continue;    /* (an old sampler: never touched) */
+        for (int s = 0; s < c.nslots; s++) {
+            const uint8_t *x = rec_slot(&c, (uint8_t)s);
+            rec_sinst_t si;
+            if (!x) continue;
+            rec_sampler_inst(x, &si);
+            n += si.sample == num;
+        }
     }
     return n;
 }
-/* the sample's audio deleted, its entry in the table empty (its index stays: `(DELETED)`), and the
- * instruments that played it emptied: one edit */
-static void sm_delete_now(void)
+/* the sample deleted (its record: a sample's number stays its own) and every instrument that played it emptied, the
+ * room for it all there first (MEMORY FOR EDITS IS FULL: nothing changed). Saved together, or, storage full, its
+ * deletion first (the store's deletions first) */
+static void sm_delete_now(int users)
 {
-    rec_cart_t c;
-    int idx = sm.sel;
-    uint32_t len;
-    uint8_t ver;
+    uint8_t carts[256], s[MAXSLOT];
     char v[24];
-    uint8_t *rec = ui_scratch;
-    if (ins_cart_copy(cart(), &c, rec, &len, &ver)) return;
-    for (int s = 0; s < c.nslots; s++) {
-        const uint8_t *x = rec_slot(&c, (uint8_t)s);
-        rec_sinst_t si;
-        if (!x) continue;
-        rec_sampler_inst(x, &si);
-        if (si.sample != idx) continue;
-        uint32_t at = rec_slot_at(&c, (uint8_t)s);
-        memset(rec + at, 0, 40);
-        ui_put_bits(rec + at, 174, 6, 63);              /* an empty slot: its name's first character 63 */
+    int num = sm.del, nc = store_list(REC_SAMPLER, carts, 256);
+    if (ui_edit_reserve((uint32_t)users * 80u + 32u) || ui_edit_del(REC_SAMPLE, (uint8_t)num, 0)) return;
+    for (int i = 0; i < nc; i++) {
+        if (ins_kind(carts[i]) != REC_SAMPLER) continue;
+        for (int k = 0; k < 64; k++)                    /* (each read anew: the one before changed the record) */
+            if (ins_slot_bytes(carts[i], k, s) && s[0] == num) ins_put_slot(carts[i], k, 0);
     }
-    uint32_t e = 11u + 40u * c.nslots + 16u * (uint32_t)idx;
-    if (e + 16 <= len) {
-        ui_put_bits(rec + e, 0, 20, 0);                 /* the entry: no length, an empty name */
-        ui_put_bits(rec + e, 42, 6, 63);
-    }
-    ui_edit_del(REC_AUDIO, cart(), (uint8_t)idx);
-    ui_edit_put(c.kind, cart(), 0, ver, rec, len);
-    ui_fmt(v, sizeof v, T("SAMPLE %02X DELETED"), idx);
+    if (users) return;
+    ui_fmt(v, sizeof v, T("SAMPLE %02X DELETED"), num);
     ui_toast(v);
 }
-static void sm_deleted(int a) { if (a == 1) sm_delete_now(); }
+static void sm_deleted(int a) { if (a == 1) sm_delete_now(sm.del_n); }
 static void sm_pick(int a)
 {
-    if (a == SMM_DELETE) {
-        int n = sm_users(sm.sel);
-        if (!n) { sm_delete_now(); return; }
-        const char *l[3] = {T("DELETE SAMPLE?"), 0, T("DELETED TOO")};
-        char two[40];
-        if (n == 1) ui_fmt(two, sizeof two, "%s", T("1 INSTRUMENT USES IT AND IS"));
-        else ui_fmt(two, sizeof two, "%s", ui_txt_v(T("# INSTRUMENTS USE IT AND ARE"), ui_dec(n)));
-        l[1] = two;
-        ui_ask(l, 3, T("DELETE"), T("KEEP"), sm_deleted);
+    if (a != SMM_DELETE) return;
+    if (st.edit) {                                      /* (in edit mode: left first, its changes kept, so HOME never
+                                                         * takes a confirmed deletion back with them; ENV on SAMPLE's list,
+                                                         * an edit mode's, then only looks: ENV and HOME close it) */
+        edit_close(1);
+        if (sm.mode == SM_INST) sm.mode = SM_ALL;
     }
+    int n = sm_users(sm.del);
+    sm.del_n = (uint16_t)n;
+    if (!n) { sm_delete_now(0); return; }
+    const char *l[3] = {T("DELETE SAMPLE?"), 0, T("DELETED TOO")};
+    char two[40];
+    if (n == 1) ui_fmt(two, sizeof two, "%s", T("1 INSTRUMENT USES IT AND IS"));
+    else ui_fmt(two, sizeof two, "%s", ui_txt_v(T("# INSTRUMENTS USE IT AND ARE"), ui_dec(n)));
+    l[1] = two;
+    ui_ask(l, 3, T("DELETE"), T("KEEP"), sm_deleted);
 }
 static void sm_menu(void)
 {
-    rec_sample_t s;
     ui_mitem_t m[1];                                    /* (the menu copies its items) */
     char title[24];
-    if (!sm.n || !sample_info(sm.sel, &s, 0)) return;  /* (a deleted one: nothing to do) */
+    int num = sm_num();
+    if (!pickable(num)) return;                         /* (a deletion waiting: nothing) */
+    sm.del = (uint8_t)num;
     m[0] = (ui_mitem_t){TX("DELETE"), SMM_DELETE, 0, 0};
-    ui_fmt(title, sizeof title, T("SAMPLE %02X"), sm.sel);
+    ui_fmt(title, sizeof title, T("SAMPLE %02X"), num);
     ui_menu("samples", title, m, 1, sm_pick, B_SEL);
 }
-static void sm_knob(ui_overlay_t *o, int e, int s, int c) { (void)o; (void)c; if (e == K_SELECT && sm.n) sm.sel = ui_clamp(sm.sel + s, 0, sm.n - 1); }
+static void sm_knob(ui_overlay_t *o, int e, int s, int c)
+{
+    (void)o; (void)c;
+    rows();
+    if (e == K_SELECT && sr.n) sm.sel = (int16_t)ui_clamp(sm.sel + s, 0, sr.n - 1);
+}
+/* what ENV would make of sample num: the instrument playing it whole (SM_INST), else a new instrument on it */
+static void sm_bytes(uint8_t *s, int num)
+{
+    if (sm.mode == SM_INST && used(s)) whole(s, num);
+    else new_inst(s, num);
+}
+static int sm_key(ui_overlay_t *o, int n, int down)     /* the keys: the highlighted sample, before it is picked */
+{
+    (void)o;
+    uint8_t s[MAXSLOT];
+    int m = ui_midi(n), num = sm_num();
+    if (m < 12 || m > 127) return 1;
+    if (!down) { player_key_off((uint8_t)m); return 1; }
+    if (num < 0) return 1;
+    sm_bytes(s, num);                                   /* (a deletion waiting: no sample read, silent) */
+    player_keys_sample(s);
+    pl_inst_t in = {PL_KEYS_SAMPLE_CART, PL_KEYS_SAMPLE_SLOT};    /* (FE:FF, apart from the UI's "none" 0xFFFF:
+                                                                 * player.h) */
+    player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]);
+    sm.keys = 1;
+    return 1;
+}
+static void sm_put(int num)                     /* ENV's pick */
+{
+    uint8_t s[MAXSLOT], was[MAXSLOT];
+    char inm[16], snm[16];
+    rec_sample_t sa;
+    if (sm.mode == SM_INST) { if (used(s)) { whole(s, num); put_slot(slot(), s); } return; }
+    if (sm.mode == SM_REPLACE) {                /* every value a new instrument's; its name following when it was the
+                                                 * old sample's */
+        if (!used(was)) return;
+        new_inst(s, num);
+        rec_slot_name(REC_SAMPLER, was, inm);
+        if (!sample_info(was[0], &sa, snm) || strcmp(inm, snm)) ins_name_set(s, ins_name_pos(REC_SAMPLER), 10, inm);
+        put_slot(slot(), s);
+        return;
+    }
+    new_inst(s, num);                           /* CREATE: a new instrument there */
+    if (sm.edit) {                              /* (EDIT's: edit mode on it, as it was at EDIT should HOME leave it) */
+        st.edit = 1; st.page = 0; st.group = 0; st.last = -1; st.changed = 0;
+        ui_edit_session(1);
+    }
+    put_slot(slot(), s);
+}
 static int sm_tap(ui_overlay_t *o, int b)
 {
     if (b == B_ENV) {
-        uint8_t s[MAXSLOT];
-        ui_close(o);
-        if (used(s)) { whole(s, sm.sel); put_slot(slot(), s); }
+        int num = sm_num();
+        if (sm.mode == SM_ALL) { sm_close(o); return 1; }   /* (back to the line) */
+        if (!pickable(num)) { ui_refuse(B_ENV); return 1; }
+        sm_close(o);
+        sm_put(num);
         return 1;
     }
     if (b == B_SEL) { sm_menu(); return 1; }
@@ -1731,41 +2060,62 @@ static void sm_draw(ui_overlay_t *o)
 {
     (void)o;
     int y = BODY_Y + 2;
-    char title[40], nm[16];
-    rec_cart_t c;
-    if (rec_cart(cart(), &c)) return;
-    rec_cart_name(&c, nm);
-    ui_fmt(title, sizeof title, T("SAMPLES OF %02X %s"), cart(), nm);
-    title[37] = 0;
+    char title[40], nm[16], t[16];
+    rows();                                             /* (as they are now: a deletion meanwhile) */
+    sm.sel = (int16_t)ui_clamp(sm.sel, 0, sr.n - 1 > 0 ? sr.n - 1 : 0);
+    ui_fmt(title, sizeof title, "%s", ui_txt_v(T("SAMPLES (#)"), ui_dec(sr.n)));
     ui_panel(2, y, 236, 206, title, C_CYAN);
-    int top = sm.sel - 6 < sm.n - 14 ? sm.sel - 6 : sm.n - 14;
+    int top = sm.sel - 6 < sr.n - 14 ? sm.sel - 6 : sr.n - 14;
     if (top < 0) top = 0;
-    for (int i = top; i < sm.n && i < top + 14; i++) {
+    for (int k = 0, i = -1; k < 256 && i < top + 13; k++) {
+        if (!bit(sr.has, k) || ++i < top) continue;
         rec_sample_t s;
-        int yy = y + 18 + (i - top) * 13, on = i == sm.sel, there = sample_info(i, &s, nm);
+        uint32_t length, rate, len;
+        int yy = y + 18 + (i - top) * 13, on = i == sm.sel, gone = !sample_info(k, &s, nm);
+        if (gone) {                                     /* (its deletion waits for SAVE: all grey, (DELETED)) */
+            const uint8_t *e = store_get_saved(REC_SAMPLE, (uint8_t)k, 0, &len, 0);
+            if (!e) continue;
+            length = rec_bits(e, 0, 20);
+            rate = rec_bits(e, 20, 18);
+        } else {
+            length = s.length;
+            rate = s.rate;
+        }
         if (on) g_box(4, yy - 1, 232, 13, C_WHITE);
-        g_text(8, yy, &FONT_T, ui_hex2(i), C_DGREY);
-        if (!there) { g_text(24, yy, &FONT_T, T("(DELETED)"), C_RED); continue; }
-        g_textn(24, yy, &FONT_T, nm, 12, on ? C_WHITE : C_YELLOW);
-        char t[16];
-        uint32_t cs = s.rate ? (s.length * 100 + s.rate / 2) / s.rate : 0;
+        g_text(8, yy, &FONT_T, ui_hex2(k), C_DGREY);
+        g_textn(24, yy, &FONT_T, gone ? T("(DELETED)") : nm, 12, gone ? C_DGREY : on ? C_WHITE : C_YELLOW);
+        uint32_t cs = rate ? (length * 100 + rate / 2) / rate : 0;
         ui_fmt(t, sizeof t, "%u.%02uS", cs / 100, cs % 100);
-        g_text(100, yy, &FONT_T, t, C_LGREY);
-        g_text(140, yy, &FONT_T, ui_dec((int)s.rate), C_DGREY);
-        if (on) wave(i, 176, yy, 56, 10, C_BROWN, 0, 0, 0);    /* (the highlighted one's: each is decoded to draw) */
+        g_text(100, yy, &FONT_T, t, gone ? C_DGREY : C_LGREY);
+        g_text(140, yy, &FONT_T, ui_dec((int)rate), C_DGREY);
+        if (on && !gone) wave(k, 176, yy, 56, 10, C_BROWN, 0, 0, 0);   /* (the highlighted one's: each is decoded to draw) */
     }
 }
-static void sample_list(void)
+/* the list's rows, sample num highlighted (else the first that can be picked; SM_ALL's the first) */
+static void sm_fill(int num)
 {
-    rec_cart_t c;
-    rec_sinst_t si;
-    uint8_t s[MAXSLOT];
-    if (rec_cart(cart(), &c) || !used(s)) return;
-    rec_sampler_inst(s, &si);
-    sm.n = c.nsamples;
-    sm.sel = ui_clamp(si.sample, 0, sm.n - 1 > 0 ? sm.n - 1 : 0);
-    ui_overlay_t o = {.kind = OV_LIST, .opener = B_ENV, .knob = sm_knob, .tap = sm_tap, .draw = sm_draw};
+    int r = pickable(num) || (sm.mode == SM_ALL && row_of(num) >= 0) ? row_of(num) : -1;
+    for (int k = 0; k < 256 && r < 0; k++) if (pickable(k) || (sm.mode == SM_ALL && bit(sr.has, k))) r = row_of(k);
+    sm.sel = (int16_t)(r < 0 ? 0 : r);
+}
+/* THE SAMPLES list opened (mode SM_*; num the sample to highlight; edit: CREATE's from EDIT): with no sample on the FM-1
+ * to pick, `NO SAMPLES ON THE FM-1` and nothing opens (ALL SAMPLES' line is there only while a sample is) */
+static void sm_open(int mode, int num, int edit)
+{
+    rows();
+    if (mode != SM_ALL && !sr.picks) { ui_toast(T("NO SAMPLES ON THE FM-1")); return; }
+    sm.mode = (uint8_t)mode;
+    sm.edit = (uint8_t)edit;
+    sm.keys = 0;
+    sm_fill(num);
+    ui_overlay_t o = {.kind = OV_LIST, .opener = B_ENV, .knob = sm_knob, .tap = sm_tap, .cancel = sm_close, .draw = sm_draw,
+                      .key = sm_key};
     ui_open(&o);
+}
+static void sample_list(void)                   /* ENV on SAMPLE: the instrument's sample highlighted */
+{
+    uint8_t s[MAXSLOT];
+    if (used(s)) sm_open(SM_INST, s[0], 0);
 }
 
 /* -------------------------------------------------------------------- the FUSION fill question --- */
@@ -1861,7 +2211,7 @@ static void fill_ask(void)
 }
 static void fusion_new_go(void)
 {
-    fill_pat = ed_first_free();
+    fill_pat = rec_free_pattern();
     if (fill_pat < 0) { ui_toast(T("ALL 240 PATTERNS USED")); return; }
     char nm[12];                                        /* the last sound picked, else the first there is */
     int last = ui_last_inst != 0xFFFFu && ui_cart_kind((uint8_t)(ui_last_inst >> 8)) != ENG_FUSION && ui_inst_name(ui_last_inst, nm);
@@ -1923,7 +2273,8 @@ static int lit(int b)
     if (b == B_EDIT && st.edit) return LV_FULL;
     if (b == B_SEQ) return st.edit && pages(&p) > 1 ? LV_DIM : 0;
     if (b == B_SEL && (st.mark >= 0 || st.mv)) return LV_FULL;
-    if (b == B_ENV && st.edit && !env_list()) return 0;
+    if (b == B_ENV && st.edit && !st.fe && !env_list()) return 0;
+    if (b == B_LFO && st.fe) return 0;                  /* (a favourite's edit mode: nothing to reset) */
     return LV_NONE;
 }
 static int sel_lines(const char **lines, int max)
@@ -1950,6 +2301,11 @@ static void mark(int e, int s)
 }
 static void knob(int e, int s, int coarse)
 {
+    if (st.fe) {                                        /* a favourite's: K1 the cartridge, SELECT its instruments */
+        if (e == K_K1) fav_cart(sign(s));
+        else if (e == K_SELECT) fav_step(sign(s));
+        return;
+    }
     if (st.edit) {
         int ng;
         const ins_page_t *p;
@@ -1983,10 +2339,17 @@ static int tap(int b)
 {
     uint8_t s[MAXSLOT];
     if (st.mv) { if (b == B_SEL) put_down(); return 1; }         /* afloat: only SEL (and HOME) */
+    if (st.fe && b != B_EDIT && b != B_GLO) {           /* a favourite's edit mode: ENV the cartridges; SEL, ALGORITHM,
+                                                         * LFO nothing */
+        if (b == B_ENV) fl_open(1);
+        return b == B_ENV || b == B_SEL || b == B_LFO || b == B_SEQ;
+    }
     if (b == B_EDIT) {
         if (st.edit) { edit_close(1); return 1; }       /* keeping the changes */
+        if (kind() == REC_FAV) { fav_edit(); return 1; }    /* (which instrument the favourite names) */
         int has = used(s);                              /* (built in: edited as any) */
         if (kind() == REC_FUSION && (!has || s[0] == 0xFF || !ui_pattern_rows(s[0]))) { fusion_new(); return 1; }
+        if (kind() == REC_SAMPLER && !has) { sm_open(SM_CREATE, -1, 1); return 1; }   /* (CREATE's pick, then edit mode) */
         if (!has) { ui_toast(T("EMPTY SLOT: SEL, INIT")); return 1; }
         st.edit = 1; st.page = 0; st.group = 0; st.last = -1; st.changed = 0;
         ui_edit_session(1);                             /* the mode's copy: HOME puts back what it changed */
@@ -2063,10 +2426,12 @@ static void tick(void)
     st.page = ui_clamp(st.page, 0, np - 1 > 0 ? np - 1 : 0);
     groups(&ng);
     st.group = ui_clamp(st.group, 0, ng - 1 > 0 ? ng - 1 : 0);
+    ui_overlay_t *o = fl_find();                        /* K1's cartridge list: a second after its last click */
+    if (o && !fl.env && (int32_t)(ui_now() - fl.at) >= 1000) ui_close(o);
 }
 static void draw(void)
 {
-    if (st.edit) { draw_edit(); return; }
+    if (st.edit) { if (st.fe) draw_fav_edit(); else draw_edit(); return; }
     rec_cart_t c;
     if (rec_cart(cart(), &c)) {
         uint8_t nums[256];
@@ -2084,7 +2449,9 @@ static void draw(void)
     ui_fmt(nm2, sizeof nm2, "%s ", nm);
     ui_fmt(ty, sizeof ty, "%s ", T(ENG_TYPE[k]));
     g_run_t r[4] = {{id, C_WHITE}, {nm2, C_LGREY}, {ty, (uint8_t)col}, {cnt, C_DGREY}};
-    g_runs_crop(0, BODY_Y, &FONT_S, r, 4, 0, 16);
+    if (strlen(id) + strlen(nm2) + strlen(ty) + strlen(cnt) > 30) g_runs(0, BODY_Y, &FONT_T, r, 4);    /* (past its 30
+                                                         * characters: in T) */
+    else g_runs_crop(0, BODY_Y, &FONT_S, r, 4, 0, 16);
     int cur = st.mv ? st.mv_at : slot(), pg = cur / 16 * 16;
     int m0 = st.mark >= 0 ? (st.mark < slot() ? st.mark : slot()) : -1, m1 = st.mark >= 0 ? (st.mark > slot() ? st.mark : slot()) : -1;
     for (int q = 0; q < 16; q++) {
@@ -2101,11 +2468,13 @@ static void draw(void)
         if (i >= m0 && i <= m1) g_rect(x, y - 1, 119, 12, C_DEEP + C_MAGENTA);
         if (on) g_box(x, y - 1, 119, 12, st.mv ? C_YELLOW : C_WHITE);
         g_text(x + 2, y, &FONT_T, ui_hex2(i), on ? C_WHITE : C_DGREY);
+        if (has && k == REC_FAV) { ui_fav_draw(x + 20, y, (uint16_t)(cart() << 8 | shown), on); continue; }   /* (its source) */
         if (has) rec_slot_name((uint8_t)k, s, nm);
         g_text(x + 20, y, &FONT_T, has ? nm : "----------", has ? (on ? C_WHITE : col) : C_DGREY);
     }
     g_hline(0, BODY_Y + 113, 240, C_DGREY);
-    details(BODY_Y + 116);
+    if (k == REC_FAV) fav_details(BODY_Y + 116);
+    else details(BODY_Y + 116);
 }
 
 /* the state's cursor (specs/connections.md#the-state): the cartridge, the slot */
@@ -2113,12 +2482,29 @@ static void cursor(uint8_t *c) { c[0] = cart(); c[1] = (uint8_t)slot(); }
 /* what it edits (specs/ui/screens/editor.md): in edit mode the instrument, played as edited (no `*` commands) */
 static void editing(uint8_t *what, uint32_t *key)
 {
-    if (!st.edit) return;
+    if (!st.edit || st.fe) return;
     *what = PL_ED_INST;
     *key = (uint32_t)cart() << 8 | (uint32_t)slot();
 }
-/* an instrument afloat: PRESETS does nothing (SEL puts it down, HOME takes it back); else PRESETS as everywhere */
-static int presets(int step) { (void)step; return st.mv; }
+/* an instrument afloat: PRESETS does nothing (SEL puts it down, HOME takes it back); a favourite's edit mode: the source's
+ * cartridge's instruments; else PRESETS as everywhere */
+static int presets(int step)
+{
+    if (st.fe) fav_step(sign(step));
+    return st.mv || st.fe;
+}
+/* SEL + PRESETS in edit mode: the cartridges of the edit's own sort only (a favourite's the FAVORITES cartridges, an
+ * instrument's the others), so an edit never goes on in a slot of the other sort */
+static int presets_cart(int step)
+{
+    uint8_t nums[256];
+    int n = ui_carts(nums, 256), i = 0, k = 0;
+    if (!st.edit) return 0;
+    for (int j = 0; j < n; j++)
+        if ((ui_cart_kind(nums[j]) == ENG_FAV) == (st.fe != 0)) { if (nums[j] == cart()) i = k; nums[k++] = nums[j]; }
+    if (k) { uint8_t c = nums[ui_wrap(i + sign(step), k)]; set_inst(c, ui_cart_first(c)); }
+    return 1;
+}
 
 const ui_screen_t SCR_INSTRUMENTS = {
     .name = TX("INSTRUMENTS"), .group = G_MAKE,
@@ -2126,7 +2512,7 @@ const ui_screen_t SCR_INSTRUMENTS = {
     .combines = BIT(B_ARP),
     .enter = enter, .leave = leave, .draw = draw, .sub = sub, .page = page, .seq = seq, .footer = footer,
     .knob = knob, .mark = mark, .tap = tap, .back = back, .lit = lit, .sel_lines = sel_lines, .tick = tick,
-    .cursor = cursor, .presets = presets, .editing = editing,
+    .cursor = cursor, .presets = presets, .presets_cart = presets_cart, .editing = editing,
 };
 
 #ifdef PTFM_EDITOR
@@ -2148,17 +2534,18 @@ enum { SP_DETAILS, SP_EDIT, SP_CHIP_ROW, SP_WAVE, SP_SAMPLES };
 int scr_instr_picture(int what, int k, const uint8_t *bytes, int inst, int pg, int grp, int octave, int fresh,
                       int32_t *rect)
 {
-    if (k < REC_DX7 || k > REC_CART_LAST || what < SP_DETAILS || what > SP_SAMPLES || !bytes) return -1;
+    if (k < REC_DX7 || k >= REC_FAV || what < SP_DETAILS || what > SP_SAMPLES || !bytes) return -1;   /* (FAVORITES: no
+                                                         * picture of its own) */
     if (what == SP_CHIP_ROW && k != REC_CHIP) return -1;
     if ((what == SP_WAVE || what == SP_SAMPLES) && k != REC_SAMPLER) return -1;
     uint8_t st0[sizeof st], sm0[sizeof sm];
-    uint16_t inst0 = ui_cur.inst;
+    uint16_t inst0 = ui_cur.inst, place0 = ui_cur.place;
     int8_t oct0 = ui_cur.octave;
     memcpy(st0, &st, sizeof st);
     memcpy(sm0, &sm, sizeof sm);
     pic.slot = bytes;
     pic.kind = k;
-    ui_cur.inst = (uint16_t)inst;
+    ui_cur.inst = ui_cur.place = (uint16_t)inst;
     ui_cur.octave = (int8_t)ui_clamp(octave, -4, 4);
     memset(&st, 0, sizeof st);
     st.last = st.mark = -1;
@@ -2166,7 +2553,7 @@ int scr_instr_picture(int what, int k, const uint8_t *bytes, int inst, int pg, i
     st.page = what == SP_CHIP_ROW ? 2 : what == SP_WAVE || what == SP_SAMPLES ? 0 : pg;     /* (TABLES; SAMPLE) */
     st.group = what == SP_WAVE || what == SP_SAMPLES ? 0 : grp;
     tick();                                             /* (page and group within the instrument's, as the screen keeps them) */
-    if (fresh) { wv_key = -1; tr_have = 0; }
+    if (fresh) { wv.num = -1; tr_have = 0; }
     int32_t r[4] = {0, 0, 0, 0};
     int ok = 1;
     if (what == SP_DETAILS) {
@@ -2192,9 +2579,9 @@ int scr_instr_picture(int what, int k, const uint8_t *bytes, int inst, int pg, i
         ok = !rec_cart(cart(), &c) && c.kind == REC_SAMPLER;
         if (ok) {                                       /* (sample_list()'s cursor, sm_draw()'s rows) */
             rec_sampler_inst(bytes, &si);
-            sm.n = c.nsamples;
-            sm.sel = ui_clamp(si.sample, 0, sm.n - 1 > 0 ? sm.n - 1 : 0);
-            int top = sm.sel - 6 < sm.n - 14 ? sm.sel - 6 : sm.n - 14;
+            sm.mode = SM_INST;
+            sm_fill(si.sample);
+            int top = sm.sel - 6 < sr.n - 14 ? sm.sel - 6 : sr.n - 14;
             if (top < 0) top = 0;
             r[0] = 176; r[1] = BODY_Y + 2 + 18 + (sm.sel - top) * 13; r[2] = 56; r[3] = 10;
         }
@@ -2209,6 +2596,7 @@ int scr_instr_picture(int what, int k, const uint8_t *bytes, int inst, int pg, i
     memcpy(&st, st0, sizeof st);
     memcpy(&sm, sm0, sizeof sm);
     ui_cur.inst = inst0;
+    ui_cur.place = place0;
     ui_cur.octave = oct0;
     pic.slot = 0;
     if (!ok) return -1;

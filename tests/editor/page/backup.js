@@ -17,7 +17,7 @@ module.exports = async api => {
         return { dialog: d || "", status: s || "" };
     };
     const change = n => evaluate(`(() => {
-        const R = ED.rec, st = ED.app.st, pat = st.R.find(i => i.kind === 0x20 && i.num === 0), p = R.unpackPattern(pat.recs.map(x => x.payload));
+        const R = ED.rec, st = ED.app.st, pat = st.R.find(i => i.kind === 0x20 && i.num === 0xA6), p = R.unpackPattern(pat.recs.map(x => x.payload));
         p.cells.set("${n},0", { note: 60 + ${n}, ins: -1, vol: 0x40, cmds: [] });
         ED.app.commit(ED.model.replaceItem(st, "R", Object.assign({}, pat, { recs: R.packPattern(p).map((payload, i) => ({ sub: i, ver: 1, payload })) })), "CHANGED"); return 1; })()`);
     const backups = () => evaluate(`ED.app.st.L.filter(i => /^BACKUP /.test(i.src || "")).map(i => i.kind + " " + i.src)`);

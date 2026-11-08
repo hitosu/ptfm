@@ -29,7 +29,7 @@
 window.PTFM = window.PTFM || {};
 PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     "use strict";
-    const SR = sampleRate, BLK = 128, NTRK = 34, KEYS = 33;
+    const SR = sampleRate, BLK = 128, NTRK = 34, KEYS = 33, STAGE = 32;   /* (STAGE: LOOPS' stage's column) */
     const MOST = 16, SLOTS = 20, FADE_OUT = 64, FADE_IN = 256;   /* heard at most (16: 10 + core 2's 6); the pool with
                                                                   * the parked; frames */
     E.SR = SR;
@@ -38,6 +38,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     E.dB = v => Math.pow(10, v / 20);
     E.mtof = m => 440 * Math.pow(2, (m - 69) / 12);
     E.KEYS = KEYS;
+    E.STAGE = STAGE;
     E.NTRK = NTRK;
     E.params = {};
     E.clone = p => JSON.parse(JSON.stringify(p));
@@ -107,6 +108,22 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                     } else for (const v of this.pool) if (v.id && v.id[0] === m.prefix) this.release(v);
                     return;
                 }
+                /* some notes by their ids (LOOPS' stage: the lanes a key replaces from its landing row): their events
+                 * from `time` on go, those sounding let go there */
+                case "flushids": {
+                    const ids = new Set(m.ids);
+                    this.events = this.events.filter(e => !(e.id && ids.has(e.id) && e.time >= m.time));
+                    for (const v of this.pool) if (v.on && !v.rel && ids.has(v.id)) this.events.push({ t: "off", id: v.id, time: m.time });
+                    this.sorted = false;
+                    return;
+                }
+                /* notes moved to another track, sounding and to come (LOOPS' stage kept as a loop: the loop's) */
+                case "retrack": {
+                    const ids = new Set(m.ids);
+                    for (const v of this.pool) if (v.on && ids.has(v.id)) v.track = m.track;
+                    for (const e of this.events) if (e.t === "on" && ids.has(e.id)) e.track = m.track;
+                    return;
+                }
                 case "alloff":                   /* (every voice and the effects' tails, as the firmware's) */
                     this.events = this.events.filter(e => e.t === "click" || e.t === "pulse");
                     for (const v of this.pool) { v.kill = true; }
@@ -117,6 +134,11 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             }
         }
         heard(v) { return v.on && !v.park; }    /* sounding in a voice of the count (not fading out, not parked) */
+        /* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live): the page's song takes every note that sounds from
+         * its schedule; here it is told of those that do not: a note marked `tap` given no voice, or losing its voice,
+         * taken (by the note n, whose time it is) or parked past the count. A parked note coming back tells nothing */
+        tapSay(id, what, n) { const m = { t: "tap", id, time: n ? n.time : currentTime, by: n && n.id }; m[what] = true; this.port.postMessage(m); }
+        tapLost(v, n) { if (v.tap && !v.rel) this.tapSay(v.id, "lost", n); }
         /* fewer voices: the held notes above the count are parked, the quietest first (a TB-303's let go); their
          * tails ring on */
         trim() {
@@ -124,6 +146,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             for (; n > this.max; n--) {
                 const v = this.victim(x => !x.rel, -1);
                 if (!v) break;
+                this.tapLost(v);
                 if (v.engine === "TB303") this.release(v);
                 else { v.park = "out"; v.fade = FADE_OUT; v.parkedAt = ++this.parks; }
             }
@@ -187,6 +210,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             if (!v) return null;
             if (who >= 0 && v.track === KEYS && !v.rel) return this.bornParkedSlot();   /* (the keys hold every voice) */
             this.steals++;
+            this.tapLost(v, m);
             const s = this.slot(true);
             if (!s) { if (v.id) this.byId.delete(v.id); return v; }   /* (no room to fade: cut at once) */
             v.park = "out";                                   /* (taken: it fades out, then a held one is parked) */
@@ -251,7 +275,8 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         }
         noteOn(m) {
             const inst = this.insts[m.ref];
-            if (!inst || this.fx.hush) return;          /* (CUT held: no note starts; the time goes on) */
+            if (!inst || this.fx.hush) { if (m.tap) this.tapSay(m.id, "none", m); return; }   /* (CUT held: no note starts; the
+                                                  * time goes on) */
             const eng = E.engines[inst.engine];
             if (!eng) return;
             let v = this.byId.get(m.id);
@@ -284,11 +309,12 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             v = this.alloc(m);
             const born = this.bornParked;
             this.bornParked = false;
+            if (m.tap && (!v || born)) this.tapSay(m.id, "none", m);
             if (!v || (born && inst.engine === "TB303")) return;   /* (a TB-303 slides note to note in its voice) */
             const scope = v.scope || new Float32Array(256);
             for (const k in v) delete v[k];
             const track = m.track < 0 ? KEYS : m.track, sh = this.dj && track < 32 ? this.shift[track >> 4] : 0;
-            Object.assign(v, { on: true, id: m.id, ref: m.ref, eng, engine: inst.engine, track, key: !!m.key, age: ++this.age,
+            Object.assign(v, { on: true, id: m.id, ref: m.ref, eng, engine: inst.engine, track, key: !!m.key, age: ++this.age, tap: !!m.tap && !born,
                                rel: false, vol: m.vol / 127, gain: E.dB(inst.level || 0) * (E.GAIN[inst.engine] || 1),
                                midi: m.midi, scope, sw: 0, peak: 0, bend: sh, bendIn: 0 });
             if (born) { v.park = "parked"; v.parkedAt = ++this.parks; }    /* (unheard until a voice is free) */
@@ -406,8 +432,10 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 count[v.engine]++;
                 const s = new Float32Array(64);
                 for (let i = 0; i < 64; i++) s[i] = v.scope[(v.sw - 256 + i * 4) & 255];
-                voices.push({ id: v.id, track: v.track === KEYS ? -1 : v.track, engine: v.engine, midi: v.midi, rel: v.rel, scope: s, peak: v.peak,
-                              key: v.p && v.p.key, pos: v.pos });                 /* a sample voice: which sample, where it plays */
+                const track = v.track === KEYS ? -1 : v.track === STAGE && this.fx.stageCol != null ? this.fx.stageCol : v.track;   /* (the stage: its loop's) */
+                voices.push({ id: v.id, track, engine: v.engine, midi: v.midi, rel: v.rel, scope: s, peak: v.peak,
+                              key: v.p && v.p.key, pos: v.pos, ref: v.ref });     /* a sample voice: which sample, where it plays, its
+                                                                                   * instrument */
             }
             this.port.postMessage({ t: "stats", voices, count, steals: this.steals, parked, max: this.max, fx: this.fx.stats(), djTaken: this.djTaken });
         }

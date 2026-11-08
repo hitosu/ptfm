@@ -5,21 +5,27 @@
  * the device's time running between messages. Checks that every block is answered, that the FM-1 mounts
  * what was written with nothing bad, and that its layout afterwards holds exactly the disk (a second
  * plan finds nothing to write); then keeps the flash for the session test, and clears the user area as the
- * debug page's CLEAR USER DATA does (session.clear): no record left, the FM-1 running on.
+ * debug page's CLEAR USER DATA does (session.clear): no record left, the FM-1 running on. With OLD.ptfmdsk (the demo disk
+ * in the old form, as an older PT/FM's: tools/pack.py --old-form): a flash the page kept from an older PT/FM, loaded
+ * again, is converted at that load as the page does it (seed.js convertDevice, specs/emulator.md, Data), into the records
+ * the demo disk uploads now; the load after it has nothing to do.
  *
- *   node web_seed.js WASM DISK.ptfmdsk FLASH_OUT */
+ *   node web_seed.js WASM DISK.ptfmdsk FLASH_OUT [OLD.ptfmdsk] */
 "use strict";
 const fs = require("fs"), path = require("path");
 const S = require(path.join(__dirname, "..", "web", "seed.js"));
-const [wasmPath, diskPath, flashOut] = process.argv.slice(2);
+const [wasmPath, diskPath, flashOut, oldPath, convPath] = process.argv.slice(2);
 
-let fake = 0;
-const inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmPath)),
-    { env: { web_clock_us: () => (fake += 1) } });
-const ex = inst.exports;
+let fake = 0, ex = null;
+const wasm = new WebAssembly.Module(fs.readFileSync(wasmPath));
 const mem = () => ex.memory.buffer;
-ex.web_flash_reset();
-ex.web_init();
+function load(flash) {                         /* the firmware switched on, as the worklet loads it: the kept flash, or none */
+    ex = new WebAssembly.Instance(wasm, { env: { web_clock_us: () => (fake += 1) } }).exports;
+    ex.web_flash_reset();
+    if (flash) new Uint8Array(mem(), ex.web_flash(), 1 << 20).set(flash);
+    ex.web_init();
+}
+load(null);
 
 let cb = null, quanta = 0;
 const transport = {
@@ -71,6 +77,37 @@ let running = true;
     if (c.records || c.bad || after.records.length) throw new Error(`CLEAR USER DATA left ${c.records} records, ${c.bad} bad`);
     console.log("CLEAR USER DATA: the FM-1 erased it all and runs on, 0 records");
     ses.close();
+    if (oldPath) {
+        /* the old form laid as an older PT/FM's seeding laid it (it took samplers of version 1 and their audio) */
+        const old = S.parseData(new Uint8Array(fs.readFileSync(oldPath)));
+        if (old.problems.length) throw new Error("the old-form disk: " + old.problems.join("; "));
+        const lay = S.session(transport, { timeout: 20000 });
+        const L0 = await lay.hello();
+        const older = Object.assign({}, L0, { accepts: L0.accepts.concat([{ kind: 0x04, ver: 1 }, { kind: 0x10, ver: 1 }]) });
+        await lay.write(S.planClean(older, old), () => {});
+        lay.close();
+        const image = new Uint8Array(mem(), ex.web_flash(), 1 << 20).slice();
+        /* the page loaded again with that flash: its first load converts it */
+        load(image);
+        const conv = S.session(transport, { timeout: 20000 });
+        const L1 = await conv.hello();
+        if (!S.needsConversion(L1)) throw new Error("the kept flash holds nothing of the old form");
+        const steps = [];
+        const res = await S.convertDevice(conv, { layout: L1, onStep: p => steps.push(p.done) });
+        const L2 = await conv.hello();
+        const now = S.plan(L2, S.parseData(new Uint8Array(fs.readFileSync(convPath))));   /* (its samples from 00: the conversion's numbers) */
+        if (!now.upToDate || res.converted.length !== 5 || res.samples !== 33 || res.damaged)
+            throw new Error("the kept flash converted: " + JSON.stringify(res) + " / " + now.summary.join(" / "));
+        console.log(`the kept flash of an older PT/FM, loaded again: converted (${res.converted.length} samplers, ${res.samples} ` +
+            `samples, ${res.saves} saves; steps ${[...new Set(steps)].join(" ")}), holding what the demo disk uploads now`);
+        conv.close();
+        load(new Uint8Array(mem(), ex.web_flash(), 1 << 20).slice());
+        const next = S.session(transport, { timeout: 20000 });
+        const again = await S.convertDevice(next);
+        if (!again.nothing) throw new Error("the load after it converted again: " + JSON.stringify(again));
+        console.log("loaded again after it: nothing to convert");
+        next.close();
+    }
     running = false;
     fs.writeFileSync(flashOut, Buffer.from(kept));
 })().catch(e => { running = false; console.error("SEEDING FAILED:", e.message); process.exit(1); });

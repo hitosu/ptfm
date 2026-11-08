@@ -54,7 +54,8 @@ void app_poll(void)
     ui_poll();                          /* input, the screens, LEDs; a seeding screen while seeding */
     remote_poll();                      /* the state a page asked for */
 #ifdef PTFM_DEBUG
-    dbg_poll();                         /* the figures the debug page asked for */
+    if (plat_dbg_part())
+        dbg_poll();                     /* the figures the debug page asked for (the debug part's code) */
 #endif
     if (!app_ctl_asked && ui_controller_wanted()) {
         player_pause();                 /* (MIDI OUT's notes end and the clock stops: midi_poll sees it) */
@@ -102,7 +103,7 @@ void app_sysex(const uint8_t *msg, uint32_t n)
         return;
     }
 #ifdef PTFM_DEBUG
-    if (dbg_sysex(msg, n)) return;      /* 30 FIGURES?, 32 BENCH, 34 USB TONE, 38 SECOND CORE (specs/debug.md) */
+    if (plat_dbg_part() && dbg_sysex(msg, n)) return;   /* 30 FIGURES?, 34 USB TONE (specs/debug.md: the part's) */
 #endif
     if (remote_sysex(msg, n)) return;   /* 40 STATE? (specs/connections.md#the-state) */
     if (midi_sysex(msg, n)) return;     /* 43: the PT/FM controller's hello, MIRROR on or off */

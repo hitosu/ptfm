@@ -13,8 +13,7 @@
 
 #define FW_ID "FM-1_900"
 #define FW_OTA_DRYRUN 0
-static int recovery_active;
-#define OTA_IDENTITY (recovery_active ? "FM-1_000" : FW_ID)
+#define FW_OTA_RAMONLY 1                 /* (as the firmware: the update record in RAM only) */
 
 static uint8_t nor[0x100000];
 static uint8_t *logical;
@@ -179,12 +178,6 @@ int main(int argc, char **argv)
         bad += check("handshake answered", ident_replies == 1);
         bad += check("identity frame is " FW_ID,
                      ota_msg[2] == 0x11 && !memcmp(ota_msg + 6, FW_ID, sizeof FW_ID - 1));
-        recovery_active = 1;
-        host_reply(m, 7);
-        ota_service();
-        bad += check("recovery identity is distinct from a successful normal boot",
-                     ident_replies == 2 && !memcmp(ota_msg + 6, "FM-1_000", 9));
-        recovery_active = 0;
     }
 
     /* full session */
@@ -198,15 +191,29 @@ int main(int argc, char **argv)
         bad += check("staged body == the package's loader", !memcmp(nor + 0xE0020, logical + ota_body_off(), 64));
         bad += check("LOADER.BIN head CRC",
                      (h[0] | h[1] << 8) == ota_crc16(h + 2, 30, 0) && !memcmp(h + 16, "LOADER.BIN", 10));
-        bad += check("record at 0xE4F00 == RAM record", !memcmp(nor + 0xE4F00, p, 112));
+        bad += check("the update record in RAM only (no flash copy at 0xE4F00)", nor[0xE4F00] == 0xFF &&
+                     nor[0xE4F06] == 0xFF);
         bad += check("record CRC / type / magic / ota_addr",
                      (p[0] | p[1] << 8) == ota_crc16(p + 2, 78, 0) && (p[2] | p[3] << 8) == 0x5A0D &&
                      (p[6] | p[7] << 8) == 0x5441 && ota_rd32(p + 72) == 0xE0000);
         bad += check("nothing written outside 0xE0000..0xE4FFF", bad_erase == 0);
     }
-    /* boot cleanup erases it */
-    bad += check("boot cleanup erases the area", ota_boot_cleanup() == 1 && area_erased());
-    bad += check("second boot: nothing to do", ota_boot_cleanup() == 0);
+    /* the next starts keep PT/FM's loader (the start check runs it for update mode) */
+    {
+        static uint8_t staged[0x5000];
+        memcpy(staged, nor + 0xE0000, sizeof staged);
+        bad += check("boot cleanup keeps PT/FM's loader", ota_boot_cleanup() == 1 &&
+                     !memcmp(nor + 0xE0000, staged, sizeof staged));
+        bad += check("... at every start", ota_boot_cleanup() == 1 && !memcmp(nor + 0xE0000, staged, sizeof staged));
+        nor[0xE4F06] = 0x41;                               /* an older firmware's flash copy of the record */
+        bad += check("... and drops a flash copy of the record an older install left", ota_boot_cleanup() == 1 &&
+                     nor[0xE4F06] == 0xFF && !memcmp(nor + 0xE0000, staged, 0x4000));
+        for (uint32_t i = 0x48; i < 0x48 + 64 + 24; i++)   /* another firmware's loader: no PT/FM mark */
+            if (!memcmp(nor + 0xE0000 + i, "PTFM-LD1", 8))
+                nor[0xE0000 + i] = 'X';
+        bad += check("another loader (no PT/FM mark): the staging erased", ota_boot_cleanup() == 0 && area_erased());
+        bad += check("an empty staging: nothing to do", ota_boot_cleanup() == 0 && area_erased());
+    }
 
     /* host disappears in the middle */
     reset_dev();

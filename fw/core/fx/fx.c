@@ -15,6 +15,7 @@
 #include "../plat.h"
 #include "../dbg.h"                      /* the debug build's stages (empty in the release) */
 #include "../eng/dx7/dx7.h"              /* dx7_table, dx7_sin_tab: the LFOs */
+#define FX_TANH_HERE                     /* (FX_TANH_Q15's one copy, player.c's too) */
 #include "sound_tables.h"                /* the FX_* tables (fw/tools/gen_fx.py) */
 
 #define B FX_BLOCK
@@ -43,12 +44,27 @@ static fx_clock_t fx_wclk = {0, 0, 202898u, 21168u, B, 0, 4, 0, 0, 0};   /* the 
                                                                          * (fx_work) */
 volatile uint32_t fx_us[11];
 volatile uint32_t fx_strip_us[4];
+static volatile uint8_t fx_timing;      /* the sums kept (fx_timed: while the FX screen is open, its footer) */
 
-/* an effect's time since t0 (plat_c2_us): into fx_us (STATUS, the FX screen) and, in the debug build, its stage (the
+void fx_timed(int on) { fx_timing = (uint8_t)(on != 0); }
+uint32_t fx_spent_us(int e) { return fx_us[e] + (e <= FX_LOFI ? fx_strip_us[e] : 0u); }
+
+/* a timed piece's start for fx_time (0: not timed): the timer read only while the sums are kept, but in the debug
+ * build, whose stages time every block */
+#ifdef PTFM_DEBUG
+#define FX_T0() plat_c2_us()
+#else
+#define FX_T0() (fx_timing ? plat_c2_us() : 0u)
+#endif
+
+/* an effect's time since t0 (FX_T0): into fx_us (the FX screen's footer) and, in the debug build, its stage (the
  * blocks' jobs' own: the effects' work is theirs, on whichever core) */
 static inline PLAT_C2 void fx_time(uint32_t e, uint32_t t0)
 {
-    uint32_t dt = plat_c2_us() - t0;
+    uint32_t dt;
+    if (!t0)                             /* (not timed; a timer at 0 itself, once in 71 minutes, costs a block's) */
+        return;
+    dt = plat_c2_us() - t0;
     fx_us[e] += dt;
 #ifdef PTFM_DEBUG
     if (e == FX_REVERB) DBG2_ADD_US(DS_REVERB, dt);
@@ -155,7 +171,9 @@ static uint8_t fx_met[5] __attribute__((aligned(4)));   /* METRONOME: TEMPO (2),
 /* the working copy: the settings the effects' work reads, the block's (fx_work); K(c) its knob c */
 static fx_set_t fx_w;
 #define K(c) fx_w.kn[(c) - 0x90]
-static uint32_t fx_act;                  /* what worked in the last block */
+static uint32_t fx_act;                  /* what has worked so far in the block under way */
+static volatile uint32_t fx_act_done;    /* what worked in the last whole block, fx_active's: the work may run on core 2,
+                                          * and core 1's main loop reads the report at any moment */
 /* the settings' generation (fx_set_t.seq): every change of them a new one, never 0, so a copy holding the same one
  * holds the same settings and fx_set_get / fx_work skip it (a half's blocks mostly have them all alike) */
 static uint32_t fx_set_seq = 1u;
@@ -1255,36 +1273,50 @@ static PLAT_C2 void met_click(int accent)
 
 void fx_click(int sound, int level, int accent) { fx_ev(FX_EV_CLICK, sound, level, accent); }
 
-static PLAT_C2 void fx_metronome(int32_t *l, int32_t *r, int on)
+/* the METRONOME's count, a block: the bar's beat starting in it, -1 none, -2 it does not count (FOLLOW with a song's
+ * or the loops' setup, nothing playing). On, it clicks on them; off, it counts on unheard while something plays, for
+ * PLAY's LEDs on the loops (fx_met_seen, specs/ui/transport.md#plays-two-leds) */
+static volatile uint16_t met_seen;       /* the beats counted (the high byte, wrapping) and the bar's beat counted last */
+static PLAT_C2 int met_count(void)
 {
-    uint32_t bpm = fx_w.met[0] | (uint32_t)fx_w.met[1] << 8, beats = fx_w.met[2] ? fx_w.met[2] : 4u, sound, i, ns;
-    int32_t level, amp;
-    if (!on) {
-        met_shown = -1;                  /* (off: only a count-in's click sounds) */
-    } else if (bpm) {                    /* its own tempo: it clicks with nothing playing */
+    uint32_t bpm = fx_w.met[0] | (uint32_t)fx_w.met[1] << 8, beats = fx_w.met[2] ? fx_w.met[2] : 4u;
+    int b = -1;
+    if (bpm) {                           /* its own tempo: it clicks with nothing playing */
         uint32_t inc = bpm * 1623u + bpm / 5u, o = met_own;   /* (2^32 / (60 x 44100) = 1623.2 a BPM) */
         met_own += inc * B;
-        if (met_own < o) {
-            met_shown = (int8_t)(met_beat % beats);
-            met_click(met_shown == 0);
-            met_beat++;
-        }
+        if (met_own < o)
+            b = (int)(met_beat++ % beats);
     } else if (fx_wclk.playing) {        /* FOLLOW: on the song's beats */
         uint32_t nf = fx_wclk.frac + fx_wclk.inc * (fx_wclk.hold < B ? fx_wclk.hold : B);
-        if (fx_wclk.frac == 0u || nf < fx_wclk.frac) {
-            met_shown = (int8_t)((fx_wclk.beat + (fx_wclk.frac ? 1u : 0u)) % beats);
-            met_click(met_shown == 0);
-        }
+        if (fx_wclk.frac == 0u || nf < fx_wclk.frac)
+            b = (int)((fx_wclk.beat + (fx_wclk.frac ? 1u : 0u)) % beats);
     } else if (fx_wclk.keys) {           /* FOLLOW on THE KEYS: at their tempo, counted as its own */
         uint32_t o = met_own;
         met_own += fx_wclk.inc * B;
-        if (met_own < o) {
-            met_shown = (int8_t)(met_beat % beats);
-            met_click(met_shown == 0);
-            met_beat++;
-        }
+        if (met_own < o)
+            b = (int)(met_beat++ % beats);
+    } else
+        return -2;
+    if (b >= 0)
+        met_seen = (uint16_t)((((uint32_t)met_seen >> 8) + 1u) << 8 | (uint32_t)b);
+    return b;
+}
+static PLAT_C2 void fx_metronome(int32_t *l, int32_t *r, int on)
+{
+    uint32_t sound, i, ns;
+    int32_t level, amp;
+    if (!on) {
+        met_shown = -1;                  /* (off: only a count-in's click sounds) */
+        if (fx_wclk.playing)
+            (void)met_count();           /* (counted on unheard) */
     } else {
-        met_shown = -1;                  /* (FOLLOW with a song's or the loops' setup, nothing playing: no beats) */
+        int b = met_count();
+        if (b == -2)
+            met_shown = -1;
+        else if (b >= 0) {
+            met_shown = (int8_t)b;
+            met_click(b == 0);
+        }
     }
     if (met.n >= FX_MET_LEN)
         return;
@@ -1743,7 +1775,7 @@ static PLAT_C2 void clear_lines(void)
 }
 
 void fx_kill(void) { fx_ev(FX_EV_KILL, 0, 0, 0); }
-void fx_empty(void) { fx_ev(FX_EV_EMPTY, 0, 0, 0); }
+PLAT_COLD void fx_empty(void) { fx_ev(FX_EV_EMPTY, 0, 0, 0); }
 
 static PLAT_C2 void empty_now(void)
 {
@@ -1864,7 +1896,7 @@ void fx_now(uint8_t *s)
     memcpy(s + 16, fx_kn, 48);
 }
 
-void fx_gate_pattern(int i, const uint8_t *steps)
+PLAT_COLD void fx_gate_pattern(int i, const uint8_t *steps)
 {
     uint32_t k;
     if (i < 16 || i > 31)
@@ -1887,7 +1919,7 @@ void fx_duck(fx_duck_t *d)               /* (the voices' stage: the live setting
     d->release_frames = (20u + 10u * (rel > 98u ? 98u : rel)) * 441u / 10u;
 }
 
-uint32_t fx_active(void) { return fx_act; }
+uint32_t fx_active(void) { return fx_act_done; }
 uint32_t fx_asleep(void)
 {
     return (cho_zrun >= FX_CHO_N ? 1u << FX_CHORUS : 0u) | (dly_asleep ? 1u << FX_DELAY : 0u) |
@@ -1895,6 +1927,7 @@ uint32_t fx_asleep(void)
 }
 uint8_t fx_gate_step(void) { return ins.gate_step; }
 int fx_met_beat(void) { return fx_on >> FX_METRONOME & 1u ? met_shown : -1; }   /* (off: its blocks may rest) */
+unsigned fx_met_seen(void) { return met_seen; }
 int32_t fx_limiter_gain(void)
 {
     int32_t g = lim_least;
@@ -1908,7 +1941,7 @@ uint32_t fx_ram(void)
                       sizeof hist_s);
 }
 
-void fx_init(void)
+PLAT_COLD void fx_init(void)
 {
     uint32_t i;
     fx_sin = dx7_table(0);               /* (the LFOs' sine: read in place, never called) */
@@ -1996,7 +2029,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
         if (!fx_w.route || !sends)
             return;
         int32_t was = fx_look ? blk_rms(l, r) : 0, now;   /* (the meters: each send's change) */
-        t0 = plat_c2_us();
+        t0 = FX_T0();
         if (fx_w.on >> FX_CHORUS & 1u) {
             fx_chorus(l, r, 1, sends);
             fx_time(FX_CHORUS, t0);
@@ -2006,7 +2039,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
                 was = now;
             }
         }
-        t0 = plat_c2_us();
+        t0 = FX_T0();
         if ((fx_w.on >> FX_DELAY & 1u || fx_w.forced & 1u) && !dly_over.on) {
             fx_delay(l, r, 1, sends + B, 0, 0);
             fx_time(FX_DELAY, t0);
@@ -2016,7 +2049,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
                 was = now;
             }
         }
-        t0 = plat_c2_us();
+        t0 = FX_T0();
         if ((fx_w.on >> FX_REVERB & 1u || fx_w.forced & 2u) && rv_swell_size < 0) {
             fx_reverb(l, r, 1, sends + 2u * B);
             fx_time(FX_REVERB, t0);
@@ -2029,7 +2062,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
         return;
     if (e == FX_GATE) {                  /* (switched off it glides back open first) */
         if (on || ins.gate_g != 1 << 24) {
-            t0 = plat_c2_us();
+            t0 = FX_T0();
             fx_gate(&ins, fx_w.kn, &fx_wclk, l, r, (int)on);
             fx_act |= on ? 1u << FX_GATE : 0u;
             fx_time(FX_GATE, t0);
@@ -2038,7 +2071,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
     }
     if (e == FX_FILTER) {
         if (on || ins.filt_mode) {
-            t0 = plat_c2_us();
+            t0 = FX_T0();
             fx_act |= (uint32_t)fx_filter(&ins, fx_w.kn, &fx_wclk, l, r, (int)on) << FX_FILTER;
             fx_time(FX_FILTER, t0);
         }
@@ -2046,7 +2079,7 @@ static PLAT_C2 void fx_el(uint32_t e, int32_t *l, int32_t *r, const int32_t *sen
     }
     if (!on || e >= FX_N)
         return;
-    t0 = plat_c2_us();
+    t0 = FX_T0();
     switch (e) {
     case FX_DRIVE: fx_drive(&ins, fx_w.kn, l, r); fx_act |= 1u << FX_DRIVE; break;
     case FX_LOFI: fx_lofi(&ins, fx_w.kn, &rnd_state, l, r); fx_act |= 1u << FX_LOFI; break;
@@ -2117,7 +2150,7 @@ PLAT_C2 void fx_block(int32_t *mix, const int32_t *sends)
     for (n = 0; n < nch; n++)
         fx_el_m(fx_w.chain[n], l, r, sends);
     {
-        uint32_t t0 = plat_c2_us(), mon = fx_w.on >> FX_METRONOME & 1u;
+        uint32_t t0 = FX_T0(), mon = fx_w.on >> FX_METRONOME & 1u;
         int32_t was;
         fx_punches(l, r);
         fx_time(10u, t0);
@@ -2125,12 +2158,13 @@ PLAT_C2 void fx_block(int32_t *mix, const int32_t *sends)
         if (!mon)
             met_shown = -1;              /* (off: it does not count) */
         if (mon || met.n < FX_MET_LEN) { /* (off: a count-in's click rings out) */
-            t0 = plat_c2_us();
+            t0 = FX_T0();
             fx_metronome(l, r, (int)mon);
             fx_time(FX_METRONOME, t0);
             if (mon)
                 fx_act |= 1u << FX_METRONOME;   /* (on: at work, as the state and FIGURES say) */
-        }
+        } else if (fx_wclk.playing)
+            (void)met_count();           /* (off: counted on unheard while something plays, for PLAY's LEDs) */
         if (fx_look && mon)              /* (its meter: what its clicks add, as a chain effect's) */
             meter_put(FX_METRONOME, was, blk_rms(l, r), 0);
         else if (fx_look)
@@ -2147,6 +2181,7 @@ PLAT_C2 void fx_block(int32_t *mix, const int32_t *sends)
             clear_lines();
     }
     fx_join(mix, l, r);
+    fx_act_done = fx_act;
 }
 
 /* ---- the settings live and working, a half's blocks at once (fx.h) ---- */
@@ -2214,8 +2249,8 @@ PLAT_C2 void fx_ev_now(uint32_t kind, int a, int b, int c, uint32_t bf)
 }
 /* a change to the effects' own state: kept with the block being made (fx_defer), else made now; the queue full, made
  * now once the effects' work handed over is done (plat_c2_wait), the half's blocks then taken one at a time
- * (fx_blocks_ok) */
-static void fx_ev(uint32_t kind, int a, int b, int c)
+ * (fx_blocks_ok). (SIZE: one copy, called: an event's work, not a block's) */
+static __attribute__((noinline)) void fx_ev(uint32_t kind, int a, int b, int c)
 {
     if (ev_block >= 0) {
         if (ev_n < FX_EVQ) {
@@ -2313,7 +2348,7 @@ PLAT_C2 void fx_blocks(int32_t *const mix[], const int32_t *const sends[], uint3
         fx_work(&set[j], &clk[j]);
         fx_events((int)j);
         fx_act = act[j];
-        t0 = plat_c2_us();
+        t0 = FX_T0();
         fx_punches(mix[j], mix[j] + B);
         fx_time(10u, t0);
         act[j] = fx_act;
@@ -2337,6 +2372,7 @@ PLAT_C2 void fx_blocks(int32_t *const mix[], const int32_t *const sends[], uint3
         }
     }
     fx_act = act[n - 1u];
+    fx_act_done = fx_act;
     met_out_on = 0;
 }
 
@@ -2361,14 +2397,15 @@ static PLAT_C2 int met_due(void)
 /* A block of 0s at rest (the player's silent block: no voice, nothing on the buses), as fx_block takes it when every
  * effect at work rests: the CHORUS, DELAY and REVERB asleep with their converters still (their clocks and places
  * on, as their own rest paths move them), the LIMITER fully open, the punch-ins' buffer holding only 0s (its place
- * on), the METRONOME (on) with no click due in this block (its own TEMPO's place on); nothing else at work (GATE,
+ * on), the METRONOME (on, or off while something plays: it counts on) with no beat due in this block (its own
+ * TEMPO's place on); nothing else at work (GATE,
  * FILTER, DRIVE, LO-FI, a click ringing, a punch-in, all sound off fading, an effect forced). The same state as
  * fx_block's after the same block, without a frame looked at. */
 PLAT_C2 int fx_rest_block(void)
 {
-    uint32_t n, rest = 0, met_on = fx_w.on >> FX_METRONOME & 1u;
+    uint32_t n, rest = 0, met_on = fx_w.on >> FX_METRONOME & 1u, met_counts = met_on | fx_wclk.playing;
     if (kill_left || pu.k >= 0 || hist_zrun < FX_HIST_QUIET || fx_w.forced || met.n < FX_MET_LEN ||
-        (met_on && met_due()))
+        (met_counts && met_due()))       /* (off, it counts on unheard while something plays: met_count) */
         return 0;
     for (n = 0; n < (fx_w.byp ? 0u : fx_w.nchain); n++) {
         uint32_t e = fx_w.chain[n], on = e < FX_N && (fx_w.on >> e & 1u);
@@ -2409,10 +2446,11 @@ PLAT_C2 int fx_rest_block(void)
     if ((hist_w += B) >= FX_HIST_N)      /* (as fx_punches with only 0s: its place on) */
         hist_w -= FX_HIST_N;
     hist_zrun = zrun_on(hist_zrun, B);
-    if (met_on)                          /* (as fx_metronome with no click: its own TEMPO's place on; at work, as the
-                                          * state and FIGURES say) */
+    if (met_counts)                      /* (as fx_metronome or met_count with no beat: its own TEMPO's place on; on,
+                                          * at work, as the state and FIGURES say) */
         met_own += met_inc();
     fx_act = rest | met_on << FX_METRONOME;
+    fx_act_done = fx_act;
     met_out_on = 0;
     meter_look();
     if (fx_look)
@@ -2567,7 +2605,7 @@ PLAT_C2 uint32_t fx_strip_lr(fx_strip_t *s, int32_t *l, int32_t *r, int32_t *sen
     if (fx_byp || strip_idle(s, sends))
         return 0;
     for (n = 0; n < s->nchain; n++) {
-        uint32_t e = s->chain[n], on = e < FX_N && (s->on >> e & 1u), t0 = plat_c2_us();
+        uint32_t e = s->chain[n], on = e < FX_N && (s->on >> e & 1u), t0 = FX_T0();
         if (e == FX_GATE && (on || s->ins.gate_g != 1 << 24))
             fx_gate(&s->ins, s->kn, &fx_clk, l, r, (int)on);
         else if (e == FX_FILTER && (on || s->ins.filt_mode))
@@ -2583,6 +2621,8 @@ PLAT_C2 uint32_t fx_strip_lr(fx_strip_t *s, int32_t *l, int32_t *r, int32_t *sen
                 b[i] += mulq15((l[i] + r[i]) >> 1, g);
             continue;
         } else
+            continue;
+        if (!t0)                         /* (not timed: FX_T0) */
             continue;
         t0 = plat_c2_us() - t0;
         fx_strip_us[e] += t0;
@@ -2602,49 +2642,3 @@ void fx_strip_noise(int on)
     else if (strip_rnd_state != strip_rnd_from)
         fx_ev(FX_EV_NOISE, 0, 0, 0);
 }
-
-#ifdef PTFM_DEBUG
-/* the debug build's bench (core/bench.c): one block of an effect on l, r with its knobs as they stand (FILTER: its
- * cut at a quarter, low-pass). The effects' own state: the bench switches them off in the audio context first. The
- * effects' cases in core 2's room, as their code runs there; SETS on core 1's side (it reads the live settings) */
-static PLAT_C2 void fx_bench_room(int which, int32_t *l, int32_t *r)
-{
-    static fx_djf_t djf[2];
-    uint8_t cut;
-    switch (which) {
-    case FXB_REVERB: fx_reverb(l, r, 0, 0); break;
-    case FXB_DELAY: fx_delay(l, r, 0, 0, 0, 0); break;
-    case FXB_CHORUS: fx_chorus(l, r, 0, 0); break;
-    case FXB_FILTER:
-        cut = K(0x94);
-        K(0x94) = 32;
-        fx_filter(&ins, fx_w.kn, &fx_wclk, l, r, 1);
-        K(0x94) = cut;
-        break;
-    case FXB_DRIVE: fx_drive(&ins, fx_w.kn, l, r); break;
-    case FXB_LOFI: fx_lofi(&ins, fx_w.kn, &rnd_state, l, r); break;
-    case FXB_GATE: fx_gate(&ins, fx_w.kn, &fx_wclk, l, r, 1); break;
-    case FXB_LIMITER: fx_limit(l, r); break;
-    case FXB_PUNCH: fx_punches(l, r); break;
-    case FXB_DJF: fx_djfilter(&djf[0], l, r, -(32 << 8), 50); break;     /* (half way to LP's end) */
-    case FXB_DJF1: fx_djfilter(&djf[1], l, 0, -(32 << 8), 50); break;
-    default: break;
-    }
-}
-void fx_bench(int which, int32_t *l, int32_t *r)
-{
-    if (which == FXB_SETS) {             /* (the live settings put in place as they are (the working ones a block's
-                                          * till the next block puts its own); copied, as when a block's differ: the
-                                          * generations kept from skipping them) */
-        fx_set_t s;
-        fx_clock_t c;
-        s.seq = 0;
-        fx_set_get(&s);
-        s.seq = 0;
-        memcpy(&c, &fx_wclk, sizeof c);
-        PLAT_FAR(fx_work)(&s, &c);
-        return;
-    }
-    PLAT_FAR(fx_bench_room)(which, l, r);
-}
-#endif

@@ -38,15 +38,17 @@ static const fx_knob_t K_DUCK[] = {{TX("SOURCE"), 0, 0, 0, 16, 0, 1, KF_TRACK}, 
 static const fx_knob_t K_METRO[] = {{TX("TEMPO"), 0, 0, 29, 300, 29, 1, KF_TEMPO}, {TX("BEATS A BAR"), 0, 0, 1, 16, 4, 1, KF_NUM},
                                     {TX("SOUND"), L_SOUND, 4, 0, 3, 1, 1, KF_NUM}, PCT(TX("LEVEL"), 60)};
 
+/* (cpu10: as measured on the FM-1, specs/ui/screens/fx.md's footer: CHORUS, DELAY, REVERB and the LIMITER working
+ * in songs, GATE, FILTER, DRIVE and LO-FI a block alone; DUCK and the METRONOME estimated) */
 const fx_eff_t FX_EFF[FE_N] = {
-    {TX("GATE"), C_LBLUE, 0x90, 4, K_GATE, {0}, 4},
+    {TX("GATE"), C_LBLUE, 0x90, 4, K_GATE, {0}, 11},
     {TX("FILTER"), C_CYAN, 0x94, 8, K_FILTER, {0}, 12},
-    {TX("DRIVE"), C_LRED, 0x96, 2, K_DRIVE, {0}, 8},
-    {TX("LO-FI"), C_YELLOW, 0x98, 3, K_LOFI, {0, " KHZ"}, 5},
-    {TX("CHORUS"), C_LCYAN, 0x9B, 4, K_CHORUS, {0}, 22},
-    {TX("DELAY"), C_LGREEN, 0x9F, 5, K_DELAY, {0}, 14},
-    {TX("REVERB"), C_LMAGENTA, 0xA4, 4, K_REVERB, {0, 0, " MS"}, 75},
-    {TX("LIMITER"), C_WHITE, 0xA8, 2, K_LIMITER, {" DB", " MS"}, 6},
+    {TX("DRIVE"), C_LRED, 0x96, 2, K_DRIVE, {0}, 22},
+    {TX("LO-FI"), C_YELLOW, 0x98, 3, K_LOFI, {0, " KHZ"}, 10},
+    {TX("CHORUS"), C_LCYAN, 0x9B, 4, K_CHORUS, {0}, 21},
+    {TX("DELAY"), C_LGREEN, 0x9F, 5, K_DELAY, {0}, 31},
+    {TX("REVERB"), C_LMAGENTA, 0xA4, 4, K_REVERB, {0, 0, " MS"}, 83},
+    {TX("LIMITER"), C_WHITE, 0xA8, 2, K_LIMITER, {" DB", " MS"}, 2},
     {TX("DUCK"), C_BROWN, 0xAA, 3, K_DUCK, {0, 0, " MS"}, 3},
     {TX("METRONOME"), C_GREEN, 0, 4, K_METRO, {0}, 1},
 };
@@ -144,6 +146,7 @@ void fxd_reset(uint8_t *s, int e)
 {
     for (int k = 0; k < FX_EFF[e].nk; k++) fxd_set(s, e, k, FX_EFF[e].k[k].def);
 }
+void fxd_loops(uint8_t *s) { fxd_default(s); fxd_set_routing(s, 1); }
 void fxd_default(uint8_t *s)
 {
     static const uint8_t CHAIN[9] = {FE_GATE, FE_FILTER, FE_LOFI, FE_SENDS, FE_CHORUS, FE_DELAY, FE_REVERB, FE_DRIVE,

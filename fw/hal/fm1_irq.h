@@ -34,6 +34,7 @@
 #define FM1_DBG_MSG (*(volatile uint32_t *)0x1EEE244u)
 #define FM1_DBG_MSG_CLR (*(volatile uint32_t *)0x1EEE248u)
 #define FM1_DBG_EN (*(volatile uint32_t *)0x1EEE340u)
+#define FM1_C0_WR_ERR (*(volatile uint32_t *)0x1EEE360u)   /* C0_WR_LIMIT_ERR_NUM: the write limits core 1 hit, a bit each */
 
 enum { FM1_IRQ_EXCEPTION = 1, FM1_IRQ_ALNK0 = 11, FM1_IRQ_SPI1 = 16, FM1_IRQ_UART1 = 20,
        FM1_IRQ_SARADC = 24, FM1_IRQ_SPI2 = 37, FM1_IRQ_TIMER5 = 63, FM1_IRQ_SOFT0 = 120 };
@@ -77,6 +78,9 @@ static uint32_t fm1_stack_out(uint32_t usp, uint32_t ssp)
  * file-local object would let the compiler assume its zero initial value and
  * fold the magic check away. */
 fm1_crash_t fm1_crash __attribute__((section(".noinit")));
+/* what the crash screen shows beyond the record (this start's only, not kept across the restart): the write limits hit
+ * (FM1_C0_WR_ERR's bits: fm1_guard.h's windows 0-3) and both stack pointers as the fault found them */
+static struct { uint32_t wr, usp, ssp; } fm1_crash_more;
 /* core 2 started and not held since (fm1_cpu1.h keeps it): the crash record's c2 */
 static volatile uint8_t fm1_c1_runs;
 
@@ -165,6 +169,9 @@ void fm1_fault_c(uint32_t *f)
         fm1_cpu1_halt();
         *(volatile uint32_t *)0x10000u |= 1u << 4;
     }
+    fm1_crash_more.wr = FM1_C0_WR_ERR;        /* (before the limits go off below) */
+    fm1_crash_more.usp = f[22];
+    fm1_crash_more.ssp = f[23];
     /* the stack check and the write limits off: on an overflowed stack, or in a guard band, what the report pushes
      * must not fault again (fm1_guard.h arms them) */
     if (!(FM1_DBG_WR_EN & 1u))

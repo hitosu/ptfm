@@ -16,6 +16,7 @@
 #include "../play/loops.h"
 #include "fxdef.h"
 #include "fx_target.h"
+#include "../fx/fx.h"
 #include "../dbg.h"                     /* the debug build's figures (empty in the release) */
 #include "ui_punch.h"
 #include "ui_lp.h"                      /* lp_live_poll: RECORD LIVE goes on on LOOPS' FX */
@@ -40,7 +41,7 @@ static const txt_t ROUND[10] = {TX("STATUS"), TX("SONGS"), TX("EDITOR"), TX("INS
                                 TX("FX"), TX("LOOPS"), TX("DJ"), TX("SETTINGS")};
 const uint8_t UI_GROUP_COL[4] = {C_LBLUE, C_GREEN, C_BROWN, C_MAGENTA};
 
-ui_cur_t ui_cur = {0, UI_EDITOR_PATTERN, UI_FIRST_INST, 0, 0, -1, 0};
+ui_cur_t ui_cur = {0, UI_EDITOR_PATTERN, UI_FIRST_INST, UI_FIRST_INST, 0, 0, -1, 0};
 uint8_t ui_scratch[UI_SCRATCH] PLAT_POOL;
 
 /* ------------------------------------------------------------------- screens --- */
@@ -160,6 +161,7 @@ int ui_active(int b)
 {
     return (btn[b].down && !btn[b].closed) || (btn[b].grace && ui_now() < btn[b].grace_until);
 }
+int ui_pending(int b) { return btn[b].down || btn[b].grace; }
 void ui_consume(int b)
 {
     if (btn[b].down) btn[b].used = 1;
@@ -175,21 +177,24 @@ int ui_use_combo(int b, int kind)
     return 1;
 }
 
+/* this button's tap comes at its release here: no grace, no hold, and only HOME takes it (on the screen itself) */
+static int tap_now(int b) { return (cur->tap_now & BIT(b)) && !ui_top(); }
 /* the held combinations a control is no member of close; it does its own job. Not PLAY, REC, OCT, HOME */
 static void close_combos(int except)
 {
     for (int m = 0; m < B_COUNT; m++) {
         if (!btn[m].down || m == except || m == B_HOME || m == B_PLAY || m == B_REC || m == B_OCTM || m == B_OCTP) continue;
-        if (btn[m].closed || btn[m].custom) continue;
-        if (cur->hold_action && cur->hold_action(m)) continue;
+        if (btn[m].closed || btn[m].custom || tap_now(m)) continue;
         btn[m].closed = 1;
         btn[m].used = 1;
     }
 }
 static int combines(int b)
 {
+    if (tap_now(b)) return 0;
     if (b == B_HOME || b == B_LFO || b == B_SEL || b == B_FX || b == B_SAVE) return 1;
-    if (b == B_ARP) return !cur->own_arp || cur->own_arp == UI_ARP_PREVIEW;   /* ARP held + SELECT, ALGORITHM, K1, LFO */
+    if (b == B_ARP) return !cur->own_arp || cur->own_arp == UI_ARP_PREVIEW ||   /* ARP held + SELECT, ALGORITHM, K1, LFO */
+                           (cur->own_arp == UI_ARP_PATTERN && !ui_top());       /* (LOOPS: + REC, on the screen itself) */
     return (cur->combines & BIT(b)) != 0;
 }
 
@@ -345,55 +350,79 @@ static void key_off(int n)
     if (key_out[n]) { midi_out_key((uint8_t)(key_out[n] - 1), 0, 0); key_out[n] = 0; }
 }
 uint16_t ui_last_inst = 0xFFFFu;
-void ui_set_inst(uint16_t ref)
+static uint16_t fav_back = 0xFFFFu, fav_at = 0xFFFFu;  /* SEL + GLO's: the place before a FAVORITES cartridge became
+                                                         * current; the favourite last stood on (GLO + PRESETS' too) */
+static uint8_t inst_once;                               /* the instrument a favourite's, picked once (GLO + PRESETS): the
+                                                         * place does not lead it */
+static void inst_now(uint16_t ref)                      /* the keys' instrument (ARP follows) */
 {
     char nm[12];
     ui_cur.inst = ref;
-    if (ui_cart_kind((uint8_t)(ref >> 8)) != ENG_FUSION && ui_inst_name(ref, nm)) ui_last_inst = ref;
     dirty = 1;
+    if (ui_cart_kind((uint8_t)(ref >> 8)) != ENG_FUSION && ui_inst_name(ref, nm)) ui_last_inst = ref;
     if (ui_arp_on()) {                                  /* ARP follows: its next note the new one's, however picked */
         pl_inst_t in = {(uint8_t)(ref >> 8), (uint8_t)ref};
         player_arp_inst(in);
     }
 }
-
-/* PRESETS: through the cartridge's used slots, wrapping */
-static void step_inst(int d)
+void ui_set_inst(uint16_t ref)
 {
-    uint8_t c = (uint8_t)(ui_cur.inst >> 8);
-    int n = ui_cart_slots(c), at = ui_cur.inst & 255, dir = d < 0 ? -1 : 1;
-    if (!n) return;
-    char nm[12];
+    uint16_t src;
+    int f = ui_fav(ref, &src);
+    if (f) { if (ui_cart_kind((uint8_t)(ui_cur.place >> 8)) != ENG_FAV) fav_back = ui_cur.place; fav_at = ref; }
+    ui_cur.place = ref;
+    inst_once = 0;
+    dirty = 1;
+    if (f == UI_FAV_EMPTY || f == UI_FAV_MISSING) return;   /* (the instrument stays the last source picked) */
+    inst_now(f ? src : ref);
+}
+
+/* |d| used slots on from slot at of cartridge c, wrapping (a FAVORITES cartridge's favourites, the empty and missing
+ * ones skipped); -1 none */
+static int step_from(uint8_t c, int at, int d)
+{
+    int n = ui_cart_slots(c), dir = d < 0 ? -1 : 1;
+    if (!n) return -1;
     for (int k = 0; k < (d < 0 ? -d : d); k++) {
         int next = -1;
         for (int j = 1; j <= n && next < 0; j++) {
             int i = ui_wrap(at + dir * j, n);
-            if (ui_inst_name((uint16_t)(c << 8 | i), nm)) next = i;
+            if (ui_slot_has((uint16_t)(c << 8 | i), 1)) next = i;
         }
-        if (next < 0) return;
+        if (next < 0) return -1;
         at = next;
     }
-    ui_set_inst((uint16_t)(c << 8 | at));
+    return at;
 }
-/* SEL + PRESETS: the cartridges, wrapping, each at its first used slot */
+/* PRESETS: through the cartridge's used slots, wrapping */
+static void step_inst(int d)
+{
+    uint8_t c = (uint8_t)(ui_cur.place >> 8);
+    int at = step_from(c, ui_cur.place & 255, d);
+    if (at >= 0) ui_set_inst((uint16_t)(c << 8 | at));
+}
+/* a cartridge's first used slot (0 with none): where picking a cartridge puts the cursor */
+int ui_cart_first(uint8_t c)
+{
+    for (int s = 0, n = ui_cart_slots(c); s < n; s++) if (ui_slot_has((uint16_t)(c << 8 | s), 0)) return s;
+    return 0;
+}
+/* SEL + PRESETS: the cartridges in the lists' order, wrapping, each at its first used slot */
 static void step_cart(int d)
 {
     uint8_t nums[256];
     int n = ui_carts(nums, 256), i = 0;
     if (!n) return;
-    for (int k = 0; k < n; k++) if (nums[k] == ui_cur.inst >> 8) i = k;
+    for (int k = 0; k < n; k++) if (nums[k] == ui_cur.place >> 8) i = k;
     uint8_t c = nums[ui_wrap(i + d, n)];
-    int slots = ui_cart_slots(c), first = 0;
-    char nm[12];
-    for (int s = 0; s < slots; s++) if (ui_inst_name((uint16_t)(c << 8 | s), nm)) { first = s; break; }
-    ui_set_inst((uint16_t)(c << 8 | first));
+    ui_set_inst((uint16_t)(c << 8 | ui_cart_first(c)));
 }
-/* PRESETS turned, as every knob shows in the header (frame.md): `PRESETS 01:03 E.PIANO`; with SEL the cartridge,
- * `CARTRIDGE 01 KEYS/ORGANS` */
+/* PRESETS turned, as every knob shows in the header (frame.md): `PRESETS 01:03 E.PIANO` (a favourite's: its source);
+ * with SEL the cartridge, `CARTRIDGE 01 KEYS/ORGANS` */
 static void show_inst(int cart)
 {
     char id[8], nm[16], v[32];
-    uint16_t ref = ui_cur.inst;
+    uint16_t ref = cart ? ui_cur.place : ui_cur.inst;
     if (cart) {
         ui_cart_name((uint8_t)(ref >> 8), nm);
         ui_fmt(v, sizeof v, "%02X %s", ref >> 8, nm);
@@ -410,29 +439,14 @@ static void show_inst(int cart)
  * its own job (HOME and SEL only close it); opened with SEL held, it closes when SEL is let go (PRESETS the instruments
  * again). sel_armed (above): SEL's tap reached the screen and nothing else was touched since; every overlay then
  * open is one that tap opened */
-static struct { uint8_t nums[256]; int n; uint8_t held; } pc;
+static struct { uint8_t held; } pc;              /* (its cartridges: ui_cart_nums_fill's, taken as it opens) */
 static void pc_draw(ui_overlay_t *o)
 {
     (void)o;
-    int y = BODY_Y + 2, rows = 13, sel = 0;
-    for (int i = 0; i < pc.n; i++) if (pc.nums[i] == ui_cur.inst >> 8) sel = i;
-    ui_panel(2, y, 236, 206, T("CARTRIDGES"), C_CYAN);
-    g_text(8, y + 16, &FONT_T, T("ID NAME         TYPE      SLOTS"), C_DGREY);
-    int top = ui_clamp(sel - 6, 0, pc.n - rows > 0 ? pc.n - rows : 0);
-    for (int i = top; i < pc.n && i < top + rows; i++) {
-        uint8_t c = pc.nums[i];
-        int yy = y + 30 + (i - top) * 13, on = i == sel, k = ui_cart_kind(c), used = 0;
-        char nm[16], cnt[12];
-        for (int s = 0; s < ui_cart_slots(c); s++) used += ui_inst_name((uint16_t)(c << 8 | s), nm);
-        if (on) g_box(4, yy - 1, 232, 13, C_WHITE);
-        g_text(8, yy, &FONT_T, ui_hex2(c), ins_builtin(c) ? C_BROWN : on ? C_WHITE : C_LGREY);   /* (built in: brown) */
-        if (!ui_cart_name(c, nm)) nm[0] = 0;
-        nm[12] = 0;
-        g_text(26, yy, &FONT_T, nm, on ? C_WHITE : C_LGREY);
-        g_text(110, yy, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
-        ui_fmt(cnt, sizeof cnt, "%03d/%03d", used, ENG_SLOTS[k]);
-        g_text(170, yy, &FONT_T, cnt, C_LGREY);
-    }
+    uint8_t nums[256];
+    int n = ui_cart_nums(nums), sel = 0;
+    for (int i = 0; i < n; i++) if (nums[i] == ui_cur.place >> 8) sel = i;
+    ui_cart_lines_big(T("CARTRIDGES"), nums, n, sel);   /* (big, no slots: read at a glance while PRESETS turns) */
 }
 static void pc_knob(ui_overlay_t *o, int e, int s, int c) { (void)o; (void)e; (void)s; (void)c; }   /* (never: see pc_end) */
 static int pc_tap(ui_overlay_t *o, int b) { (void)o; (void)b; return 0; }
@@ -443,7 +457,7 @@ static ui_overlay_t *pc_find(void)
 }
 static void pc_open(void)
 {
-    pc.n = ui_carts(pc.nums, 256);
+    ui_cart_nums_fill();
     ui_overlay_t o = {.kind = OV_LIST, .opener = B_SEL, .knob = pc_knob, .tap = pc_tap, .draw = pc_draw, .data = (void *)&pc};
     ui_open(&o);
 }
@@ -472,30 +486,46 @@ static int pc_room(int armed)
 extern const ui_screen_t SCR_INSTRUMENTS;
 static uint32_t il_at;                  /* the last click's time (| 1), 0 none */
 static uint8_t il_tag;                  /* (the overlay's data: its mark) */
+static uint8_t il_fav;                  /* 1: the favourites GLO + PRESETS turns (fav_at's cartridge), till GLO is let go */
 static void il_draw(ui_overlay_t *o)
 {
     (void)o;
-    uint8_t c = (uint8_t)(ui_cur.inst >> 8);
-    int y = BODY_Y + 2, rows = 13, slots = ui_cart_slots(c), at = ui_cur.inst & 255, n = 0, sel = 0, k = ui_cart_kind(c);
+    uint16_t p = il_fav ? fav_at : cur == &SCR_INSTRUMENTS ? ui_cur.inst : ui_cur.place;   /* (a favourite's edit mode:
+                                                                                             * its source's) */
+    uint8_t c = (uint8_t)(p >> 8);
+    int y = BODY_Y + 2, rows = 6, slots = ui_cart_slots(c), at = p & 255, n = 0, sel = 0, k = ui_cart_kind(c);
     char nm[16];
-    for (int s = 0; s < slots; s++) if (ui_inst_name((uint16_t)(c << 8 | s), nm)) { if (s == at) sel = n; n++; }
-    ui_panel(2, y, 236, 206, T("INSTRUMENTS"), C_CYAN);
-    g_text(8, y + 16, &FONT_T, ui_hex2(c), ins_builtin(c) ? C_BROWN : C_LGREY);   /* the cartridge (built in: brown) */
-    if (!ui_cart_name(c, nm)) nm[0] = 0;
-    nm[12] = 0;
-    g_text(26, y + 16, &FONT_T, nm, C_LGREY);
-    g_text(232 - g_tw(&FONT_T, T(ENG_TYPE[k])), y + 16, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
-    int top = ui_clamp(sel - 6, 0, n - rows > 0 ? n - rows : 0);
+    for (int s = 0; s < slots; s++) if (ui_slot_has((uint16_t)(c << 8 | s), 1)) { if (s == at) sel = n; n++; }
+    ui_panel(2, y, 236, 206, il_fav ? T("FAVORITES") : T("INSTRUMENTS"), C_CYAN);
+    ui_cart_big(c, y + 16, 0);                          /* the cartridge, big (built in: its ID brown) */
+    int top = ui_clamp(sel - 2, 0, n - rows > 0 ? n - rows : 0);   /* (big: 6 lines of 26 px, FONT_B) */
     for (int s = 0, i = 0; s < slots && i < top + rows; s++) {
-        if (!ui_inst_name((uint16_t)(c << 8 | s), nm)) continue;
+        uint16_t ref = (uint16_t)(c << 8 | s);
+        if (!ui_slot_has(ref, 1)) continue;             /* (a FAVORITES cartridge: its favourites PRESETS steps to) */
         if (i >= top) {
-            int yy = y + 30 + (i - top) * 13, on = s == at;
-            if (on) g_box(4, yy - 1, 232, 13, C_WHITE);
-            g_text(8, yy, &FONT_T, ui_hex2((uint8_t)s), on ? C_WHITE : C_DGREY);   /* (as INSTRUMENTS colours them) */
-            g_text(26, yy, &FONT_T, nm, on ? C_WHITE : ENG_COL[k]);
+            int yy = y + 44 + (i - top) * 26, on = s == at;
+            if (on) g_box(4, yy - 1, 232, 26, C_WHITE);
+            g_text(6, yy, &FONT_B, ui_hex2((uint8_t)s), on ? C_WHITE : C_DGREY);   /* (as INSTRUMENTS colours them) */
+            if (k == ENG_FAV) ui_fav_draw_f(&FONT_B, 36, yy, ref, on, 66);
+            else { ui_inst_name(ref, nm); g_text(36, yy, &FONT_B, nm, on ? C_WHITE : ENG_COL[k]); }
         }
         i++;
     }
+}
+/* a favourite as INSTRUMENTS lists it (specs/ui/screens/instruments.md#favorites): its source at x (`0B:05`, light grey),
+ * the source's name at x + 36 in its engine's colour; a missing one's both dark grey (`MISSING`); on: white */
+void ui_fav_draw(int x, int y, uint16_t ref, int on) { ui_fav_draw_f(&FONT_T, x, y, ref, on, 36); }
+void ui_fav_draw_f(const ui_font_t *ft, int x, int y, uint16_t ref, int on, int dx)
+{
+    uint16_t src = 0;
+    char rt[8], nm[12];
+    int f = ui_fav(ref, &src), miss = f != UI_FAV_OK;
+    if (f < UI_FAV_MISSING) return;
+    ui_ref_text(rt, src);
+    g_text(x, y, ft, rt, on ? C_WHITE : miss ? C_DGREY : C_LGREY);
+    if (miss) strcpy(nm, T("MISSING"));
+    else ui_inst_name(src, nm);
+    g_text(x + dx, y, ft, nm, on ? C_WHITE : miss ? C_DGREY : ENG_COL[ui_cart_kind((uint8_t)(src >> 8))]);
 }
 static ui_overlay_t *il_find(void)
 {
@@ -506,16 +536,22 @@ static void il_end(void)                /* any other control: it closes */
 {
     ui_overlay_t *o = il_find();
     il_at = 0;
+    il_fav = 0;
     if (o) ui_close(o);
 }
-static void il_show(void)               /* a click that changed the instrument: open, or kept open 1 s more */
+static void il_open(void)
 {
-    if (ui_set[S_PRESETS_LIST] || cur == &SCR_INSTRUMENTS || cur->no_keyboard || (nov && !il_find())) return;
-    il_at = ui_now() | 1u;
     if (!il_find()) {
         ui_overlay_t o = {.kind = OV_LIST, .opener = -1, .knob = pc_knob, .tap = pc_tap, .draw = il_draw, .data = (void *)&il_tag};
         ui_open(&o);
     }
+}
+void ui_il_show(void)                   /* a click that changed the instrument: open, or kept open 1 s more (not on
+                                         * INSTRUMENTS, but in a favourite's edit mode) */
+{
+    if (ui_set[S_PRESETS_LIST] || (cur == &SCR_INSTRUMENTS && scr_instr_edit() != 2) || cur->no_keyboard || (nov && !il_find())) return;
+    il_at = ui_now() | 1u;
+    il_open();
 }
 static void il_poll(void)
 {
@@ -652,6 +688,7 @@ static int save_pct(void) { uint8_t p = 0; store_save_status(&p); return p; }
 static void do_save(void)
 {
     char t[32];
+    lp_song_stop();                                     /* (first: a save under way refuses it) */
     ui_settings_keep_state();                           /* (the current instrument, and the screen, with the rest) */
     ui_dj_stand_put();                                  /* (DJ's decks where they paused, if they moved) */
     loops_keep_sel();                                   /* (LOOPS' selection, if it moved: no edit by itself) */
@@ -860,7 +897,63 @@ static int combo_known(int m, int b)
         (cur->has_combo && cur->has_combo(m, b))
         || (m == B_ARP && b == B_LFO && !cur->own_arp);
 }
-static void start_hold(int b) { btn[b].due = ui_now() + (uint32_t)hold_ms(); btn[b].timer = 1; }
+static void start_hold(int b)
+{
+    if (tap_now(b)) return;
+    btn[b].due = ui_now() + (uint32_t)(cur->long_hold && b == cur->long_hold && !ui_top() ? UI_LONG_HOLD : hold_ms());
+    btn[b].timer = 1;
+}
+
+/* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES (FB; deleted, the first
+ * FAVORITES cartridge in the lists' order), at the favourite last used there; with it current, back to the place before
+ * it. Where SEL + PRESETS works; refused in INSTRUMENTS' edit mode. (SEL's hold layer says so: ui_sel_fav_here) */
+static int sel_fav_here(void) { return !cur->no_keyboard && !nov; }
+int ui_sel_fav_here(void) { return sel_fav_here() && !(cur == &SCR_INSTRUMENTS && scr_instr_edit()); }
+static void sel_fav(void)
+{
+    uint8_t c[256];
+    int n = ui_carts(c, 256), any = 0;
+    if (cur == &SCR_INSTRUMENTS && scr_instr_edit()) { ui_refuse(B_GLO); return; }
+    if (!n || ui_cart_rank(c[0]) > 1) { ui_toast(T("NO FAVORITES YET")); return; }     /* (the FAVORITES come first) */
+    if (ui_cur.place >> 8 == c[0]) { if (fav_back != 0xFFFFu) ui_set_inst(fav_back); }    /* (with it current: back) */
+    else {
+        for (int i = 0; i < n && ui_cart_rank(c[i]) < 2; i++)
+            for (int s = 0; s < ui_cart_slots(c[i]); s++) any |= ui_slot_has((uint16_t)(c[i] << 8 | s), 0);
+        if (!any) { ui_toast(T("NO FAVORITES YET")); return; }
+        ui_set_inst((uint16_t)(c[0] << 8 | (fav_at >> 8 == c[0] ? fav_at & 255 : ui_cart_first(c[0]))));
+    }
+    show_inst(1);
+}
+/* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of the FAVORITES cartridge SEL + GLO goes
+ * to, picked once: the keys' instrument becomes its source, the current cartridge and slot stay (PRESETS alone goes on
+ * from them); a click from the favourite last used, the favourites' list shown till GLO is let go. Where SEL + GLO
+ * works, not on INSTRUMENTS (its cursor is the current instrument: GLO blinks). 1 when PRESETS was taken so */
+int ui_glo_fav_here(void) { return sel_fav_here() && cur != &SCR_INSTRUMENTS; }
+static int glo_fav(int d)
+{
+    btn_t *g = &btn[B_GLO];
+    if (!g->down || g->closed || (g->used && g->lock != CK_PRESETS) || cur->no_keyboard || (nov && !il_fav)) {
+        if (il_fav) il_end();
+        return 0;
+    }
+    ui_use_combo(B_GLO, CK_PRESETS);
+    close_combos(B_GLO);
+    if (cur == &SCR_INSTRUMENTS) { ui_refuse(B_GLO); return 1; }
+    uint8_t c[256];
+    int n = ui_carts(c, 256), at = -1;
+    if (n && ui_cart_rank(c[0]) < 2)
+        at = step_from(c[0], fav_at >> 8 == c[0] ? fav_at & 255 : d > 0 ? ui_cart_slots(c[0]) - 1 : 0, d);
+    uint16_t ref = (uint16_t)((at < 0 ? 0 : c[0]) << 8 | (at & 255)), src;
+    if (at < 0 || ui_fav(ref, &src) != UI_FAV_OK) { ui_toast(T("NO FAVORITES YET")); return 1; }
+    fav_at = ref;
+    inst_now(src);
+    inst_once = 1;
+    show_inst(0);
+    il_fav = 1;
+    il_at = 0;                                          /* (shown till GLO is let go) */
+    il_open();
+    return 1;
+}
 
 static void button_down(int b)
 {
@@ -904,6 +997,21 @@ static void button_down(int b)
             if (!hc->closed && b != B_PLAY && b != B_REC) close_home(hc);
         }
     }
+    if (b == B_GLO && btn[B_SEL].down && sel_fav_here() && ui_use_combo(B_SEL, CK_BUTTON + B_GLO)) {   /* (SEL held first) */
+        close_combos(B_SEL);
+        memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t;
+        sel_fav();
+        return;
+    }
+    /* LOOPS: ARP held (or let go within its grace period) + REC, the pattern recorder, acting at REC's release; REC's press
+     * does none of its own jobs, ARP's tap does not happen. Only on the screen itself, nothing open over it; an ARP used for
+     * something else already is not taken */
+    if (b == B_REC && cur->own_arp == UI_ARP_PATTERN && !ui_top() && ui_active(B_ARP) &&
+        !(btn[B_ARP].used && btn[B_ARP].lock != CK_REC) && ui_use_combo(B_ARP, CK_REC)) {
+        close_combos(B_ARP);
+        memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t; h->lock = CK_BUTTON + B_ARP;   /* (its release: lp_rec_with) */
+        return;
+    }
     if (b == B_PLAY || b == B_REC) close_combos(-1);
     if (b == B_PLAY) {
         memset(h, 0, sizeof *h); h->down = 1; h->t = t; h->used = 1;
@@ -939,6 +1047,7 @@ static void button_down(int b)
     h->down = 1;
     h->t = t;
     start_hold(b);
+    if (cur->press && !ui_top()) cur->press(b);         /* (a screen's own press: LOOPS' HOME) */
 }
 static void hold_fired(int b)
 {
@@ -960,9 +1069,12 @@ static void button_up(int b)
     h->down = 0;
     h->timer = 0;
     if (b == B_SEL && pc.held) pc_end();               /* (PRESETS' list opened with SEL held: gone with it) */
+    if (b == B_GLO && il_fav) il_end();                 /* (the favourites' list GLO + PRESETS showed: gone with GLO) */
     if (was.cut) cut(0);                                /* (CUT let go: heard again) */
     if (was.layer) { ui_layer_close(b); if (cur->layer_up) cur->layer_up(b); }
     if (was.custom) { if (cur->play_up) cur->play_up(was.used); return; }
+    if (b == B_REC && was.lock == CK_BUTTON + B_ARP && cur->own_arp == UI_ARP_PATTERN) { lp_rec_with(); return; }   /* (LOOPS:
+                                                         * ARP + REC, at REC's release) */
     if (was.used || was.layer) return;
     if (b == B_PLAY || b == B_REC) return;
     if (combines(b)) {
@@ -1072,6 +1184,7 @@ static void encoder(int e, int step)
         if (hc->is_ov || !hc->closed) close_home(hc);
     }
     if (e == K_PRESETS && cur->no_keyboard) { pc_end(); close_combos(-1); return; }
+    if (e == K_PRESETS && glo_fav(step)) return;
     if (e == K_PRESETS) {
         int cart = ui_active(B_SEL) && ui_use_combo(B_SEL, CK_PRESETS);
         close_combos(cart ? B_SEL : -1);
@@ -1079,11 +1192,12 @@ static void encoder(int e, int step)
         int list = pc_find() ? 1 : (cart || sel_armed) && pc_room(!cart && sel_armed) ? 2 : 0;
         sel_armed = 0;
         if (list) cart = 1;
-        uint16_t was = ui_cur.inst;
+        uint32_t was = (uint32_t)ui_cur.place << 16 | ui_cur.inst;
         int own = cart ? cur->presets_cart && cur->presets_cart(step) : cur->presets && cur->presets(step);
         if (!own) { if (cart) step_cart(step); else step_inst(step); }
-        if (!cart && !own && ui_cur.inst != was) il_show();   /* (PRESETS' instrument list, where it may show) */
-        if (!own || ui_cur.inst != was) {               /* (a screen's own that changed nothing has said why) */
+        int moved = ((uint32_t)ui_cur.place << 16 | ui_cur.inst) != was;
+        if (!cart && !own && moved) ui_il_show();       /* (PRESETS' instrument list, where it may show) */
+        if (!own || moved) {                            /* (a screen's own that changed nothing has said why) */
             show_inst(cart);
             if (list == 2) { while (nov) ui_close(0); pc_open(); pc.held = btn[B_SEL].down; }   /* (SEL's tap's menu: the
                                                                                                 * list in its place) */
@@ -1231,16 +1345,29 @@ static void leds(void)
     ui_overlay_t *o = ui_top();
     if (o && o->opener >= 0 && o->kind != OV_QUESTION) lv[o->opener] = LV_FULL;
     if (cur->lit) for (int b = 0; b < B_COUNT; b++) { int v = cur->lit(b); if (v != LV_NONE) lv[b] = v; }
+    if (btn[B_SEL].down && ui_sel_fav_here() && lv[B_GLO] < LV_DIM)
+        lv[B_GLO] = LV_DIM;                             /* (SEL held: GLO goes to FAVORITES and back) */
     if (ndeep) lv[B_EDIT] = LV_FULL;
     if (ui_punch_now() >= 0) { if (ui_punch_kept()) lv[B_FX] = LV_FULL; else if (lv[B_ARP] < LV_DIM) lv[B_ARP] = LV_DIM; }
     lv[B_SAVE] = save_waiting ? (ui_blink(250) ? LV_DIM : 0) : ui_unsaved ? LV_DIM : 0;
     if (!is(cur, "FX") && !is(cur, "DJ")) { lv[B_OCTM] = oct_led(-ui_cur.octave); lv[B_OCTP] = oct_led(ui_cur.octave); }
     /* PLAY: green playing (brighter on the beat), red dim with a loop; red full paused; at the start red dim;
-     * dark where PLAY has nothing to play */
+     * dark where PLAY has nothing to play. The loops playing: a visual metronome, the METRONOME's beats on or off,
+     * each a quick flash, the bar's first red, the others green, dark between (specs/ui/transport.md#plays-two-leds) */
     player_state_t st;
     ui_player_state(&st);
     int green = 0, red = 0;
-    if (st.playing) {
+    static unsigned met_was;                            /* (fx_met_seen as last seen, its new beat's time and kind) */
+    static uint32_t met_at;
+    static uint8_t met_first;
+    unsigned met = fx_met_seen();
+    if ((met ^ met_was) >> 8) { met_at = ui_now(); met_first = (met & 255u) == 0; }
+    met_was = met;
+    if (st.playing && st.what == PL_LOOPS) {           /* (between the flashes both dark) */
+        int flash = (int32_t)(ui_now() - met_at) < UI_MET_FLASH;
+        green = flash && !met_first ? LV_FULL : 0;
+        red = flash && met_first ? LV_FULL : 0;
+    } else if (st.playing) {
         ui_song_t s;
         int rpb = ui_song(st.song, &s) ? s.rpb : 4;
         green = st.row % (rpb ? rpb : 4) == 0 && st.tick < 2 ? LV_FULL : 140;
@@ -1371,7 +1498,7 @@ int ui_cpu2_mean(uint32_t *sum0, uint32_t *halves0)
 static void header_text(void)
 {
     char sub_b[40], page_b[24], name_b[16];
-    const char *text, *sub = 0, *page = 0, *seq = 0, *mark = 0;
+    const char *text, *sub = 0, *page = 0, *seq = 0;
     int col = C_WHITE, runs = 0;
     ui_overlay_t *help = find_kind(OV_HELP);
     if (ui_now() < knob_show.until) text = knob_show.text;   /* a knob turned: its name and value, white, 1.2 s */
@@ -1384,7 +1511,6 @@ static void header_text(void)
         sub = cur->sub ? cur->sub() : 0;
         page = cur->page ? cur->page() : 0;
         seq = cur->seq && !nov ? cur->seq() : 0;
-        if (is(cur, "LOOPS")) mark = T("BETA");         /* (the name's mark, small: frame.md) */
         if (sub) { strncpy(sub_b, sub, sizeof sub_b - 1); sub_b[sizeof sub_b - 1] = 0; sub = sub_b; }
         if (page && page != page_b) { strncpy(page_b, page, sizeof page_b - 1); page_b[sizeof page_b - 1] = 0; page = page_b; }
     }
@@ -1393,7 +1519,6 @@ static void header_text(void)
     int room = 200, end;                                /* (to x 200, before the voices) */
     if (g_tw(&FONT_S, full) <= room) {
         int x = runs ? g_runs(2, 0, &FONT_S, toast.runs, runs) : g_text(2, 0, &FONT_S, text, col);
-        if (mark) x = g_text(x + 2, 0, &FONT_T, mark, C_DGREY);   /* (T's capitals from row 2, as S's) */
         if (sub) x = g_text(x + 8, 0, &FONT_S, sub, C_WHITE);
         end = page ? g_text(x + 8, 0, &FONT_S, page, C_LGREY) : x;
     } else {
@@ -1611,7 +1736,8 @@ void ui_render(void)
     }
     drawing = 0;
 #ifdef PTFM_DEBUG
-    dbg_frame(plat_us() - t0);
+    if (plat_dbg_part())
+        dbg_frame(plat_us() - t0);      /* (the debug part's) */
 #endif
     frame_ms_last = (plat_us() - t0 + 500) / 1000;
     frames_n++;
@@ -1682,6 +1808,14 @@ void ui_poll(void)
     for (int b = 0; b < B_COUNT; b++) if (bu >> b & 1) { button_up(b); dirty = 1; }
     in_last = in;
     ui_master = in.master;
+    {                                                   /* the favourite at the cursor changed (EDIT, PASTE, REVERT, a
+                                                         * reference rewritten): the instrument follows its source */
+        static uint32_t gen;
+        uint16_t src;
+        if (gen != store_gen() && !inst_once && ui_fav(ui_cur.place, &src) == UI_FAV_OK && src != ui_cur.inst)
+            ui_set_inst(ui_cur.place);
+        gen = store_gen();
+    }
     lp_live_poll();                                     /* (before a SAVE waiting for a pause starts: a song's last pass
                                                          * is written first) */
     timers();
@@ -1711,17 +1845,19 @@ void ui_poll(void)
 }
 uint16_t ui_master;
 
-/* the current instrument: as SAVE last kept it (F0:00 at first, the first built-in instrument); gone, the first
- * cartridge's first instrument; the current song: the first there, unless the one now is */
+/* the current instrument: as SAVE last kept it (F0:00 at first, the first built-in instrument); gone (a FAVORITES
+ * cartridge's number counts as gone), the first instrument there is, FAVORITES cartridges skipped; its own place the
+ * current one; the current song: the first there, unless the one now is */
 static void pick_current(void)
 {
     uint8_t c[256];
     int n = ui_carts(c, 256);
     char nm[12];
-    if (n && !ui_inst_name(ui_cur.inst, nm)) {
-        ui_cur.inst = (uint16_t)(c[0] << 8);
-        for (int s = 0; s < ui_cart_slots(c[0]); s++) if (ui_inst_name((uint16_t)(c[0] << 8 | s), nm)) { ui_cur.inst = (uint16_t)(c[0] << 8 | s); break; }
+    for (int i = 0, s = 0; i < n && !ui_inst_name(ui_cur.inst, nm); s++) {
+        if (ui_cart_kind(c[i]) == ENG_FAV || s >= ui_cart_slots(c[i])) { i++; s = -1; continue; }
+        ui_cur.inst = (uint16_t)(c[i] << 8 | s);
     }
+    ui_cur.place = ui_cur.inst;
     ui_song_t sg;
     uint8_t songs[1];
     if (!ui_song(ui_cur.song, &sg) && ui_songs(songs, 1)) ui_cur.song = songs[0];
@@ -1729,7 +1865,9 @@ static void pick_current(void)
 
 void ui_init(void)
 {
-    loops_fx_new = fxd_default;                         /* (LOOPS with no FX setup yet: a new song's) */
+    lp_init();                                          /* (LOOPS' screen's state, as at power-on) */
+    loops_fx_new = fxd_loops;                           /* (LOOPS with no FX setup yet) */
+    loops_keys_mix = ui_keys_mix;                       /* (the next loop's sends: FX MIXER's KEYS column's) */
     ui_keys_song_init();                                /* (the keys' song: the firmware's own, never listed) */
     ui_editor_pattern_init();                           /* (the EDITOR's own pattern: the same) */
     ui_edit_init();

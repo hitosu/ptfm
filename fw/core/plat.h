@@ -82,7 +82,6 @@ int plat_c2_half(void);
 void plat_c2_post(void (*job)(uint32_t), uint32_t j);
 #define PLAT_C2_VOICE_JOB 0x100u        /* a voice job's j (no block's number): the platform may tell them apart */
 void plat_c2_enable(int on);            /* SETTINGS' SECOND CORE (main loop): from the next half */
-void plat_c2_force_off(int off);        /* the debug build's 38: off whatever SETTINGS says (1), or back (0) */
 void plat_c2_wait(void);                /* core 1 (audio context): until core 2 has finished what it was handed */
 enum { PLAT_C2_STARTING, PLAT_C2_ON, PLAT_C2_OFF, PLAT_C2_STOPPED };      /* plat_cpu_t's c2_state */
 enum { PLAT_C2_WHY_NONE, PLAT_C2_WHY_NO_ANSWER, PLAT_C2_WHY_MISREAD, PLAT_C2_WHY_STUCK, PLAT_C2_WHY_FAULT,
@@ -103,7 +102,10 @@ void *c2_memcpy(void *d, const void *s, uint32_t n) PLAT_C2;
 uint32_t plat_c2_us(void) PLAT_C2;      /* plat_us, read by core 2's code */
 #define PLAT_FAR(fn) (*(__typeof__(&fn) volatile *)&(__typeof__(&fn)){fn})   /* (a pointer the compiler cannot fold
                                                                             * back into a direct call) */
+#define PLAT_WORK_TIMED 1               /* the timer runs on through the sound's work (the effects' times: the FX
+                                         * screen's footer); elsewhere it stands still inside a half */
 #else
+#define PLAT_WORK_TIMED 0
 #define PLAT_C2
 #define PLAT_C2_RO
 #define PLAT_FAR(fn) fn
@@ -181,6 +183,18 @@ int plat_fast(void (*fn)(const plat_input_t *in, uint32_t ms));
  * Elsewhere empty. */
 #ifndef PLAT_COLD
 #define PLAT_COLD
+#endif
+/* The debug build's cold code (specs/debug.md#the-debug-part): marked PLAT_DBG, on the FM-1 it is linked into the
+ * debug part, out of the slot, which the debug page writes into the flash after the install; nothing calls it unless
+ * plat_dbg_part() says the part is there and is this build's (plat_dbg_part_recheck: once the page has written it).
+ * Elsewhere empty, and the part always there. */
+#ifndef PLAT_DBG
+#define PLAT_DBG
+#endif
+#ifdef PTFM_DEBUG
+int plat_dbg_part(void);
+void plat_dbg_part_recheck(void);
+void plat_dbg_part_stop(void);          /* (nothing calls into it until the next recheck: a seeding may write it) */
 #endif
 /* The spare zone's memory (specs/files/ram.md#the-edit-memory-and-the-spare-zone): spare.c's own 24 KB, marked
  * PLAT_SPARE, and the room the platform has right after it, plat_spare_room() bytes, the zone's too. On the FM-1

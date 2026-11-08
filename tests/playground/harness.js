@@ -8,20 +8,64 @@
  * A scenario is a module: async function (t) with t.down / up / tap(button), t.combo(a, b),
  * t.turn(knob, clicks), t.key / keyDown / keyUp(note 0-26), t.homeKey(note), t.shot(name), t.sleep,
  * t.ok(condition, what), and t.U, t.M, t.P (the UI, the model, the player). Its exit code is the
- * number of failed checks. */
+ * number of failed checks.
+ *
+ * A scenario whose function has .virtual set runs on a clock of its own: no waiting, the page's timers and the audio's
+ * blocks each at its time, and t.sound() starts the sound as a page with no worklet does (audio.js's onPageThread, on a
+ * stand-in AudioContext), so the worklet's pool of voices is there, its words back in the same order on every run. */
 "use strict";
 const fs = require("fs"), path = require("path"), vm = require("vm"), zlib = require("zlib");
 const ROOT = path.resolve(__dirname, "../..");
 const [scen, outArg] = process.argv.slice(2);
 const out = outArg || path.join(ROOT, "build", "playground");
 fs.mkdirSync(out, { recursive: true });
+const scenario = require(path.resolve(scen));
+
+/* the virtual clock: timers in ms, each run at its time in order of time, then of setting */
+function virtualClock() {
+    let now = 0, seq = 0, timers = [];
+    const add = (fn, ms, every) => { timers.push({ fn, at: now + Math.max(ms || 0, 0), every, id: ++seq }); return seq; };
+    const clear = id => { timers = timers.filter(x => x.id !== id); };
+    function advance(ms) {
+        const end = now + ms;
+        for (;;) {
+            let n = null;
+            for (const x of timers) if (x.at <= end && (!n || x.at < n.at || (x.at === n.at && x.id < n.id))) n = x;
+            if (!n) break;
+            now = Math.max(now, n.at);
+            if (n.every != null) n.at += n.every;
+            else clear(n.id);
+            n.fn();
+        }
+        now = end;
+    }
+    return { now: () => now, advance, setTimeout: (fn, ms) => add(fn, ms), setInterval: (fn, ms) => add(fn, ms, Math.max(ms, .1)), clear };
+}
+const vc = scenario.virtual ? virtualClock() : null;
+/* the stand-in AudioContext: no worklet, so audio.js runs the worklet's code on the page's thread, a block at a time */
+class VirtualAudio {
+    constructor() { this.sampleRate = 44100; this.state = "running"; this.destination = {}; }
+    get currentTime() { return vc.now() / 1000; }
+    createChannelSplitter() { return { connect() {} }; }
+    createAnalyser() { return { connect() {} }; }
+    createScriptProcessor() {
+        const sp = { connect() {}, onaudioprocess: null }, buf = [new Float32Array(128), new Float32Array(128)];
+        const ev = { outputBuffer: { getChannelData: c => buf[c] }, playbackTime: 0 };
+        vc.setInterval(() => { ev.playbackTime = vc.now() / 1000; if (sp.onaudioprocess) sp.onaudioprocess(ev); }, 128 / 44.1);
+        return sp;
+    }
+}
 
 const ctx = {
-    console, performance, setTimeout, clearTimeout, setInterval, clearInterval, atob, structuredClone,
+    console, atob, structuredClone,
+    performance: vc ? { now: vc.now } : performance,
+    setTimeout: vc ? vc.setTimeout : setTimeout, clearTimeout: vc ? vc.clear : clearTimeout,
+    setInterval: vc ? vc.setInterval : setInterval, clearInterval: vc ? vc.clear : clearInterval,
     requestAnimationFrame: () => 0,
     ImageData: class { constructor(w, h) { this.data = new Uint8ClampedArray(w * h * 4); } },
     localStorage: { getItem() { return null; }, setItem() {} },
 };
+if (vc) ctx.AudioContext = VirtualAudio;
 ctx.window = ctx;
 vm.createContext(ctx);
 const FILES = ["panel/layout.js", "playground/fonts.js", "playground/lcd.js", "playground/content.js", "playground/draw.js",
@@ -43,10 +87,11 @@ PT.model.demoDisk();                                    /* (the scenarios play t
 U.attach(dev);
 U.applySettings();
 U.start();
+if (vc) vc.setInterval(() => U.render(lcd, dev), 31);   /* (the page's frames: main.js's) */
 
 const BTN = { "OCT-": 0, "OCT+": 1, FX: 2, SEL: 3, ENV: 4, LFO: 5, EDIT: 6, GLO: 7, HOME: 8, SAVE: 9, ARP: 10, SEQ: 11, PLAY: 12, REC: 13 };
 const ENC = { SELECT: 0, ALGORITHM: 1, K1: 2, K2: 3, K3: 4, K4: 5, PRESETS: 6 };
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = vc ? async ms => vc.advance(ms) : ms => new Promise(r => setTimeout(r, ms));
 
 function png(file) {
     const S = 2, W = 240 * S, H = 240 * S, raw = Buffer.alloc((W * 3 + 1) * H);
@@ -74,6 +119,7 @@ function png(file) {
 let failed = 0;
 const t = {
     U, M: PT.model, P: PT.player, PTFM: PT, leds, sleep,
+    sound: () => PT.audio.start(),                      /* (a virtual scenario's: the worklet's code starts) */
     down: b => emit("button", { id: BTN[b], name: b, down: true }),
     up: b => emit("button", { id: BTN[b], name: b, down: false }),
     async tap(b) { t.down(b); await sleep(20); t.up(b); await sleep(160); },
@@ -90,7 +136,7 @@ const t = {
     ok(c, what) { console.log((c ? "PASS " : "FAIL ") + what); if (!c) failed++; },
 };
 (async () => {
-    try { await require(path.resolve(scen))(t); }
+    try { await scenario(t); }
     catch (e) { console.error("SCENARIO FAILED:", e); failed++; }
     console.log(failed ? failed + " FAILED" : "ALL PASSED");
     process.exit(Math.min(failed, 100));

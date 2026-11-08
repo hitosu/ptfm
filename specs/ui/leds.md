@@ -11,13 +11,14 @@ steps and what sounds.
 
 - **A button's LED:**
   - lit while its overlay or mode is on (GLO, ENV, EDIT, SEL marking, ARP's arpeggiator or row preview
-    on, LOOPS' ARP with the pattern recorder open): the button
+    on, LOOPS' ARP with the pattern recorder open or the stage on): the button
     that opened an overlay stays lit until it closes;
   - dim where the button has a function on the current screen;
   - dark where it has none.
 
   The dim state shows at a glance which buttons do something here. HOME, FX and SEL (SEL + PRESETS
-  turns cartridges) have a function on every screen, so they are never dark.
+  turns cartridges) have a function on every screen, so they are never dark. While SEL is held, GLO is dim
+  wherever SEL + GLO works (to the built-in FAVORITES and back, [controls.md](controls.md#the-key-map)).
 - **EDIT** is lit while the EDITOR is entered deep ([navigation.md](navigation.md#jumps-into-the-editor)).
 - **HOME** is lit while the help is open ([help.md](help.md)).
 - **HOME's combination** ([controls.md](controls.md#homes-combination)), tapped open or held: **HOME
@@ -26,9 +27,13 @@ steps and what sounds.
   acted, only its own lights stay.
 - **PLAY** (green and red): [transport.md](transport.md#plays-two-leds).
 - **REC:** lit while writing is on (EDITOR); blinking during a realtime take.
-- **LOOPS** ([screens/loops.md](screens/loops.md#controls)): REC dim, blinking while a take or a song is
-  armed, full while one records; EDIT and LFO dim while there is a loop, dark with none; SEQ dim in PLAY
-  mode, full in CONTROL mode; ARP dim, full while the pattern recorder is open.
+- **LOOPS** ([screens/loops.md](screens/loops.md#controls)): REC dim, blinking while the loops are armed, a
+  song is armed or a count-in runs, full while a song records or the stage holds notes and is on (REC sends them); LFO
+  dim, full while OVERWRITE is on; EDIT dim on a loop, on `+ NEW LOOP` dim while the stage holds notes or is off, else
+  dark; SEQ dim in PLAY mode, full in
+  CONTROL mode or held; ENV dim; ARP full while the stage is on or the pattern recorder is open, else dim. ADJUST open:
+  SEL full, HOME dim, REC, LFO, EDIT, GLO, ENV, SEQ and ARP dark. The pattern recorder open: ARP full, REC dim, SEL
+  full while it waits for a key (else dim), GLO, SEQ, EDIT, LFO and ENV dark.
 - **SAVE** follows its own rule, not the dim one: dim while there are unsaved changes, dark when there
   is nothing to save; blinking dim while a save waits for a pause ([saving.md](saving.md)).
 - **OCT- / OCT+** follow their own rule, not the dim one: dark at OCT 0, and OCT- lit for the octaves
@@ -55,12 +60,12 @@ steps and what sounds.
   four starts, and the one running bright; the others dark. FX LIVE lights them the same.
   While a punch-in is held on by ARP, the FX button is full ([screens/fx.md](screens/fx.md#punch-in-effects)).
 - **A screen's own layer:** GATE's steps while EDIT edits them ([screens/fx.md](screens/fx.md)).
-  LOOPS' CONTROL mode ([screens/loops.md](screens/loops.md#controls)): white key *n* full while loop *n*
-  sounds, dim while it is muted or silenced by a solo, blinking while its mute or solo waits for the bar
-  line, dark with no loop; the black keys OP1-OP5 full on the QUANTIZE chosen, dim otherwise; MONO or POLY
-  full by the next loops' mode, the other dim; GLO full in SOLO, dim in MUTE; PIT dim. In PLAY mode
+  LOOPS' CONTROL mode, or SEQ held there ([screens/loops.md](screens/loops.md#controls)): white key *n* full while
+  loop *n* sounds, dim while it is muted or silenced by a solo, blinking while its mute
+  or solo waits for the bar line, dark with no loop; the black keys OP1-OP5 full on the QUANTIZE chosen, dim
+  otherwise; MONO or POLY full by the keys' mode, the other dim; GLO full in SOLO, dim in MUTE; PIT dim. In PLAY mode
   LOOPS' keys light with their notes, as with no layer up; its pattern recorder's steps as RECORD
-  PATTERN's (below). DJ's keys are the decks': each black key's state, the pads' by their mode
+  PATTERN's (below), a tie blinking. DJ's keys are the decks': each black key's state, the pads' by their mode
   ([screens/dj.md](screens/dj.md#leds)).
 - **White keys used as buttons** (FX held, FX LIVE, RECORD PATTERN's and LOOPS' pattern recorder's steps,
   DJ's pads) **light for finding them by touch:** keys 1, 5, 9 and 13 dim, where each group of four starts, the others dark (`#___#___#___#___`);

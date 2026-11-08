@@ -1,15 +1,16 @@
 # Cartridges and instruments
 
 Status: **settled** (2026-10-09). The record: [the files proposal](../proposals/202610080050-fs.md),
-section 5.
+section 5; samples as records of their own: [the independent samples proposal](../proposals/202611021310-independent-samples.md).
 
 Instruments live in cartridges: a cartridge is one record holding a bank of instruments of one
-engine, DX7, Juno-106, TB-303, CHIP, sample instruments (with their samples' table) or FUSION. Cells refer
-to an instrument as cartridge:slot (`0B:05`).
+engine, DX7, Juno-106, TB-303, CHIP, sample instruments (naming [samples](#samples), records of their own) or FUSION. Cells refer
+to an instrument as cartridge:slot (`0B:05`). A seventh kind, [FAVORITES](#favorites), holds no instruments:
+each of its slots names one of another cartridge.
 
 ## A cartridge record
 
-Kind: its type (0x01-0x06, [store.md](store.md#a-record)); number: the cartridge, `00`-`FF`.
+Kind: its type (0x01-0x07, [store.md](store.md#a-record)); number: the cartridge, `00`-`FF`.
 
 | Bytes | Field |
 |---|---|
@@ -17,7 +18,8 @@ Kind: its type (0x01-0x06, [store.md](store.md#a-record)); number: the cartridge
 | 9 | slots stored: up to the last one used (empty ones before it marked by their name) |
 | 10- | the slots, each at its type's fixed size |
 
-A sampler cartridge's record also holds its samples' table ([below](#samples-and-fusion-slots)).
+A sampler cartridge holds its instruments only: the samples they play are records of their own
+([below](#samples)).
 
 | Type | Slots | Bits used | Slot size | Spare | A full cartridge |
 |---|---|---|---|---|---|
@@ -26,7 +28,7 @@ A sampler cartridge's record also holds its samples' table ([below](#samples-and
 | TB-303 | 128 | 110 | 24 B | 82 bits | 3,082 B |
 | CHIP | 128 | 189 | 28 B | 35 bits | 3,594 B |
 | FUSION | 64 | 76 | 16 B | 52 bits | 1,034 B |
-| sampler | 64 instruments, up to 64 samples | 234 + 102 | 40 B + 16 B | 86 + 26 bits | 3,595 B |
+| sampler | 64 | 236 | 40 B | 84 bits | 2,570 B |
 
 - **Every instrument has a name** (10 characters, 60 bits) **and a LEVEL:** 8 bits, signed, in 0.5 dB
   steps (−64 to +63.5 dB).
@@ -119,7 +121,7 @@ OFF, SHIFT 2, PACE 2; PSG ENV SHAPE 9, PERIOD `0320`; WAVE 0 (SAW).
 
 | Field | Bits |
 |---|---|
-| SAMPLE: its index among the cartridge's samples | 6 |
+| SAMPLE: a sample's number, `00`-`FF` ([below](#samples)), the slot's first byte | 8 |
 | START, END, LOOP START, LOOP END: positions in the sample | 20 each |
 | LOOP: OFF, FORWARD, PING-PONG | 2 |
 | BASE NOTE | 7 |
@@ -128,7 +130,9 @@ OFF, SHIFT 2, PACE 2; PSG ENV SHAPE 9, PERIOD `0320`; WAVE 0 (SAW).
 | VOLUME: a module's default volume, 0-64 | 7 |
 | the envelope: R1-R4 and L1-L4, as the DX7's | 56 |
 | name | 60 |
-| spare | 86 |
+| spare | 84 |
+
+The fields are packed in this order from the slot's first bit.
 
 - **The envelope works as a DX7 operator's:** from silence it moves to L1 at R1, to L2 at R2, to L3
   at R3, and holds L3 while the key is down; at release it moves to L4 at R4.
@@ -136,17 +140,90 @@ OFF, SHIFT 2, PACE 2; PSG ENV SHAPE 9, PERIOD `0320`; WAVE 0 (SAW).
   while the key is held. At release it goes on from where it is, through the rest of the loop (a
   ping-pong pass going backwards back to LOOP START, then forwards) and on to END, while the envelope
   releases. Nothing jumps, so nothing clicks.
-- **A new instrument** plays its sample whole: START 0, END its length, LOOP OFF.
+- **A new instrument** plays its sample whole, named after it: START 0, END its length, LOOP OFF, BASE NOTE C-4,
+  TUNE none, VOLUME 64, LEVEL 0 dB, a new instrument's envelope.
+- **A sampler cartridge's record:** name (9 B), instruments stored (1 B), the instruments (40 B each): 2,570 B at
+  most.
 
-## Samples and FUSION slots
+## Samples
 
-- **A sampler cartridge's record** is: name (9 B), instruments stored (1 B), samples stored (1 B), the
-  instruments (40 B each), the samples' table (16 B each). A sample's entry: its length in samples
-  (20 bits), its rate in Hz (18 bits; an instrument's BASE NOTE plays it at that rate), its coding
-  (4 bits: 1 PTR 8-bit, 2 PTR 16-bit; [ptr.md](ptr.md)), its name (60 bits), spare (26 bits). A sample
-  has no loop of its own: loops belong to instruments, and one sample can serve several of them.
+- **A sample is a record of its own:** kind 0x11, its number `00`-`FF`, sub 0, version 1
+  ([store.md](store.md#a-record)). Its payload:
+
+  | Bytes | Field |
+  |---|---|
+  | 0-15 | the entry: its length in samples (20 bits), its rate in Hz (18 bits; an instrument's BASE NOTE plays it at that rate), its coding (4 bits: 1 PTR 8-bit, 2 PTR 16-bit), its name (60 bits: 10 characters), spare (26 bits) |
+  | 16- | the audio ([ptr.md](ptr.md)): coding, length, the index, the blocks; the index's offsets count from byte 16, the audio's own start |
+
+  The coding and the length are in both the entry and the audio's head, and always agree: a sample whose two differ
+  is read as missing, and CHECK STORAGE lists it ([../ui/screens/settings.md](../ui/screens/settings.md)).
+- **It has no owner:** any number of instruments, in any sampler cartridges, name it by its number. A sample has no
+  loop of its own: loops belong to instruments, and one sample serves any number of them.
+- **Its number is apart from the cartridges':** sample `05` and cartridge `05` have nothing to do with each other.
+- **256 at most** on an FM-1: the store's map (about 560 objects of every kind) and the user area run out first.
+  All of `00`-`FF` are the user's: the firmware carries no samples ([below](#built-in-instruments)).
+- **A sample instrument naming a number with no sample** (a partial upload, a disk without it, a save cut between a
+  sample's deletion and its instruments', [store.md](store.md#the-room-for-the-editors-pattern)) plays nothing, as
+  an empty slot does; its page says `THE SAMPLE IS MISSING` where the waveform would be, grey as every reference to
+  nothing is ([references.md](references.md#a-reference-to-nothing)); CHECK REFERENCES lists it (`SAMPLER 01:05:
+  SAMPLE 23`); CLEAN UP's MISSING REFERENCES empties its slot.
+- **The samples are not instruments:** they are never among the cartridges (PRESETS, K1's order, LOOPS' list, MIDI's
+  bank select, the FUSION fill's pick); the FM-1 lists them in THE SAMPLES list
+  ([../ui/screens/instruments.md](../ui/screens/instruments.md)).
+
+### The old form
+
+Before samples were records of their own, a sampler cartridge held them (version 1 of kind 0x04):
+- **The sampler's record:** name (9 B), instruments stored (1 B), samples stored (1 B), the instruments (40 B each),
+  the samples' table (16 B each, an entry as a sample's above). An instrument's SAMPLE was its index among its own
+  sampler's samples, 6 bits, its spare bits 86: the fields after SAMPLE lie 2 bits earlier than in version 2.
+- **The audio:** a record of kind 0x10 under the sampler's number, sub the sample's index (`00`-`3F`), version 1, its
+  payload the audio alone (the index's offsets from its start).
+- **This firmware never reads them** and keeps them untouched: an old sampler's number stays taken, what names its
+  instruments plays nothing and is listed as `OLDER FORM` (not a reference to nothing), and the old audio stays
+  audio to the store ([store.md](store.md#audio)). The pages convert them ([disk.md](disk.md#versions)).
+
+## FUSION slots
+
 - **A FUSION slot:** its pattern (8 bits; [patterns.md](patterns.md#fusion-patterns)), name, LEVEL,
   spare 52.
+
+## FAVORITES
+
+Settled 2026-10-31 ([the proposal](../proposals/202610311523-favorites.md)). A FAVORITES cartridge collects
+instruments from any cartridges as bookmarks: each slot is a reference, `CARTRIDGE:SLOT`, never a copy.
+
+- **The record:** kind **0x07**, version 1, a cartridge kind sharing the cartridges' one number space.
+
+  | Bytes | Field |
+  |---|---|
+  | 0-8 | name, 12 characters, as every cartridge's |
+  | 9 | slots stored: up to the last one used |
+  | 10- | the slots, 3 bytes each: the source's cartridge; its slot (`FF`: an empty slot); a spare byte, 0 |
+
+  128 slots; a full one is 394 bytes. Its changes are held as any cartridge's, a slot a piece
+  ([ram.md](ram.md)): about 1.5 KB of the edit memory with every slot changed.
+- **A slot names an instrument** of any other cartridge: any engine, built-in or the user's, a FUSION slot too.
+  It holds no sound of its own, so one FAVORITES cartridge mixes every engine. A favourite never names a
+  FAVORITES cartridge.
+- **It only refers; nothing refers to it.** No record holds a FAVORITES cartridge's number or a favourite's
+  place: not a cell, a song, the loops' table, a FUSION slot, DJ's setup, the MIDI map, nor the settings'
+  current instrument ([settings.md](settings.md)). What is played, recorded or written with a favourite current
+  carries the source's own number. So a FAVORITES cartridge or its slots can be moved, swapped, cloned, emptied
+  or deleted without a question and without rewriting anything.
+- **A source that is gone** (its cartridge deleted, its slot emptied, its number now a FAVORITES cartridge's) is
+  **missing**: the favourite plays nothing and keeps naming the place, and plays again once an instrument is put
+  there ([references.md](references.md)).
+- **The built-in FAVORITES, `FB`,** named `FAVORITES`, is the firmware's own and empty ([below](#built-in-instruments)):
+  a changed built-in like the others once something is added and saved, BACK TO BUILT-IN empties it again, and
+  emptied by REMOVE it equals the firmware's own, so SAVE deletes its record. It never moves; CLONE makes a copy at
+  a user number; it can be deleted as any built-in ([below](#deleting-a-built-in-cartridge)), SEL + GLO and ADD TO
+  FAVORITES then going to the first FAVORITES cartridge left. Any number of the user's own are made with NEW, at
+  `00`-`EF`.
+- **An older firmware** keeps these records byte for byte, as every record it does not know
+  ([README.md](README.md#extending)), but does not see their numbers as taken: its NEW may make another cartridge
+  under one. Back on a firmware that knows the kind, another cartridge kind under the number wins
+  ([store.md](store.md#power-on)).
 
 ## Built-in instruments
 
@@ -154,9 +231,10 @@ Settled 2026-10-10 ([the proposal](../proposals/202610102045-builtin.md)). The f
 disk's synth instruments ([../../demo-disk/README.md](../../demo-disk/README.md)), so they cost the user
 no space.
 
-- **Which:** the eight DX7 cartridges, JUNO-106, CHIPTUNE and TB-303. Never samples, songs or FUSION: the
-  sampler cartridges, their audio, FUSION with its patterns (its layers take the samplers' sounds too) and
-  the demo songs are only ever uploaded ([disk.md](disk.md#the-demo-disk)).
+- **Which:** the eight DX7 cartridges, JUNO-106, CHIPTUNE and TB-303, and the empty FAVORITES
+  ([above](#favorites)). Never samples, songs or FUSION: the sampler cartridges, the samples, FUSION with its
+  patterns (its layers take the samplers' sounds too) and the demo songs are only ever uploaded
+  ([disk.md](disk.md#the-demo-disk)).
 - **Their numbers: `F0`-`FF` belongs to the firmware,** for cartridges and for patterns alike: a range
   kept for the built-in instruments, the firmware's cartridges in it. A record there is only a changed
   built-in, and no NEW, CLONE or MOVE takes one ([store.md](store.md#a-record)); the user's cartridges and
@@ -169,13 +247,15 @@ no space.
   | `F8` | JUNO-106 | |
   | `F9` | CHIPTUNE (CHIP, 128) | |
   | `FA` | TB-303 | |
-  | `FB`-`FF` | for later built-in instruments | `FE` the EDITOR's own |
+  | `FB` | FAVORITES (empty) | |
+  | `FC`-`FF` | for later built-in instruments | `FE` the EDITOR's own |
 
 - **In FWS, the firmware space, and edited as anything else** ([../ui/saving.md](../ui/saving.md#fws)):
   a change (a slot's parameters, a name, a LEVEL, AUTO LEVEL) is saved as a record in the user area under
   the same number, found before the firmware's own from then on; BACK TO BUILT-IN deletes that record and
-  the firmware's own is back. They never MOVE, and DELETE does not take them away. COPY and PASTE of a slot,
-  and CLONE of a cartridge to a free number, make a copy in the user area as with any other.
+  the firmware's own is back. They never MOVE; DELETE takes one away as any cartridge, leaving a mark
+  ([below](#deleting-a-built-in-cartridge)). COPY and PASTE of a slot, and CLONE of a cartridge to a free number,
+  make a copy in the user area as with any other.
 - **The firmware's own are frozen once released:** songs refer to them by number (`F0:05`), so the sound
   a built-in number has as shipped never changes (a user's change is that user's, on that FM-1). A later
   firmware may add built-in instruments only at the range's free numbers; it never moves, changes or
@@ -191,10 +271,40 @@ no space.
 
 ## Deleting
 
-- **Deleting an instrument never deletes its sample.**
-- **Deleting a sample** (its cartridge's samples list, SEL → DELETE) warns first: `DELETE SAMPLE?
-  3 INSTRUMENTS USE IT AND ARE DELETED TOO`. Accepted, the sample and those instruments are deleted in
-  one save; cells that played those instruments point at empty slots
-  ([references.md](references.md)).
+- **Deleting an instrument never deletes its sample.** Deleting a sampler cartridge takes its instruments only; its
+  samples stay.
+- **Deleting a sample** (THE SAMPLES list, SEL → DELETE) warns first, counting the instruments that use it in every
+  sampler: `DELETE SAMPLE?`, `3 INSTRUMENTS USE IT AND ARE DELETED TOO`. Accepted, the sample and those instruments
+  are deleted, in one save when there is room; when storage is full the sample's deletion goes first and the
+  samplers after it ([store.md](store.md#the-room-for-the-editors-pattern), Deletions first). What named those
+  instruments is as for any deleted instrument ([references.md](references.md#a-reference-to-nothing)). A sample's
+  number stays: DELETE is the only change the FM-1 makes to a sample.
+- **DELETE never rewrites a reference** ([references.md](references.md#a-reference-to-nothing)): of an instrument, a
+  slot range or a cartridge, built-in or not. When something uses what goes it asks `… IS USED 12 TIMES`,
+  `DELETE ANYWAY?`; the cells, loops and favourites that named it keep naming the place, grey, and play it as a
+  silent engine until something is put there again.
 - **CLEAN UP** (SETTINGS → TOOLS, [../ui/screens/settings.md](../ui/screens/settings.md)) also deletes
-  samples no instrument uses.
+  the samples no instrument names, in any sampler.
+
+### Deleting a built-in cartridge
+
+So that the built-in cartridges not wanted do not fill the lists, a built-in cartridge can be deleted as any
+cartridge is: DELETE in its SEL menu on the FM-1's cartridge list ([../ui/screens/instruments.md](../ui/screens/instruments.md))
+and on the EDITOR page's FM-1 panel ([../editor.md](../editor.md)).
+- **The same flow as any cartridge's:** used, it asks `CARTRIDGE F3 IS USED 12 TIMES`, `DELETE ANYWAY?`; DELETE
+  deletes it, what named its instruments keeps naming them, grey and silent; KEEP and HOME do nothing. Its changes,
+  if it had any, go with it.
+- **The mark:** a record of kind 0x0F under its number ([store.md](store.md#a-record)), written with the changed
+  copy's deletion when there is one. A cartridge record under a marked number always wins
+  ([store.md](store.md#power-on)). When storage is full the mark counts as its cartridge's deletion
+  ([../ui/saving.md](../ui/saving.md)): it goes first, with the changed copy's deletion in the same save.
+- **Gone from every list and pick** of a cartridge or its instruments: ENV's, PRESETS' cartridge list, K1's order,
+  the EDITOR's INSTR, the FUSION fill's pick, LOOPS' list, MIDI's bank select, the settings' fallback for the current
+  instrument ([settings.md](settings.md)); the pipette on a cell naming it says `NO INSTRUMENT HERE`. With every
+  cartridge deleted the keys play nothing and the footer's instrument reads `EMPTY`.
+- **The number is never reused:** NEW, CLONE and MOVE take `00`-`EF` only; a deleted built-in's number stays the
+  firmware's.
+- **Back:** REVERT ALL before SAVE; after SAVE, FACTORY RESET brings every built-in back, and on the EDITOR page
+  RESTORE brings one back (the mark's deletion, written at WRITE).
+- **Disks and uploads** ([disk.md](disk.md), [blob.md](blob.md)) carry the marks as records; a disk without them
+  (the demo disk) brings every built-in back. An FM-1 whose PT/FM does not know the kind is sent none.

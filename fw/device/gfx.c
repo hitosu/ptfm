@@ -7,15 +7,11 @@
  * (fonts.h, made by tools/gen_fonts.py --c).
  * The firmware's own screens (the update, the rescue, the crash) draw with it;
  * the app draws through plat_lcd_rows. */
-typedef struct {               /* proportional; PT/FM's fonts are fixed width */
-    uint8_t h;
-    uint8_t pad;               /* bitmap starts this many pixels left of the pen */
+typedef struct {               /* fixed width, a bit a pixel (PT/FM's fonts; S and T the app's own rows) */
+    uint8_t h, w;              /* the cell drawn: its rows, and its pixels (the advance too) */
     uint8_t first, last;
-    uint8_t sh;                /* 1: the bitmaps are another font's, drawn at 2x (L = S at 2x, no copy) */
-    const uint8_t *adv;        /* advance per glyph */
-    const uint8_t *bw;         /* bitmap width per glyph (starts FONT_PAD left of the pen) */
-    const uint16_t *off;       /* byte offset of each glyph */
-    const uint8_t *data;
+    uint8_t sh;                /* 1: another font's rows drawn at 2x (L = S at 2x, no copy) */
+    const uint8_t *rows;       /* h >> sh bytes a glyph, bit (w >> sh) - 1 the left pixel */
 } gfx_font_t;
 #include "fonts.h"
 
@@ -67,27 +63,18 @@ static uint32_t glyph(const gfx_font_t *f, uint32_t ch)
     return ch - f->first;
 }
 
-/* text, alpha-blended onto black with colour c; returns the end x */
+/* text in colour c (a pixel set or left); returns the end x */
 static int32_t cv_text(int32_t x, int32_t y, const gfx_font_t *f, const char *s, uint16_t c)
 {
-    uint16_t ramp[16];
-    uint32_t r = c >> 11, g = (c >> 5) & 63u, b = c & 31u, a;
-    for (a = 0; a < 16u; a++)
-        ramp[a] = (uint16_t)(((r * a / 15u) << 11) | ((g * a / 15u) << 5) | (b * a / 15u));
+    uint32_t gh = (uint32_t)f->h >> f->sh, left = ((uint32_t)f->w >> f->sh) - 1u;
     for (; *s; s++) {
-        uint32_t gi = glyph(f, (uint8_t)*s), gx, gy, w, bpr;
-        const uint8_t *gd;
-        w = f->bw[gi];
-        bpr = ((w >> f->sh) + 1u) / 2u;
-        gd = f->data + f->off[gi];
+        const uint8_t *gd = f->rows + glyph(f, (uint8_t)*s) * gh;
+        uint32_t gx, gy;
         for (gy = 0; gy < f->h; gy++)
-            for (gx = 0; gx < w; gx++) {
-                uint32_t sx = gx >> f->sh, v = gd[(gy >> f->sh) * bpr + sx / 2u];
-                v = (sx & 1u) ? (v & 15u) : (v >> 4);
-                if (v)
-                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, ramp[v]);
-            }
-        x += f->adv[gi];
+            for (gx = 0; gx < f->w; gx++)
+                if (gd[gy >> f->sh] >> (left - (gx >> f->sh)) & 1u)
+                    cv_pset(x + (int32_t)gx, y + (int32_t)gy, c);
+        x += f->w;
     }
     return x;
 }
@@ -96,7 +83,7 @@ static int32_t text_w(const gfx_font_t *f, const char *s)
 {
     int32_t w = 0;
     for (; *s; s++)
-        w += f->adv[glyph(f, (uint8_t)*s)];
+        w += f->w;
     return w;
 }
 

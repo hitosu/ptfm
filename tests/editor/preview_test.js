@@ -91,14 +91,15 @@ function worklet() {
     check(ps.job.starts.length === P.slotsOf(smp).length, "a sampler cartridge: " + ps.job.starts.length + " instruments one after another, an arpeggio each");
     kind("a sampler's first instrument", smp, { slot: 0 }, 6);
     /* a sample alone: once, at its own rate */
-    const sm = L.find(i => i.kind === K.AUDIO);
+    const sm = L.find(i => i.kind === K.SAMPLE);
     const e = M.sampleEntry(sm, L);
     const p1 = P.plan(sm, st);
     check(Math.abs(p1.job.length - (e.length / e.rate + 0.05)) < 1e-6, "a sample plays once, its own length (" + (e.length / e.rate).toFixed(2) + " s)");
-    kind("a sample in its sampler", sm, null, (e.length / e.rate) + 2.5);
+    check(p1.recs.filter(r => r.kind === K.SAMPLE).length === 1 && p1.recs.filter(r => r.kind === K.SAMPLER).length === 1, "the sample alone, and a sampler of the preview's own with one instrument that plays it");
+    kind("a sample", sm, null, (e.length / e.rate) + 2.5);
     const audio = R.ptrEncode(Array.from({ length: 11025 }, (_, i) => Math.round(90 * Math.sin(i / 5))), 8);
-    const loose = { id: M.newId(), side: "L", kind: K.AUDIO, num: null, orig: null, link: {}, owner: null,
-        entry: M.packedEntry({ length: 11025, rate: 22050, coding: 1, name: "SINE" }), recs: [{ sub: 0, ver: 1, payload: audio }], name: "SINE" };
+    const loose = { id: M.newId(), side: "L", kind: K.SAMPLE, num: null, orig: null, link: {},
+        recs: [{ sub: 0, ver: 1, payload: R.packSample({ length: 11025, rate: 22050, coding: 1, name: "SINE" }, audio) }], name: "SINE" };
     const st2 = Object.assign({}, st, { L: L.concat([loose]) });
     {
         const p = P.plan(loose, st2);
@@ -108,8 +109,8 @@ function worklet() {
     /* a TABLE item bigger than an FM-1 holds: refused by the FM-1's room, played in the preview's (~1 MB) */
     {
         const n = 700000, noise = Array.from({ length: n }, (_, i) => ((i * 2654435761) >>> 24) - 128);
-        const big = { id: M.newId(), side: "L", kind: K.AUDIO, num: null, orig: null, link: {}, owner: null,
-            entry: M.packedEntry({ length: n, rate: 44100, coding: 1, name: "BIG NOISE" }), recs: [{ sub: 0, ver: 1, payload: R.ptrEncode(noise, 8) }], name: "BIG NOISE" };
+        const big = { id: M.newId(), side: "L", kind: K.SAMPLE, num: null, orig: null, link: {},
+            recs: [{ sub: 0, ver: 1, payload: R.packSample({ length: n, rate: 44100, coding: 1, name: "BIG NOISE" }, R.ptrEncode(noise, 8)) }], name: "BIG NOISE" };
         const st3 = Object.assign({}, st, { L: L.concat([big]) });
         const onFm1 = M.transfer({ L: st3.L, R: [], base: [], fm1: {} }, "L", [big.id], { layout: { regions: M.USER, reserve: 0 } });
         check(!onFm1.ok && big.recs[0].payload.length > 103 * 4096, "a sound of " + Math.round(big.recs[0].payload.length / 1024) + " KB: more than an FM-1 holds (" + onFm1.msg + ")");

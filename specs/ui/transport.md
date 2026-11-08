@@ -1,11 +1,12 @@
 # The transport
 
-Status: **settled** (2026-10-09), revised 2026-10-24. The records: [the UI proposal](../proposals/202610072229-ui.md),
-section 7; LOOPS' parts, [the loop station proposal](../proposals/202610240236-loops-station.md).
+Status: **settled** (2026-10-09), revised 2026-10-24 and 2026-11-03. The records: [the UI
+proposal](../proposals/202610072229-ui.md), section 7; LOOPS' parts, [the loop station
+proposal](../proposals/202610240236-loops-station.md) and [the stage proposal](../proposals/202611030330-loops-redesign.md).
 
 PLAY, what it plays on each screen, tempo, rewinding and stopping, and PLAY's two LEDs. There is one
 transport for the song, the EDITOR's pattern loop, the loops and DJ's decks. LOOPS' own playback (the
-loops, and the takes that start with them) is in [screens/loops.md](screens/loops.md), DJ's decks (each with a
+loops and their stage, the play position, the arm) is in [screens/loops.md](screens/loops.md), DJ's decks (each with a
 PLAY key of its own) in [screens/dj.md](screens/dj.md), the EDITOR's takes in
 [screens/editor.md](screens/editor.md).
 
@@ -15,28 +16,30 @@ PLAY key of its own) in [screens/dj.md](screens/dj.md), the EDITOR's takes in
   the current song, the EDITOR's pattern loop, the loops, or DJ's decks.
   - **On SONGS, the EDITOR, LOOPS and DJ, PLAY plays the screen's own thing:** the current song (from the
     position ALGORITHM boxed, [screens/songs.md](screens/songs.md#where-play-starts)), the shown pattern looped
-    from the cursor's row, the loops from where they paused
-    ([screens/loops.md](screens/loops.md)), both decks together ([screens/dj.md](screens/dj.md)).
+    from the cursor's row, the loops from the play position, with loops or none
+    ([screens/loops.md](screens/loops.md#the-play-position-play-and-jumps)), both decks together
+    ([screens/dj.md](screens/dj.md)).
     - If something else is playing, PLAY switches at once. What was playing pauses and keeps its
       place.
     - On DJ, PLAY with something else playing only pauses it, and the next PLAY plays the decks: DJ stays
       apart until it is played, and its first start cuts the sound of what played
       ([screens/dj.md](screens/dj.md)).
-    - If the screen's own thing is already playing, PLAY pauses it.
+    - If the screen's own thing is already playing, PLAY pauses it; on LOOPS it stops the loops and takes the play
+      position back to the start (the stage kept), so PLAY's red is then dim.
     - On the EDITOR, a song that is playing the shown pattern hands over to the loop on the same row,
       so the switch is seamless.
     - On the EDITOR with REC on, PLAY pauses the EDITOR's loop if it plays (REC on while it plays, the
       loop plays on and the keys write step by step); else it records a take, which goes round the
       pattern until PLAY or REC stops it ([screens/editor.md](screens/editor.md#realtime-takes)). The
       EDITOR's ARP, its row preview, stops whatever plays before it starts.
-    - In LOOPS with no loops yet and nothing armed, PLAY pauses what plays (a song played on into
-      LOOPS); with nothing playing it is refused ([screens/loops.md](screens/loops.md#texts)). With a take
-      armed and nothing playing, PLAY starts the loops and the take after LOOPS' COUNT-IN
-      ([below](#count-in)). A take always starts at the loops' start: the place they were paused at is
-      dropped ([screens/loops.md](screens/loops.md#recording)).
+    - In LOOPS PLAY plays the loops with no loops too: the length goes round, the stage filling as the keys play
+      over it ([screens/loops.md](screens/loops.md#the-length)); what played on into LOOPS pauses. With the loops
+      armed (REC with the stage empty), PLAY starts them after LOOPS' COUNT-IN ([below](#count-in)), from the play
+      position ([screens/loops.md](screens/loops.md#rec-edit-and-the-arm)). While a song is armed or recorded there,
+      PLAY is RECORD LIVE's ([screens/loops.md](screens/loops.md#record-live)).
   - **On every other screen, PLAY pauses and resumes what played last** (the song, the pattern loop,
-    the loops or the decks), so on FX or VISUAL it toggles what you hear. If nothing has played yet, it
-    plays the current song.
+    the loops or the decks), so on FX or VISUAL it toggles what you hear; the loops, when they played last, with
+    loops or none. If nothing has played yet, it plays the current song.
   - **What plays plays on** from screen to screen until something else starts: going to another
     screen never pauses it ([navigation.md](navigation.md#the-screens)).
   - **What plays hears every edit at once:** a cell changed is heard from the next row, an instrument
@@ -59,20 +62,20 @@ PLAY key of its own) in [screens/dj.md](screens/dj.md), the EDITOR's takes in
 ## COUNT-IN
 
 Before a recording starts, a count-in: the EDITOR's realtime takes ([screens/editor.md](screens/editor.md#realtime-takes))
-and LOOPS' takes and song recordings that PLAY starts ([screens/loops.md](screens/loops.md#recording)).
+and LOOPS' armed loops and song recordings that PLAY starts ([screens/loops.md](screens/loops.md#rec-edit-and-the-arm)).
 - **Where it is set:** the EDITOR's in SETTINGS → COUNT-IN, for every take (saved with the settings);
   LOOPS' own in its properties (GLO), kept with the loops.
 - **The EDITOR's choices:** OFF; 1 BAR; 2 BARS; **KEY**: nothing counts, the take is armed and starts with
   the first key pressed. It starts at 1 BAR.
-- **LOOPS' choices:** OFF, 1 BAR, 2 BARS, before a take PLAY starts; there is no KEY, as a key always starts
-  an armed take at once, with its note. It starts at OFF.
+- **LOOPS' choices:** OFF, 1 BAR, 2 BARS, before PLAY starts armed loops; there is no KEY, as a key always starts
+  armed loops at once, with its note the stage's first. It starts at OFF.
 - **Always 4 beats a bar,** at the tempo of what is recorded (the song's, the loops'), **with a click of
   its own:** BEEP, the bar's first beat higher, at a fixed level (60 %), whether the METRONOME is on or
   off.
 - **A big count** shows over the screen ([below](#the-count-ins-box)); REC blinks.
 - **PLAY or REC** during the count stops it, nothing recorded; so does HOME on LOOPS. On LOOPS that
-  disarms the take (`CANCELLED`). Armed (the EDITOR's KEY), HOME, PLAY or REC cancel the take
-  (`TAKE CANCELLED`); keys pressed during a count are heard, not written.
+  disarms the loops (`CANCELLED`), REC sending nothing even with notes on the stage. Armed (the EDITOR's KEY), HOME,
+  PLAY or REC cancel the take (`TAKE CANCELLED`); keys pressed during a count are heard, not written.
 
 ### The count-in's box
 
@@ -133,9 +136,10 @@ sounded white (the first yellow), the rest dark grey; the bar light grey. Armed:
 
 | State | Green | Red |
 |---|---|---|
-| at the start (after power-on or HOME + PLAY while paused): nothing to resume | off | dim |
+| at the start (after power-on, HOME + PLAY while paused, or LOOPS' PLAY stopping the loops): nothing to resume | off | dim |
 | playing a song, or DJ's decks (on the main's beats) | on, brighter on each beat | off |
-| playing a loop (the EDITOR's pattern, the loops) | on, brighter on each beat | dim |
+| playing a loop (the EDITOR's pattern) | on, brighter on each beat | dim |
+| playing the loops (LOOPS) | a 100 ms flash on each beat but the bar's first; else dark | a 100 ms flash on the bar's first beat; else dark |
 | paused | off | on |
 | not playing, on a screen where PLAY has nothing to play (it would refuse) | off | off |
 
@@ -143,12 +147,18 @@ Lit together, the two read as amber where they blend, or as green beside a dim r
 either way a loop looks unlike a song.
 - **At the start, red dim** says PLAY works here, as every dim light does ([leds.md](leds.md)); it
   cannot be taken for paused (red full) or a loop playing (green with it).
-- **Dark where PLAY has nothing to play,** paused or not: SONGS on a song with no positions; LOOPS with
-  no loops, nothing armed and nothing playing; the screens without a PLAY of their own when what played last,
-  else the current song, has no positions. PLAY then blinks and says why ([Texts](#texts),
-  [screens/loops.md](screens/loops.md#texts)).
-- **REC:** lit = writing on (EDITOR), or a take or a song recording (LOOPS); blinking = a take is
-  recording (EDITOR), or a take or a song armed (LOOPS) ([leds.md](leds.md)).
+- **The loops playing, PLAY is a visual metronome:** a flash on each beat the METRONOME of LOOPS' FX setup counts
+  ([screens/fx.md](screens/fx.md#metronome)), whether it is on or off: red on the bar's first beat, green on the
+  others, each a quick flash of 100 ms at full (the other LED dark meanwhile); between the flashes both are dark. Its
+  TEMPO and BEATS A BAR say where the beats are: at FOLLOW the loops' own beats (each GRID's rows, the bar's first the
+  bar's start), at a number its own tempo. On, the flashes come with its clicks. Only while the loops play: stopped,
+  PLAY's LEDs are as at the start; a song, DJ or the EDITOR's pattern playing, as above.
+- **Dark where PLAY has nothing to play,** paused or not: SONGS on a song with no positions; the screens
+  without a PLAY of their own when what played last, else the current song, has no positions. PLAY then blinks and
+  says why ([Texts](#texts)). On LOOPS its red is never dark while they do not play: the loops play with none.
+- **REC:** lit = writing on (EDITOR), or a song recording or notes on a stage that is on, which REC sends (LOOPS);
+  blinking = a take is recording (EDITOR), or the loops armed, a song armed or a count-in (LOOPS)
+  ([leds.md](leds.md)).
 - **The header** shows the same state as a symbol: ▶ green while playing, ❚❚ red while paused, ● red
   while recording ([frame.md](frame.md#the-header)).
 
@@ -163,4 +173,4 @@ either way a loop looks unlike a song.
 | `COUNT-IN`, `BAR 1 OF 2`, `4`-`1` | the count-in's box | a count-in |
 | `TAKE ARMED`, `PLAY A NOTE`, `HOME: CANCEL` | the count-in's box | the EDITOR's COUNT-IN KEY, armed |
 | `TAKE CANCELLED` | toast | the EDITOR: an armed take cancelled |
-| `CANCELLED` | toast | LOOPS: a count-in or an armed start cancelled |
+| `CANCELLED` | toast | LOOPS: a count-in or the loops' arm cancelled |

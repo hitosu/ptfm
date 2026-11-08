@@ -91,10 +91,18 @@ void fx_watch(int on);
 int32_t fx_meter_q15(int e);
 uint32_t fx_asleep(void);               /* bit n: CHORUS, DELAY, REVERB asleep (their lines all 0: skipped while
                                          * nothing comes in, the same sound) */
-extern volatile uint32_t fx_us[11];     /* each effect's time (plat_us), by its number; 10: the punch-ins */
+extern volatile uint32_t fx_us[11];     /* each effect's time (plat_us), by its number; 10: the punch-ins: summed
+                                         * only while fx_timed(1) (the debug build: always) */
+/* the FX screen's footer (specs/ui/screens/fx.md): the effects' times summed while on (the FX screen open); effect e's
+ * sum (us, wrapping: read twice for a stretch), the decks' own GATE, FILTER, DRIVE and LO-FI added */
+void fx_timed(int on);
+uint32_t fx_spent_us(int e);
 uint8_t fx_gate_step(void);             /* the GATE step playing (0-15) */
 int fx_met_beat(void);                  /* the bar's beat the METRONOME clicked last (0: the first), -1 while it does not
                                          * count (off, or FOLLOW with nothing playing) */
+unsigned fx_met_seen(void);             /* the METRONOME's beats as it counts them, heard or not (on, or off while something
+                                         * plays): bits 8-15 a count of them (wrapping), 0-7 the bar's beat counted last
+                                         * (0: the first). PLAY's LEDs on the loops (specs/ui/transport.md) */
 int32_t fx_limiter_gain(void);          /* the LIMITER's least gain since the last call, Q15 */
 
 /* ---- the settings live and working; a half's blocks at once ----
@@ -179,18 +187,12 @@ uint32_t fx_strip_lr(fx_strip_t *s, int32_t *l, int32_t *r, int32_t *sends);   /
                                                      * (chorus, delay, reverb) at the MIX of each it has on. Its
                                                      * effects' time back (plat_us: the player counts it) */
 extern volatile uint32_t fx_strip_us[4];    /* the decks' GATE, FILTER, DRIVE and LO-FI's time (plat_us), apart from
-                                             * fx_us (the mix's effects') */
+                                             * fx_us (the mix's effects'), summed as it is */
 void fx_strip_noise(int on);            /* DJ's decks on (1): their DUST's noise takes up where the mix's is; off (0): the
                                          * mix's where theirs got to, if they drew from it. One noise as before but on DJ
                                          * with a deck's DUST and the METRONOME's CLICK both sounding (and the noise after
                                          * such a DJ); at a half's start */
 void fx_strip_duck(const fx_strip_t *s, fx_duck_t *d);
 void fx_force(int delay, int reverb);   /* ECHO OUT, REVERB OUT: the DELAY / the REVERB run, on or not */
-
-/* (the debug build's bench: one block of an effect alone, on l and r (FX_BLOCK each); DJF1: a DJ FILTER on one
- * channel, l; SETS: the settings a block keeps for its effects, taken and put in place, as a half's blocks have them) */
-enum { FXB_REVERB, FXB_DELAY, FXB_CHORUS, FXB_FILTER, FXB_DRIVE, FXB_LOFI, FXB_GATE, FXB_LIMITER, FXB_PUNCH, FXB_DJF,
-       FXB_DJF1, FXB_SETS, FXB_N };
-void fx_bench(int which, int32_t *l, int32_t *r);
 
 #endif

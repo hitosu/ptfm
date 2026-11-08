@@ -11,13 +11,13 @@ module.exports = async api => {
     /* a pattern the song plays */
     await evaluate(`(() => { const p = ED.app.st.R.find(i => i.kind === 0x20); ED.files.askDelete("R", [p.id]); return 1; })()`);
     let d = await api.dialog();
-    check(/^DELETE PATTERN 00 AND WHAT USES IT\?/.test(d) && /WHAT USES IT, AND WHAT USES THAT, GOES TOO: 1 SONG\./.test(d) &&
-        /SONG 00 PUNCH IN USES PATTERN 00/.test(d) && /DELETE ALL \| CANCEL$/.test(d), "dialogs: a used pattern, its song named, DELETE ALL: " + d);
+    check(/^DELETE PATTERN A6 AND WHAT USES IT\?/.test(d) && /WHAT USES IT, AND WHAT USES THAT, GOES TOO: 1 SONG\./.test(d) &&
+        /SONG A0 PUNCH IN USES PATTERN A6/.test(d) && /DELETE ALL \| CANCEL$/.test(d), "dialogs: a used pattern, its song named, DELETE ALL: " + d);
     await shot("01-used");
     await api.button("CANCEL");
     /* a sample an instrument plays, on the TABLE: its sampler, the patterns that play it, the songs that play those */
     const chain = await evaluate(`(() => {
-        const L = ED.app.st.L, s = L.find(x => x.kind === 0x10 && x.owner && ED.model.usersAll(L, [x.id]).ids.length >= 3);
+        const L = ED.app.st.L, s = L.find(x => x.kind === 0x11 && ED.model.usersAll(L, [x.id]).ids.length >= 3);
         if (!s) return null;
         const us = ED.model.usersAll(L, [s.id]);
         ED.files.askDelete("L", [s.id]);
@@ -35,14 +35,14 @@ module.exports = async api => {
     /* the song: nothing uses it; what only it uses offered */
     await evaluate(`(() => { const s = ED.app.st.R.find(i => i.kind === 0x21); ED.files.askDelete("R", [s.id]); return 1; })()`);
     d = await api.dialog();
-    check(/^DELETE SONG 00 PUNCH IN\?/.test(d) && /ALSO WHAT ONLY IT USES/.test(d) && /ALSO GOES: 6 PATTERNS, 1 SAMPLER, 6 SAMPLES · FREES \d+ KB/.test(d) &&
+    check(/^DELETE SONG A0 PUNCH IN\?/.test(d) && /ALSO WHAT ONLY IT USES/.test(d) && /ALSO GOES: 6 PATTERNS, 1 SAMPLER, 6 SAMPLES · FREES \d+ KB/.test(d) &&
         /DELETE \| CANCEL$/.test(d), "dialogs: a song nothing uses: ALSO WHAT ONLY IT USES: " + d);
     await shot("03-delete");
     await api.button("CANCEL");
     /* the whole TABLE to the FM-1 */
     await evaluate(`(() => { const ids = ED.app.st.L.filter(i => !i.owner).map(i => i.id); ED.files.transfer("L", ids); return 1; })()`);
     const st = await api.status();
-    check(/^→ FM-1: \d+ ITEMS · \+ \d+ SAMPLES · \d+ ITEMS? ALREADY THERE/.test(st), "dialogs: the whole TABLE moved, what is there already reused: " + st);
+    check(/^→ FM-1: \d+ ITEMS · \d+ ITEMS? ALREADY THERE/.test(st), "dialogs: the whole TABLE moved, what is there already reused: " + st);
     /* a settings item on the TABLE over the FM-1 panel's */
     const first = await evaluate(`(() => {
         const mk = v => { const b = new Uint8Array(133); b.set(ED.defs.newSettings()); b[2] = v; return { id: ED.model.newId(), side: "L", kind: 0x30, num: null, orig: 0, link: {}, recs: [{ sub: 0, ver: 1, payload: b }], src: "MINE.PTFMDSK" }; };

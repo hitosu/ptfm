@@ -147,6 +147,7 @@ int main(void)
 {
     /* the resampler alone (the step kept, the clocks exactly as it assumes): sines across the band, both rates */
     static const double HZ[5] = {100, 1000, 5000, 10000, 15000};
+    uac_fir_fill();                     /* (the table in RAM, as the FM-1 makes it at its start) */
     steer = 0;
     for (int r48 = 0; r48 < 2; r48++)
         for (int f = 0; f < 5; f++) {

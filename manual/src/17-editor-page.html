@@ -17,12 +17,31 @@ any number of songs, patterns and cartridges, and two imported modules never cla
 <li>Drag items between the panels (or use the arrows): an item moves with everything it uses (a song with its
 patterns, their instruments, their samples), and numbers are given as it lands on the FM-1 panel. DELETE removes
 items; UNDO takes back any step.</li>
+<li><b>A built-in cartridge moved to the TABLE becomes a copy of its own</b> (with its changes, when it was changed),
+to change there as you like. Moved back to the FM-1 panel it takes a free number, a new cartridge beside
+the built-in, and a song pointing at it plays the copy. A song moved to the TABLE still plays the built-ins it uses:
+those never travel, and a changed one goes along keeping its number.</li>
 <li>Both panels group their items by kind: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES and SYSTEM (the settings,
 the MIDI map, the loops, DJ's setup, the EDITOR's own pattern and the keys' song). A click on a group's header folds
 or opens it. Each panel shows its items as DETAILS (a row each, with sizes and what uses them), LIST or ICONS.</li>
+<li><b>A sample is an item of its own,</b> not a part of a sampler: on the FM-1 panel it has its number (<i>23 KICK</i>),
+on the TABLE none. A sampler holds instruments only (its row shows how many samples they play, <i>SAMPLER · 10 INSTR · 7
+SMP</i>), and the instruments of any sampler can play any sample on their panel. DELETE on a sample asks first and takes
+the instruments that play it, in every sampler there; DELETE on a sampler takes its instruments, and ALSO WHAT ONLY IT
+USES takes the samples no other sampler plays.</li>
+<li><b>Older forms are converted as the page loads them</b> (READ, a disk, a backup, what the TABLE keeps): a sampler of an
+older PT/FM becomes a sampler of instruments and samples of their own, the same sample used by two samplers becoming one.
+The FM-1 holds 256 samples at most: a sampler whose samples would pass that stays in the older form, an item marked
+<b>OLDER FORM</b> on the FM-1 panel, listed with its size, not played or edited; the page says how many numbers it needs,
+and deleting it, or other samples, frees them.</li>
 <li>Picking works as in a file manager: a click picks one item, Ctrl adds one, Shift a range, Ctrl+A all. A
 double-click (or Enter) opens the item's tab, Space plays it, Delete deletes it, F2 renames it; the right-click
 menu has the rest.</li>
+<li><b>SET NUMBER…</b> (F4, on the FM-1 panel) gives a cartridge another number, <b>00</b> to <b>EF</b>. All the
+cartridge kinds share these numbers, samplers and FUSION too, so a new cartridge can land after a gap; samples have
+numbers of their own, so a sample and a cartridge can both be <b>0A</b>. A free number moves the cartridge; a taken
+one swaps the two. Everything that names it follows: the patterns' notes, the loops, your favourites. The built-in
+instruments keep their numbers.</li>
 <li><b>The space bar</b> under the FM-1 panel shows the FM-1's room: 103 blocks of 4 KB, as data, audio and free.
 Keep at least 16 blocks free for the FM-1's own saves: with fewer than 10 free, the FM-1 cannot save new things
 (it can still delete), and with fewer than 3 it cannot save at all until a WRITE frees room.</li>
@@ -51,12 +70,25 @@ page beside the FM-1's picture of it. Every instrument page has a keyboard of th
 touch, the computer's keys, or a MIDI keyboard picked from the computer's inputs. With VIRTUAL MIDI KEYBOARD picked,
 the computer's keys play anywhere in the tab (Z S X D C ... from F-3 as the FM-1's keys; <b>[</b> and <b>]</b> change
 the octave).</dd>
-<dt>Sample</dt><dd>Its waveform with START and END to drag (or drag across it for a new cut), PLAY THE CUT, CHANNELS
-(both mixed, left or right of a stereo sound), RATE, DEPTH (8 or 16 bits), TRIM SILENCE, WHOLE SAMPLE, the sizes
-before and after, and the instruments that play it. Their START, END and loop points follow a cut when you SAVE.
+<dt>Sample</dt><dd>Its waveform: drag across it to select a part (nothing is selected when the tab opens). PLAY THE
+SELECTION, TRIM (the sample becomes the selection), TRIM SILENCE, WHOLE SAMPLE, SAVE AS A NEW SAMPLE (the selection
+as a sample of its own, beside this one); the slices (<a href="#editor-page-record">below</a>); CHANNELS (both mixed,
+left or right of a stereo sound), RATE, DEPTH (8 or 16 bits), the sizes before and after, and <b>PLAYED BY</b>, the
+instruments that play it, in every sampler on its panel. Their START, END and loop points follow a cut when you SAVE.
 OPTIMIZE (below) makes it smaller.</dd>
+<dt>Sampler</dt><dd>The cartridge's name and its instruments in a list (64 slots). An instrument's page has its
+<b>SAMPLE</b> (any sample on the panel; picking another re-points the instrument, keeping its other settings),
+START, END, the loop, BASE NOTE, TUNE, VOLUME and the envelope, each with the FM-1's picture. On an instrument,
+<b>REPLACE SAMPLE</b> picks a sample from the panel and the instrument plays it as a new one would, every setting back to a
+new instrument's; <b>DELETE</b> takes the instrument and leaves its sample. On an empty slot, <b>CREATE</b> picks a sample
+and makes an instrument there that plays it whole, named after it. <b>THE SAMPLES IT USES</b> lists each sample its
+instruments play, with <b>NEW INSTRUMENT FOR IT</b>, which makes an instrument for it at the first empty slot. Pasting
+an instrument brings its sample along: nothing is copied when the panel holds the same sample, otherwise the sample is
+added at a free number; with none free the paste is refused (<b>NO FREE SAMPLE NUMBER</b>).</dd>
 <dt>SETTINGS, MIDI MAP, LOOPS, DJ SETUP</dt><dd>Every setting (and your 16 GATE patterns as rows of steps), each MIDI
-mapping, each loop's instrument and notes, and DJ's crossfader, filter, decks and effects.</dd>
+mapping, the loops, and DJ's crossfader, filter, decks and effects. LOOPS shows the length in its title (it is changed
+on the FM-1) and each loop's instrument, MONO or POLY, repeats and SHIFT: +3 plays the loop 3 rows later, -3 earlier
+(typed either way); the notes are shown as stored, and a line under them says how SHIFT plays them.</dd>
 </dl>
 </section>
 
@@ -67,16 +99,43 @@ an <i>instrument</i> that plays it: the instrument sets its note, loop and envel
 you. On the page:</p>
 <ol class="steps">
 <li>Drop the sound (WAV, FLAC, MP3, OGG ...) on the TABLE.</li>
-<li>Drag it onto a sampler cartridge of the FM-1 panel: it joins that cartridge. (Dragged onto the panel anywhere
-else, it gets a new sampler cartridge of its own.)</li>
-<li>Open the sampler cartridge's tab: beside the sample, <b>NEW INSTRUMENT FOR IT</b> makes the instrument. Set its
-BASE NOTE (the note the recording plays at its own pitch) and its loop, then SAVE.</li>
+<li>Drag it onto the FM-1 panel: it becomes a sample there, at a free number, on its own, in no sampler. Dragged
+onto a sampler cartridge's item, it comes with an instrument at the cartridge's first empty slot, playing it whole and
+named after it (64 instruments at most in a sampler).</li>
+<li>For a sample that has no instrument yet, open a sampler cartridge's tab: in <b>THE SAMPLES IT USES</b> or on an empty
+slot, <b>CREATE</b> (a pick of any sample on the panel) makes the instrument. Set its BASE NOTE (the note the recording
+plays at its own pitch) and its loop, then SAVE.</li>
 <li>WRITE.</li>
 </ol>
-<p>Or make the instrument on the FM-1, after the WRITE: INSTRUMENTS, the sampler cartridge, an empty slot;
-<kbd>SEL</kbd>, INIT makes a plain instrument there; <kbd>EDIT</kbd>, and on its SAMPLE row <kbd>ENV</kbd> lists the
-cartridge's samples (the keys play the one highlighted, <kbd>ENV</kbd> picks it). Set its BASE NOTE and loop, then
-<kbd>SAVE</kbd> (<a href="#instruments-sampler">chapter 8</a>).</p>
+<p>Or make the instrument on the FM-1, after the WRITE: INSTRUMENTS, a sampler cartridge, an empty slot;
+<kbd>SEL</kbd>, CREATE (or <kbd>EDIT</kbd> there) lists the samples (the keys play the one highlighted, <kbd>ENV</kbd>
+picks it) and makes the instrument. Set its BASE NOTE and loop, then <kbd>SAVE</kbd>
+(<a href="#instruments-sampler">chapter 8</a>).</p>
+</section>
+
+<section class="topic" id="editor-page-record">
+<h3>Recording and slicing</h3>
+<p><b>RECORD</b> on the TABLE records from any input your computer has: a microphone, a line in, or the FM-1
+itself over USB (on Windows its input is called <i>Line (FM-1 PT/FM)</i>). Pick the INPUT, watch the meter
+(<b>CLIP</b> lights when the sound hits the top), then RECORD and STOP (or Space). Its play key plays the take as it
+is, shown in the footer's player like anything else that plays; <b>SAVE</b>
+puts it on the TABLE as a sample, <i>TAKE00</i>, <i>TAKE01</i> and on, at the best quality the FM-1 holds (16 bits,
+44.1 kHz). RECORD again replaces the take in the dialog; nothing is heard while it records.</p>
+<p>A recording of several hits, a drum played one stroke after another or a phrase of notes, is cut into
+<i>slices</i> in its tab: <b>DETECT SLICES</b> finds where each sound starts (SENSITIVITY 1-10 finds fewer or more),
+marking each slice on the waveform; the quiet parts between are silent slices, drawn dim. Drag a marker to move a
+slice's start, double-click to add one (or ADD A SLICE at the selection's start), click a slice to pick it (Ctrl or
+Shift for several) and DELETE THE MARKER (or Delete) to take its start away. Each slice has its own play key. Then:</p>
+<ul>
+<li><b>REMOVE SILENCE</b> takes the silent slices out, the rest joined with short crossfades; <b>REMOVE</b> takes out
+the slices picked.</li>
+<li><b>SAVE AS SAMPLES</b> makes each slice picked (all but the silent ones when none is) a sample of its own.</li>
+<li><b>MAKE A KIT</b> makes a playable kit of them: a sampler cartridge with an instrument for each slice, and a
+FUSION cartridge whose instrument plays slice 1 on C-4, slice 2 on C#4 and up, a key each. Both open in their tabs.</li>
+</ul>
+<p>New samples are named after the one they came from, with two digits (<i>KICK00</i>, <i>KICK01</i>), and are samples
+of their own on the same panel; on the FM-1 panel they take free sample numbers (the page says when none is left,
+<b>ALL 256 SAMPLE NUMBERS USED</b>). A sampler holds 64 instruments.</p>
 </section>
 
 <section class="topic" id="editor-page-room">
@@ -98,21 +157,34 @@ at once, listing each level's size before and after. UNDO takes it back.</p>
 <p>Connect the FM-1 by USB with PT/FM running. Nothing stays connected: each action finds the FM-1, does its work and
 lets go.</p>
 <dl class="params">
-<dt>READ</dt><dd>Reads what the FM-1 holds into the FM-1 panel (after the first time, only what changed).</dd>
+<dt>READ</dt><dd>Reads what the FM-1 holds into the FM-1 panel (after the first time, only what changed). Samplers of an
+older PT/FM are converted as they are read (above).</dd>
 <dt>WRITE</dt><dd>Makes the FM-1 hold exactly the panel. Before writing it shows what it writes and what it removes (in
 red), warns when the FM-1 saved something since the last READ (READ FIRST, WRITE ANYWAY or CANCEL) and when fewer
 than the 16 advised blocks would stay free, and offers to back up first: what the write would
 replace goes onto the TABLE (BACKUP and the time). When the panel does not fit around what the FM-1 keeps but fits
 the FM-1 emptied, it writes the whole user area anew and says so first (it takes longer). The FM-1's sound stops while
-it writes. With unsaved edits on the FM-1 it is refused: SAVE OR REVERT FIRST.</dd>
+it writes. With unsaved edits on the FM-1 it is refused: SAVE OR REVERT FIRST. After a conversion, the first WRITE
+rewrites every sample, says so, and offers its backup of the old records first. When the FM-1 runs an older PT/FM
+that reads only the older form, WRITE converts down: each sampler is written as an older one holding copies of the
+samples its instruments play (the samples themselves are not sent), and <b>NOT KEPT</b> names what the older form cannot
+hold (samples no instrument plays, which are not written; a sample several samplers play, written once in each). It then
+asks WRITE ANYWAY or CANCEL.</dd>
 <dt>REVERT</dt><dd>Puts back what the panel showed after the last READ or WRITE.</dd>
 <dt>DOWNLOAD DISK</dt><dd>Saves the FM-1 panel as a disk file (ptfm-2026-10-26.ptfmdsk). <b>This is the backup:</b>
 READ, then DOWNLOAD DISK.</dd>
+<dt>DOWNLOAD AS DISK</dt><dd>On the TABLE, under its list: saves only what you picked there as a disk file, with
+everything it uses, numbered as it would land on an empty FM-1 (the built-ins left out, as every PT/FM has them). One
+item picked names the file (punch-in.ptfmdsk), several make ptfm-selection-2026-11-04.ptfmdsk. What would not fit an
+FM-1 is refused: <b>NO DISK SAVED</b>. UPLOAD DISK puts it in an FM-1 panel; dropped on a TABLE, it gives the items
+back.</dd>
 <dt>UPLOAD DISK</dt><dd>Puts a disk file in the FM-1 panel, numbers kept; WRITE then puts it on the FM-1. A backup put
 back is exactly as it was.</dd>
 </dl>
 <aside class="note">Before installing another FM-1 firmware, READ and DOWNLOAD DISK: other firmwares erase PT/FM's
-memory.</aside>
+memory. The same before going back to an older PT/FM: an older version does not read samples that are things of their
+own (it would leave the longer ones out as damaged), so READ and DOWNLOAD DISK first, install it, then WRITE, which
+converts down.</aside>
 </section>
 
 <section class="topic" id="editor-page-import">
@@ -120,8 +192,10 @@ memory.</aside>
 <p>Drop files on the TABLE (or <b>+ ADD FILES</b>):</p>
 <dl class="params">
 <dt>Disks</dt><dd>.ptfmdsk files: their items as they are.</dd>
-<dt>Tracker modules</dt><dd>MOD, S3M and XM: the song, its patterns (a channel a track, 16 at most), a sampler
-cartridge with every instrument and sample. IT is not read; XM's envelopes are not kept.</dd>
+<dt>Tracker modules</dt><dd>MOD, S3M and XM: the song, its patterns (a channel a track, 16 at most), its samples as
+samples of their own, and sampler cartridges (64 instruments each) with an instrument for every module instrument or
+sample. Samples past the 256th that the FM-1 can number are left out, and the page says how many. IT is not read; XM's
+envelopes are not kept.</dd>
 <dt>MIDI files</dt><dd>A song: each channel's notes become tracks, notes on the nearest row, the tempo kept, patterns
 of 4 bars; each channel's instrument mapped onto a built-in sound (all 128 General MIDI programs have one), the drums
 onto FM DRUM KIT. Pitch bend and controllers are left out.</dd>

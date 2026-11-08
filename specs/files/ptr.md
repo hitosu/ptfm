@@ -3,18 +3,19 @@
 Status: **settled** (2026-10-09). The record: [the files proposal](../proposals/202610080050-fs.md),
 section 6.
 
-**PTR** (PT/FM Rice) codes 8-bit and 16-bit samples losslessly. A sample's audio is a record of its
-own: kind 0x10, number its cartridge, sub its index there ([store.md](store.md#a-record)). Its entry in
-the sampler cartridge's samples' table gives its length, rate and coding
-([instruments.md](instruments.md#samples-and-fusion-slots)).
+**PTR** (PT/FM Rice) codes 8-bit and 16-bit samples losslessly. A sample is a record of its own: kind
+0x11, number the sample's ([store.md](store.md#a-record)). Its first 16 bytes are its entry (length, rate,
+coding, name: [instruments.md](instruments.md#samples)); the audio follows from byte 16, as below, and its
+index's offsets count from there. The old form's audio (kind 0x10, under its sampler's number,
+[instruments.md](instruments.md#the-old-form)) is the same audio with no entry before it.
 
-## The record
+## The audio
 
 | Bytes | Field |
 |---|---|
 | 0 | coding: 1 PTR 8-bit, 2 PTR 16-bit |
 | 1-3 | length in samples |
-| 4- | the index: the offset of every 16th block from the payload's start (u32 each), then every block's coded length (u16 each) |
+| 4- | the index: the offset of every 16th block from the audio's start, byte 0 here (u32 each), then every block's coded length (u16 each) |
 | then | the blocks |
 
 - **Samples** are signed (two's complement), 8 or 16 bits.

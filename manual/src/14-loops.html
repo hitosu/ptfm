@@ -2,84 +2,251 @@
      Copyright (C) 2026 Vasily Kazantsev -->
 <section class="chapter" id="loops" data-kind="screen">
 <h2>LOOPS</h2>
-<p class="lead">LOOPS is a loop station: you record a layer in one pass, then the next over it, without stopping the
-music. You keep a stack of up to 16 loops, mute and solo them while playing over them, and can record the whole
-performance as a new song. Open it with <span class="combo"><kbd>HOME</kbd> + <kbd class="b">POLY</kbd></span>.</p>
+<p class="lead">LOOPS is a loop station: the loops go round, you play over them onto <b>the stage</b> again and again,
+each round fixing a part, and REC keeps the stage as a loop the moment it sounds right. You keep a stack of up to 16
+loops, mute and solo them while playing over them, and can record the whole performance as a new song. Open it with
+<span class="combo"><kbd>HOME</kbd> + <kbd class="b">POLY</kbd></span>.</p>
 
 <section class="topic" id="loops-overview">
 <h3>The loops</h3>
-<figure data-shot="loops-empty"><figcaption>LOOPS with no loops yet: the top line (tempo, length, QUANTIZE, REC) and
-+ NEW LOOP.</figcaption></figure>
-<figure data-shot="loops-two"><figcaption>Two loops playing: each its number, instrument, POLY or MONO, and its notes
-across the length; the playing place a line.</figcaption></figure>
+<figure data-shot="loops-empty"><figcaption>LOOPS with no loops yet: the top line (tempo, length, QUANTIZE, REC),
++ NEW LOOP, the stage, empty, and the length's bars.</figcaption></figure>
 <ul>
-<li><b>Up to 16 loops,</b> listed in the order they were made, the newest at the bottom, with <b>+ NEW LOOP</b> under
-them. A loop's number is its place, 00 to 0F.</li>
-<li><b>One length for all,</b> set by the first loop in whole bars (8 bars at most at 1/16). After that only the
-properties' LENGTH and the menu's DOUBLE change it.</li>
-<li><b>A loop has one instrument</b> and a colour of its own. <kbd>PRESETS</kbd> (and <kbd>ENV</kbd>, the cartridges)
-pick the sound the keys play and the next loop takes, never a recorded loop's.</li>
-<li><b>POLY or MONO,</b> chosen before recording (the black keys MONO and POLY in CONTROL mode; POLY at first): a POLY
-loop holds up to 4 notes at once, a MONO loop one, a note over a held one taking over as the properties' MONO LEGATO
-says.</li>
-<li><b>A loop's mix:</b> <kbd>K1</kbd> to <kbd>K4</kbd> turn the selected loop's LEVEL, PAN, DELAY SEND and REVERB SEND
-(CHORUS and DUCK on FX's MIXER). On + NEW LOOP they set the next loop's mix.</li>
-<li><kbd>ALGORITHM</kbd> turns the tempo, any time.</li>
+<li><b>Up to 16 loops,</b> in the order they were made, with <b>+ NEW LOOP</b> after them. Four are in view, in
+slots; the column at the right shows all sixteen, a square each. A loop's number is its place, 00 to 0F.</li>
+<li><b>One length for all,</b> set from the start: 4 bars at first (<a href="#loops-length">below</a>).
+<kbd>PLAY</kbd> plays the loops even with none: the length goes round, ready for you to play over it.</li>
+<li><b>A loop has one instrument</b> and a colour of its own, and is POLY (up to 4 notes at once) or MONO (one), as
+you played it.</li>
+<li><b>A loop repeats without copying notes:</b> after the menu's DOUBLE it plays its notes twice (X2 after its
+name).</li>
+<li><b>A loop's mix</b> (level, pan, duck and the sends) is set by <kbd>K1</kbd> to <kbd>K4</kbd> and on FX's MIXER;
+on + NEW LOOP the knobs set the next loop's mix. Each slot shows its loop's LEVEL at the right (<b>7F</b> at first),
++ NEW LOOP the next loop's.</li>
+<li><b>A new loop takes the KEYS column's sends:</b> its chorus, delay and reverb sends are those of FX MIXER's KEYS
+column, the ones you hear as you play, so the stage on + NEW LOOP already sounds as the loop will. A send's knob on
++ NEW LOOP turns the KEYS column's (a setting: SAVE keeps it). REC into a loop keeps that loop's own mix.</li>
 <li>LOOPS has its own effects (<kbd>FX</kbd> from LOOPS edits them) and metronome, so it sounds the same whatever song
 is current. SAVE keeps the loops like any change.</li>
 </ul>
-<aside class="memo">What plays (a song, a pattern) plays on into LOOPS until the loops start. The loops play on outside
-LOOPS until a song or a pattern starts. Leaving LOOPS for any screen but FX ends a take.</aside>
+<figure data-shot="loops-two"><figcaption>Loop 00 playing (POLY, a chord and two notes), and a MONO line on the stage
+over it: the play line runs through both, and REC will keep the stage as loop 01.</figcaption></figure>
+<aside class="memo">What plays (a song, a pattern) plays on into LOOPS until the loops start. The loops, and the
+stage with them, play on outside LOOPS until a song or a pattern starts. Leaving LOOPS for any screen but FX ends an
+arm, a count-in, ADJUST, the pattern recorder and a song's recording.</aside>
 </section>
 
-<section class="topic" id="loops-recording">
-<h3>Recording a loop</h3>
+<section class="topic" id="loops-stage">
+<h3>The stage: playing over the loops</h3>
+<p>The stage is one loop of the length that belongs to no loop. While the loops play, every note you play goes onto
+it (you <i>overdub</i> it), and you hear it each time the loops come round.</p>
+<figure data-shot="loops-first"><figcaption>Notes on the stage: it plays in the colour the new loop will get, in the
+sound you play. + NEW LOOP says where REC puts it.</figcaption></figure>
 <ol class="steps">
-<li>Pick a sound with <kbd>PRESETS</kbd>. Turn <kbd>SELECT</kbd> to + NEW LOOP (for a new loop) or to a loop (to
-record it again).</li>
-<li>Press <kbd>REC</kbd>: the take is armed.
-<ul>
-<li>With the loops playing, it starts at their next start; the row counts down (<b>ARMED: STARTS IN 3 BARS</b>).</li>
-<li>With nothing playing, your first note starts the loops and the take at once; or press <kbd>PLAY</kbd> to start
-them after the properties' COUNT-IN.</li>
-</ul></li>
-<li>Play. A take is one pass of the length and stops by itself, the loops playing on. Press <kbd>REC</kbd> to stop it
-early; REC while armed cancels (<samp class="msg">CANCELLED</samp>).</li>
+<li>Pick a sound with <kbd>PRESETS</kbd> (<kbd>ENV</kbd>: another cartridge) and press <kbd>PLAY</kbd>.</li>
+<li>Play. Each note lands where QUANTIZE puts it and sounds exactly as it is kept. <b>Overdubbing adds and never
+removes:</b> a note takes a lane that is free (the stage has four), so a long pad already there stays whole. With all
+four in use, it takes the lane whose note ends soonest and cuts that note where yours starts. A note that starts on
+that lane while you hold your key moves on with it, to where you let go; one your key covers completely is gone.</li>
+<li>When it sounds right, press <kbd>REC</kbd>: on + NEW LOOP the stage becomes a new loop
+(<samp class="msg" data-t="STAGE AS #">STAGE AS LOOP 06</samp>), on a loop it goes into that loop, in place of its
+notes (<samp class="msg" data-t="STAGE INTO #">STAGE INTO LOOP 03</samp>). The stage is empty again, and what sounds
+goes on without a break. The stage is off now: press REC again to switch it on and start the next take (with the
+loops stopped, that REC also arms them: <a href="#loops-arm">below</a>).</li>
 </ol>
-<figure data-shot="loops-armed"><figcaption>A take armed: it starts with the loops' next round.</figcaption></figure>
-<p><b>The first loop</b> has no length to fill: it grows a bar at a time while you play. Press <kbd>REC</kbd> to close
-it on a bar line (<b>LOOP 00: 4 BARS</b>); its bars are the length. Played
-nothing: <samp class="msg">NOTHING PLAYED: NO LOOP</samp>. PLAY with no loops, nothing armed and nothing playing is
-refused: <samp class="msg">REC, THEN PLAY: THE FIRST LOOP</samp>.</p>
-<figure data-shot="loops-first"><figcaption>The first loop recording: it grows a bar at a time.</figcaption></figure>
 <ul>
-<li><b>What you hear is what is kept.</b> While recording, notes land on QUANTIZE's grid and sound there; a MONO loop
-plays one note at a time, a POLY one at most 4. Not recording, the keys play freely.</li>
-<li><b>RE-RECORD:</b> <kbd>EDIT</kbd> (or REC on a loop) records the selected loop again; its old notes are gone the
-moment the take is armed (<samp class="msg" data-t="# RE-RECORDING">LOOP 03 RE-RECORDING</samp>). It keeps its place,
-colour, instrument and mix.</li>
-<li><b>PEEL:</b> <kbd>LFO</kbd> removes the selected loop (on + NEW LOOP, the last) without asking
-(<samp class="msg" data-t="# PEELED">LOOP 03 PEELED</samp>); SEL's REVERT brings back what was saved.</li>
-<li>A full edit memory ends a take, keeping what was written (<samp class="msg">MEMORY FOR EDITS IS FULL</samp>).</li>
+<li><b>The stage plays in your sound</b> and through the mix REC would put it in: the selected loop's, or on + NEW LOOP
+the next loop's (with the KEYS column's sends), and LOOPS' effects (never KEYS GAIN or the keys' DRY), so a loop sounds as you played it. Mutes and
+solos never silence it.</li>
+<li><b>The selected loop is silent</b> while the stage holds notes (its slot grey, <b>STAGED</b>): the stage is what
+would take its place. Select another loop and the stage stays; that one falls silent instead. With the stage empty,
+every loop sounds.</li>
+<li><b>MONO</b> plays and keeps one note at a time, a note over a held one as the properties' MONO LEGATO says;
+<b>POLY</b> up to 4 notes, a fifth neither heard nor kept.</li>
+<li><b>The length's end:</b> a note you hold over it ends there, kept once from where you started it. The key then
+stops writing: hold it on and nothing more is kept, let it go and nothing changes; the note plays again where you
+played it each round, so a pad held to the end keeps its start.</li>
+<li><b>Stopped,</b> the keys play freely, nothing written; the stage keeps its notes.</li>
+<li>The stage is never saved and counts as no change: SAVE and REVERT leave it as it is, so a save mid-jam loses
+nothing. A power cycle drops it.</li>
 </ul>
+<aside class="note">The stage holds as many notes as a loop can. A note it cannot take is neither heard nor written,
+and the header says why: <samp class="msg">THE STAGE IS FULL</samp>, <samp class="msg">MEMORY FOR
+EDITS IS FULL</samp> (SAVE frees it), or <samp class="msg">STAGE NOT WRITTEN: STORAGE BUSY</samp>.</aside>
+</section>
+
+<section class="topic" id="loops-overwrite">
+<h3>OVERWRITE, and clearing the stage</h3>
+<p>Tap <kbd>LFO</kbd> and you <i>overwrite</i> instead of overdub, the moment you let it go
+(<samp class="msg">OVERWRITE</samp>): while the loops play, the play line erases everything on the stage it passes, and
+what you play meanwhile is written, so that stretch becomes exactly what you played, silence included. Tap LFO again
+to overdub (<samp class="msg">OVERDUB</samp>). The FM-1 starts in OVERDUB, and the stage's title always says which is
+on.</p>
+<figure data-shot="loops-overwrite"><figcaption>OVERWRITE on: the stage's title reads OVERWRITE in red, a dim LFO after
+it for what switches it, and LFO is lit.</figcaption></figure>
+<ul>
+<li><b>In OVERWRITE a take goes as the line comes round,</b> unless REC has sent it by then. In OVERDUB it stays.</li>
+<li><b>What EDIT or the pattern recorder put on the stage stays:</b> each leaves it in OVERDUB, switching OVERWRITE off
+if it was on. REC, a clear and moving the selection leave the mode as it is.</li>
+<li><b>Clear the stage:</b> hold <kbd>EDIT</kbd> for 2 seconds (let go sooner and it is a tap), or tap EDIT on + NEW LOOP
+(it copies that silence), or pick the menu's CLEAR STAGE: <samp class="msg">STAGE CLEARED</samp>, the selected loop is
+heard again, and the stage is on. With the stage empty and off, it just turns on
+(<samp class="msg">STAGE ON</samp>).</li>
+<li>Stopped, OVERWRITE erases nothing (the play line does not move). In ADJUST, the pattern recorder and with the stage
+off LFO does nothing; OVERWRITE rests there, and on every other screen, FX too, where the stage plays on, and goes on
+once you are back. LFO has nothing else to do here: REC with LFO held is plain REC.</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-stage-off">
+<h3>The stage off: playing without keeping</h3>
+<p>Tap <kbd>ARP</kbd> to switch the stage off (<samp class="msg">STAGE OFF</samp>), and again, or press <kbd>REC</kbd>, to
+switch it on (<samp class="msg">STAGE ON</samp>; REC with the loops stopped arms them too,
+<samp class="msg">STAGE ON: ARMED</samp>). REC leaves it off too, each time it keeps the stage. With it off you play over the loops and nothing is kept: to find a line before you
+record it, or to jam over a finished set.</p>
+<figure data-shot="loops-stage-off"><figcaption>The stage off: its title reads STAGE OFF, its notes are kept but dimmed
+and not heard, and loop 01 is heard in its place (no STAGED).</figcaption></figure>
+<ul>
+<li><b>The stage keeps its notes,</b> drawn very faint, and is not heard; the selected loop is heard in its place, on
+every screen.</li>
+<li><b>The keys sound at once</b> in the stage's sound (your instrument and MONO / POLY, the stage's mix and LOOPS'
+effects), with no wait for QUANTIZE's line, and nothing is written. POLY plays every key you hold, up to 16 at once (a 17th key takes
+over the sound of one of them in turn); MONO one note at a time, as MONO LEGATO says. Stopped, the keys play freely as ever.</li>
+<li><b>REC switches the stage on and records, in one tap,</b> keeping nothing yet: with the loops stopped it arms them
+as well, whatever the stage holds (<samp class="msg">STAGE ON: ARMED</samp>: your first note or PLAY starts them,
+<a href="#loops-arm">below</a>); with them playing, what you play from then on goes onto the stage
+(<samp class="msg">STAGE ON</samp>). It still starts RECORD LIVE and cancels a count-in. LFO does nothing.</li>
+<li><b>EDIT and the pattern recorder's REC</b> fill the stage and switch it on again; a clear switches it on too.</li>
+<li>Switched off while the loops are armed, it disarms them (<samp class="msg">CANCELLED</samp>).</li>
+<li>The stage's title reads <b>STAGE OFF</b> and, at its right, <b>REC: STAGE ON</b>; the line under the bars says
+<b>STAGE OFF: THE KEYS ARE NOT KEPT</b>; ARP is dim, where it is lit with the stage on.</li>
+<li>ARP's tap waits a moment (COMBO GRACE in SETTINGS) before it acts, as ARP held with REC opens the pattern
+recorder; held longer, ARP shows what it does with REC and, let go, does nothing.</li>
+<li>The stage is on at every power-on; SAVE, REVERT and CLEAR LOOPS leave the switch as it is.</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-edit">
+<h3>EDIT: a loop back onto the stage</h3>
+<p><kbd>EDIT</kbd> copies the selected loop onto the stage as it is heard, in place of what the stage held; its sound
+and MONO / POLY become yours, and the loop falls silent at once
+(<samp class="msg" data-t="# ON THE STAGE">LOOP 01 ON THE STAGE</samp>). It leaves you in OVERDUB, so its notes stay as
+the line comes round. Play over it to fix a bar, then REC writes it back into the loop. The loop itself changes only when
+REC writes it.</p>
+<figure data-shot="loops-staged"><figcaption>EDIT on loop 01: its notes on the stage, the loop grey and STAGED, and REC
+writes the stage back INTO LOOP 01.</figcaption></figure>
+<ul>
+<li>To copy a loop: EDIT, select + NEW LOOP (the stage stays), REC.</li>
+<li>On + NEW LOOP, or held 2 seconds, EDIT clears the stage (<a href="#loops-overwrite">above</a>). A loop too long for the stage
+is refused, nothing changed (<samp class="msg">THE STAGE IS FULL</samp>).</li>
+<li>There is no undo of REC: the menu's REVERT brings back what was saved.</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-arm">
+<h3>Starting with a note</h3>
+<p>With the loops stopped and the stage empty, <kbd>REC</kbd> arms them: REC blinks, the top line reads ARMED and the
+line under the bars says where they start (<b>ARMED: A NOTE OR PLAY STARTS AT 1.1</b>). Your first note then starts
+the loops at once and is the stage's first; the other keys of a chord played with it land with it. <kbd>PLAY</kbd>
+starts them after the properties' COUNT-IN. REC again disarms (<samp class="msg">CANCELLED</samp>); during the count,
+REC, PLAY and HOME cancel it, and nothing is sent. With the stage off (after REC kept a loop, say), one REC switches
+it on and arms them at once (<samp class="msg">STAGE ON: ARMED</samp>), whatever the stage holds.</p>
+<figure data-shot="loops-armed"><figcaption>Armed: the first note starts the loops, from bar 1.</figcaption></figure>
+<p>While the loops play, REC with an empty stage does nothing (<samp class="msg">THE STAGE IS EMPTY</samp>).</p>
+<aside class="memo">After each thing REC does, it rests for half a second, so a double tap does one thing: it sends
+the stage once and never arms after it.</aside>
+</section>
+
+<section class="topic" id="loops-play">
+<h3>Where PLAY starts, and jumps</h3>
+<ul>
+<li><kbd>ALGORITHM</kbd> moves the play position a row a click (with <kbd>SEL</kbd> held, a bar), round the length:
+stopped, it is where PLAY starts (<b>PLAY FROM 2.4.3</b>: bar, beat, step); while the loops play, they jump there at
+once (<b>JUMP +1 ROW</b>). At a jump the notes sounding ring on, and a key you hold stops writing.</li>
+<li><kbd>PLAY</kbd> while the loops play stops them and takes them back to the start; the stage keeps its notes.
+<kbd>PLAY</kbd> held does the same (<samp class="msg">BACK TO THE START</samp>).</li>
+<li>Outside LOOPS, PLAY pauses the loops and resumes them where they were, as anything that played last.</li>
+<li><b>PLAY's lights are a metronome you can see</b> while the loops play: a quick flash on each beat, <b>red</b> on
+the bar's first, <b>green</b> on the others, dark between. They follow the METRONOME of LOOPS' effects (<kbd>FX</kbd> from LOOPS),
+its TEMPO and BEATS A BAR, even with the METRONOME off: so you can keep time without hearing the clicks.</li>
+<li>The bar under the stage shows the length's bars, the ones in view white, and where the loops are.</li>
+<li>With SETTINGS' SYNC EXTERNAL, the other device's START plays the loops from bar 1, STOP pauses them and CONTINUE
+goes on (<a href="#midi-out">chapter 16</a>).</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-length">
+<h3>The length</h3>
+<ul>
+<li><b>4 bars at first</b> (a bar has as many beats as the METRONOME's BEATS A BAR, on FX), fewer only where 4 do
+not fit; <b>128 rows at most:</b> 8 bars of 4 beats at 1/16, 5 at 1/16T, 4 at 1/32.</li>
+<li><b>LENGTH</b> in the properties (<kbd>GLO</kbd>), a bar a click, with loops or none: <b>longer</b> at once, silence
+added at the end; <b>shorter</b> only shown while the properties are open (<b>2 BARS (NOW 4 BARS)</b>) and cut as they
+close, asking first when notes would go (<samp class="msg" data-t="CUT TO #?">CUT TO 2 BARS?</samp>
+<samp class="msg">NOTES IN THE BARS CUT GO</samp>: <kbd>OCT+</kbd> CUT, <kbd>OCT-</kbd> KEEP). Each loop plays on as it
+did in the bars kept.</li>
+<li>The menu's <b>DOUBLE</b> doubles it, every loop and the stage playing twice what they played.</li>
+<li><b>The stage goes with the length:</b> cut with it, longer with empty rows. CLEAR LOOPS, DELETE LOOP and REC leave
+the length as it is.</li>
+<li>If you change the METRONOME's BEATS A BAR, the length keeps its rows and may end inside a bar: it is then shown in
+beats (<b>21 BEATS</b>), and LENGTH goes to the next whole bar each way.</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-sound">
+<h3>Your sound: the instrument, MONO or POLY</h3>
+<ul>
+<li><kbd>PRESETS</kbd> picks the instrument the keys play, shown at the footer's left: the stage plays in it, and REC
+writes it into the loop it sends to. PRESETS never changes a loop's own sound.</li>
+<li><kbd>ENV</kbd> opens the cartridge list (NEW LOOP: A CARTRIDGE): the keys take the picked cartridge's first
+instrument.</li>
+<li><kbd>ENV</kbd> held, or the menu's TAKE ITS INSTRUMENT: the selected loop's instrument and MONO / POLY become yours
+(the header names them, <b>KEYS: 01:04 BRASS, MONO</b>). The menu's APPLY INSTRUMENT does the opposite: the loop takes
+yours.</li>
+<li><b>MONO or POLY,</b> shown at the footer's right: hold <kbd>SEQ</kbd> and press <kbd class="b">MONO</kbd> or
+<kbd class="b">POLY</kbd> (<samp class="msg">KEYS: MONO</samp>, <samp class="msg">KEYS: POLY</samp>), or the same keys
+in CONTROL mode. POLY at first.</li>
+<li>A new sound or mode keeps the stage's notes, played in the new sound: a POLY stage in MONO plays one note at a
+time, and POLY again brings its chords back.</li>
+</ul>
+</section>
+
+<section class="topic" id="loops-knobs">
+<h3>The knobs, VIEW and ADJUST</h3>
+<ul>
+<li><kbd>K1</kbd> to <kbd>K4</kbd> turn LEVEL, PAN, REVERB SEND and TEMPO at first; the properties give each knob its
+job: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND (the selected loop's, on + NEW LOOP the next loop's, a send
+there the KEYS column's), TEMPO or VIEW. With <kbd>SEL</kbd> held a mix value moves by 16, TEMPO by 10.</li>
+<li><b>VIEW:</b> 1, 2 or 4 bars a screen (2 at first). While the loops play, the view turns a page as the play line
+leaves it.</li>
+<li><b>ADJUST</b> (the menu, on a loop) moves the whole loop round the length without moving a note: <kbd>K1</kbd> a
+row, <kbd>K2</kbd> a bar, heard and drawn at once. <kbd>SEL</kbd> keeps it
+(<samp class="msg" data-t="#: SHIFT #">LOOP 03: SHIFT +17 ROWS</samp>), <kbd>HOME</kbd> cancels
+(<samp class="msg">CANCELLED</samp>). A moved loop shows its SHIFT after its name, the nearer way round (SHIFT -3 is 3
+rows earlier). REC writing the stage into a loop sets its SHIFT back to 0.</li>
+</ul>
+<figure data-shot="loops-adjust"><figcaption>ADJUST on loop 01: K2 a bar and K1 a row later, its line, which played
+in bar 1, now starts on bar 2's second row (SHIFT +17); loop 00 plays on as it was.</figcaption></figure>
 </section>
 
 <section class="topic" id="loops-quantize">
 <h3>QUANTIZE</h3>
-<p>Where a recorded note lands: the properties' QUANTIZE, or the black keys OP1-OP5 in CONTROL mode
+<p>Where a played note lands: the properties' QUANTIZE, or the black keys OP1-OP5 in CONTROL mode
 (<samp class="msg" data-t="QUANTIZE: #">QUANTIZE: 2 ROWS</samp>).</p>
 <dl class="params">
 <dt>2 ROWS, 3 ROWS, 4 ROWS</dt><dd>The nearest line of that many rows, from the loops' start.</dd>
 <dt>ROW</dt><dd>The nearest row (at first).</dd>
 <dt>REAL TIME</dt><dd>The row it falls in, its exact time kept as a note delay, its end as a key off.</dd>
 </dl>
-<p>A note played a little early waits for its line; one just after it sounds at once and is written on the line.</p>
+<p>A note played a little early waits for its line; one just after it sounds at once and is kept on the line. The
+menu's QUANTIZE moves a kept loop's notes onto a grid
+(<samp class="msg" data-t="# QUANTIZED: #">LOOP 03 QUANTIZED: 4 ROWS</samp>).</p>
 </section>
 
 <section class="topic" id="loops-control">
 <h3>CONTROL mode: mutes and solos</h3>
 <p>In CONTROL mode the keys stop playing notes and become a mixer for the loops. Each white key is a loop: white key 1
-is the top loop, white key 16 the sixteenth.</p>
+is the first loop, white key 16 the sixteenth.</p>
 <figure data-shot="loops-control"><figcaption>LOOPS in CONTROL mode. The header shows <b>SEQ SOLO</b>: the white keys
 solo. Loop 2 is soloed (<b>S</b>), so loop 1 is silent.</figcaption></figure>
 <ol class="steps">
@@ -89,16 +256,18 @@ solo. Loop 2 is soloed (<b>S</b>), so loop 1 is silent.</figcaption></figure>
 (<samp class="msg" data-t="# ON">LOOP 02 ON</samp>) at once.</li>
 <li>Press <kbd>SEQ</kbd> again to play notes: <samp class="msg">KEYS: PLAY</samp>.</li>
 </ol>
+<p>Or hold <kbd>SEQ</kbd> and press a key: that key acts as in CONTROL mode once, and the keys stay playing notes.</p>
 <p>Hold a white key a moment instead (longer than HOLD DELAY in SETTINGS) and the change waits for the next bar line
-(<samp class="msg" data-t="# MUTED AT THE BAR">LOOP 02 MUTED AT THE BAR</samp>); the loop's row shows a yellow
-<b>M</b> while it waits.</p>
+(<samp class="msg" data-t="# MUTED AT THE BAR">LOOP 02 MUTED AT THE BAR</samp>); the loop shows a yellow <b>M</b>
+while it waits.</p>
 <p>Press the black key <kbd class="b">GLO</kbd> to make the white keys solo instead of mute
 (<samp class="msg">SEQ: SOLO</samp>; again: <samp class="msg">SEQ: MUTE</samp>). One
 loop is soloed at a time: a white key solos its loop alone (<samp class="msg" data-t="# SOLO">LOOP 02 SOLO</samp>),
 and on the soloed loop it ends the solo (<samp class="msg" data-t="# SOLO OFF">LOOP 02 SOLO OFF</samp>). Held, the
 solo waits for the bar line (a yellow <b>S</b>).</p>
-<aside class="memo">While a loop is soloed only it sounds, but the mutes are kept and come back when the solo ends.
-SAVE keeps the mutes with the loops; a solo is never saved, so after a power-on no loop is soloed.</aside>
+<aside class="memo">While a loop is soloed only it sounds (and the stage), but the mutes are kept and come back when
+the solo ends. SAVE keeps the mutes with the loops; a solo is never saved, so after a power-on no loop is
+soloed.</aside>
 <table class="keys">
 <thead><tr><th>Key</th><th>In CONTROL mode</th></tr></thead>
 <tbody>
@@ -111,70 +280,94 @@ rows.</td></tr>
 <tr><td><kbd class="b">PIT</kbd></td><td>Every loop back on: all mutes and the solo cleared
 (<samp class="msg">ALL LOOPS ON</samp>).</td></tr>
 <tr><td><kbd class="b">GLO</kbd></td><td>The white keys mute, or solo.</td></tr>
-<tr><td><kbd class="b">MONO</kbd> <kbd class="b">POLY</kbd></td><td>How the next loops record: one note at a time, or up
-to 4 (<samp class="msg">NEXT LOOPS: MONO</samp>, <samp class="msg">NEXT LOOPS: POLY</samp>; the footer shows
-it).</td></tr>
+<tr><td><kbd class="b">MONO</kbd> <kbd class="b">POLY</kbd></td><td>How you play and keep: one note at a time, or up
+to 4 (<samp class="msg">KEYS: MONO</samp>, <samp class="msg">KEYS: POLY</samp>; the footer shows it).</td></tr>
 <tr><td><kbd>SEQ</kbd></td><td>Back to playing notes.</td></tr>
 </tbody>
 </table>
 <p>From any screen, <span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> mutes or unmutes that
 loop at once; hold the white key to solo it.</p>
 <figure data-shot="loops-home"><figcaption>HOME's combination in LOOPS: the white keys are the loops.</figcaption></figure>
-<figure data-shot="loops-home-muted"><figcaption>Loop 00 muted from HOME's combination: its row dark.</figcaption></figure>
+<figure data-shot="loops-home-muted"><figcaption>Loop 00 muted from HOME's combination: it plays on, grey.</figcaption></figure>
 </section>
 
 <section class="topic" id="loops-recorder">
 <h3>The pattern recorder</h3>
-<p><kbd>ARP</kbd> opens a step sequencer over the loops, which play on, so the pattern is heard in the mix while you
-build it. (The EDITOR's SEL, RECORD PATTERN is the same recorder.)</p>
-<figure data-shot="loops-recorder"><figcaption>The pattern recorder: 4 rows of 16 steps, a note a row; the knobs'
-settings below.</figcaption></figure>
+<p>Hold <kbd>ARP</kbd> and press <kbd>REC</kbd> (it opens as you let go of REC), or pick the menu's RECORD PATTERN: a
+step sequencer opens over the loops, which play on, so the pattern is heard in the mix while you build it; REC puts it
+onto the stage. (The EDITOR has a simpler one of its own: <a href="#editor-record-pattern">SEL, RECORD
+PATTERN</a>.)</p>
+<figure data-shot="loops-recorder"><figcaption>The pattern recorder: 4 rows of up to 16 steps, a note a row; the
+knobs' settings below, and what the pattern makes over the length.</figcaption></figure>
 <ul>
-<li><b>4 rows of 16 steps,</b> a note a row (with a kit, each row a drum). <kbd>SELECT</kbd> picks the row; a
-<kbd class="w">white key</kbd> switches its step on or off.</li>
+<li><b>4 rows of up to 16 steps,</b> a note a row (with a kit, each row a drum), each step a row of the grid (16 steps
+at 1/16 are a bar). <kbd>SELECT</kbd> picks the row the white keys switch.</li>
+<li><b>A white key</b> switches its step on or off as you let go. <b>Held</b> a moment, the step is a <i>tie</i>: the
+note before rings on through it. A held key after a step that is off, or on the first step, makes a plain note, so a
+held run starts with one; switching off a note before its ties turns the next tie into a note.</li>
 <li><b>The row's note:</b> <kbd>K3</kbd> moves it a semitone a click; or tap <kbd>SEL</kbd>, then press a key: that key
 is the note (<samp class="msg">KEYS: THE NOTE</samp>, then <samp class="msg">KEYS: THE STEPS</samp>). SEL held + a key
 does it at once. <kbd>OCT-</kbd> / <kbd>OCT+</kbd> move the row's note with the octave
-(<samp class="msg" data-t="NOTE %s">NOTE C-5</samp>).</li>
-<li><kbd>K1</kbd> <b>STEP SIZE</b> (1/32 to 1/4, 1/16 at first), <kbd>K2</kbd> <b>LENGTH</b> (4, 8, 12 or 16 steps),
-<kbd>K4</kbd> <b>TIMES</b> (x1-x8, for the first loop only: how many times it fills the new length).</li>
-<li><kbd>GLO</kbd>: the notes RING TO THE NEXT (at first) or last A STEP LONG
-(<samp class="msg">NOTES RING TO THE NEXT</samp>, <samp class="msg">NOTES A STEP LONG</samp>).</li>
-<li>The preview plays while the recorder is open; <kbd>ARP</kbd> switches it off and on.</li>
-<li><kbd>REC</kbd> writes it and closes: on + NEW LOOP a new loop
-(<samp class="msg" data-t="PATTERN: %s, %s">PATTERN: LOOP 06, 4 BARS</samp>); opened on a loop, it replaces that
-loop's notes (<samp class="msg" data-t="PATTERN INTO #">PATTERN INTO LOOP 03</samp>). No step on:
-<samp class="msg">NO STEPS ON</samp>. <kbd>HOME</kbd> closes it, nothing written.</li>
+(<samp class="msg" data-t="NOTE #">NOTE C-5</samp>).</li>
+<li><kbd>K1</kbd> <b>NOTE LENGTH,</b> how long each step's note sounds: 1/32 to 1 BAR (the lengths the grid has), or
+TO THE NEXT (it rings until the row's next note); 1/16 at first. A row's next note always ends the one before; notes
+on different rows overlap, so a chord rings. <kbd>K2</kbd> <b>LENGTH:</b> 4, 8, 12 or 16 steps. The pattern repeats
+over the loops' length from their start; the box's last lines say how (<b>REPEATS OVER 4 BARS</b>, <b>4 X 16 = 64
+ROWS, 2 LANES</b>).</li>
+<li><b>The preview</b> plays from the moment the recorder opens, in your sound (opened on a loop, in that loop's): in
+time with the loops while they play, else on its own at LOOPS' tempo. <kbd>ARP</kbd> switches it off and on.
+<kbd>ALGORITHM</kbd> turns the tempo here.</li>
+<li><kbd>REC</kbd> puts the pattern onto the stage, in place of what it held, and closes
+(<samp class="msg">PATTERN ON THE STAGE</samp>); the stage plays in the preview's sound, what sounds goes on as the
+stage's, and a preview playing on its own starts the loops from where it was. REC on the screen then keeps the stage
+as a loop. No step on: <samp class="msg">NO STEPS ON</samp>. <kbd>HOME</kbd> closes it, nothing written.</li>
 </ul>
-<p>What you set stays for the next time until power-off.</p>
+<figure data-shot="loops-tie"><figcaption>Ties: white keys 2 and 3, held after step 1, join it, so its note rings
+through three steps; key 6, held after a step that is off, made a plain note.</figcaption></figure>
+<p>The recorder opens clean every time: no steps, the first row on C, 16 steps, NOTE LENGTH 1/16. It is refused while
+the loops are armed or count in. With the stage off it opens, and its REC switches the stage on.</p>
 </section>
 
 <section class="topic" id="loops-record-live">
 <h3>RECORD LIVE: the performance as a song</h3>
-<p><kbd>SEL</kbd>, RECORD LIVE records everything you do over the loops into a new song: the loops as they play,
-mutes and solos, the keys, effects, punch-ins, tempo changes and the mix.</p>
+<p><kbd>SEL</kbd>, RECORD LIVE records everything that sounds into a new song, whatever LOOPS does meanwhile: the
+loops as they are heard, the stage, the keys, the pattern recorder's preview, effects, punch-ins, tempo changes and
+the mix.</p>
 <figure data-shot="loops-record-live"><figcaption>RECORD LIVE's panel: the new song's NAME and TEMPO; REC arms,
 HOME cancels.</figcaption></figure>
 <ol class="steps">
 <li><kbd>SEL</kbd>, RECORD LIVE opens its panel: the song's <b>NAME</b> (<kbd>EDIT</kbd> types it) and <b>K1
 TEMPO</b>.</li>
-<li><kbd>REC</kbd> arms it (REC blinks; the top line's REC reads SONG). <kbd>HOME</kbd> cancels.</li>
-<li>It starts with your next REC, a note, or PLAY.</li>
-<li>Perform. PLAY drops the loops out and brings them back; PLAY held takes them to their start; the keys play on
-their own tracks.</li>
-<li><kbd>REC</kbd> ends it (<samp class="msg" data-t="SONG # RECORDED: #, # PATTERNS">SONG 12 RECORDED: 1:23, 5
-PATTERNS</samp>). SAVE keeps the song.</li>
+<li><kbd>REC</kbd> arms it (REC blinks; the top line's REC reads SONG; the line under the bars, <b>SONG ARMED: A NOTE
+STARTS  HOME CANCELS</b>). <kbd>HOME</kbd> cancels.</li>
+<li>It starts with your next REC, a note, or, when the loops were stopped as you armed it and still are, PLAY (after
+COUNT-IN).</li>
+<li>Perform, and work as usual: everything on LOOPS does what it always does, heard and so written, and REC keeps
+its jobs. PLAY drops the loops out and brings them back, the song's time running on; PLAY held takes them to their
+start. The line under the bars reminds you how it ends: <b>RECORDING: HOME ENDS AND KEEPS IT</b>.</li>
+<li><kbd>HOME</kbd> ends it (<samp class="msg" data-t="SONG # RECORDED: #, # PATTERNS">SONG 12 RECORDED: 1:23, 5
+PATTERNS</samp>): the row you pressed it in is the song's last, and the loops play on. The song is on SONGS under
+its NAME, and plays once and stops; SAVE keeps it.</li>
 </ol>
 <figure data-shot="loops-song"><figcaption>A song recording: the top line shows its time and patterns.</figcaption></figure>
 <ul>
-<li>While a song records, nothing changes the loops themselves: takes, PEEL, DOUBLE and the like are refused
-(<samp class="msg">RECORDING A SONG</samp>).</li>
-<li>Leaving LOOPS (but for FX) ends it, keeping what was written.</li>
+<li>Held, HOME is its combination as ever. In the pattern recorder or a dialog HOME closes that; HOME again ends the
+song. Armed, HOME cancels it.</li>
+<li>Only notes that have a voice are written: a note given no voice is not written, and a note losing its voice ends
+there. The song's rows are its own, fixed as it starts, so GRID, LENGTH or a change to a loop never moves what was
+written; the notes go where they were heard.</li>
+<li>With the stage on, the keys are written as they land on it, by QUANTIZE; with it off, or while the loops are
+silent, as played. A FUSION note is written as one note.</li>
+<li>Started by REC or a note with the loops stopped, they stay stopped until PLAY.</li>
+<li>LOAD FROM PATTERN leaves the loops silent at their start, as the song's time goes on; PLAY brings them on.</li>
+<li>Leaving LOOPS (but for FX) ends it, keeping what was written; so does PLAY on FX, which pauses the loops. SAVE NOW
+and REVERT ALL end it first; SAVE itself waits for a pause, as ever.</li>
 <li>Notes that do not fit the song's 16 tracks are left out and counted
 (<samp class="msg" data-t="SONG #: # NOTES LEFT OUT">SONG 12: 3 NOTES LEFT OUT</samp>). It stops by itself when the
 memory, the pattern numbers or 256 positions run out
-(<samp class="msg" data-t="SONG # STOPPED: MEMORY FOR EDITS IS FULL">SONG 12 STOPPED: MEMORY FOR EDITS IS FULL</samp>);
-with no song number free it is refused (<samp class="msg">NO SONG NUMBER FREE</samp>).</li>
+(<samp class="msg" data-t="SONG # STOPPED: MEMORY FOR EDITS IS FULL">SONG 12 STOPPED: MEMORY FOR EDITS IS FULL</samp>):
+the rows waiting for their pattern, up to 128, go, and with no pattern written yet there is no song. With no song
+number free it is refused (<samp class="msg">NO SONG NUMBER FREE</samp>).</li>
 </ul>
 </section>
 
@@ -183,12 +376,13 @@ with no song number free it is refused (<samp class="msg">NO SONG NUMBER FREE</s
 <p>LOOPS has no precise editing; for that, store the loops in a pattern and edit it in the EDITOR.</p>
 <figure data-shot="loops-save-to"><figcaption>SAVE TO PATTERN: the pattern list, NEW first.</figcaption></figure>
 <dl class="params">
-<dt>SAVE TO PATTERN</dt><dd>Writes one pattern of the loops' length: every loop's notes, repeats written out, each with
-its instrument, and each loop's mix (<samp class="msg" data-t="LOOPS STORED IN PATTERN #">LOOPS STORED IN PATTERN
-2A</samp>). Pick NEW or a pattern; a pattern that is not empty asks first.</dd>
+<dt>SAVE TO PATTERN</dt><dd>Writes one pattern of the loops' length: every loop as it is heard, repeats written out,
+each note with its instrument, and each loop's mix (<samp class="msg" data-t="LOOPS STORED IN PATTERN #">LOOPS STORED
+IN PATTERN 2A</samp>). Pick NEW or a pattern; a pattern that is not empty asks first. The stage is not written.</dd>
 <dt>LOAD FROM PATTERN</dt><dd>Turns a pattern into loops, a loop an instrument, replacing the loops after a question
 (<samp class="msg" data-t="PATTERN # IN LOOPS: # LOOPS">PATTERN 2A IN LOOPS: 3 LOOPS</samp>). The length is the
-pattern's, in whole bars; what does not fit 16 loops of 4 notes is left out and said.</dd>
+pattern's, in whole bars; what does not fit 16 loops of 4 notes is left out and said. The loops stop at their start;
+the stage stays.</dd>
 </dl>
 </section>
 
@@ -197,35 +391,53 @@ pattern's, in whole bars; what does not fit 16 loops of 4 notes is left out and 
 <p><kbd>GLO</kbd> opens LOOPS PROPERTIES:</p>
 <figure data-shot="loops-props"><figcaption>LOOPS PROPERTIES.</figcaption></figure>
 <dl class="params">
-<dt>TEMPO</dt><dd>As a song's, with its BPM (ALGORITHM turns it too). <span class="range">3-600</span></dd>
+<dt>TEMPO</dt><dd>As a song's, with its BPM. <span class="range">3-600</span></dd>
 <dt>SWING</dt><dd><span class="range">50-75 %</span></dd>
-<dt>LENGTH</dt><dd>A bar more or less: longer adds silence at the end, shorter cuts bars off (asking first when notes
-would go). Before the first loop: THE FIRST LOOP SETS IT.</dd>
-<dt>GRID</dt><dd>1/16, 1/16T or 1/32: 4, 6 or 8 rows a beat. Only before the first loop
-(<samp class="msg">GRID: ONLY BEFORE THE FIRST LOOP</samp>).</dd>
-<dt>QUANTIZE</dt><dd>Where a recorded note lands (<a href="#loops-quantize">above</a>): on every 2, 3 or 4 rows, on
-the nearest row, or where you played it (REAL TIME). <span class="range">2 ROWS, 3 ROWS, 4 ROWS, ROW, REAL TIME; ROW
+<dt>LENGTH</dt><dd>A bar more or less, with loops or none: longer adds silence at the end at once; shorter is cut when
+the properties close, asking first when notes would go (<a href="#loops-length">above</a>). <span class="range">4 BARS
 at first</span></dd>
-<dt>MONO LEGATO</dt><dd>On a MONO loop, a note over a held one: GLIDE (a short glide; a TB-303's slide), LEGATO (the
-held note moves to the new one, no new attack) or JUMP (a plain new note).</dd>
-<dt>COUNT-IN</dt><dd>Before a take PLAY starts: OFF, 1 BAR, 2 BARS. A key always starts at once.
+<dt>GRID</dt><dd>1/16, 1/16T or 1/32: 4, 6 or 8 rows a beat. Only with no loops
+(<samp class="msg">GRID: ONLY WITH NO LOOPS</samp>) and the stage empty
+(<samp class="msg">GRID: ONLY WITH THE STAGE EMPTY</samp>).</dd>
+<dt>QUANTIZE</dt><dd>Where a played note lands (<a href="#loops-quantize">above</a>): on every 2, 3 or 4 rows, on the
+nearest row, or where you played it (REAL TIME). <span class="range">2 ROWS, 3 ROWS, 4 ROWS, ROW, REAL TIME; ROW at
+first</span></dd>
+<dt>MONO LEGATO</dt><dd>Playing MONO, a note over a held one: GLIDE (a short glide; a TB-303's slide), LEGATO (the
+held note moves to the new one, no new attack) or JUMP (a plain new note). <span class="range">JUMP at first</span></dd>
+<dt>COUNT-IN</dt><dd>Before PLAY starts armed loops: OFF, 1 BAR, 2 BARS. A key always starts at once.
 <span class="range">OFF at first</span></dd>
+<dt>VIEW</dt><dd>The bars a screen shows. <span class="range">1, 2 or 4 BARS A SCREEN; 2 at first</span></dd>
+<dt>K1 TURNS to K4 TURNS</dt><dd>Each knob's job: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND, TEMPO or VIEW.
+<span class="range">LEVEL, PAN, REVERB SEND, TEMPO at first</span></dd>
 </dl>
 <p><kbd>SEL</kbd> opens the menu:</p>
 <figure data-shot="loops-menu"><figcaption>The menu on a loop.</figcaption></figure>
 <dl class="params">
-<dt>APPLY INSTRUMENT</dt><dd>The selected loop takes the current instrument (<b>LOOP 03: 01:04 BRASS</b>).</dd>
-<dt>DOUBLE</dt><dd>The length x2, every loop playing twice what it played (<samp class="msg" data-t="DOUBLED: # BARS">DOUBLED:
-8 BARS</samp>; past 8 bars: <samp class="msg" data-t="DOUBLE: AT MOST # BARS">DOUBLE: AT MOST 8 BARS</samp>).</dd>
-<dt>RECORD LIVE</dt><dd>Its panel (above); while armed, CANCEL RECORD LIVE.</dd>
-<dt>SAVE TO PATTERN, LOAD FROM PATTERN</dt><dd>Above.</dd>
-<dt>CLEAR LOOPS</dt><dd>Every loop goes, after a question; the next loop sets a new length
-(<samp class="msg">LOOPS CLEARED</samp>).</dd>
-<dt>REVERT</dt><dd>LOOPS as last saved, after a question.</dd>
+<dt>TAKE ITS INSTRUMENT</dt><dd>The selected loop's sound and MONO / POLY become yours (ENV held does the same).</dd>
+<dt>APPLY INSTRUMENT</dt><dd>The selected loop takes your sound and MONO / POLY.</dd>
+<dt>ADJUST</dt><dd>Moves the loop round the length (<a href="#loops-knobs">above</a>).</dd>
+<dt>QUANTIZE</dt><dd>Moves the loop's notes onto a grid of 2, 3 or 4 rows, or the nearest row, as it is heard.</dd>
+<dt>DELETE LOOP</dt><dd>The loop goes at once, no question
+(<samp class="msg" data-t="# DELETED">LOOP 03 DELETED</samp>); the loops after it move up. REVERT brings back what was
+saved.</dd>
+<dt>DOUBLE</dt><dd>The length x2, every loop playing twice what it played, the stage too
+(<samp class="msg" data-t="DOUBLED: #">DOUBLED: 8 BARS</samp>); listed only while twice the length fits.</dd>
+<dt>RECORD PATTERN</dt><dd>The pattern recorder (<a href="#loops-recorder">above</a>), as ARP held + REC.</dd>
+<dt>RECORD LIVE</dt><dd>Its panel (<a href="#loops-record-live">above</a>); while armed, CANCEL RECORD LIVE.</dd>
+<dt>SAVE TO PATTERN, LOAD FROM PATTERN</dt><dd><a href="#loops-patterns">Above</a>.</dd>
+<dt>CLEAR STAGE</dt><dd>Listed while the stage holds notes: empties it at once, no question
+(<samp class="msg">STAGE CLEARED</samp>), and the stage is on; EDIT held 2 seconds does the same.</dd>
+<dt>CLEAR LOOPS</dt><dd>Every loop goes, and the stage's notes, after a question
+(<samp class="msg" data-t="CLEAR ALL # LOOPS?">CLEAR ALL 6 LOOPS?</samp> <samp class="msg">THE STAGE TOO; THE LENGTH
+STAYS</samp>; with one loop, <samp class="msg">CLEAR ALL 1 LOOP?</samp>): <samp class="msg">LOOPS CLEARED</samp>. The
+loops play on, empty.</dd>
+<dt>REVERT</dt><dd>Listed while LOOPS has changes not saved: LOOPS as last saved, after a question (<samp
+class="msg">REVERT LOOPS TO SAVED?</samp>); the stage stays.</dd>
 </dl>
-<p>With no loops, EDIT, LFO and the menu's loop items say <samp class="msg">NO LOOPS YET</samp>.</p>
-<figure data-shot="loops-full"><figcaption>All 16 loops.</figcaption></figure>
-<figure data-shot="loops-repeats"><figcaption>Loops that repeat: X3, X4 after their names.</figcaption></figure>
+<p>With no loops, RECORD LIVE, SAVE TO PATTERN and CLEAR LOOPS say <samp class="msg">NO LOOPS YET</samp>.</p>
+<figure data-shot="loops-full"><figcaption>All 16 loops in the column at the right, four in view.</figcaption></figure>
+<figure data-shot="loops-repeats"><figcaption>Loops that repeat (X3 after their names) over a length of one bar: loop
+00 plays three times, then rests; loop 01's third time is cut at the length's end.</figcaption></figure>
 </section>
 
 <section class="topic" id="loops-keys">
@@ -233,27 +445,44 @@ held note moves to the new one, no new attack) or JUMP (a plain new note).</dd>
 <table class="keys">
 <thead><tr><th>Key</th><th>In PLAY mode</th></tr></thead>
 <tbody>
-<tr><td><kbd>SELECT</kbd></td><td>Picks a loop, or + NEW LOOP below them.</td></tr>
-<tr><td><kbd>REC</kbd></td><td>Records where the selection is: a new loop, or the loop again; while the loops play it
-arms; again, stops the take early (the first loop: closes it on a bar line).</td></tr>
-<tr><td><kbd>REC</kbd> <kbd>PLAY</kbd></td><td>With no loops: REC, then a note or PLAY, starts the first loop; REC again
-closes it on a bar.</td></tr>
-<tr><td><kbd>PLAY</kbd></td><td>Plays and pauses the loops.</td></tr>
-<tr><td><kbd>PLAY</kbd> held</td><td>Stops: the loops go back to their start.</td></tr>
-<tr><td><kbd>EDIT</kbd></td><td>Records the selected loop again (RE-RECORD).</td></tr>
-<tr><td><kbd>LFO</kbd></td><td>PEEL: the selected loop goes.</td></tr>
-<tr><td><kbd>KEYS</kbd></td><td>Play the current instrument; while recording, write into the take.</td></tr>
-<tr><td><kbd>PRESETS</kbd></td><td>The sound you play, which the next loop takes.</td></tr>
-<tr><td><kbd>ENV</kbd></td><td>The cartridge list: the next loop's sound from another cartridge.</td></tr>
-<tr><td><kbd>ALGORITHM</kbd></td><td>The tempo, any time.</td></tr>
-<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>The selected loop's LEVEL, PAN, DELAY and REVERB;
-on + NEW LOOP, the next loop's.</td></tr>
+<tr><td><kbd>SELECT</kbd></td><td>Picks a loop, or + NEW LOOP after them; the stage stays.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Plays the loops from where PLAY starts, with loops or none (armed: after COUNT-IN);
+playing, stops them, back to the start. A song armed or recording: <a href="#loops-record-live">above</a>.</td></tr>
+<tr><td><kbd>PLAY</kbd> held</td><td>Stops: the loops go back to their start. A song recording:
+<a href="#loops-record-live">above</a>.</td></tr>
+<tr><td><kbd>KEYS</kbd></td><td>Play your sound; while the loops play, onto the stage (the stage off: heard at
+once, kept nowhere); armed, the first starts them.</td></tr>
+<tr><td><kbd>REC</kbd></td><td>Keeps the stage: a new loop on + NEW LOOP, or into the selected loop, leaving the stage off.
+Stopped with the stage empty: arms, so a note starts the loops (again: disarms). With the stage off: switches it on, and
+stopped arms too.</td></tr>
+<tr><td><kbd>EDIT</kbd></td><td>The selected loop onto the stage, as it is heard; the stage on, in OVERDUB. On + NEW
+LOOP: clears the stage.</td></tr>
+<tr><td><kbd>EDIT</kbd> held</td><td>Clears the stage, on a loop or on + NEW LOOP.</td></tr>
+<tr><td><kbd>LFO</kbd></td><td>Its tap, as you let go: OVERDUB or OVERWRITE, where the play line erases the stage as it passes
+(the stage off: nothing).</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>Where PLAY starts, a row a click; playing, a jump there.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>ALGORITHM</kbd></span> held</td><td>The same, a bar a click.</td></tr>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Their jobs (GLO): LEVEL, PAN, REVERB SEND and
+TEMPO at first; on + NEW LOOP, the next loop's mix (its sends the KEYS column's). In ADJUST: K1 a row, K2 a bar.</td></tr>
+<tr><td><kbd>PRESETS</kbd></td><td>The sound you play, the stage's, which REC keeps with a loop.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>The cartridge list: your sound from another cartridge.</td></tr>
+<tr><td><kbd>ENV</kbd> held</td><td>The selected loop's sound and MONO / POLY become yours.</td></tr>
 <tr><td><kbd>SEQ</kbd></td><td>Switches the keys between playing notes and CONTROL mode.</td></tr>
-<tr><td><kbd>ARP</kbd></td><td>Opens the pattern recorder.</td></tr>
-<tr><td><kbd>GLO</kbd></td><td>The properties: tempo, swing, length, grid, quantize, mono legato, count-in.</td></tr>
-<tr><td><kbd>SEL</kbd></td><td>The menu: APPLY INSTRUMENT, DOUBLE, RECORD LIVE, SAVE TO / LOAD FROM PATTERN, CLEAR LOOPS,
-REVERT.</td></tr>
+<tr><td><kbd>SEQ</kbd> held + a key</td><td>That key as in CONTROL mode, once: a mute or solo, QUANTIZE, all loops
+on, MONO or POLY.</td></tr>
+<tr><td><kbd>ARP</kbd></td><td>Switches the stage off and on.</td></tr>
+<tr><td><kbd>ARP</kbd> held</td><td>Shows what it does with REC; let go, nothing.</td></tr>
+<tr><td><span class="combo"><kbd>ARP</kbd> held + <kbd>REC</kbd></span></td><td>Opens the pattern recorder, as you let
+go of REC.</td></tr>
+<tr><td><kbd>GLO</kbd></td><td>The properties: tempo, swing, length, grid, quantize, mono legato, count-in, view, the
+knobs' jobs.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The menu: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, QUANTIZE, DELETE LOOP, DOUBLE,
+RECORD PATTERN, RECORD LIVE, SAVE TO / LOAD FROM PATTERN, CLEAR STAGE, CLEAR LOOPS, REVERT. In ADJUST: keeps it.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>HOME's combination; in ADJUST or a count-in, or with a song armed, cancels; a song
+recording, tapped, ends it.</td></tr>
 <tr><td><kbd>FX</kbd></td><td>LOOPS' own effects; FX again comes back.</td></tr>
+<tr><td><span class="combo"><kbd>FX</kbd> held + <kbd class="w">white key</kbd></span></td><td>A punch-in effect: heard,
+and written only by RECORD LIVE.</td></tr>
 <tr><td><kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>The keys' octave.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes a loop at once.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span> held</td><td>Solos it.</td></tr>
@@ -266,20 +495,28 @@ REVERT.</td></tr>
 <tr><td><kbd class="b">OP4</kbd> <kbd class="b">OP5</kbd></td><td>QUANTIZE a row; REAL TIME.</td></tr>
 <tr><td><kbd class="b">PIT</kbd></td><td>Every loop back on.</td></tr>
 <tr><td><kbd class="b">GLO</kbd></td><td>The white keys mute, or solo.</td></tr>
-<tr><td><kbd class="b">MONO</kbd> <kbd class="b">POLY</kbd></td><td>How the next loops record.</td></tr>
+<tr><td><kbd class="b">MONO</kbd> <kbd class="b">POLY</kbd></td><td>How you play and keep: one note, or up to 4.</td></tr>
+</tbody>
+<thead><tr><th>Key</th><th>In ADJUST</th></tr></thead>
+<tbody>
+<tr><td><kbd>K1</kbd> <kbd>K2</kbd></td><td>The loop a row, a bar later or earlier.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>Keeps the shift.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>Cancels: the loop as it was.</td></tr>
 </tbody>
 <thead><tr><th>Key</th><th>In the pattern recorder</th></tr></thead>
 <tbody>
 <tr><td><kbd>SELECT</kbd></td><td>Picks the row.</td></tr>
 <tr><td><kbd class="w">white key</kbd></td><td>Switches a step on or off.</td></tr>
+<tr><td><kbd class="w">white key</kbd> held</td><td>A tie: the note before rings on through the step.</td></tr>
 <tr><td><kbd>K3</kbd></td><td>The row's note, a semitone a click.</td></tr>
 <tr><td><kbd>SEL</kbd></td><td>Then a key: that key is the row's note.</td></tr>
-<tr><td><kbd>K1</kbd></td><td>STEP SIZE.</td></tr>
-<tr><td><kbd>K2</kbd></td><td>LENGTH.</td></tr>
-<tr><td><kbd>K4</kbd></td><td>TIMES: the first loop's length.</td></tr>
-<tr><td><kbd>GLO</kbd></td><td>Notes ring to the next, or last a step.</td></tr>
+<tr><td><kbd>SEL</kbd> held + a key</td><td>That key is the row's note at once.</td></tr>
+<tr><td><kbd>OCT-</kbd> <kbd>OCT+</kbd></td><td>The octave, and the row's note with it.</td></tr>
+<tr><td><kbd>K1</kbd></td><td>NOTE LENGTH.</td></tr>
+<tr><td><kbd>K2</kbd></td><td>LENGTH: 4 to 16 steps.</td></tr>
+<tr><td><kbd>ALGORITHM</kbd></td><td>The tempo.</td></tr>
 <tr><td><kbd>ARP</kbd></td><td>The preview off and on.</td></tr>
-<tr><td><kbd>REC</kbd></td><td>Writes the loop and closes.</td></tr>
+<tr><td><kbd>REC</kbd></td><td>Onto the stage, and closes.</td></tr>
 <tr><td><kbd>HOME</kbd></td><td>Closes, nothing written.</td></tr>
 </tbody>
 </table>

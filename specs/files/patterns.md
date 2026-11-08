@@ -18,7 +18,7 @@ instruments play their rows, and LOOPS' loops keep their notes as a pattern's tr
 - **A shared pool** of patterns `00`-`FE`: the user's `00`-`EF`, the firmware's `F0`-`FE`. Song positions and
   FUSION slots refer to them, so two songs, or a song and a FUSION instrument, can use the same pattern.
 - **`F0`-`FD`** are kept for later built-in patterns ([instruments.md](instruments.md#built-in-instruments));
-  the firmware has none yet (FUSION's patterns are the demo disk's: `E0`-`E5`, [disk.md](disk.md#the-demo-disk)).
+  the firmware has none yet (FUSION's patterns are the demo disk's: `A0`-`A5`, [disk.md](disk.md#the-demo-disk)).
 - **`FE` is the EDITOR's own pattern** ([../ui/screens/editor.md](../ui/screens/editor.md#the-editors-own-pattern)):
   empty in the firmware (8 tracks × 64 rows, EDIT STEP 1), kept by SAVE as a changed built-in is, with room kept
   for it ([store.md](store.md#the-room-for-the-editors-pattern)). No song position or FUSION slot names it, and
@@ -63,6 +63,15 @@ A head byte, then the fields it announces, in this order:
 - **The instrument's first appearance** on a track in a record is always written in full, so a record
   decodes on its own ([ram.md](ram.md#editing-and-saving)).
 - **No instrument:** the note plays with the track's current instrument, as in XM.
+- **An instrument that does not exist** (an empty slot, a deleted cartridge or built-in,
+  [references.md](references.md#a-reference-to-nothing)) plays as a silent engine, in whichever of the three ways
+  above it is named. The cell is a cell like any other and every rule applies: it becomes the track's instrument
+  (the track's parameters dropped, as for any other instrument), its note releases the note before as any note does
+  and leaves its tail as it was, its volume and commands work, MIDI OUT sends the note, the FILTER's envelope keyed
+  to the track fires and is held until the note ends ([../ui/screens/fx.md](../ui/screens/fx.md)); only no voice
+  sounds. The cells after it that name no instrument play it too, silent, until one names another. A portamento
+  onto it (3xx, 5xx, the volume column's Fx) starts no note, as onto any other instrument: the sounding note glides
+  on. LEG onto it is a plain note ([commands.md](commands.md#legato)): silent, releasing the one before.
 - **Volume:** `7F` plays the instrument at its own level; no volume, the instrument's default.
   Volumes of 0-64 (MOD, S3M, XM) convert exactly both ways: v becomes 2v, 64 becomes `7F`; back,
   round(u × 64 / 127).

@@ -1,8 +1,10 @@
 # The controls
 
-Status: **settled** (2026-10-09), LOOPS' controls to be tried in the playground. The records:
+Status: **settled** (2026-10-09), LOOPS' controls to be tried on the FM-1. The records:
 [the UI proposal](../proposals/202610072229-ui.md), sections 1.1-1.3 and 9; LOOPS' controls,
-[the loop station proposal](../proposals/202610240236-loops-station.md), section 6.
+[the loop station proposal](../proposals/202610240236-loops-station.md), section 6, [the stage
+proposal](../proposals/202611030330-loops-redesign.md), sections 4-12, and [the stage switch
+proposal](../proposals/202611041720-loops-stage-switch.md) (ARP on LOOPS).
 
 How the knobs, buttons and keys work on every screen: the grammar of taps, holds and combinations,
 one meaning for each button, and the key map. What the hardware has is in
@@ -38,6 +40,9 @@ one meaning for each button, and the key map. What the hardware has is in
   SEL is let go, and PRESETS turns the instruments again, as before. Only where SEL +
   PRESETS changes the current cartridge: not on DJ, and not over a question, a name being typed or any overlay the
   SEL tap did not open (there SEL held + PRESETS turns the cartridge without the list, as before).
+- **GLO held + PRESETS:** a favourite once, the current cartridge kept: the favourites of the FAVORITES cartridge SEL +
+  GLO goes to, one a click, the keys' instrument each one's source, their list shown while GLO is held
+  ([screens/instruments.md](screens/instruments.md#favorites)). Where SEL + GLO works, not on INSTRUMENTS.
 
 ## Buttons: tap, hold and layers
 
@@ -45,6 +50,11 @@ one meaning for each button, and the key map. What the hardware has is in
   - **every function is reachable with taps and knob turns alone;**
   - **a held combination is only a shortcut** for something taps also reach, or, as the last resort,
     the only way to something rare (big steps with SEL held);
+  - **a hold that is itself the playing needs no tap route,** as a note key held is the note sounding: in the
+    pattern recorder a white key held ties its step ([the pattern recorder](screens/loops.md#the-pattern-recorder-arp)).
+    EDIT held on LOOPS, which empties the stage, is a shortcut: its tap route is SEL's CLEAR STAGE
+    ([screens/loops.md](screens/loops.md#the-stage)). ARP held + REC, which opens LOOPS' pattern recorder, is a shortcut
+    too: its tap route is SEL's RECORD PATTERN;
   - where a mode can be a switch, a tap toggles it;
   - **what is played live goes on the note keys,** which are easier to press than the buttons
     (2026-10-10);
@@ -54,8 +64,10 @@ one meaning for each button, and the key map. What the hardware has is in
   New controls follow this. HOME's combination opens with a tap ([below](#homes-combination)); the
   others are held, as shortcuts, and each has a tap route.
 - **PLAY, REC and the note keys act the moment they are pressed,** for timing.
-  - **The one exception:** on the EDITOR with REC on, PLAY acts on release. Holding PLAY and pressing
-    a key starts a take on that note ([screens/editor.md](screens/editor.md)).
+  - **The exceptions:** on the EDITOR with REC on, PLAY acts on release. Holding PLAY and pressing
+    a key starts a take on that note ([screens/editor.md](screens/editor.md)). On LOOPS, REC with ARP held acts at its
+    release (the pattern recorder: [screens/loops.md](screens/loops.md#the-pattern-recorder-arp)), and PLAY while a song
+    records as it is let go (held: the loops to their start) ([screens/loops.md](screens/loops.md#the-stage)).
   - **PLAY held** past the hold delay also stops: back to the start
     ([transport.md](transport.md)).
 - **Every other button acts on its tap**, at release, so it can also be held as a modifier:
@@ -68,6 +80,9 @@ one meaning for each button, and the key map. What the hardware has is in
   - **a control that is no member closes it** and does its own job, as if the button were not held;
     the button's tap then does not happen either (SEL held, then SEQ: SEQ's own job, and no menu when SEL
     is let go). PLAY, REC and OCT, which act at once, stay as they are;
+  - **on LOOPS, LFO's tap comes at its release,** with no grace and however long it was held: it switches OVERDUB and
+    OVERWRITE. It has no layer and nothing while held, no other control closes it, and HOME alone takes it, for the help
+    ([screens/loops.md](screens/loops.md#the-stage));
   - **held alone past the hold delay** (500 ms; SETTINGS → HOLD DELAY): an overlay shows the button's
     *layer*, meaning what the keys and knobs do with it (HOME: the screens and tracks; FX: the punch-in
     effects; [dialogs.md](dialogs.md#hold-layers)).
@@ -99,7 +114,11 @@ one meaning for each button, and the key map. What the hardware has is in
     a button tapped is a turn and a tap; a button pressed and then a knob turned is the combination.
   - **Two tap-acting buttons combine in either order,** except OCT: it never waits, so the keys'
     octave never lags behind a fast change. SAVE + OCT- and SAVE + OCT+ need SAVE first (or let go
-    within the grace period).
+    within the grace period). **SEL + GLO** (to the built-in FAVORITES and back,
+    [screens/instruments.md](screens/instruments.md#favorites)) needs SEL held first and acts at GLO's press: SEL
+    tapped first and then GLO is SEL's tap, then GLO's own job; GLO alone acts at once and waits for no grace
+    period. **GLO + PRESETS** (a favourite once, [screens/instruments.md](screens/instruments.md#favorites)) needs
+    GLO held while PRESETS turns: a knob counts in the order it came, so GLO's tap still acts at once.
   - **With a control that acts on press** (PLAY, REC, the note keys), the modifier has to come
     first, though it may have been let go within the grace period. A note must sound at once, so it
     cannot wait to see whether a modifier follows.
@@ -122,7 +141,8 @@ one meaning for each button, and the key map. What the hardware has is in
     - EDIT has taken you into the EDITOR from another screen: from PLAYBACK, from a song position,
       or from a FUSION instrument ([navigation.md](navigation.md#jumps-into-the-editor)).
   - **at the top of a screen,** with nothing to back out of: it opens HOME's combination
-    ([below](#homes-combination)).
+    ([below](#homes-combination)). In LOOPS with a song armed or recorded it cancels or ends the song instead
+    ([screens/loops.md](screens/loops.md#record-live)).
 
 ## HOME's combination
 
@@ -166,14 +186,14 @@ One meaning per button across screens; each screen applies it to its own content
 |---|---|
 | **EDIT** | Opens the thing at the cursor for editing: a cell (the note editor), a song (its order), an instrument (its editor), GATE's steps. Pressed again, it leaves keeping the changes; HOME leaves dropping them ([above](#buttons-tap-hold-and-layers)). On PLAYBACK it opens the EDITOR on what plays, entered deep: HOME tap returns. On STATUS, any page, it goes to SETTINGS, as HOME + MONO does: nothing to return to. |
 | **SEL** | Select and act. **Tap** opens the actions menu for the marked block, or for the item at the cursor (copy, paste, move, delete...); where blocks or slots can be marked (the EDITOR, INSTRUMENTS), the menu starts with **MARK**: SELECT / ALGORITHM then stretch the block from the cursor, and SEL opens its menu. **Held** works as a shift, a shortcut: SELECT / ALGORITHM mark a block, PRESETS turns cartridges, K1-K4 take coarse steps. On DJ, which has no menu, a tap resets the last knob turned (LFO's job elsewhere: there LFO is the LFO pads). |
-| **ENV** | `EXPLORE NAMED VAULTS`: the list of containers where things live (patterns, cartridges, samples), with SEL actions inside the list. **Held,** in the EDITOR: the pipette, the cursor's cell's instrument becomes the current one (a shortcut for SEL's TAKE ITS INSTRUMENT). On DJ, which has no containers to list, it turns what K2 / K3 do, a cycle: the decks' filters, their volumes. |
+| **ENV** | `EXPLORE NAMED VAULTS`: the list of containers where things live (patterns, cartridges, samples), with SEL actions inside the list. **Held,** in the EDITOR: the pipette, the cursor's cell's instrument becomes the current one (a shortcut for SEL's TAKE ITS INSTRUMENT); in LOOPS the same for the selected loop, its instrument and MONO / POLY becoming the keys' ([screens/loops.md](screens/loops.md#the-instrument-and-mono-or-poly)). On DJ, which has no containers to list, it turns what K2 / K3 do, a cycle: the decks' filters, their volumes. |
 | **GLO** | Properties of the current container: the pattern, song, cartridge, the loops, FX chain or view. |
-| **SEQ** | `SHOW ELSE, QUICK`: the next subview: the track count, the visualiser, the edit page. In LOOPS, which has one view, it switches the keys between PLAY (notes) and CONTROL (the loops' mutes and solos, QUANTIZE, MONO / POLY: [screens/loops.md](screens/loops.md#control-mode-mutes-and-solos)). On DJ it swaps the decks: shown the other way round. On SONGS, which has one view, it turns the play mode, ONE PLAY, REPEAT SONG, PLAY NEXT: how a song that stops ends, one going on into the next with PLAY NEXT ([screens/songs.md](screens/songs.md#the-play-modes)). |
-| **ARP** | `AGAIN, REPEAT, PLEASE`: **the arpeggiator,** one for every screen but two editors with an ARP of their own: the EDITOR (the row preview, the cursor's row in the rhythm) and LOOPS (the pattern recorder, [screens/loops.md](screens/loops.md#the-pattern-recorder-arp)). **Tap:** on / off (lit while on, dim while it can come on); on with latched notes and no key held, the tap lets them go first and it stays on. **On:** the keys feed it instead of sounding (a screen's own use of a key comes first: FX LIVE's punch-ins); keys held as it comes on become its notes; its notes take turns in SETTINGS' ARP PATTERN (UP, DOWN, UP-DOWN, RANDOM, AS PLAYED: AS PLAYED in the order pressed), a note a `#` of ARP RHYTHM (a row a step), each the current instrument's, however it is picked. **The latch,** ARP LATCH: with 1-8, notes keep playing once their keys are let go, that many at most (the oldest goes past it), and a key pressed with none held starts a new set; OFF, a note stops with its key. Switched on with no key held, it waits for one: it never starts on a note by itself. Only on FX LIVE, where the keys are punch-ins and play no notes, does it start with the last note played, hands free (LATCH not OFF). A change of screen switches it off. **Held:** + SELECT the rhythm (the EDITOR's row preview's too), + ALGORITHM the pattern, + K1 the latch (`ARP UP`, `LATCH 4 NOTES`, `LATCH OFF`), + LFO lets the latched notes go; in LOOPS nothing. DJ: nothing (its keys are the decks'). **With a punch-in's key held** (FX held + a white key, or FX LIVE's white key), on every screen: ARP holds the punch-in on, its key or another punch-in stopping it ([screens/fx.md](screens/fx.md#punch-in-effects)). |
-| **LFO** | **CLR**, `LEAVE FIELD OPEN`: clear, or reset to the default. On a cell it clears, and on an empty cell it writes a note off. On a value it resets. In LOOPS it peels: the selected loop goes (on `+ NEW LOOP`, the last), without a question ([screens/loops.md](screens/loops.md#recording)). On FX it resets the last knob turned. On DJ it brings in the LFO pads, and again goes back (SEL resets the knob there). **HOME + LFO** is the help: "LOOK FOR ONSWERS". |
-| **REC** | Record. In the EDITOR it switches writing on and off: with it off the keys only play; with it on they write, step by step or in a realtime take. In LOOPS it records where the selection is, one pass of the length: a new loop on `+ NEW LOOP`, a re-record on a loop; while the loops play it arms, and the take starts at the loops' start; again, it stops the take early ([screens/loops.md](screens/loops.md#recording)). |
+| **SEQ** | `SHOW ELSE, QUICK`: the next subview: the track count, the visualiser, the edit page. In LOOPS, which has one view, it switches the keys between PLAY (notes) and CONTROL (the loops' mutes and solos, QUANTIZE, the keys' MONO / POLY: [screens/loops.md](screens/loops.md#control-mode-mutes-and-solos)), at its release; **held + a key,** that key acts as in CONTROL mode once, the keys staying in PLAY. On DJ it swaps the decks: shown the other way round. On SONGS, which has one view, it turns the play mode, ONE PLAY, REPEAT SONG, PLAY NEXT: how a song that stops ends, one going on into the next with PLAY NEXT ([screens/songs.md](screens/songs.md#the-play-modes)). |
+| **ARP** | `AUTOMATIC REPEAT PROCEDURE`: **the arpeggiator,** one for every screen but two editors with an ARP of their own: the EDITOR (the row preview, the cursor's row in the rhythm) and LOOPS (its tap switches the stage off and on, lit while off; held + REC, the pattern recorder: [screens/loops.md](screens/loops.md#the-stage), [the pattern recorder](screens/loops.md#the-pattern-recorder-arp)). **Tap:** on / off (lit while on, dim while it can come on); on with latched notes and no key held, the tap lets them go first and it stays on. **On:** the keys feed it instead of sounding (a screen's own use of a key comes first: FX LIVE's punch-ins); keys held as it comes on become its notes; its notes take turns in SETTINGS' ARP PATTERN (UP, DOWN, UP-DOWN, RANDOM, AS PLAYED: AS PLAYED in the order pressed), a note a `#` of ARP RHYTHM (a row a step), each the current instrument's, however it is picked. **The latch,** ARP LATCH: with 1-8, notes keep playing once their keys are let go, that many at most (the oldest goes past it), and a key pressed with none held starts a new set; OFF, a note stops with its key. Switched on with no key held, it waits for one: it never starts on a note by itself. Only on FX LIVE, where the keys are punch-ins and play no notes, does it start with the last note played, hands free (LATCH not OFF). A change of screen switches it off. **Held:** + SELECT the rhythm (the EDITOR's row preview's too), + ALGORITHM the pattern, + K1 the latch (`ARP UP`, `LATCH 4 NOTES`, `LATCH OFF`), + LFO lets the latched notes go; in LOOPS + REC the pattern recorder, at REC's release (its layer `REC: RECORD PATTERN`). DJ: nothing (its keys are the decks'). **Holding something on:** **with a punch-in's key held** (FX held + a white key, or FX LIVE's white key), on every screen, ARP holds the punch-in on, its key or another punch-in stopping it ([screens/fx.md](screens/fx.md#punch-in-effects)). |
+| **LFO** | **CLR**, `LEAVE FIELD OPEN`: clear, or reset to the default. On a cell it clears, and on an empty cell it writes a note off. On a value it resets. In LOOPS its press switches OVERDUB and OVERWRITE, the play line erasing the stage as it passes and what is played meanwhile written; with the stage off it does nothing ([screens/loops.md](screens/loops.md#the-stage)). On FX it resets the last knob turned. On DJ it brings in the LFO pads, and again goes back (SEL resets the knob there). **HOME + LFO** is the help: "LOOK FOR ONSWERS". |
+| **REC** | Record. In the EDITOR it switches writing on and off: with it off the keys only play; with it on they write, step by step or in a realtime take. In LOOPS it keeps what was played onto the stage, at its press: the stage sent where the selection is, a new loop on `+ NEW LOOP`, into the loop on a loop; with the stage empty and the loops stopped it arms them, the first key or PLAY starting them; with the stage off it does neither; with ARP held it opens the pattern recorder, at its release ([screens/loops.md](screens/loops.md#rec-edit-and-the-arm)). |
 | **PLAY** | Play / pause ([transport.md](transport.md)). |
-| **HOME** | **Tap:** when deep, back; at the top of a screen, [HOME's combination](#homes-combination): SELECT the screens, a black key a screen, white keys mute (SEQ: solo), PLAY rewinds, REC the [CUT](#cut), LFO the help. **Held:** the same combination, as a shortcut. |
+| **HOME** | **Tap:** when deep, back; at the top of a screen, [HOME's combination](#homes-combination): SELECT the screens, a black key a screen, white keys mute (SEQ: solo), PLAY rewinds, REC the [CUT](#cut), LFO the help; in LOOPS with a song armed or recorded it cancels or ends the song ([screens/loops.md](screens/loops.md#record-live)). **Held:** the same combination, as a shortcut. |
 | **SAVE** | Writes all changes to flash. **SAVE + OCT-:** REVERT ALL, after a question, the shortcut for SETTINGS → TOOLS → REVERT ALL ([saving.md](saving.md)). **Held** past the hold delay, its let-go is no tap and saves nothing; **SAVE + OCT+** saves then. |
 | **FX** | **Tap:** the FX screen (again: back). **Held + white key:** a punch-in effect while the key is held ([screens/fx.md](screens/fx.md#punch-in-effects)). |
 | **OCT- / OCT+** | The keyboard's octave, −4 to +4, with a toast (`OCT +3`) at each change. On the FX screen they switch the selected effect off / on instead; on FX's EDIT, where the keys play notes, **SEL + OCT** changes the octave. On DJ, which has no keyboard, they do nothing alone; in HOME's combination they pick the tracks its white keys reach, `00`-`07` or `08`-`0F`. |
@@ -217,6 +237,8 @@ is for when what rings should end at once.
 |---|---|
 | PRESETS | the current instrument |
 | SEL + PRESETS (SEL held, or tapped first) | its cartridge, the cartridges' list open ([above](#knobs)) |
+| SEL held + GLO | to the built-in FAVORITES, at the favourite last used there; again: back to the place before ([screens/instruments.md](screens/instruments.md#favorites)); not on DJ, over an overlay, or in an editor's edit mode |
+| GLO held + PRESETS | a favourite once: the keys' instrument its source, the current cartridge kept, the favourites' list while GLO is held ([screens/instruments.md](screens/instruments.md#favorites)); not on DJ or INSTRUMENTS, nor over an overlay |
 | PLAY | play / pause: the screen's own thing on SONGS, EDITOR, LOOPS and DJ (both decks), else what played last ([transport.md](transport.md)) |
 | HOME tap | when deep, back; at the top, HOME's combination (HOME + below: tapped, then the control; or held) |
 | HOME + SELECT | the screens, one by one, round |
@@ -234,24 +256,24 @@ is for when what rings should end at once.
 | SEL + OCT- / OCT+ | on FX's EDIT: the octave (OCT alone switches the effect there) |
 | keys | play the current instrument, unless the screen uses them otherwise |
 
-**Per screen.** In this table "—" means no function (the LED is dark). LOOPS' column is the one
-accepted to be tried in the playground ([screens/loops.md](screens/loops.md#controls)); DJ's too
-([screens/dj.md](screens/dj.md#controls)).
+**Per screen.** In this table "—" means no function (the LED is dark). LOOPS' column is to be tried on
+the FM-1 ([screens/loops.md](screens/loops.md#controls), [../open-questions.md](../open-questions.md#the-ui-ui)); DJ's
+too ([screens/dj.md](screens/dj.md#controls)).
 
 | | SONGS | EDITOR | INSTRUMENTS | PLAYBACK | LOOPS | DJ | FX |
 |---|---|---|---|---|---|---|---|
 | SELECT | songs / positions | rows | slots | pause, play row by row | the loops, then `+ NEW LOOP` | the song list | effect |
-| ALGORITHM | where PLAY starts; in the order, positions | tracks | columns; edit: the pages | the cursor track, one at a time | TEMPO, any time | the crossfader | knob page |
-| K1-K4 | pattern at position | K1 slot, K2 command, K3 / K4 values | K1 cartridge; edit: the group | K1: position; K2: 1 / 2 / 4 / 8 tracks; K3: the song's volume; K4: the song's tempo | the selected loop's LEVEL, PAN, DELAY SEND, REVERB SEND; on `+ NEW LOOP` the next loop's | K1 / K4 the decks' tempos (with HOLD held: the deck by hand), K2 / K3 their filters or volumes (ENV) | effect knobs |
-| keys | play | play; with REC on, write | play | play | PLAY mode: play, written into a take while one records; CONTROL mode (SEQ): white keys mute / solo the loops, black keys QUANTIZE, MONO / POLY, all back on | black keys the decks' PLAY, HOLD, FILTER, the LOADs, SYNC, the blank key the pads' mode (PLAY / LOOPS); white keys the pads | LIVE: white keys punch-ins, black keys the effects; EDIT, MIXER: play |
-| EDIT | order (EDIT keeps, HOME drops) | note editor | edit mode | → EDITOR | RE-RECORD the selected loop | — | LIVE: the picked effect on EDIT; EDIT: GATE steps |
-| SEL | menu | menu, MARK; blocks; TAKE ITS INSTRUMENT; RECORD PATTERN | slots, menu, MARK; edit, on NAME: type it | — | menu: APPLY INSTRUMENT, DOUBLE, RECORD LIVE, SAVE TO / LOAD FROM PATTERN, CLEAR LOOPS | reset the last knob, or the KEY | EDIT: menu, MOVE in the chain |
-| ENV | patterns | patterns; held: the pipette | cartridges; edit: samples, a FUSION slot's pattern | songs | cartridges | what K2 / K3 turn: the filters, the volumes | gate patterns |
+| ALGORITHM | where PLAY starts; in the order, positions | tracks | columns; edit: the pages | the cursor track, one at a time | the play position, a row (SEL held: a bar); playing, a jump there | the crossfader | knob page |
+| K1-K4 | pattern at position | K1 slot, K2 command, K3 / K4 values | K1 cartridge; edit: the group | K1: position; K2: 1 / 2 / 4 / 8 tracks; K3: the song's volume; K4: the song's tempo | each its job (GLO): the selected loop's (on `+ NEW LOOP` the next loop's, its sends the KEYS column's) mix values, TEMPO or VIEW; at first LEVEL, PAN, REVERB SEND, TEMPO; ADJUST: K1 a row, K2 a bar | K1 / K4 the decks' tempos (with HOLD held: the deck by hand), K2 / K3 their filters or volumes (ENV) | effect knobs |
+| keys | play | play; with REC on, write | play | play | PLAY mode: play, overdubbing the stage while the loops play (armed, the first starts them); CONTROL mode (SEQ; SEQ held + a key, once): white keys mute / solo the loops, black keys QUANTIZE, the keys' MONO / POLY, all back on | black keys the decks' PLAY, HOLD, FILTER, the LOADs, SYNC, the blank key the pads' mode (PLAY / LOOPS); white keys the pads | LIVE: white keys punch-ins, black keys the effects; EDIT, MIXER: play |
+| EDIT | order (EDIT keeps, HOME drops) | note editor | edit mode | → EDITOR | the selected loop onto the stage; on `+ NEW LOOP`, or held 2 s: the stage cleared | — | LIVE: the picked effect on EDIT; EDIT: GATE steps |
+| SEL | menu | menu, MARK; blocks; TAKE ITS INSTRUMENT; RECORD PATTERN | slots, menu, MARK; edit, on NAME: type it | — | menu: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, QUANTIZE, DELETE LOOP, DOUBLE, RECORD PATTERN, RECORD LIVE, SAVE TO / LOAD FROM PATTERN, CLEAR STAGE, CLEAR LOOPS | reset the last knob, or the KEY | EDIT: menu, MOVE in the chain |
+| ENV | patterns | patterns; held: the pipette | cartridges; edit: samples, a FUSION slot's pattern | songs | cartridges; held: the pipette | what K2 / K3 turn: the filters, the volumes | gate patterns |
 | GLO | song properties | pattern properties | cartridge | view options | the loops' properties | DJ's properties | FX properties: ROUTING |
-| SEQ | the play mode: ONE PLAY, REPEAT SONG, PLAY NEXT | 8 / 4 / 2 / 1 tracks | edit pages | 8 / 4 / 2 / 1 tracks | the keys: PLAY / CONTROL | SWAP the decks | LIVE / EDIT / MIXER |
-| ARP | arpeggiator | row preview | arpeggiator | arpeggiator | the pattern recorder | — | arpeggiator |
-| LFO | remove position | clear / note off | reset value | the volume or tempo turned last: 0 dB, 100 % | PEEL: the selected loop goes | the LFO pads; again, back | reset knob |
-| REC | — | writing on / off (step by step, the loop playing on); PLAY with it on: the loop pauses, else a realtime take that loops | — | — | records at the selection, one pass: a new loop or a re-record; while the loops play it arms | — (HOME + REC: the [CUT](#cut), the decks playing on) | — |
+| SEQ | the play mode: ONE PLAY, REPEAT SONG, PLAY NEXT | 8 / 4 / 2 / 1 tracks | edit pages | 8 / 4 / 2 / 1 tracks | the keys: PLAY / CONTROL; held + a key: as in CONTROL | SWAP the decks | LIVE / EDIT / MIXER |
+| ARP | arpeggiator | row preview | arpeggiator | arpeggiator | the stage off / on (dim while off); held + REC: the pattern recorder | — | arpeggiator |
+| LFO | remove position | clear / note off | reset value | the volume or tempo turned last: 0 dB, 100 % | at its release: OVERDUB / OVERWRITE | the LFO pads; again, back | reset knob |
+| REC | — | writing on / off (step by step, the loop playing on); PLAY with it on: the loop pauses, else a realtime take that loops | — | — | the stage kept: a new loop on `+ NEW LOOP`, or into the loop; stopped with the stage empty: arms; the stage off: turns it on and, stopped, arms; with ARP held: the pattern recorder, at its release | — (HOME + REC: the [CUT](#cut), the decks playing on) | — |
 | OCT | octave | octave | octave | octave | octave | — (HOME + OCT: the mutes' tracks) | effect off / on (EDIT: SEL + OCT the octave) |
 
 **VISUAL, STATUS, SETTINGS and the help** use only a few controls (SELECT, ALGORITHM, K1, K2, SEQ, GLO,

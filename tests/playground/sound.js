@@ -37,17 +37,18 @@ vm.runInContext("const E = {};\n" + dsp.PTFM.dsp.map(f => "(" + f.toString() + "
 function fresh(setup) {
     wk.currentTime = 0;
     const p = new Proc(), send = m => p.port.onmessage({ data: m });
-    const list = [];
-    for (const c of M.state.carts) if (c.samples) c.samples.forEach((s, i) => list.push({ key: c.id + ":" + i, data: M.audio[s.audio], rate: s.rate }));
+    const list = [];                                    /* (the samples by number, as audio.js sends them) */
+    M.state.samples.forEach((s, n) => { if (s) list.push({ key: n, data: M.audio[s.audio], rate: s.rate }); });
     send({ t: "samples", list });
     send({ t: "voices", n: 16 });
     send({ t: "master", v: .5 });
-    send({ t: "fx", setup, mixer: M.state.songs[0].mixer, base: 0, tempo: 120, gates: M.state.gates.map(g => g.steps) });
+    send({ t: "fx", setup, mixer: M.state.songs[0xA0].mixer, base: 0, tempo: 120, gates: M.state.gates.map(g => g.steps) });
     return { p, send };
 }
-function inst(ref) {
+function inst(ref) {                                   /* (a sample instrument's sample by its number: none there, none) */
     const c = M.cart(ref >> 8), i = M.inst(ref);
-    return { t: "inst", ref, engine: c.type, p: c.type === "SAMPLER" ? Object.assign({ key: c.id + ":" + i.p.sample }, i.p) : i.p, level: i.level };
+    return { t: "inst", ref, engine: c.type, p: c.type === "SAMPLER" ? Object.assign({ key: M.sample(i.p.sample) ? i.p.sample : null }, i.p) : i.p,
+             level: i.level };
 }
 function render(p, seconds) {
     const n = Math.round(seconds * SR / 128), L = new Float32Array(n * 128), R = new Float32Array(n * 128), K = new Float32Array(n * 128);
@@ -252,11 +253,11 @@ for (const e in levels) {
     }
     console.log("the instruments with their LEVELs, median (dB):", out.join(", "));
 }
-const full = structuredClone(M.state.songs[0].fx);
+const full = structuredClone(M.state.songs[0xA0].fx);
 for (const k in full.on) full.on[k] = true;
 const { p, send } = fresh(full);
-/* the first instrument of each cartridge but FUSION, eight of them: every engine */
-const refs = M.state.carts.filter(c => c.type !== "FUSION").map(c => c.id << 8 | c.slots.findIndex(Boolean)).slice(0, 8);
+/* the first instrument of each cartridge but FUSION (and FAVORITES: no sounds of their own), eight of them: every engine */
+const refs = M.state.carts.filter(c => c.type !== "FUSION" && c.type !== "FAVORITES").map(c => c.id << 8 | c.slots.findIndex(Boolean)).slice(0, 8);
 refs.forEach((r, i) => { send(inst(r)); send({ t: "on", id: "c" + i, time: .01 + i * .05, midi: 48 + i * 3, ref: r, vol: 110, track: i }); });
 for (let i = 0; i < 8; i++) send({ t: "on", id: "d" + i, time: .5 + i * .06, midi: 60 + i * 2, ref: refs[i], vol: 110, track: i });
 send({ t: "click", time: .2, accent: true, sound: 0, level: 60 });
@@ -267,6 +268,22 @@ console.log(`16 voices, every effect on: peak ${pk.toFixed(3)}, ${p.stats ? p.st
 if (bad) fail(bad + " non-finite samples through the chain");
 if (pk > 1) fail("the output passes full scale");
 wav("full_chain", out.L);
+
+/* a sample instrument naming a sample that is not there (specs/files/instruments.md#samples: deleted, its instrument
+ * pasted back after): it plays nothing, as an empty slot does, whatever audio the worklet still holds under the number */
+{
+    const ref = 0xA000, n = M.inst(ref).p.sample, was = M.state.samples[n];
+    const { p, send } = fresh(dry);
+    M.state.samples[n] = null;
+    send(inst(ref));
+    M.state.samples[n] = was;
+    send({ t: "on", id: "k", time: .01, midi: 60, ref, vol: 127, track: -1 });
+    send({ t: "off", id: "k", time: 1.01 });
+    let pk = 0;
+    for (const v of render(p, 1.2).L) pk = Math.max(pk, Math.abs(v));
+    console.log(`a sample instrument naming a missing sample (${M.refText(ref)} on ${M.hex(n)}): peak ${pk}`);
+    if (pk !== 0) fail(`a sample instrument naming a missing sample sounds (peak ${pk})`);
+}
 
 /* the pool past VOICES (specs/ui/screens/settings.md#voices), as the firmware's voices_test: at 8 voices, note 60
  * held, then 8 more keys at 0.5 s let go at 1 s: 60 is parked, unheard, and comes back once a voice is free, where
@@ -303,6 +320,45 @@ wav("full_chain", out.L);
         if (!taken.back) fail(`${type}: the parked note does not come back once a voice is free`);
         if (Math.abs(taken.db - alone.db) > 1) fail(`${type}: back from parking at ${taken.db.toFixed(2)} dB, not where its envelope would be`);
         if (!gone.parked || gone.db > -80) fail(`${type}: let go while parked, it is not gone`);
+    }
+    /* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live): a note marked `tap` losing its voice is told once, one
+     * given no voice is told, a parked note coming back tells nothing, and a note off a voice's own tells nothing */
+    {
+        let ref = -1;
+        for (const c of M.state.carts) if (c.type === "JUNO" && ref < 0) ref = c.id << 8 | c.slots.findIndex(Boolean);
+        const session = () => {
+            const s = fresh(dry), said = [], post0 = s.p.port.postMessage;
+            s.p.port.postMessage = m => { if (m.t === "tap") said.push(m); else post0.call(s.p.port, m); };
+            s.send({ t: "voices", n: 2 });
+            s.send(inst(ref));
+            return Object.assign(s, { said });
+        };
+        const a = session();
+        a.send({ t: "on", id: "s1", time: .01, midi: 60, ref, vol: 100, track: 16, tap: true });
+        a.send({ t: "on", id: "s2", time: .02, midi: 62, ref, vol: 100, track: 16, tap: true });
+        render(a.p, .1);
+        if (a.said.length) fail("the tap: a note with a voice tells nothing");
+        a.send({ t: "on", id: "s3", time: .2, midi: 64, ref, vol: 100, track: 16, tap: true });
+        render(a.p, .2);
+        if (a.said.length !== 1 || !a.said[0].lost || !/^s[12]$/.test(a.said[0].id) || Math.abs(a.said[0].time - .2) > .01) fail("the tap: a note taken by another is told, once, at its time");
+        a.send({ t: "off", id: "s3", time: .5 });
+        render(a.p, 3);
+        a.p.post();
+        if (a.said.length !== 1 || a.p.stats.parked !== 0) fail("the tap: a parked note coming back tells nothing");
+        const b = session();
+        b.send({ t: "on", id: "k1", time: .01, midi: 60, ref, vol: 100, track: -1 });
+        b.send({ t: "on", id: "k2", time: .02, midi: 62, ref, vol: 100, track: -1 });
+        b.send({ t: "on", id: "s1", time: .1, midi: 64, ref, vol: 100, track: 16, tap: true });
+        render(b.p, .2);
+        if (b.said.length !== 1 || !b.said[0].none || b.said[0].id !== "s1") fail("the tap: a song's note finding every voice a key's is told as given none");
+        const c = session();
+        c.send({ t: "on", id: "s1", time: .01, midi: 60, ref, vol: 100, track: 16, tap: true });
+        c.send({ t: "on", id: "s2", time: .02, midi: 62, ref, vol: 100, track: 16, tap: true });
+        render(c.p, .1);
+        c.send({ t: "voices", n: 1 });
+        render(c.p, .1);
+        if (c.said.length !== 1 || !c.said[0].lost) fail("the tap: a note parked past a smaller count is told");
+        console.log("the tap: a note taken, a note given no voice, a note parked past the count told; one coming back not");
     }
     /* 20 keys held, as voices_test: below VOICES 16 the pool holds 16 notes, parked ones included (4 wait at 12, 8 at
      * 8) */
@@ -369,6 +425,8 @@ const A = {
     fire: (track, time, idp) => post({ t: "fire", track, time, id: idp ? idp + "~f" : undefined }),
     noteOff: (id, time) => post({ t: "off", id, time }), ctl: (id, time, bend, vol) => post({ t: "ctl", id, time, bend, vol }),
     flush: (prefix, time, at) => post({ t: "flush", prefix, time, at }), allOff: () => post({ t: "alloff" }),
+    flushIds: (ids, time) => post({ t: "flushids", ids, time }), stageCol: track => post({ t: "stagecol", track }),
+    retrack: (ids, track) => post({ t: "retrack", ids, track }),
     cutAt: (prefix, time) => { post({ t: "cutp", prefix, time }); post({ t: "killp", prefix, time: time + .004 }); },
     iparam: (track, code, value, time) => post({ t: "iparam", track, code, value, time }), iclear: (track, time) => post({ t: "iclear", track, time }),
     trackMix: (track, key, value, time) => post({ t: "tmix", track, key, value, time }), trackMute() {},
@@ -392,7 +450,7 @@ A.fxNow = () => {
     P.djPost();
 };
 page.PTFM.audio = A;
-page.PTFM.ui = { song: 0, pattern: 0, inst: 0x0100, screen: { name: "SONGS" }, muted: () => false, editing: () => false, set: k => M.state.settings[k],
+page.PTFM.ui = { song: 0xA0, pattern: 0xA6, inst: 0xA000, screen: { name: "SONGS" }, muted: () => false, editing: () => false, set: k => M.state.settings[k],
                  toast() {}, pausedHook() {}, clamp: (v, a, b) => v < a ? a : v > b ? b : v };
 vm.runInContext(fs.readFileSync(path.join(PG, "player.js"), "utf8"), page, { filename: "player.js" });
 const P = page.PTFM.player;
@@ -424,9 +482,9 @@ function play(name, start, seconds = SONG_S) {
     return L;
 }
 M.state.settings.VOICES = 16;
-M.state.songs.forEach((s, i) => play(s.name, () => { page.PTFM.ui.song = i; P.playSong(i); }));
+M.state.songs.forEach((s, i) => s && play(s.name, () => { page.PTFM.ui.song = i; P.playSong(i); }));
 page.PTFM.ui.screen.name = "LOOPS";
-if (M.state.loops.rows) play("THE LOOPS", () => P.playLoops(0));
+if (M.state.loops.list.length) play("THE LOOPS", () => P.playLoops(0));   /* (the length is always set: the loops, if any) */
 else console.log("THE LOOPS        empty: the demo disk has none");
 
 /* ------------------------------------------- a punch-in command: TAPE STOP !08 at row 16 --- */
@@ -436,7 +494,7 @@ page.PTFM.ui.screen.name = "SONGS";
 const tp = M.state.patterns.indexOf(null);
 function punchSong(withPunch) {
     M.state.patterns[tp] = M.newPattern(tp, 2, 32);
-    for (let r = 0; r < 32; r += 2) M.state.patterns[tp].cells[r * 16] = M.newCell(60 + (r & 7), 0x0100, 100);
+    for (let r = 0; r < 32; r += 2) M.state.patterns[tp].cells[r * 16] = M.newCell(60 + (r & 7), 0xA000, 100);
     if (withPunch) { const c = M.newCell(null, null, null); c.cmds.push({ c: 0xD1, v: 8 }); M.state.patterns[tp].cells[16 * 16 + 1] = c; }
     M.state.songs.push(Object.assign(M.newSong(), { name: "PUNCH", tempo: 120, ticks: 6, rpb: 4, swing: 50, order: [tp] }));
     const i = M.state.songs.length - 1;
@@ -601,7 +659,7 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
     if (e !== "R") fail("DJ: the heard deck cannot take from the faded one");
 
     /* two loops on the decks, synced, through the replay: the mix, PREVIEW, the crossfader, BRAKE */
-    const ix = n => M.state.songs.findIndex(s => s.name === n);
+    const ix = n => M.state.songs.findIndex(s => s && s.name === n);
     const [L, R] = P.dj.sides;
     cur = fresh(M.newFx());
     P.djLoad(L, ix("TRANCE LOOP"));
@@ -787,6 +845,39 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
         if (rms(after.L, Math.round(.1 * SR)) > -90) fail("DJ: REC does not cut the effects' tails");
         P.djPause(L); P.djPause(R);
     }
+}
+/* LOOPS' stage (specs/ui/screens/loops.md#the-stage): its column (track 32) carries the mix of the loop's track it stands
+ * for and never that track's mute; its notes moved onto the loop's track (REC keeping the stage as the loop) take the
+ * loop's mute; notes dropped by their ids from a time on (a key replacing the stage's lanes) never start */
+{
+    const ref = 0xF000, id = "g32.0.1";
+    const stage = o => {
+        const { p, send } = fresh(M.newFx());
+        const mixer = Array.from({ length: 16 }, () => ({ lvl: 127, pan: 128, dck: 0, cho: 0, dly: 0, rev: 0 }));
+        if (o.lvl != null) mixer[0].lvl = o.lvl;
+        send({ t: "fx", setup: M.newFx(), mixer, base: 16, tempo: 120, gates: M.state.gates.map(g => g.steps) });
+        send(inst(ref));
+        send({ t: "mute", track: 16, on: !!o.mute });
+        send({ t: "stagecol", track: 16 });
+        send({ t: "on", id, time: .01, midi: 60, ref, vol: 100, track: o.track, accent: false, glide: false, offset: 0, params: null, key: false });
+        if (o.flush) send({ t: "flushids", ids: [id], time: 0 });
+        const a = render(p, .5);
+        if (o.retrack) send({ t: "retrack", ids: [id], track: 16 });
+        const b = render(p, .5);
+        /* (past the first 100 ms: a track's mute eases in over a few blocks once it has sound, never a click) */
+        const after = L => { const k = Math.round(.1 * SR); let s = 0; for (let i = k; i < L.length; i++) s += L[i] * L[i]; return 10 * Math.log10(s / (L.length - k) + 1e-20); };
+        return [after(a.L), after(b.L)];
+    };
+    const heard = stage({ track: 32, mute: true }), plain = stage({ track: 16, mute: true }), level0 = stage({ track: 32, lvl: 0 });
+    const dropped = stage({ track: 32, flush: true }), moved = stage({ track: 32, mute: true, retrack: true });
+    const f = x => x.toFixed(1);
+    console.log(`LOOPS' stage: on its column, the loop muted ${f(heard[0])} dB; on the loop's muted track ${f(plain[0])}; the loop's LEVEL 0 ${f(level0[0])}; ` +
+                `dropped by its id ${f(dropped[0])}; moved onto the muted loop's track ${f(moved[0])}, then ${f(moved[1])} dB`);
+    if (heard[0] < -60) fail("LOOPS' stage: its column is silenced by the loop's mute");
+    if (plain[0] > -100) fail("LOOPS' stage: a muted loop's track is heard (the check's own premise)");
+    if (level0[0] > -100) fail("LOOPS' stage: its column does not carry the loop's mix (LEVEL 0 heard)");
+    if (dropped[0] > -100) fail("LOOPS' stage: a note dropped by its id still starts");
+    if (moved[0] < -60 || moved[1] > -100) fail("LOOPS' stage: a note moved onto the loop's track does not take its mute");
 }
 /* the effect under the FX page's cursor (specs/ui/screens/fx.md#the-fx-setup): another setup (a song's start) keeps it
  * as it plays, the others take the new one's; with none under the cursor, the new setup whole */

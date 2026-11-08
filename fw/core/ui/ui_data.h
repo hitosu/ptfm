@@ -8,12 +8,14 @@
 #include "txt.h"
 
 /* the engines, as the footer names them (specs/ui/frame.md) */
-enum { ENG_NONE, ENG_DX7, ENG_JUNO, ENG_TB303, ENG_SAMPLER, ENG_FUSION, ENG_CHIP, ENG_COUNT };   /* (= the kinds) */
-extern const txt_t ENG_SHORT[ENG_COUNT];   /* "", "DX7", "JUNO", "TB-303", "SAMPLE", "FUSION", "CHIP" (TX texts: T() them) */
-extern const txt_t ENG_TYPE[ENG_COUNT];    /* "", "DX7", "JUNO-106", "TB-303", "SAMPLER", "FUSION", "CHIP" */
+enum { ENG_NONE, ENG_DX7, ENG_JUNO, ENG_TB303, ENG_SAMPLER, ENG_FUSION, ENG_CHIP, ENG_FAV, ENG_COUNT };   /* (= the kinds;
+                                            * ENG_FAV: FAVORITES, no engine, specs/files/instruments.md#favorites) */
+extern const txt_t ENG_SHORT[ENG_COUNT];   /* "", "DX7", "JUNO", "TB-303", "SAMPLE", "FUSION", "CHIP", "FAVORITES" (TX
+                                            * texts: T() them) */
+extern const txt_t ENG_TYPE[ENG_COUNT];    /* "", "DX7", "JUNO-106", "TB-303", "SAMPLER", "FUSION", "CHIP", "FAVORITES" */
 extern const uint8_t ENG_COL[ENG_COUNT];   /* their colours: light red, light cyan, light green, yellow, light magenta,
-                                            * light blue */
-extern const uint8_t ENG_SLOTS[ENG_COUNT]; /* slots a cartridge: 32, 128, 128, 64, 64, 128 */
+                                            * light blue; FAVORITES light grey */
+extern const uint8_t ENG_SLOTS[ENG_COUNT]; /* slots a cartridge: 32, 128, 128, 64, 64, 128, 128 */
 
 /* a name of n characters, 6 bits each from bit `bit` of p (specs/files/README.md): into dst, trailing
  * spaces dropped; returns 0 if the first character is 63 (empty) */
@@ -21,7 +23,6 @@ int ui_name6(const uint8_t *p, uint32_t bit, int n, char *dst);
 uint32_t ui_bits(const uint8_t *p, uint32_t bit, int n);    /* n bits from bit, LSB first */
 void ui_put_bits(uint8_t *p, uint32_t bit, int n, uint32_t v);
 void ui_put_name6(uint8_t *p, uint32_t bit, int n, const char *name);  /* padded with spaces; other characters: spaces */
-int ui_free_pattern(void);              /* the first pattern number 00-EF without a pattern, or -1 */
 
 /* songs */
 typedef struct {
@@ -33,6 +34,7 @@ typedef struct {
 } ui_song_t;
 int ui_song(uint8_t n, ui_song_t *s);   /* 1 the song is there */
 int ui_songs(uint8_t *nums, int max);   /* the songs there, in numbers' order (never the keys' song) */
+int ui_free_song(void);                 /* the smallest song number free, -1 none */
 /* the keys' song (FE): the firmware's own, never listed. With no song at all it is what the player holds and the FX
  * page edits, so the FM-1 plays as a synth from its keys alone: TEMPO 120, 6 ticks of 4 rows a beat, a new song's
  * FX setup; changed, kept as a built-in's change is (SAVE: a copy in the user area). The songs' numbers end at FD */
@@ -59,7 +61,20 @@ int ui_pattern_tracks(uint8_t n);
 int ui_cart_kind(uint8_t cart);         /* ENG_*, ENG_NONE if there is none */
 int ui_cart_name(uint8_t cart, char *dst);
 int ui_cart_slots(uint8_t cart);        /* slots stored */
-int ui_carts(uint8_t *nums, int max);   /* every cartridge, in numbers' order */
+int ui_carts(uint8_t *nums, int max);   /* every cartridge, in the lists' order (FAVORITES first: ui_cart_order) */
+/* the cartridge lists' one order (specs/ui/dialogs.md#the-cartridge-list): a cartridge's rank in it, 0 the built-in
+ * FAVORITES FB, 1 the user's FAVORITES, 2 the others (each part by number); ui_cart_order puts n numbers given in
+ * numbers' order into it, in place */
+int ui_cart_rank(uint8_t cart);
+int ui_cart_order(uint8_t *nums, int n);
+/* FAVORITES (specs/files/instruments.md#favorites): ref's favourite, its source in *src: 0 ref's cartridge is no
+ * FAVORITES one; 1 an empty favourite; 2 one whose source is missing (no instrument there); 3 one whose source is
+ * there */
+enum { UI_FAV_NOT, UI_FAV_EMPTY, UI_FAV_MISSING, UI_FAV_OK };
+int ui_fav(uint16_t ref, uint16_t *src);
+/* a slot holds something (an instrument; a favourite, missing or not); playable: an instrument, or a favourite whose
+ * source is there (what PRESETS steps through) */
+int ui_slot_has(uint16_t ref, int playable);
 int ui_inst_name(uint16_t ref, char *dst);      /* 1 the slot is used (dst its name), else 0 */
 int ui_inst_level(uint16_t ref);        /* LEVEL in 0.5 dB, signed */
 

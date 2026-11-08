@@ -5,8 +5,9 @@
  * the LEDs and the sound are the firmware's. The first click or key switches it on (browsers allow
  * audio only after one, and the audio runs the device's time). The emulated flash is kept in this
  * browser (IndexedDB), so the library survives a reload; UPLOAD CUSTOM DISK and UPLOAD DEMO DISK write a disk into it
- * through the install page's seeding (fw/web/seed.js), DOWNLOAD DISK saves what it holds as one. RECORD keeps its
- * USB audio, as a computer records a real FM-1's, for SAVE WAV.
+ * through the install page's seeding (fw/web/seed.js), DOWNLOAD DISK saves what it holds as one. A kept flash an older
+ * PT/FM wrote is converted at its first load, and a disk of the old form as it loads, as the install page converts.
+ * RECORD keeps its USB audio, as a computer records a real FM-1's, for SAVE WAV.
  *
  * The firmware: ../dist/emulator/ptfm.wasm.js (the production build), else a dev build's,
  * ../build/fw/web/ptfm.wasm.js, else a file picked; index.html?dev tries the dev build first.
@@ -218,6 +219,7 @@
             node.port.postMessage({ t: "load", wasm, flash, master: dev.state.master }, flash ? [wasm, flash] : [wasm]);
             if (ctx.state !== "running") ctx.resume().catch(() => {});   /* (not waited for: refused, the next tap asks) */
             await ready;
+            await convertKept();                     /* (an upload or DOWNLOAD DISK waits for it: they wait for the switching on) */
         })();
         starting.catch(e => {
             starting = null;
@@ -420,12 +422,17 @@
             const layout = await ses.hello();
             if (closed) return;
             const lines = Q => Q.summary.map(t => t.startsWith("PROBLEM") ? { text: t, kind: "bad" }
-                : /^(DELETE|REWRITE|LOW SPACE|ERASE)/.test(t) ? { text: t, kind: "warn" } : t);
+                : /^(DELETE|REWRITE|LOW SPACE|ERASE|MISSING)/.test(t) ? { text: t, kind: "warn" } : t);
+            /* a disk an older PT/FM made, converted as it loads (the firmware takes the new form only: seed.js upgradeFor) */
+            const disk = S.upgradeFor(layout, data), c = disk.converted;
+            const said = !c ? [] : c.samplers ? [`CONVERTED AS IT LOADED: ${plural(c.samplers, "SAMPLER")} OF AN OLDER PT/FM, ` +
+                `${plural(c.samples, "SAMPLE")}.`] : c.dropped ? [`LEFT OUT: ${plural(c.dropped, "PIECE")} OF OLD AUDIO WITH NO SAMPLE ENTRY ` +
+                `(NOTHING COULD PLAY ${c.dropped === 1 ? "IT" : "THEM"}).`] : [];
             /* a disk that does not fit around what the FM-1 holds, but fits it emptied: REPLACE ALL offered, the user
              * area erased and the disk written anew (seed.js planClean) */
-            let P = S.plan(layout, data), summary = lines(P);
+            let P = S.plan(layout, disk), summary = said.concat(lines(P));
             if (!P.ok) {
-                const C = S.planClean(layout, data);
+                const C = S.planClean(layout, disk);
                 if (C.ok) {
                     summary = summary.concat(["", { text: "It fits the FM-1 emptied: REPLACE ALL erases everything it holds and " +
                         "writes the disk anew (an upload cut short then leaves a part: upload again).", kind: "warn" }], lines(C));
@@ -452,6 +459,54 @@
             if (ses) ses.close();
         }
     }
+    /* the kept flash converted at the first load after a firmware that no longer reads what it holds (an older PT/FM's
+     * samplers: specs/emulator.md, Data), as the install page converts an FM-1 after an install: seed.js convertDevice, its
+     * saves of whole samplers in free blocks only, through the page's own seeding; the status line and DISKS say so. With
+     * nothing of the kind, nothing is shown. */
+    const plural = (k, word) => k + " " + word + (k === 1 ? "" : "S");
+    const hx = k => (k < 16 ? "0" : "") + k.toString(16).toUpperCase();
+    function convertSay(text, kind) { $("status").textContent = text; diskState(text, kind); }
+    function convertedText(res) {                    /* -> [text, kind] */
+        const st = res.stopped, redo = "DOWNLOAD DISK AND UPLOAD IT AGAIN (IT IS CONVERTED AS IT LOADS)";
+        let t = st ? `${res.converted.length} OF ${res.total} SAMPLERS CONVERTED TO THE NEW FORM: SAMPLER ${hx(st.num)} NEEDS ` +
+                (st.kb && st.noDelete ? `${st.kb} KB MORE ROOM, AND TOO LITTLE IS LEFT TO SAVE EVEN A DELETE: ${redo}`
+                       : st.kb ? `${st.kb} KB MORE ROOM. DELETE SOMETHING AND RESET, OR ${redo}`
+                       : st.piece ? `${st.piece} KB IN ONE PIECE, AND THE FREE ROOM LIES IN SMALLER PIECES: ${redo}`
+                       : `ROOM FOR ${plural(st.records, "MORE RECORD")} IN THE FM-1'S LIST OF RECORDS (${st.mapRoom} AT MOST): ${redo}`)
+            : `${plural(res.converted.length, "SAMPLER")} OF AN OLDER PT/FM CONVERTED TO THE NEW FORM, ${plural(res.samples, "SAMPLE")}`;
+        if (res.older.length) t += `; ${plural(res.older.length, "SAMPLER")} STAY${res.older.length === 1 ? "S" : ""} IN THE OLDER ` +
+            `FORM: ${plural(res.olderSamples, "SAMPLE")} FIND${res.olderSamples === 1 ? "S" : ""} NO FREE NUMBER (256 AT MOST)`;
+        if (res.bad.length) t += `; ${plural(res.bad.length, "SAMPLER")} OF THE OLDER FORM COULD NOT BE READ, KEPT AS ${res.bad.length === 1 ? "IT IS" : "THEY ARE"}`;
+        if (res.dropped) t += `; ${plural(res.dropped, "PIECE")} OF OLD AUDIO WITH NO SAMPLE ENTRY DELETED`;
+        if (res.low) t += "; " + res.low.toUpperCase();
+        return [t, st || res.older.length || res.bad.length || res.low ? "warn" : "ok"];
+    }
+    async function convertKept() {
+        const S = window.PTFM_seed;
+        if (!S || !S.convertDevice) return;
+        const ses = S.session(transport);
+        try {
+            const L = await ses.hello();
+            if (!S.needsConversion(L)) return;
+            const res = await S.convertDevice(ses, { layout: L,
+                onStep: p => convertSay(`CONVERTING THE SAMPLERS TO THE NEW FORM: ${p.done} OF ${p.total}`, "warn") });
+            const [t, kind] = convertedText(res);
+            convertSay(t, kind);
+        } catch (e) {
+            const r = e && e.result;
+            if (!r) {                                /* (before anything was found: its layout not asked, nothing to say) */
+                console.warn("PT/FM emulator: the kept flash not checked for the older form:", e);
+                return;
+            }
+            convertSay(`${r.converted.length} OF ${r.total} SAMPLERS CONVERTED TO THE NEW FORM, THEN IT STOPPED: ` +
+                String(e && e.message || e).toUpperCase() + ". RESET GOES ON FROM THERE", "bad");
+            console.error("PT/FM emulator: the conversion:", e);
+        } finally {
+            ses.close();
+        }
+    }
+    emu.convertKept = convertKept;
+
     $("seed-file").addEventListener("click", () => $("seed-pick").click());
     $("seed-pick").addEventListener("change", async () => {
         const f = $("seed-pick").files[0];

@@ -13,7 +13,7 @@ PTFM.help = (function () {
     "use strict";
     const D = PTFM.draw;
     const READ = {
-        LFO: "LEAVE FIELD OPEN", ENV: "EXPLORE NAMED VAULTS", SEQ: "SHOW ELSE, QUICK", ARP: "AGAIN, REPEAT, PLEASE",
+        LFO: "LEAVE FIELD OPEN", ENV: "EXPLORE NAMED VAULTS", SEQ: "SHOW ELSE, QUICK", ARP: "AUTOMATIC REPEAT PROCEDURE",
         OP1: "OPEN PAGE 1", OP2: "OPEN PAGE 2", OP3: "OPEN PAGE 3", OP4: "OPEN PAGE 4", OP5: "OPEN PAGE 5",
         PIT: "PICTURES IN TIME", MONO: "MY OWN NERDY OPTIONS", POLY: "PARTY ON, LOOP YOURSELF",
     };
@@ -66,8 +66,8 @@ PTFM.help = (function () {
             "  THE {KEYS}: THEIR OWN EFFECTS AGAIN",
             "REVERT: THE SONG AS LAST SAVED",
             "",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
-            "  {KEYS} HELD TAKE TURNS",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO, THE {KEYS} HELD TAKE TURNS",
             "  HOLD {ARP}: RHYTHM, ORDER, LATCH",
         ]],
         EDITOR: [[
@@ -169,8 +169,8 @@ PTFM.help = (function () {
             "  INTERPOLATE: A SWEEP, FIRST TO LAST",
             "CLIPBOARD: KEPT UNTIL POWER OFF",
             "LISTEN TO A ROW",
-            "{ARP} (AGAIN, REPEAT, PLEASE): REPEAT ROW",
-            "  AT THE TEMPO, WHAT PLAYS STOPS",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  THE ROW AT THE TEMPO, WHAT PLAYS STOPS",
             "THE RHYTHM: [SETTINGS] (HOLD {ARP} + {SELECT})",
             "  ##_ = PLAY TWO ROWS, REST ONE",
         ], [
@@ -265,8 +265,8 @@ PTFM.help = (function () {
             "{ENV} (EXPLORE NAMED VAULTS): ALL THE",
             "  CARTRIDGES, {ENV} AGAIN OPENS ONE",
             "{SEL}: MENU FOR THE SLOT (PAGE 6)",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
-            "  HOLD {ARP}: RHYTHM, ORDER, LATCH",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO; HELD: RHYTHM, ORDER, LATCH",
         ], [
             "CHANGING A SOUND: {EDIT}",
             "THE TABLE: ITS SETTINGS, 4 IN A ROW",
@@ -286,19 +286,21 @@ PTFM.help = (function () {
             "{HOME}: LEAVE, DROP THE CHANGES",
         ], [
             "SAMPLE SOUNDS",
-            "SAMPLER CARTRIDGE: SAMPLES FROM THE",
-            "  PC, AND SOUNDS THAT PLAY THEM",
+            "SAMPLER CARTRIDGE: SOUNDS THAT PLAY",
+            "  SAMPLES, ANY OF THEM, BY NUMBER",
             "ON SAMPLE, {ENV}: LIST THE SAMPLES",
             "  {KEYS}: HEAR THE ONE HIGHLIGHTED",
             "  {ENV} AGAIN: USE IT",
-            "  {SEL}, DELETE: REMOVE IT (IT ASKS)",
+            "  {SEL}, DELETE: IT AND THE SOUNDS",
+            "  THAT USE IT GO (IT ASKS)",
+            "ALL SAMPLES: {ENV}'S LAST LINE",
+            "{SEL}, REPLACE SAMPLE: ALL SET ANEW",
+            "{SEL}, CREATE: ON AN EMPTY SLOT",
+            "  {EDIT} THERE DOES THE SAME",
             "START, END: THE PART THAT PLAYS",
-            "LOOP: OFF, FWD OR PING (PING-PONG)",
-            "  FROM, TO: THE PART THAT REPEATS",
-            "  RELEASE ({K4}): THE FADE AFTER THE",
-            "  KEY IS LET GO",
-            "BASE NOTE: THE NOTE IT PLAYS AS IS",
-            "TUNE: FINER, IN 1/128 OF A SEMITONE",
+            "LOOP: OFF, FWD OR PING; FROM, TO: THE",
+            "  PART THAT REPEATS; RELEASE: THE FADE",
+            "BASE NOTE: AS IS; TUNE: 1/128 SEMITONE",
             "ENVELOPE: THE SECOND PAGE",
         ], [
             "CHIP SOUNDS: A VIRTUAL RETRO SOUND CHIP",
@@ -352,6 +354,21 @@ PTFM.help = (function () {
             "  BACK TO BUILT-IN DROPS YOUR CHANGES",
             "A SOUND SONGS USE, MOVED OR DELETED:",
             "  IT ASKS IF THE SONGS SHOULD FOLLOW",
+        ], [
+            "FAVORITES: SOUNDS FROM ANY CARTRIDGE",
+            "  IN ONE LIST, BUILT IN AS FB",
+            "EACH SLOT POINTS AT A SOUND; WHAT YOU",
+            "  RECORD KEEPS THE SOUND'S OWN NUMBER",
+            "{SEL} ON A SOUND: ADD TO FAVORITES",
+            "HOLD {SEL} + {GLO}: TO FAVORITES AND BACK",
+            "{PRESETS}: THE NEXT FAVORITE",
+            "{EDIT} ON ONE: POINT IT ELSEWHERE",
+            "  {K1}: CARTRIDGE, {PRESETS}: SOUND",
+            "  {EDIT}: KEEP; {HOME}: DROP",
+            "{SEL} IN FAVORITES: REMOVE, MOVE,",
+            "  SWAP, COPY, PASTE",
+            "GREY, MISSING: ITS SOUND IS GONE",
+            "NEW CARTRIDGE ({SEL}): ANY TYPE",
         ]],
         PLAYBACK: [[
             "[PLAYBACK]: FOLLOW WHAT PLAYS",
@@ -377,8 +394,8 @@ PTFM.help = (function () {
             "  {PLAY} THERE: PLAY ONE FROM ITS START",
             "{GLO}: SCROLL BY ROWS OR BY PAGES",
             "  UNLOAD SONG: ALL STOPS, AS AT POWER-ON",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
-            "  HOLD {ARP}: RHYTHM, ORDER, LATCH",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO; HELD: RHYTHM, ORDER, LATCH",
             "SPEED, VOLUME: NOT SAVED, FOR ALL",
             "  SONGS UNTIL SOMETHING ELSE PLAYS",
             "HEADER: THE POSITION / THE LAST ONE",
@@ -386,30 +403,34 @@ PTFM.help = (function () {
         ]],
         LOOPS: [[
             "[LOOPS]: A LOOP STATION",
-            "WHAT PLAYS: GOES ON UNTIL LOOPS START",
-            "LEAVING: THE LOOPS PLAY ON",
-            "A LOOP: ONE INSTRUMENT, ONE TAKE,",
-            "  ALL OF ONE LENGTH, NEWEST AT THE END",
-            "THE FIRST LOOP SETS THE LENGTH:",
-            "  {REC} ON + NEW LOOP, THEN A NOTE OR",
-            "  {PLAY}; {REC} AGAIN: CLOSE ON A BAR",
-            "{SELECT}: A LOOP, OR + NEW LOOP",
-            "{REC}: RECORD THERE, ONE PASS",
-            "  PLAYING: IT STARTS WITH THE LOOPS",
-            "  ON A LOOP: RECORDS IT AGAIN",
-            "{EDIT}: RECORD THE LOOP AGAIN",
-            "{LFO}: PEEL, THE LOOP GOES",
-            "{PLAY}: PLAY / PAUSE, HOLD: STOP",
+            "{PLAY}: THE LOOPS GO ROUND THE LENGTH",
+            "  (4 BARS AT FIRST; {GLO}: LENGTH)",
+            "THE STAGE: ONE LOOP YOU PLAY OVER",
+            "  AND OVER; NOTES ADD UP, NONE REMOVED",
+            "  (A KEY HELD OVER A START MOVES IT ON)",
+            "{REC}: THE STAGE ADDED ON + NEW LOOP,",
+            "  OR INTO THE LOOP, THEN OFF; OFF: ON;",
+            "  STOPPED, EMPTY OR OFF: IT ARMS",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  THE STAGE OFF / ON; OFF: KEYS NOT KEPT",
+            "{SELECT}: A LOOP, {EDIT}: IT ONTO THE STAGE",
+            "  ON + NEW LOOP OR HELD 2S: CLEARS IT",
+            "{LFO}: OVERDUB OR OVERWRITE, WHERE THE",
+            "  LINE ERASES ALL IT PASSES",
         ], [
-            "{PRESETS}: THE SOUND YOU PLAY,",
-            "  {ENV}: ITS CARTRIDGE; A NEW LOOP",
-            "  TAKES IT",
-            "{ALGORITHM}: TEMPO, ANY TIME",
-            "{K1}-{K4}: LEVEL, PAN, DELAY, REVERB",
-            "  OF THE LOOP; ON + NEW LOOP: THE NEXT",
-            "WHAT YOU HEAR RECORDING IS KEPT:",
-            "  NOTES ON QUANTIZE'S GRID, MONO ONE",
-            "  AT A TIME, POLY 4 AT MOST",
+            "PLAYING: THE LOOPS AND THE KEYS",
+            "{PLAY}: PLAY / STOP, HOLD: TO THE START",
+            "{ALGORITHM}: WHERE PLAY IS, A ROW",
+            "  (HOLD {SEL}: A BAR); PLAYING: A JUMP",
+            "{K1}-{K4}: LEVEL, PAN, REVERB, TEMPO",
+            "  ({GLO}: EACH KNOB'S JOB)",
+            "{PRESETS}: THE SOUND YOU PLAY",
+            "{ENV} (EXPLORE NAMED VAULTS): ITS",
+            "  CARTRIDGE",
+            "HOLD {ENV}: THE LOOP'S SOUND AS YOURS",
+            "THE KEYS SOUND AS KEPT: QUANTIZED,",
+            "  MONO ONE NOTE, POLY 4 AT MOST",
+            "THE STAGE: PLAYS IN THE SOUND YOU PLAY",
             "{SEQ} (SHOW ELSE, QUICK): THE {KEYS}",
             "  PLAY NOTES, OR CONTROL THE LOOPS",
             "{HOME}, {WHITE KEY}: MUTE A LOOP",
@@ -422,25 +443,29 @@ PTFM.help = (function () {
             "{PIT}: ALL LOOPS ON",
             "{OP1} {OP2} {OP3}: QUANTIZE 2, 3, 4 ROWS",
             "{OP4}: A ROW, {OP5}: REAL TIME",
-            "{MONO}, {POLY}: HOW NEXT LOOPS RECORD",
+            "{MONO}, {POLY}: HOW YOU PLAY AND KEEP",
             "  MONO: ONE NOTE, AS MONO LEGATO SAYS",
             "  POLY: UP TO 4 NOTES",
+            "HOLD {SEQ} + A KEY: AS IN CONTROL",
+            "RECORD LIVE ({SEL}): ALL THAT SOUNDS",
+            "  GOES IN A SONG; {HOME} ENDS IT",
         ], [
-            "{ARP} (AGAIN, REPEAT, PLEASE): RECORD",
-            "  PATTERN, 4 ROWS OF STEPS",
-            "  {SELECT}: THE ROW",
-            "  {WHITE KEY}: A STEP ON / OFF",
+            "HOLD {ARP} + {REC}: RECORD PATTERN",
+            "  {SELECT}: ONE OF ITS 4 ROWS",
+            "  {WHITE KEY}: A STEP, HOLD: A TIE",
             "  {K3} OR {SEL}, THEN A KEY: ITS NOTE",
-            "  {K1} STEP SIZE, {K2} LENGTH,",
-            "  {K4} TIMES: THE FIRST LOOP'S LENGTH",
-            "  {GLO}: NOTES RING ON, OR A STEP LONG",
+            "  {K1} NOTE LENGTH, {K2} STEPS: A ROW",
+            "  EACH; A ROW'S NEXT NOTE ENDS ITS LAST",
             "  {ARP}: THE PREVIEW ON / OFF",
-            "  {REC}: WRITE IT, {HOME}: CLOSE",
+            "  {REC}: ONTO THE STAGE, {HOME}: CLOSE",
             "{GLO}: TEMPO, SWING, LENGTH, GRID,",
-            "  QUANTIZE, MONO LEGATO, COUNT-IN",
-            "{SEL}: APPLY INSTRUMENT, DOUBLE,",
-            "  RECORD LIVE, SAVE TO / LOAD FROM",
-            "  PATTERN, CLEAR LOOPS, REVERT",
+            "  QUANTIZE, MONO LEGATO, COUNT-IN,",
+            "  VIEW, K1-K4'S JOBS",
+            "{SEL}: TAKE ITS INSTRUMENT, APPLY,",
+            "  ADJUST, QUANTIZE, DELETE, DOUBLE,",
+            "  RECORD PATTERN, RECORD LIVE,",
+            "  SAVE TO / LOAD FROM PATTERN,",
+            "  CLEAR STAGE, CLEAR LOOPS, REVERT",
             "{FX}: THE LOOPS' EFFECTS",
         ]],
         FX: [[
@@ -455,19 +480,20 @@ PTFM.help = (function () {
             "{LFO} (LEAVE FIELD OPEN): THE KNOB",
             "  TURNED LAST BACK TO ITS DEFAULT",
             "{GLO}: HOW THE EFFECTS ARE WIRED",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO",
             "EFFECTS: EACH SONG HAS ITS OWN; HERE,",
             "  THOSE OF WHAT PLAYS ({GLO} SAYS WHOSE)",
         ], [
             "LIVE: PLAY THE EFFECTS",
             "{WHITE KEYS}: PUNCH-INS, WHILE HELD",
-            "  + {ARP}: HOLDS ON; ITS KEY STOPS IT",
+            "  + {ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  HOLDS IT ON; ITS KEY STOPS IT",
             "  4 GROUPS: LOOPS, CHOPS, SWEEPS, TAPE",
-            "{BLACK KEY}: PICK AN EFFECT",
+            "{BLACK KEY} OR {SELECT}: PICK AN EFFECT",
             "  GATE FILTER DRIVE  LO-FI CHORUS",
             "  DELAY REVERB LIMITER  DUCK METRO",
             "  THE LAST: BYPASS, ALL OFF WHILE HELD",
-            "{SELECT}: PICK AN EFFECT TOO",
             "{OCT+} / {OCT-}: THE EFFECT ON / OFF",
             "{K1}-{K4}: ITS KNOBS",
             "{ALGORITHM}: ITS NEXT 4 KNOBS",
@@ -522,7 +548,8 @@ PTFM.help = (function () {
             "{HOME}, {WHITE KEY}: MUTE A TRACK",
             "PUNCH-IN EFFECTS",
             "HOLD {FX} + {WHITE KEY}: EFFECT WHILE HELD",
-            "  + {ARP}: HOLDS ON; ITS KEY STOPS IT",
+            "  + {ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  HOLDS IT ON; ITS KEY STOPS IT",
             "{KEYS} 1-4: LOOP 1/4, 1/8, 1/16, 1/32",
             "{KEYS} 5-8: STUTTER, CRUSH, GATE 1/16, 32",
             "{KEYS} 9-12: LP, HP SWEEP, ECHO, REVERB",
@@ -625,8 +652,8 @@ PTFM.help = (function () {
             "{K1}: ZOOM IN TIME, ON SCOPE",
             "{K2}: MAKE IT TALLER OR FLATTER",
             "{GLO}: STEREO OR MONO VIEW, FREEZE",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
-            "  HOLD {ARP}: RHYTHM, ORDER, LATCH",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO; HELD: RHYTHM, ORDER, LATCH",
         ]],
         STATUS: [[
             "[STATUS]: HOW THE FM-1 IS DOING",
@@ -683,7 +710,8 @@ PTFM.help = (function () {
             "  HEARD AS WRITTEN",
         ], [
             "ARP, POWER-ON AND TOOLS",
-            "{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO",
+            "{ARP} (AUTOMATIC REPEAT PROCEDURE):",
+            "  ARPEGGIO",
             "ARP RHYTHM: # A NOTE, _ A REST",
             "ARP PATTERN: THE ORDER IT PLAYS IN",
             "ARP LATCH: NOTES KEPT AFTER THE {KEYS}",
@@ -776,6 +804,7 @@ PTFM.help = (function () {
         "HOLD {SEL} + {K1}: KEEP {SEL} DOWN AND",
         "  TURN {K1}; AGAIN AND AGAIN IS FINE",
         "  {SEL} LET GO UP TO 0.1 S EARLY: OK",
+        "HOLD {GLO} + {PRESETS}: A FAVORITE, ONCE",
         "HOLD ONE ALONE: IT SHOWS WHAT IT DOES",
         "  WITH THE OTHER KEYS AND KNOBS",
         "THE KEY THAT OPENS: CLOSES, KEEPS EDITS",
@@ -877,9 +906,34 @@ PTFM.help = (function () {
             return lines;
         });
     }
-    /* the help's own check (specs/ui/help.md): 40 characters, 17 lines, the fonts' characters */
+    /* the help's own check (specs/ui/help.md): 40 characters, 17 lines, the fonts' characters; each key's reading once,
+     * at its first mention in the help's page order (help.md's Readings): ENV, SEQ and ARP with theirs there and at no
+     * later mention; LFO's (only where it clears) and the screen keys' (only on the shared pages) at most once. The hold
+     * lines: ARP's reading is allowed again, not required, wherever ARP's mark comes right after a `+` (the line up to
+     * the mark ends in `+`, spaces aside: `+ {ARP}`, `HOLD {FX} + {ARP}`), and such a reading counts for no other. Each
+     * finding names its line as written (as fw/tools/gen_texts.py checks the specs' pages) */
+    const FIRST = new Set(["ENV", "SEQ", "ARP"]), SCREEN_KEYS = new Set(["OP1", "OP2", "OP3", "OP4", "OP5", "OP6", "PIT", "MONO", "POLY"]);
+    function readingsBad(s) {
+        const own = OWN[s], list = s === "STATUS" ? SHARED.concat(own) : own.concat(SHARED), named = new Set(), seen = {}, bad = [];
+        list.forEach((pg, k) => {
+            const mine = s === "STATUS" ? k >= SHARED.length : k < own.length;
+            for (const src of pg) for (const m of src.matchAll(/\{([^}]*)\}/g)) {
+                const auto = m[1].endsWith("*"), name = auto ? m[1].slice(0, -1) : m[1], r = READ[name];
+                if (!r) continue;
+                const drawn = auto ? !named.has(name) : src.startsWith(" (" + r + ")", m.index + m[0].length);
+                const hold = name === "ARP" && /\+\s*$/.test(src.slice(0, m.index)), n = seen[name] = seen[name] || { at: 0, drawn: 0 };
+                const first = !n.at++, at = `${s} page ${k + 1}, "${src}"`;
+                if (drawn) named.add(name);
+                if (first && FIRST.has(name) && !drawn) bad.push(`${at}: ${name}'s first mention, without its reading`);
+                if (drawn && !hold && (FIRST.has(name) ? !first : ++n.drawn > 1)) bad.push(`${at}: ${name}'s reading again`);
+                if (drawn && mine && SCREEN_KEYS.has(name)) bad.push(`${at}: ${name}'s reading on the screen's own page`);
+            }
+        });
+        return bad;
+    }
     function check() {
         const bad = [];
+        for (const s in OWN) bad.push(...readingsBad(s));
         for (const s in OWN) {                           /* a first page: 15 lines of its own, a blank, PRESS HOME */
             const first = (s === "STATUS" ? SHARED.concat(OWN[s]) : OWN[s].concat(SHARED))[0];
             if (first.length > 15) bad.push(`${s} page 1: ${first.length} lines of its own (15 at most)`);

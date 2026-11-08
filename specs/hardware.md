@@ -78,14 +78,26 @@ limit's end, and faulted). **Data only.** PT/FM keeps it in reserve ([files/ram.
 
 ## The flash
 
-1 MiB Puya NOR (JEDEC 0x856014), read in place at 0x02000000 + (offset − 0x4000) through the code cache.
+1 MiB NOR, read in place at 0x02000000 + (offset − 0x4000) through the code cache. **FM-1s carry one of two chips,**
+told apart by their JEDEC ID (command 9Fh):
+
+| JEDEC ID | Chip | In |
+|---|---|---|
+| 0x856014 | Puya P25Q80 | the FM-1s made first; every figure below was measured on it |
+| 0xB36014 | UCUN UC25HQ80 | FM-1s made later |
+
+Both have the same layout and commands (4 KB erase blocks, 256 B pages, a program of part of a page leaving its other
+bytes as they were); the UC25HQ80's datasheet gives a 4 KB erase 7 ms and a page program 1.5 ms. **PT/FM writes to
+the flash only when it is one of the two** (`fw/hal/fm1_flash_id.h`, read at every start): with any other chip the
+firmware saves nothing and takes no install, and PT/FM's update loader writes nothing (the firmware there starts
+again), so a firmware is never written where it could not be updated again. Nothing has been tried on a UC25HQ80 yet.
 
 | Offsets | What |
 |---|---|
 | 0x000000-0x004000 | the boot code: never written |
-| 0x004000-0x093000 | the firmware slot (the app from 0x4120, at 0x02000120 in place; 581,564 B), written only by installs; its last block holds the image's tail |
+| 0x004000-0x093000 | the firmware slot (app.bin from 0x4120, at 0x02000120 in place; 581,564 B), written only by installs: PT/FM's start check from 0x4120 (its first block the same in every build), the firmware from 0x5000, the mark in its last block ([Updates and rescue](#updates-and-rescue)) |
 | 0x093000-0x0E0000 | free for data (PT/FM's user area, part 1) |
-| 0x0E0000-0x0E5000 | the update's staging: keep free |
+| 0x0E0000-0x0E5000 | the update's staging: PT/FM's update loader kept there |
 | 0x0E5000-0x0FF000 | free for data (PT/FM's user area, part 2; 0x0FC000 is where other firmwares keep their settings) |
 
 - **The data area reads in place** once a window set at the start maps it (`fl_plain_window_init`); a header read
@@ -200,13 +212,59 @@ The sequences (start, hold, faults) are [second-core.md](second-core.md#the-chip
 
 - **An install** goes over USB-MIDI SysEx from a web page: the running firmware answers the installer's handshake
   with its identity (`FM-1_<digits>`: the installers compare the part before `_` with the model and refuse letters
-  after it; found by "FM-1" in the USB product name), stages the update loader ("ota-FM-1_900") at 0x0E0000,
-  writes the update record and restarts; the loader writes the whole firmware slot, skipping sectors already equal.
-  **An install cut short does not resume after a power-off** (it does while the FM-1 stays in update mode).
-- **The USB rescue:** OCT− held alone at power-on (so OCT− is no boot key for anything else), or two failed starts in
-  a row (a boot guard kept across restarts), start a mode that only takes an install.
+  after it; found by "FM-1" in the USB product name), stages the package's update loader at 0x0E0000 (step 1),
+  writes the update record in RAM and restarts; the boot code runs the loader, which writes the firmware slot (step
+  2). The boot code looks for the update record in RAM only: a power-off ends it, so on its own an install cut short
+  never resumes.
+- **The start check** (`fw/stub`) is PT/FM's own: the slot's first code, run at every start before the firmware, in
+  the slot's first block, whose bytes are the same in every build (pinned; app.bin's CRC16 made constant by the
+  mark's last 2 bytes, so the directory there is constant too). In about 75 ms (48 ms of key scans, 26.5 ms for the
+  firmware's CRC-32 in place) it reads:
+  - **OCT−** held alone (PA2 driven low first: the key matrix reads only then; so OCT− is no boot key for anything
+    else);
+  - **the firmware's request** (its boot guard: two failed starts in a row), in a box of 16 B at the top of the RAM
+    records, kept across restarts and set anew at every power-on, told by the chip's reset reasons (RAM can outlast a
+    short power-off: seen on the FM-1, the box counting on through a switch-off);
+  - **the mark**, the slot's last 32 B: the firmware's length and CRC-32, its own CRC-32;
+  - **the firmware's CRC-32**, read in place, against the mark's.
+
+  With none of the first two and both checks good it starts the firmware (its CRC-32 of the firmware takes 26.5 ms on
+  the FM-1); else **update mode**: the update loader kept (the first whole head at 0x0FC000, 0x0FA000 or 0x0E0000:
+  the flash's end, ready for the staging's move there, then today's staging), once; with none kept, or when it started once already without the firmware starting between
+  (it did not come up), the chip's own USB mode (a dark screen; it takes a ROM-mode writer).
+- **PT/FM's update loader** ("ota-FM-1_901", 9.6 KB staged) keeps what other firmwares check before staging it (the
+  16-byte mark at its start, its load address, at most 0x14000 B) and the M-UPGRADE protocol. It writes the slot
+  only. It fetches the mark's block first and, when it is another build's, erases it before anything else; it
+  writes the mark's block last, once the whole package's CRC checks out. So from the first erase to the last block
+  there is no mark that fits the firmware: a power cut there leaves update mode at the next start, and the install
+  page finishes the install. A host that answers hash reads (PT/FM's pages: F0 22 24 35 7C F7 starts it) is asked
+  each block's CRC-32 first, and only the blocks that differ are fetched. Its screen: INSTALLING, CHECKING or WRITING
+  with the share and a bar of the slot's 143 blocks, DON'T SWITCH OFF; in update mode UPDATE MODE and why.
+- **The loader stays staged:** PT/FM's firmware keeps a loader of its own in the staging at every start (it erases
+  anything else there). An install from another firmware stages the package's loader as before.
+- **The one write with nothing to fall back on** is the slot's first block: the first install of a firmware with
+  the start check, and any later change of the start check (about 44 ms: an erase and 16 pages). Every other install
+  leaves that block as it is.
 - **The watchdog** (in the P33 power domain, reset mode, 1-32 s) and **a software restart** (P33's power register)
   both restart the chip; P33 says why (power-on, watchdog, software).
+- **A crash** (an exception on core 1, or PT/FM stopping itself) shows a red screen, `PT/FM CRASH` (or `PT/FM
+  STOPPED` and why), then the version and `BUILD` with the build's code, and `PRESS A BUTTON TO RESTART`: it stays,
+  the watchdog fed and the panel scanned in place, until a button or a key is pressed (one held at the crash let go
+  first), so its numbers can be noted; then a software restart. `PT/FM CRASH` names what the fault found
+  (`fw/device/crash_screen.c`):
+  - two words a line: `VEC` (the vector), `PC`, `EMU` (the stack-pointer windows' flags), `DBG` (the debug unit's:
+    bit 13 a write limit, bit 12 or 10 the PC limits, bits 4, 5, 16-21 the bus), `RETS`, `SP`;
+  - `WRITE LIMIT` and the windows core 1 wrote into, a bit each, named when it is one (`MAIN LOOP'S STACK BAND`,
+    `INTERRUPTS' STACK BAND`, `THE TOP (VECTORS)`, `CORE 2'S CODE`): the chip keeps which window, not the address;
+  - `ETM`, the last four branches traced; `USP` and `SSP`; `PSR` and `ICFG` (the interrupt level it ran at);
+  - `UP`, the seconds since the start, and `LATE`, the halves the sound was late;
+  - core 2 as the crash found it: `RUNNING`, `OFF`, `OFF: AFTER A CRASH`, or `STOPPED:` and why (`FAULT AT` its own
+    fault's PC);
+  - `STACK: INTERRUPTS` or `STACK: MAIN LOOP` when the stack check found one past its end.
+- **The build's code** names the very build a crash report comes from, as a release's version is its number alone: 8
+  hex digits holding the build's time to the minute (UTC) and its kind (release, debug, dev, bring-up), scrambled so
+  they read as no date, with a check that catches most misread digits. `fw/tools/buildcode.py CODE` reads one back;
+  `fw/tools/build.py` makes it (with `SOURCE_DATE_EPOCH` set, that time: the same sources then build the same image).
 
 ## The toolchain
 

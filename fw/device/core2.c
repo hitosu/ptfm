@@ -3,9 +3,9 @@
 /* The second core on the FM-1 (specs/second-core.md): plat.h's side of it. The chip's side is hal/fm1_cpu1.h; the
  * holds before every reset are main.c's (fm1_cpu1_halt; c2_hold_reset before ours). Included by main.c after the
  * sound's part.
- *   the start   from the main loop, 2 s into every start (c2_poll), with SECOND CORE on, the debug build's 38 not
- *               holding it off and no restart but ours with it running since the power came on (the ban): interrupts
- *               off around fm1_cpu1_start. Once a run of the firmware: when SECOND CORE comes on later, then;
+ *   the start   from the main loop, 2 s into every start (c2_poll), with SECOND CORE on and no restart but ours
+ *               with it running since the power came on (the ban): interrupts off around fm1_cpu1_start. Once a run
+ *               of the firmware: when SECOND CORE comes on later, then;
  *   a half      first thing in the audio interrupt (c2_half_start): the blocks handed over in the half before done
  *               (late when they were not yet, unless core 1 was late for that half: one dropout counted once), their
  *               time into the figures; then plat_c2_half decides for the half (never asked in CUT's), plat_c2_post
@@ -16,10 +16,8 @@
  *               first try, cleared when a fallback or a failed start holds it and by the restarts we mean (an
  *               update's, the chip's USB update mode, the debug build's watchdog test: c2_hold_reset), never by a
  *               crash's. A start after any other restart (a crash, the watchdog) finding it set leaves core 2 off
- *               until a power-on (c2_boot);
- *   PROVE 4-6   the debug build's: the next block handed over faults, is misread or never ends, so each fallback is
- *               tried on the FM-1 (c2_prove, set by main.c's prove_sysex).
- * The main loop's flash paths and the debug build's bench wait for core 2 first (c2_quiet), interrupts off. */
+ *               until a power-on (c2_boot).
+ * The main loop's flash paths wait for core 2 first (c2_quiet), interrupts off. */
 
 #define C2_WAIT_HALF 1000u               /* us past a half's start: its blocks not done by then, stuck */
 #define C2_WAIT_LONG (HALF_US + 1000u)   /* us elsewhere (a half's blocks are done within the half; then the same) */
@@ -38,7 +36,6 @@ static uint8_t c2_late1;                 /* the audio interrupt ran past the hal
                                           * core 2 still on that half's last block at the next half's start is the
                                           * same dropout, counted once, as core 1's */
 static volatile uint8_t c2_want = 1;     /* SETTINGS' SECOND CORE (plat_c2_enable; its default ON till the app says) */
-static volatile uint8_t c2_forced;       /* the debug build's 38: off whatever SETTINGS says */
 static volatile uint8_t c2_pend;         /* blocks handed over and not waited for yet */
 static uint8_t c2_used;                  /* blocks went to core 2 since the last half's start: its time to take */
 static uint8_t c2_half_on;               /* this half's blocks go to core 2 (plat_c2_half) */
@@ -47,18 +44,12 @@ static volatile uint32_t c2_last, c2_max, c2_sum;   /* its jobs' time: the last 
 static volatile uint32_t c2_late;        /* halves its last block was not done for when the next began (core 1 in time
                                           * for them), since reset */
 #ifdef PTFM_DEBUG
-extern volatile uint8_t bench_running;   /* core/bench.c: its pieces run the effects' code on core 1 */
-#define C2_BENCH bench_running
 static volatile struct {                 /* the debug build's window (37 FIGURES 2): since plat_dbg last took it */
     uint32_t wait_sum, wait_max;         /* core 1's waits for core 2 at the halves' starts, us */
     uint32_t late;                       /* halves core 2 was late for (core 1 in time) */
     uint32_t blocks, halves;             /* the blocks handed over; the halves they went in */
     uint32_t sum, max;                   /* its jobs' time, summed; a half's most */
 } c2_win;
-static volatile uint8_t c2_prove;        /* PROVE 4-6 (main.c): the next block handed over faults, is misread, sticks */
-static volatile uint8_t c2_prove_halves; /* the halves begun since it was asked: one that handed nothing over drops it */
-#else
-#define C2_BENCH 0
 #endif
 typedef char c2_whys[FM1_C1_WHY_NO_ANSWER == PLAT_C2_WHY_NO_ANSWER && FM1_C1_WHY_MISREAD == PLAT_C2_WHY_MISREAD &&
                      FM1_C1_WHY_STUCK == PLAT_C2_WHY_STUCK && FM1_C1_WHY_FAULT == PLAT_C2_WHY_FAULT ? 1 : -1];
@@ -90,7 +81,7 @@ static void c2_hold_reset(void)
 static void c2_poll(uint32_t up)
 {
     uint32_t f;
-    if (fm1_c1.state != FM1_C1_OFF || c2_banned || !c2_want || c2_forced || up < 2000u)
+    if (fm1_c1.state != FM1_C1_OFF || c2_banned || !c2_want || up < 2000u)
         return;
     f = irq_save();
     c2_ban.runs = C2_RUNS;               /* (before its first try: a crash on core 1 while it starts bans it too) */
@@ -114,8 +105,8 @@ static int c2_wait(uint32_t us)
     }
     return rc;
 }
-/* the main loop, interrupts off: before audio_silence (it clears the codec's halves core 2 may be writing), a bench
- * piece; and plat_c2_wait */
+/* the main loop, interrupts off: before audio_silence (it clears the codec's halves core 2 may be writing); and
+ * plat_c2_wait */
 static void c2_quiet(void)
 {
     if (c2_pend)
@@ -131,11 +122,6 @@ static void c2_half_start(void)
     uint8_t late1 = c2_late1;            /* (the half before late on core 1 already) */
     c2_late1 = 0;
     c2_half_on = 0;
-#ifdef PTFM_DEBUG
-    if (c2_prove && c2_prove_halves++)   /* (PROVE 4-6: the half since it was asked handed no block over, CUT's, SECOND
-                                          * CORE off, 38: it does nothing) */
-        c2_prove = 0;
-#endif
     if (fm1_c1.state != FM1_C1_RUNS) {   /* (not started, or held: its queue is not read) */
         c2_pend = c2_used = 0;
         c2_last = 0;
@@ -180,23 +166,10 @@ static void c2_half_start(void)
     c2_last = us;
 }
 
-#ifdef PTFM_DEBUG
-/* PROVE 4-6 (specs/debug.md, Proving the layout): this block handed over as the test asks, in its job's place (the
- * block plays as silence): a job that faults (4), its own job with a wrong check word (5), a job that never ends (6);
- * 1 taken */
-static int c2_prove_post(void (*job)(uint32_t), uint32_t j)
-{
-    int taken = c2_prove == 5u ? fm1_cpu1_post_bad(job, j) : fm1_cpu1_post(fm1_c1_prove_job, c2_prove == 6u);
-    if (taken)
-        c2_prove = 0;
-    return taken;
-}
-#endif
-
 /* ---- plat.h ---- */
 int plat_c2_half(void)
 {
-    c2_half_on = fm1_c1.state == FM1_C1_RUNS && c2_want && !c2_forced && !C2_BENCH;
+    c2_half_on = fm1_c1.state == FM1_C1_RUNS && c2_want;
     return c2_half_on;
 }
 
@@ -204,15 +177,7 @@ int plat_c2_half(void)
  * once core 2 holds no slot: idle, or held) */
 void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 {
-    int taken;
-#ifdef PTFM_DEBUG
-    if (c2_prove && c2_half_on && c2_prove_post(job, j)) {   /* (the next job: a voice job's, past 10 voices) */
-        c2_pend = c2_used = 1;
-        c2_win.blocks += j != PLAT_C2_VOICE_JOB;
-        return;
-    }
-#endif
-    taken = c2_half_on && fm1_cpu1_post(job, j);
+    int taken = c2_half_on && fm1_cpu1_post(job, j);
     if (c2_half_on && !taken && !c2_wait(C2_WAIT_LONG))
         taken = fm1_cpu1_post(job, j);
     if (taken) {
@@ -230,7 +195,6 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 void plat_c2_wait(void) { c2_quiet(); }
 
 void plat_c2_enable(int on) { c2_want = on ? 1u : 0u; }   /* (a repeat changes nothing) */
-void plat_c2_force_off(int off) { c2_forced = off ? 1u : 0u; }
 
 /* plat_cpu's part: core 2's figures, state and why, its late halves added to core 1's */
 static void c2_cpu(plat_cpu_t *c, int reset)
@@ -242,7 +206,7 @@ static void c2_cpu(plat_cpu_t *c, int reset)
     c->c2_sum_us = c2_sum;
     c->c2_why = c2_banned ? PLAT_C2_WHY_CRASH :
                 st == FM1_C1_HELD || st == FM1_C1_FAILED ? fm1_c1.why : PLAT_C2_WHY_NONE;
-    c->c2_state = c->c2_why ? PLAT_C2_STOPPED : !c2_want || c2_forced ? PLAT_C2_OFF :
+    c->c2_state = c->c2_why ? PLAT_C2_STOPPED : !c2_want ? PLAT_C2_OFF :
                   st == FM1_C1_RUNS ? PLAT_C2_ON : PLAT_C2_STARTING;
     if (reset) {
         c2_max = 0;

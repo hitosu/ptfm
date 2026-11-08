@@ -37,9 +37,13 @@ metronome. LOOPS, DJ and THE KEYS have their own (<a href="#fx-setup">chapter 15
 (<a href="#conventions">the conventions</a>).</dd>
 <dt>Instrument</dt><dd>A sound in a cartridge's slot, written 01:05 (cartridge 01, slot 05)
 (<a href="#instruments">chapter 8</a>).</dd>
-<dt>Loop</dt><dd>On LOOPS, a recorded line of notes that repeats; up to 16 play together
+<dt>Loop</dt><dd>On LOOPS, a kept line of notes that repeats; up to 16 play together
 (<a href="#loops">chapter 14</a>).</dd>
 <dt>Order</dt><dd>The list of patterns a song plays, one after another (<a href="#songs-order">chapter 6</a>).</dd>
+<dt>Overdub</dt><dd>On LOOPS, playing onto the stage while the loops go round: each note replaces what the stage had
+where you hold it, the rest stays (<a href="#loops-stage">chapter 14</a>).</dd>
+<dt>Overwrite</dt><dd>On LOOPS, switched by LFO's tap: the play line erases the stage as it passes, keeping only what
+you play meanwhile (<a href="#loops-overwrite">chapter 14</a>).</dd>
 <dt>Pattern</dt><dd>A grid of notes: up to 16 tracks across and 128 rows down, played from top to bottom. Songs are
 made of patterns (<a href="#editor">chapter 7</a>).</dd>
 <dt>Position</dt><dd>A place in a song's order, numbered from 00; each position plays one pattern
@@ -48,10 +52,15 @@ made of patterns (<a href="#editor">chapter 7</a>).</dd>
 (<a href="#fx-punch">chapter 15</a>).</dd>
 <dt>Row</dt><dd>One step in time of a pattern, numbered in hex from 00. With 4 rows a beat, a row is a sixteenth note
 (<a href="#songs-props">chapter 6</a>).</dd>
-<dt>Sample</dt><dd>A recorded sound, kept in a sampler cartridge. An instrument plays it
+<dt>Sample</dt><dd>A recorded sound, a thing of its own numbered 00 to FF (256 at most), kept apart from the cartridges.
+The instruments of any sampler cartridge can play it
 (<a href="#instruments-sampler">chapter 8</a>, <a href="#editor-page-sounds">chapter 17</a>).</dd>
+<dt>Sampler</dt><dd>A cartridge of up to 64 instruments that play samples. It holds the instruments only, not the
+samples (<a href="#instruments-sampler">chapter 8</a>).</dd>
 <dt>Slot</dt><dd>A cartridge's place for one instrument, numbered from 00 (<a href="#instruments">chapter 8</a>).</dd>
 <dt>Song</dt><dd>An order of patterns with its own tempo, mixer and effects (<a href="#songs">chapter 6</a>).</dd>
+<dt>Stage</dt><dd>On LOOPS, one loop of the length that you play over again and again; REC keeps it as a loop
+(<a href="#loops-stage">chapter 14</a>).</dd>
 <dt>Take</dt><dd>A live recording in the EDITOR: the pattern plays round and round while what you play is written
 (<a href="#editor-takes">chapter 7</a>).</dd>
 <dt>THE KEYS</dt><dd>The keys' own effects and tempo, used before anything has played and after UNLOAD SONG

@@ -272,8 +272,8 @@ as any.
 - **CPU** (counted on the device compiler's code; to measure on the FM-1), a 64-frame block: a pulse about 5-7 µs;
   a triangle or wave at A-4 about 14 µs, twice that an octave up; the fastest noise 25-35 µs (12 register steps a
   sample, stepped in runs). A Juno-106 voice is 30.5-48.7 µs, a DX7 23.5-40. Its ceiling: 128 + 128 + 64
-  band-limited steps a block, 64 more with slow noise mixed in ([above](#the-clock-clock)). The debug build's BENCH times a PULSE at C-4, a TRIANGLE
-  at A-4, a WAVE at C-7 and the fastest NOISE; its figures count CHIP's time with the samples'.
+  band-limited steps a block, 64 more with slow noise mixed in ([above](#the-clock-clock)). The debug build's
+  figures count CHIP's time with the samples'.
 - **RAM:** none of its own. A voice's state (228 B) fits the voice slot; nothing static, no tables built at start.
 - **Flash:** the engine's code about 7 KB, its tables 5 KB (the kernel 2 KB, the curves 0.5 KB, the tables and waves
   1.5 KB, the clocks', noise's and steps' 1 KB); the built-in cartridge 3.6 KB.

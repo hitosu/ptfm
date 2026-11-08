@@ -86,7 +86,7 @@ static int track_voices(int lo, int hi)  /* song voices sounding on tracks lo-hi
 static int src_song(rec_song_t *s)
 {
     static uint8_t order[1];
-    if (rec_song(8, s))
+    if (rec_song(0xA8, s))
         return -1;
     order[0] = s->order[s->len > 1 ? 1 : 0];
     s->order = order;
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
         player_dj_mem(mem);
     }
     /* ---- DJ's first start: what plays stops and its sound is cut (the voices, the effects' tails): DJ starts dry ---- */
-    player_play_song(0x00, 0, 0);
+    player_play_song(0xA0, 0, 0);
     run(2);
     s = st();
     printf("  before: what %d, playing %d, %d voices, %.1f dB\n", s.what, s.playing, track_voices(0, 15), rms);
@@ -131,8 +131,8 @@ int main(int argc, char **argv)
     fresh();
 
     /* ---- both decks heard ---- */
-    player_deck_load(0, 0x08);           /* TECHNO LOOP */
-    player_deck_load(1, 0x0A);           /* DISCO LOOP */
+    player_deck_load(0, 0xA8);           /* TECHNO LOOP */
+    player_deck_load(1, 0xAA);           /* DISCO LOOP */
     player_deck_play(0, 1, 1, 0);
     player_deck_play(1, 1, 1, 0);
     mix.vol[1] = DJ_VOL_OFF;
@@ -236,8 +236,8 @@ int main(int argc, char **argv)
 
     /* ---- SYNC: a deck armed starts on the main's bar line, and stays in phase ---- */
     fresh();
-    player_deck_load(0, 0x08);
-    player_deck_load(1, 0x08);
+    player_deck_load(0, 0xA8);
+    player_deck_load(1, 0xA8);
     player_deck_play(0, 1, 1, 0);
     run(1.3);                            /* (into its bar) */
     s = st();
@@ -272,8 +272,8 @@ int main(int argc, char **argv)
     /* ---- SYNC switched on while both play, out of phase: the right's beats land on the main's, to a block (the
      * lock once read the right's place a tick short, a row's ticks counting down, and held it 30 ms off) ---- */
     fresh();
-    player_deck_load(0, 0x08);           /* TECHNO LOOP */
-    player_deck_load(1, 0x10);           /* ELECTRO LOOP, 126 BPM too */
+    player_deck_load(0, 0xA8);           /* TECHNO LOOP */
+    player_deck_load(1, 0xB0);           /* ELECTRO LOOP, 126 BPM too */
     player_deck_play(0, 1, 1, 0);
     run(1.37);
     s = st();
@@ -310,7 +310,7 @@ int main(int argc, char **argv)
 
     /* ---- loops ---- */
     fresh();
-    player_deck_load(0, 0x08);
+    player_deck_load(0, 0xA8);
     mix.xf = 0;
     set();
     player_deck_play(0, 1, 0, 0);        /* (its intro: 8 bars played once, then position 01) */
@@ -421,8 +421,8 @@ int main(int argc, char **argv)
 
     /* ---- the LFOs ---- */
     fresh();
-    player_deck_load(0, 0x08);
-    player_deck_load(1, 0x0A);
+    player_deck_load(0, 0xA8);
+    player_deck_load(1, 0xAA);
     player_deck_play(0, 1, 1, 0);
     mix.xf = 16;
     mix.lfo[PL_LFO_FADER].on = 1;
@@ -515,7 +515,7 @@ int main(int argc, char **argv)
     check("the loops: what plays, no longer DJ", s.what == PL_LOOPS && s.playing);
     check("DJ ended: the second deck's memory given back up", !s.dj_mem);
     check("their voices on tracks 16-31, none on 0-15", track_voices(16, 31) > 0 && track_voices(0, 15) == 0 && rms > -50);
-    player_play_song(0x08, 0, 0);
+    player_play_song(0xA8, 0, 0);
     run(1.0);
     check("a song: its voices on tracks 0-15 again", st().what == PL_SONG && track_voices(0, 15) > 0);
 
@@ -523,7 +523,7 @@ int main(int argc, char **argv)
     {
         uint8_t keep[DJ_REC_LEN];
         dj_record_default(DJ_REC);
-        dj_deck(0)[DK_SONG] = 0x08;
+        dj_deck(0)[DK_SONG] = 0xA8;
         dj_deck_key(0, 3);
         dj_loop(0, 3, 1, 16, 32, 0);     /* REPEAT 2 BARS */
         dj_lfo_bytes(DJ_LFO_FILT_L)[0] = 1;
@@ -542,7 +542,7 @@ int main(int argc, char **argv)
     {
         pl_inst_t tb = {0xFA, 0};        /* (the built-in TB-303's first preset: notes end as soon as let go) */
         pl_voice_info_t v[PL_VOICES];
-        player_play_song(0x08, 0, 0);
+        player_play_song(0xA8, 0, 0);
         player_pause();
         run(0.5);
         for (i = 0; i < 40; i++)         /* (a flood within one half: more than the queue holds) */
@@ -590,8 +590,8 @@ int main(int argc, char **argv)
         int a = -1, b = -1, same = 1, diff_at = -1, wst = 1;
         uint32_t rows0[2];
         pid_t pid;
-        for (i = 6; i < 18 && b < 0; i++)   /* (the first two DJ loops of the same tempo) */
-            for (n = i + 1; n < 18 && b < 0; n++)
+        for (i = 0xA6; i < 0xB2 && b < 0; i++)   /* (the first two DJ loops of the same tempo) */
+            for (n = i + 1; n < 0xB2 && b < 0; n++)
                 if (dj_song_own10((uint8_t)i) && dj_song_own10((uint8_t)i) == dj_song_own10((uint8_t)n))
                     a = i, b = n;
         printf("  SWAP: songs %02X and %02X, both %d.%d BPM\n", a, b, dj_song_own10((uint8_t)a) / 10, dj_song_own10((uint8_t)a) % 10);

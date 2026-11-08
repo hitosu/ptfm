@@ -308,7 +308,9 @@ keyboard's octave has it), the rest dark.
   or view.
 - **SELECT** picks a property and **K1** changes it, at once; SEL held + K1 takes coarse steps.
 - **GLO or HOME** closes the overlay; there is no cancel: a change stays, and REVERT
-  ([saving.md](saving.md#revert)) takes the thing back to what was saved.
+  ([saving.md](saving.md#revert)) takes the thing back to what was saved. The one change made at the close: LOOPS'
+  LENGTH made shorter is only planned while it is open, and cut as it closes, asking first when notes would go
+  ([screens/loops.md](screens/loops.md#the-length)).
 - **A name** opens text entry with EDIT ([below](#text-entry)); EDIT is then its DONE.
 - **Some lines only inform** (what uses a pattern, a cartridge's type): K1 does nothing there, and
   their values are dim.
@@ -407,10 +409,11 @@ let go.
 |---|---|
 | HOME | its combination's, as tapped open ([above](#homes-combination)), without `HOME: CLOSE` |
 | FX | the heading `HOLD FX + KEYS`; then the 16 punch-ins by key as a table of two columns, two a line (a group of four on two lines), by their full names: each key's number right-aligned in 2 characters and yellow, a space, the name light grey (the one running white); the second column 19 characters in, so a line is 37 characters at most (T is the smallest font): ` 1 LOOP 1/4          2 LOOP 1/8` … ` 9 LOW-PASS SWEEP   10 HIGH-PASS SWEEP` … `15 TAPE STOP        16 VINYL STOP` (below) |
-| SEL | only what applies where you are: in a name being typed, `SELECT IN A NAME: NEXT GROUP` alone; else the screen's own lines, then `PRESETS: OTHER CARTRIDGE` (every screen but DJ). The screens' own: SONGS, editing the order, `K1: 8 PATTERNS AT A TIME`; the EDITOR's grid `SELECT, ALGORITHM: MARK A BLOCK` and `K4: BY 16` (`K1: AN OCTAVE` while TRANSPOSE turns; none in the note editor); INSTRUMENTS browsing `SELECT, ALGORITHM: MARK SLOTS`, on the edit page `K1-K4: BIG STEPS`; FX `K1-K4: BIG STEPS`, on EDIT then `OCT: THE OCTAVE` (on the MIXER `K1: BY 16`); LOOPS `K1-K4: BIG STEPS`; DJ `K1, K4: THE TEMPO BY 1 BPM`, `K2, K3: THE FILTERS BY 10` (`K2, K3: THE VOLUMES BY 6 DB` while ENV has them on the volumes); PLAYBACK, VISUAL, STATUS and SETTINGS none |
+| SEL | only what applies where you are: in a name being typed, `SELECT IN A NAME: NEXT GROUP` alone; else the screen's own lines, then `PRESETS: OTHER CARTRIDGE` (every screen but DJ), then `GLO: FAVORITES AND BACK` wherever SEL + GLO works ([screens/instruments.md](screens/instruments.md#favorites)). The screens' own: SONGS, editing the order, `K1: 8 PATTERNS AT A TIME`; the EDITOR's grid `SELECT, ALGORITHM: MARK A BLOCK` and `K4: BY 16` (`K1: AN OCTAVE` while TRANSPOSE turns; none in the note editor); INSTRUMENTS browsing `SELECT, ALGORITHM: MARK SLOTS`, on the edit page `K1-K4: BIG STEPS`; FX `K1-K4: BIG STEPS`, on EDIT then `OCT: THE OCTAVE` (on the MIXER `K1: BY 16`); LOOPS `K1-K4: BIG STEPS`; DJ `K1, K4: THE TEMPO BY 1 BPM`, `K2, K3: THE FILTERS BY 10` (`K2, K3: THE VOLUMES BY 6 DB` while ENV has them on the volumes); PLAYBACK, VISUAL, STATUS and SETTINGS none |
+| GLO | `PRESETS: A FAVORITE, ONCE` wherever GLO + PRESETS works ([screens/instruments.md](screens/instruments.md#favorites)): not on DJ or INSTRUMENTS, nor over an overlay; gone while the favourites' list it opens shows |
 | SAVE | `OCT+: SAVE`, `OCT-: REVERT ALL` |
 | LFO | `HOME: HELP FOR THIS SCREEN`; on DJ then its LFO pads by key, as FX's punch-ins (the names white while on: an LFO running, the reverse, a deck's KEY not 0): `1 FADER\|2 SHAPE\|3 RANGE\|4 REVERSE`, `5 FILTER L\|6 SHAPE\|7 RANGE\|8 KEY`, `9 FILTER R\|10 SHAPE\|11 RANGE\|12 KEY`, `13 FX\|14 SHAPE\|15 RANGE\|16 ALL OFF`, `1 5 9 13: ON / OFF; + ALG: SPEED`, `8 12 HELD + K1 / K4: THE KEY` (the keys and knobs yellow); let go there, the pads are the LFO pads ([screens/dj.md](screens/dj.md#the-lfo-pads)) |
-| ARP | the arpeggiator's, on every screen but two: `SELECT: THE RHYTHM, # A NOTE, _ A REST`, `ALGORITHM: THE PATTERN`, `K1: HOW MANY NOTES LATCH`, `LFO: LET THE LATCHED NOTES GO` ([controls.md](controls.md)); the EDITOR's own, the row preview's rhythm ([screens/editor.md](screens/editor.md)); in LOOPS none |
+| ARP | the arpeggiator's, on every screen but two: `SELECT: THE RHYTHM, # A NOTE, _ A REST`, `ALGORITHM: THE PATTERN`, `K1: HOW MANY NOTES LATCH`, `LFO: LET THE LATCHED NOTES GO` ([controls.md](controls.md)); the EDITOR's own, the row preview's rhythm ([screens/editor.md](screens/editor.md)); in LOOPS `REC: RECORD PATTERN` (ARP held + REC opens the pattern recorder, [screens/loops.md](screens/loops.md#the-pattern-recorder-arp)), on the screen itself (none over an overlay) |
 
 Buttons with no lines on a screen show no layer.
 
@@ -593,10 +596,16 @@ white.
 
 ### The cartridge list
 
-ENV opens it on INSTRUMENTS while browsing, and on LOOPS for the next loop's instrument
+ENV opens it on INSTRUMENTS while browsing, and on LOOPS for the keys' instrument, the stage's
 ([screens/instruments.md](screens/instruments.md), [screens/loops.md](screens/loops.md#controls)).
 
 - **Each line:** the cartridge's ID, name, type (in its colour) and slots used of its slots.
+- **The order,** one in every cartridge list (this one, PRESETS' below, K1's on INSTRUMENTS, LOOPS', MIDI's bank
+  select): the built-in FAVORITES `FB` first, then the user's FAVORITES cartridges by number
+  ([screens/instruments.md](screens/instruments.md#favorites)), then the other cartridges by number, the user's
+  then the built-in ones. A FAVORITES cartridge afloat (MOVE) is listed among the FAVORITES cartridges, under the
+  number it would take. An empty FAVORITES cartridge picked has its cursor on its first slot and keeps the current
+  instrument.
 - **ENV again** picks the highlighted cartridge.
 - **SEL** opens the screen's menu for it, where the screen has one (INSTRUMENTS: NEW, CLONE, MOVE,
   DELETE, RENAME, AUTO LEVEL ALL).
@@ -632,7 +641,7 @@ FA:40 EMPTY TB-303             FA TB-303
 | the column heads | 8, 35 | | T | `ID NAME         TYPE      SLOTS` |
 | line *i*'s ID | 8, 49 + 13 × (*i* - top) | | T | `01`; 13 lines show, top = max(0, min(cursor - 6, cartridges - 13)) |
 | its name | 26, same | | T | up to 12 characters |
-| its type | 110, same | | T | `DX7`, `JUNO-106`, `TB-303`, `SAMPLER`, `FUSION` |
+| its type | 110, same | | T | `DX7`, `JUNO-106`, `TB-303`, `CHIP`, `SAMPLER`, `FUSION`, `FAVORITES` |
 | its slots | 170, same | | T | used `/` size, 3 digits each |
 | the highlight | 4, 48 + 13 × (*i* - top) | 232 × 13 | | an outline |
 
@@ -642,8 +651,9 @@ The highlight is boxed white, a cartridge afloat yellow.
 
 ### PRESETS' cartridge list
 
-SEL + PRESETS opens the same list, on every screen but DJ, SEL held or tapped first
-([controls.md](controls.md#knobs)), titled `CARTRIDGES`.
+SEL + PRESETS opens the cartridges, on every screen but DJ, SEL held or tapped first
+([controls.md](controls.md#knobs)), titled `CARTRIDGES`: the same cartridges in the same order, but big, to read at
+a glance while PRESETS turns ([the layout](#presets-lists-layout) below).
 
 - **The first click** picks the next (or previous) cartridge, as SEL + PRESETS does, and opens the list with it
   highlighted; a menu the SEL tap opened closes first, the list taking its place.
@@ -664,16 +674,58 @@ PRESETS turned shows the instruments it turns through, titled `INSTRUMENTS`, whi
 
 - **It opens** at a click that changed the current instrument, with nothing else over the screen: not over a menu
   or any other overlay (PRESETS changes the instrument there, the header naming it, as before), not on INSTRUMENTS
-  (its own list), not on DJ, not where a screen takes PRESETS for its own job, and not when the click changed nothing
+  (its own list; but in a favourite's edit mode, where PRESETS picks the favourite's source:
+  [screens/instruments.md](screens/instruments.md#favorites)), not on DJ, not where a screen takes PRESETS for its own job, and not when the click changed nothing
   (a cartridge of one instrument).
-- **It shows** the cartridge on its first line (its ID, brown while built in and unchanged, its name light grey, its
-  type right-aligned in its engine's colour), then its used slots, the ones PRESETS steps through, as the
-  cartridges' list shows its rows: 13 at a time, the current one kept near the middle, `03 GLASS KEYS`, coloured
-  as INSTRUMENTS colours them ([screens/instruments.md](screens/instruments.md)): the slot's number dark grey, its
-  name in the cartridge type's colour, the current one white and boxed white. Each click moves the highlight; the header names the instrument as
-  ever ([frame.md](frame.md#the-header)).
+- **It shows,** big ([the layout](#presets-lists-layout) below), the cartridge on its first line (its ID, brown
+  while built in and unchanged, its name light grey, its type right-aligned in its engine's colour), then its used
+  slots, the ones PRESETS steps through: 6 at a time, the current one third, `03 GLASS KEYS`, coloured as
+  INSTRUMENTS colours them ([screens/instruments.md](screens/instruments.md)): the slot's number dark grey, its name
+  in the cartridge type's colour, the current one white and boxed white. Each click moves the highlight; the header names the instrument as
+  ever ([frame.md](frame.md#the-header)). With a FAVORITES cartridge current, its favourites as INSTRUMENTS lists
+  them (`07 0B:05 BRASS`, the name in the source engine's colour), empty and missing ones left out as PRESETS
+  skips them; the header names the source.
 - **It closes** a second after the last click, or at any other control, which does its own job as if it had not
   been open. No LED.
+- **GLO held + PRESETS** shows the same list, titled `FAVORITES`, for the FAVORITES cartridge it picks from, the
+  favourite just picked highlighted, with PRESETS LIST OFF too; it stays while GLO is held and closes when GLO is let
+  go (or at any other control) ([screens/instruments.md](screens/instruments.md#favorites)).
+
+### PRESETS' lists: layout
+
+Both lists PRESETS shows as it turns use FONT_B (12 × 24, twice FONT_T), so they read at a glance: 26 px lines where
+the cartridge list has 13.
+
+A character here is a FONT_B one (12 px); `~` marks where a cartridge's type stands, in FONT_T, right-aligned:
+
+```
+INSTRUMENTS             SEL + PRESETS
++--------------------+  +--------------------+
+|INSTRUMENTS         |  |CARTRIDGES          |   the title, T
+|F0 KEYS/ORGANS     ~|  |FB FAVORITES       ~|   the cartridge, its type ~
+|01 TINE PIANO       |  |[A0 DRUM KIT      ~]|   the instrument list: 6 slots;
+|02 BRT PIANO        |  |A1 PERCUSSION     ~ |   the cartridges: 7
+|[03 EL GRAND       ]|  |A2 BAND/ORCH      ~ |
+|04 EL PIANO 1       |  |A3 VOICES         ~ |
+|05 EL PIANO 3       |  |A4 BASS           ~ |
+|06 GENTLE PNO       |  |A5 FUSION         ~ |
++--------------------+  +--------------------+
+```
+
+| Element | x, y | w × h | Font | Shows |
+|---|---|---|---|---|
+| the panel | 2, 19 | 236 × 206 | | as the cartridge list's |
+| the title | 6, 22 | | T | `INSTRUMENTS` (`FAVORITES` with GLO held), `CARTRIDGES` |
+| a cartridge's ID | 6, *y* | | B | `F0`: brown while built in and unchanged, else light grey (white when highlighted) |
+| its name | 36, *y* | | B | up to 12 characters, light grey (white when highlighted); cut short only where it would reach its type (a 12-character name beside `FAVORITES`) |
+| its type | right-aligned at 233, *y* + 6 | | T | `DX7`, `JUNO-106`, `TB-303`, `CHIP`, `SAMPLER`, `FUSION`, `FAVORITES`, in its engine's colour |
+| the instrument list's cartridge | *y* = 35 | | | the cartridge, as above, never highlighted |
+| its slot *i* | 6, 63 + 26 × (*i* - top) | | B | `03`, dark grey (white when current); 6 show, top = max(0, min(current - 2, slots - 6)) |
+| its name | 36, same | | B | in the cartridge type's colour (white when current); a favourite: its source `0B:05` at 36, light grey, the source's name at 102 in its engine's colour (`MISSING` dark grey) |
+| the cartridge list's line *i* | *y* = 35 + 26 × (*i* - top) | | | a cartridge as above; 7 show, top = max(0, min(current - 3, cartridges - 7)) |
+| the highlight | 4, *y* - 1 | 232 × 26 | | white |
+
+No column heads and no slots counts: the ENV list ([above](#the-cartridge-list)) has them.
 
 ## Text entry
 

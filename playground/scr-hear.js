@@ -349,9 +349,9 @@
                 D.text(0, y + 48, F.T, "VOICES", D.CYAN);
                 D.runs(w - D.tw(F.T, vu + vm), y + 48, F.T, [[vu, U.voicesCol(used, max)], [vm, U.voicesCol(S.usedMax || 0, max)]]);
                 f(124, y + 48, "STEALS", String(S.steals || 0), S.steals ? D.RED : D.DGREY, w);
-                /* voices x the share of one, two a line: DX7 JUNO, TB-303 SAMPLE, CHIP (CHIP's: a triangle at A-4,
-                 * measured on the FM-1); EFFECTS beside CHIP */
-                const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6, CHIP: 2.5 };
+                /* voices x the share of one, two a line: DX7 JUNO, TB-303 SAMPLE, CHIP (the FM-1's measured costs:
+                 * audio.js, status.md); EFFECTS beside CHIP */
+                const COST = A.COST;
                 ["DX7", "JUNO", "TB303", "SAMPLER", "CHIP"].forEach((e, i) => {
                     const n = (S.countNow || {})[e] || 0;
                     f((i % 2) * 124, y + 64 + Math.floor(i / 2) * 12, M.ENGINES[e].short, n + " X " + COST[e] + "%", n ? M.ENGINES[e].col : D.DGREY, w);
@@ -379,9 +379,10 @@
                 f(0, y + 46, "PATTERNS", kb(st.patt), D.LGREY, 116);
                 f(124, y + 46, "COUNT", String(M.patternNums().length), D.LGREY, 116);
                 f(0, y + 58, "INSTRUMENTS", kb(st.inst), D.LGREY, 116);
-                f(124, y + 58, "CARTRIDGES", String(M.state.carts.length), D.LGREY, 116);
+                f(124, y + 58, "CARTRIDGES", String(M.state.carts.length + M.state.older.length), D.LGREY, 116);   /* (an old
+                                                                         * sampler's record among them, unread) */
                 f(0, y + 70, "SAMPLES", kb(st.smp), D.LGREY, 116);
-                f(124, y + 70, "SONGS", String(M.state.songs.length), D.LGREY, 116);
+                f(124, y + 70, "SONGS", String(M.songList().length), D.LGREY, 116);
                 D.text(0, y + 88, F.T, "NOT SAVED", D.CYAN);
                 const un = U.unsavedCount();
                 f(0, y + 102, "CHANGES", String(un), un ? D.YELLOW : D.DGREY, 116);
@@ -536,11 +537,12 @@
         }
         if (!M.state.midi.length && n - top < ROWS) D.text(4, Y0 + 3 + (n - top) * 15, F.T, "NO MAPPINGS YET: EDIT ON LEARN", D.DGREY);
     }
-    /* CHECK REFERENCES' answer: what is missing, a line each; SELECT scrolls, HOME closes */
-    function missingList(lines) {
+    /* CHECK REFERENCES' answer: what is missing, a line each, the first `count` of them counted in the title (the old-form
+     * samplers after them are not); SELECT scrolls, HOME closes */
+    function missingList(lines, count) {
         const ROWS = 14;
         U.open({
-            kind: "list", title: "MISSING REFERENCES: " + lines.length, top: 0,
+            kind: "list", title: "MISSING REFERENCES: " + count, top: 0, lines,
             knob(e, s) { if (e === E.SELECT) this.top = U.clamp(this.top + s, 0, Math.max(0, lines.length - ROWS)); },
             tap() { return false; },
             draw() {
@@ -567,9 +569,7 @@
             let n = 0;
             U.edit(() => {
                 if (on("patterns")) for (const p of cl.patterns.items) { M.state.patterns[p.n] = null; n++; }
-                if (on("samples")) for (const { c, k } of cl.samples.items) {
-                    c.samples[k] = Object.assign({}, c.samples[k], { name: "(DELETED)", length: 0, deleted: true }); n++;
-                }
+                if (on("samples")) for (const k of cl.samples.items) { M.state.samples[k] = null; n++; }
                 if (on("instruments")) for (const { c, k } of cl.instruments.items) { c.slots[k] = null; n++; }
             });
             U.toast("CLEANED UP: " + n + " DELETED");
@@ -581,25 +581,31 @@
         /* CHECK STORAGE: every record's CRC read back on the FM-1; the playground's records cannot be damaged */
         if (t === "CHECK STORAGE") { U.progress("CHECKING STORAGE", 600, () => U.toast("STORAGE OK")); return; }
         if (t === "CHECK REFERENCES") {
-            /* every reference to something that is not there: a cell's instrument, a song position's or a
-             * FUSION slot's pattern */
-            const miss = [];
+            /* every reference to something that is not there: a cell's instrument, a song position's or a FUSION slot's
+             * pattern, a favourite's source, a sample instrument's sample. What names an old-form sampler is none
+             * (specs/files/references.md: kept for a page to convert): each old sampler is listed once after them,
+             * OLDER FORM, and not counted */
+            const miss = [], older = id => M.olderAt(id);
             for (const p of M.state.patterns) if (p && p.n !== M.EDITOR_PATTERN) p.cells.forEach((c, i) => {   /* (its own never by number) */
-                if (c && c.inst != null && !M.inst(c.inst))
+                if (c && c.inst != null && !M.inst(c.inst) && !older(c.inst >> 8))
                     miss.push("PATTERN " + M.hex(p.n) + " ROW " + M.hex(i >> 4) + " TRACK " + M.hex(i & 15) + ": " + M.refText(c.inst));
             });
-            M.state.songs.forEach((s, k) => s.order.forEach((n, pos) => {
+            M.state.songs.forEach((s, k) => s && s.order.forEach((n, pos) => {
                 if (!M.pattern(n)) miss.push("SONG " + M.hex(k) + " POSITION " + M.hex(pos) + ": PATTERN " + M.hex(n));
             }));
-            for (const c of M.state.carts) if (c.type === "FUSION") c.slots.forEach((sl, j) => {
-                if (sl && sl.p.pattern != null && !M.pattern(sl.p.pattern)) miss.push("FUSION " + M.refText(c.id << 8 | j) + ": PATTERN " + M.hex(sl.p.pattern));
+            for (const c of M.state.carts) c.slots.forEach((sl, j) => {   /* (a favourite whose source is gone too) */
+                if (c.type === "FUSION" && sl && sl.p.pattern != null && !M.pattern(sl.p.pattern)) miss.push("FUSION " + M.refText(c.id << 8 | j) + ": PATTERN " + M.hex(sl.p.pattern));
+                if (c.type === "FAVORITES" && sl && M.favMissing(sl) && !older(sl.src >> 8)) miss.push("FAVORITE " + M.refText(c.id << 8 | j) + ": " + M.refText(sl.src));
+                if (c.type === "SAMPLER" && sl && !M.sample(sl.p.sample)) miss.push("SAMPLER " + M.refText(c.id << 8 | j) + ": SAMPLE " + M.hex(sl.p.sample));
             });
-            U.progress("CHECKING", 600, () => miss.length ? missingList(miss) : U.toast("NO MISSING REFERENCES"));
+            const olds = M.state.older.map(o => o.id).sort((a, b) => a - b).map(id => "CARTRIDGE " + M.hex(id) + ": OLDER FORM");
+            U.progress("CHECKING", 600, () => miss.length || olds.length ? missingList(miss.concat(olds), miss.length) : U.toast("NO MISSING REFERENCES"));
         }
         if (t === "CLEAN UP") cleanUp();
-        /* AUTO LEVEL ALL: every sound of the user area (the built-in ones keep theirs), after its question */
+        /* AUTO LEVEL ALL: every sound of the user area (the built-in ones keep theirs; FAVORITES cartridges left out:
+         * their favourites are no sounds of their own), after its question */
         if (t === "AUTO LEVEL ALL") {
-            const n = M.state.carts.filter(c => !c.builtin).reduce((a, c) => a + c.slots.filter(Boolean).length, 0);
+            const n = M.state.carts.filter(c => !c.builtin && c.type !== "FAVORITES").reduce((a, c) => a + c.slots.filter(Boolean).length, 0);
             U.ask(["AUTO LEVEL " + n + (n === 1 ? " SOUND?" : " SOUNDS?"), "EACH ONE'S LEVEL SET AGAIN"], ["LEVEL", "KEEP"], a => {
                 if (a === "LEVEL") U.progress("MEASURING EVERY SOUND", 1800, () => U.toast("LEVELS SET"));
             });

@@ -14,6 +14,7 @@
  *                        (the SPL then runs the staged update loader)
  *   fm1_core_reset()     PWR_CON core reset
  *   fm1_updata_parm_clear()  zero the record (CRC 0: ignored on a warm reset)
+ *   fm1_stub_box()       the start check's box in RAM (fw/stub/stub_core.h)
  *   fm1_mailbox_clear()  zero 0x01C7FD80..0x01C7FDFF (boot info, mailbox) at cold start
  *   fm1_cpu1_halt()      the second core held, safely (fm1_cpu1.h starts it)
  */
@@ -192,6 +193,9 @@ FM1_INLINE void fm1_updata_parm_clear(void)
     for (i = 0; i < FM1_UPDATA_PARM_LEN; i++)
         FM1_UPDATA_PARM[i] = 0;
 }
+
+/* the start check's box (fw/stub/stub_core.h's stub_box_t): the RAM records' last 16 B, kept across restarts */
+FM1_INLINE volatile void *fm1_stub_box(void) { return (volatile void *)0x01C7FCF0u; }
 
 FM1_INLINE void fm1_mailbox_clear(void)   /* before fm1_guard_enable (it write-protects the top) */
 {

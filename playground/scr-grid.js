@@ -187,9 +187,11 @@
 
     /* ---------------------------------------------------------- the cartridge list --- */
     /* ENV: every cartridge: its ID, name, type (in its colour) and slots used. ENV picks the
-     * highlighted one; SEL: menu(list), the actions on it, where the screen has them */
-    U.cartList = function (title, currentId, pick, menu) {
-        const cs = () => M.state.carts;
+     * highlighted one; SEL: menu(list), the actions on it, where the screen has them. more: a line after the
+     * cartridges, not a cartridge ({ shown(), draw(y, on), open() }: INSTRUMENTS' ALL SAMPLES), while shown: ENV on it
+     * opens what it opens over the list, SEL there nothing */
+    U.cartList = function (title, currentId, pick, menu, more) {
+        const cs = () => M.state.carts, extra = () => more && more.shown() ? 1 : 0;
         return U.open({
             kind: "list", title, opener: U.B.ENV, sel: Math.max(0, M.cartIndex(currentId)),
             /* MOVE (from the menu): the cartridge floats; SELECT takes it to the next free number either
@@ -197,18 +199,23 @@
             float(id, done) { this.mv = { id, at: id, done }; U.toast("SELECT MOVES IT, SEL PUTS IT DOWN"); },
             knob(e, s) {
                 if (e !== U.E.SELECT) return;
-                if (this.mv) {                               /* within the user's numbers, 00-EF */
+                if (this.mv) {                               /* within the user's numbers, 00-EF, to free ones (an old
+                                                              * sampler's is taken) */
                     let k = this.mv.at;
-                    do k += Math.sign(s); while (k >= 0 && k <= M.USER_LAST && M.cart(k) && k !== this.mv.id);
+                    do k += Math.sign(s); while (k >= 0 && k <= M.USER_LAST && M.cartTaken(k) && k !== this.mv.id);
                     if (k >= 0 && k <= M.USER_LAST) this.mv.at = k;
                     return;
                 }
-                this.sel = U.clamp(this.sel + s, 0, cs().length - 1);
+                this.sel = U.clamp(this.sel + s, 0, cs().length + extra() - 1);
             },
             tap(b) {
                 if (this.mv) {
                     if (b === U.B.SEL) { const { id, at, done } = this.mv; this.mv = null; if (at !== id) done(at); }
                     return true;
+                }
+                if (this.sel >= cs().length) {               /* (the line after the cartridges) */
+                    if (b === this.opener && extra()) { more.open(); return true; }
+                    return b === U.B.SEL;
                 }
                 if (b === this.opener) { U.close(this); pick(cs()[this.sel]); return true; }
                 if (b === U.B.SEL && menu) { menu(this); return true; }
@@ -219,23 +226,53 @@
                 U.close(this);
             },
             draw() {
-                const y = Y0 + 2, mv = this.mv;
-                U.panel(2, y, 236, 206, this.title);
-                D.text(8, y + 16, F.T, "ID NAME         TYPE      SLOTS", D.DGREY);
+                const mv = this.mv;
+                this.sel = U.clamp(this.sel, 0, Math.max(0, cs().length + extra() - 1));
                 /* a cartridge afloat is listed under the number it would take, boxed yellow */
-                const list = mv ? cs().map(c => ({ c, id: c.id === mv.id ? mv.at : c.id })).sort((a, b) => a.id - b.id)
+                const list = mv ? cs().map(c => ({ c, id: c.id === mv.id ? mv.at : c.id }))
+                                       .sort((a, b) => M.cartRank(a.c, a.id) - M.cartRank(b.c, b.id) || a.id - b.id)   /* (the lists' order) */
                                 : cs().map(c => ({ c, id: c.id }));
-                const sel = mv ? list.findIndex(x => x.c.id === mv.id) : this.sel;
-                const ROWS = 13, top = Math.max(0, Math.min(sel - 6, list.length - ROWS));   /* scrolls with the cursor */
-                list.slice(top, top + ROWS).forEach(({ c, id }, k) => {
-                    const i = top + k, yy = y + 30 + k * 13, on = i === sel, used = c.slots.filter(Boolean).length;
-                    if (on) D.box(4, yy - 1, 232, 13, mv ? D.YELLOW : D.WHITE);
-                    D.text(8, yy, F.T, M.hex(id), M.asBuilt("cart", c) ? D.BROWN : on ? D.WHITE : D.LGREY);    /* built in: brown */
-                    D.text(26, yy, F.T, c.name, on ? D.WHITE : D.LGREY);
-                    D.text(110, yy, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
-                    D.text(170, yy, F.T, M.dec(used, 3) + "/" + M.dec(c.size, 3), D.LGREY);
-                });
+                U.cartLines(this.title, list, mv ? list.findIndex(x => x.c.id === mv.id) : this.sel, !!mv, extra() ? more : null);
             },
+        });
+    };
+    /* the cartridge list's panel (one for every list of cartridges): titled, its head, 13 lines of the cartridges given
+     * ([{ c, id }] or cartridges, in the order given), line sel boxed (afloat: yellow), kept in the middle while it can;
+     * more: a line after them (its draw(y, on), the cursor's box its own) */
+    U.cartLines = function (title, list, sel, afloat, more) {
+        const y = Y0 + 2;
+        U.panel(2, y, 236, 206, title);
+        D.text(8, y + 16, F.T, "ID NAME         TYPE      SLOTS", D.DGREY);
+        const all = list.length + (more ? 1 : 0);
+        const ROWS = 13, top = Math.max(0, Math.min(sel - 6, all - ROWS));   /* scrolls with the cursor */
+        if (more && list.length >= top && list.length < top + ROWS) more.draw(y + 30 + (list.length - top) * 13, !afloat && sel === list.length);
+        list.slice(top, top + ROWS).forEach((x, k) => {
+            const c = x.c || x, id = x.id;             /* ({ c, id }: listed under id; a cartridge: its own) */
+            const i = top + k, yy = y + 30 + k * 13, on = i === sel, used = c.slots.filter(Boolean).length;
+            if (on) D.box(4, yy - 1, 232, 13, afloat ? D.YELLOW : D.WHITE);
+            D.text(8, yy, F.T, M.hex(id), M.asBuilt("cart", c) ? D.BROWN : on ? D.WHITE : D.LGREY);    /* built in: brown */
+            D.text(26, yy, F.T, c.name, on ? D.WHITE : D.LGREY);
+            D.text(110, yy, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
+            D.text(170, yy, F.T, M.dec(used, 3) + "/" + M.dec(c.size, 3), D.LGREY);
+        });
+    };
+    /* PRESETS' lists, big: a cartridge on a line at y, the ID at 6 and the name at 36 in F.B (twice F.T: 7 lines of 26 px
+     * where F.T's list has 13 of 13), the type in F.T right-aligned in its engine's colour, the name cut short only where
+     * it would reach it */
+    U.cartBig = function (c, y, on) {
+        const ty = M.TYPE_NAMES[c.type], tx = 233 - D.tw(F.T, ty), fit = Math.floor((tx - 40) / 12);
+        D.text(6, y, F.B, M.hex(c.id), M.asBuilt("cart", c) ? D.BROWN : on ? D.WHITE : D.LGREY);   /* (built in: brown) */
+        D.text(36, y, F.B, c.name.slice(0, Math.min(fit, 12)), on ? D.WHITE : D.LGREY);
+        D.text(tx, y + 6, F.T, ty, M.ENGINES[c.type].col);
+    };
+    /* the cartridges in their order, 7 lines, sel boxed (PRESETS' cartridge list: no column heads, no slots) */
+    U.cartLinesBig = function (title, list, sel) {
+        const y = Y0 + 2, ROWS = 7, top = Math.max(0, Math.min(sel - 3, list.length - ROWS));
+        U.panel(2, y, 236, 206, title);
+        list.slice(top, top + ROWS).forEach((c, k) => {
+            const yy = y + 16 + k * 26;
+            if (top + k === sel) D.box(4, yy - 1, 232, 26, D.WHITE);
+            U.cartBig(c, yy, top + k === sel);
         });
     };
 
@@ -244,12 +281,12 @@
      * again picks the highlighted one (pick; with none, it just closes the list); HOME closes; play(k),
      * where given (STATUS): PLAY starts that one */
     U.songList = function (title, current, pick, play) {
-        const ss = () => M.state.songs;
+        const ss = () => M.songList(), nums = () => M.songNums();    /* (sel: a place in the list; pick, play: a song's number) */
         const o = U.open({
-            kind: "list", title, opener: U.B.ENV, sel: U.clamp(current, 0, ss().length - 1),
+            kind: "list", title, opener: U.B.ENV, sel: U.clamp(nums().indexOf(current), 0, ss().length - 1),
             knob(e, s) { if (e === U.E.SELECT) this.sel = U.clamp(this.sel + s, 0, ss().length - 1); },
             tap(b) {
-                if (b === this.opener) { U.close(this); if (pick) pick(this.sel); return true; }    /* (no pick: ENV just closes it) */
+                if (b === this.opener) { U.close(this); if (pick) pick(nums()[this.sel]); return true; }    /* (no pick: ENV just closes it) */
                 return false;
             },
             cancel() { U.close(this); },
@@ -260,9 +297,9 @@
                     D.text(x, y + 16, F.T, w, D.DGREY);      /* (the column heads, each over its column) */
                 const ROWS = 13, top = Math.max(0, Math.min(this.sel - 6, ss().length - ROWS));
                 ss().slice(top, top + ROWS).forEach((s, k) => {
-                    const i = top + k, yy = y + 30 + k * 13, on = i === this.sel, col = on ? D.WHITE : i === playing ? D.GREEN : D.LGREY;
+                    const i = top + k, n = nums()[i], yy = y + 30 + k * 13, on = i === this.sel, col = on ? D.WHITE : n === playing ? D.GREEN : D.LGREY;
                     if (on) D.box(4, yy - 1, 232, 13, D.WHITE);
-                    D.text(8, yy, F.T, M.hex(i), col);
+                    D.text(8, yy, F.T, M.hex(n), col);
                     D.text(26, yy, F.T, s.name, col);
                     const bpm = String(M.bpm(s));
                     D.text(152 - D.tw(F.T, bpm), yy, F.T, bpm, on ? D.WHITE : D.CYAN);
@@ -270,7 +307,7 @@
                 });
             },
         });
-        if (play) o.play = function () { U.close(this); play(this.sel); };   /* (ui.js gives PLAY to an overlay with play()) */
+        if (play) o.play = function () { U.close(this); play(nums()[this.sel]); };   /* (ui.js gives PLAY to an overlay with play()) */
         return o;
     };
 
@@ -305,7 +342,8 @@
              * opts.timing(n): its timing (LOOPS' LOAD: its song's), else the current song's */
             play() {
                 const n = patAt(this.sel);
-                if (n == null) return;
+                if (n == null || (U.screen.songRecording && U.screen.songRecording())) return;   /* (a song recording: the loops' replay
+                                                         * never stops) */
                 if (P.auditioning() === n) P.auditionEnd(); else P.audition(n, opts.timing);
             },
             tap(b) {
@@ -375,7 +413,7 @@
                     M.state.patterns[n] = null;
                     if (upd) {                                   /* (a song whose whole order is it keeps it: never
                                                                   * left with no positions; a FUSION slot: no pattern) */
-                        for (const s of M.state.songs) if (s.order.some(x => x !== n)) {
+                        for (const s of M.songList()) if (s.order.some(x => x !== n)) {
                             s.order = s.order.filter(x => x !== n);
                             if (s.loopFrom >= s.order.length) s.loopFrom = 0;   /* (LOOP FROM past the end: the start) */
                         }
@@ -408,7 +446,7 @@
                 p.n = to;
                 M.state.patterns[to] = p;
                 if (upd) {
-                    for (const s of M.state.songs) s.order = s.order.map(x => x === n ? to : x);
+                    for (const s of M.songList()) s.order = s.order.map(x => x === n ? to : x);
                     for (const c of M.state.carts) if (c.type === "FUSION") for (const sl of c.slots) if (sl && sl.p.pattern === n) sl.p.pattern = to;
                 }
                 o.sel = list().indexOf(to);

@@ -169,7 +169,7 @@ int main(int argc, char **argv)
         check("a Juno-106 pad for the keys", sustained(REC_JUNO, &pad, &r));
         quiet();
         player_voice_count(8);
-        player_play_song(2, 0, 0);
+        player_play_song(0xA2, 0, 0);
         run(0.5);
         player_key_on(48, pad, 100);
         player_key_on(55, pad, 100);
@@ -245,7 +245,7 @@ int main(int argc, char **argv)
         sustained(REC_JUNO, &pad, &r);
         quiet();
         player_voice_count(8);
-        player_play_song(2, 0, 0);
+        player_play_song(0xA2, 0, 0);
         run(0.5);
         for (k = 0; k < 8; k++)
             player_key_on((uint8_t)(48 + 2 * k), pad, 20);   /* (quiet ones: the keys win however quiet) */

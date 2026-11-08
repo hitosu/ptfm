@@ -3,7 +3,8 @@
 # Copyright (C) 2026 Vasily Kazantsev
 """PT/FM's install page: web/install.html with the installer scripts fm1pkg.js + fm1ota.js and seed.js (as
 classic scripts: pages open from file://, where Chrome refuses modules), the firmware package and the
-demo disk (base64) inlined. Three buttons: INSTALL FIRMWARE (the update path), UPLOAD DEMO DISK and
+demo disk (base64) inlined. Three buttons: INSTALL FIRMWARE (the update path, then seed.js converting what an older
+PT/FM left on the FM-1: specs/files/blob.md#converting-after-an-install), UPLOAD DEMO DISK and
 UPLOAD CUSTOM DISK (a disk file picked; seeding, specs/files/blob.md), and REPLACE ALL, offered when a disk fits the
 FM-1 only emptied. Nothing is fetched; the page checks what it
 carries (sizes, SHA-256, the identity) before it offers them. The same inputs give the same page, byte for byte.
@@ -35,9 +36,10 @@ def strip_module(src):
     return re.sub(r"^import .*?;\n", "", src, flags=re.M)
 
 
-def make(pkg, product, out, version="", disk=None, debug=False, clean=None):
+def make(pkg, product, out, version="", disk=None, debug=False, clean=None, part=None):
     """debug: the debug build's page (specs/debug.md): web/debug.html, with figures.js at its /*FIGURES*/,
-    autotest.js at its /*AUTOTEST*/ and its font, Iosevka Aile (webfont.py), at its /*FONTS*/, written in at <!--DEBUG-->;
+    autotest.js at its /*AUTOTEST*/, the debug part (part: its head and code, ptfm-debug-part.bin) at its
+    /*DEBUGPART*/ and its font, Iosevka Aile (webfont.py), at its /*FONTS*/, written in at <!--DEBUG-->;
     clean (the debug page's by default): the CLEAN INSTALL switch on at first (INSTALL FIRMWARE then takes no
     backup, erases everything the FM-1 holds and writes the demo disk)"""
     clean = debug if clean is None else clean
@@ -72,6 +74,11 @@ def make(pkg, product, out, version="", disk=None, debug=False, clean=None):
         if dbg.count("/*FONTS*/") != 1:
             raise SystemExit("make_installer: debug.html needs /*FONTS*/ once")
         dbg = dbg.replace("/*FONTS*/", webfont.fonts_css())
+        if dbg.count("/*DEBUGPART*/") != 1:
+            raise SystemExit("make_installer: debug.html needs /*DEBUGPART*/ once")
+        if part and part[:4] != b"PTDP":
+            raise SystemExit("make_installer: the debug part has no head")
+        dbg = dbg.replace("/*DEBUGPART*/", f'window.PTFM_debug_part = "{base64.b64encode(part).decode()}";' if part else "")
     for mark, text in (("/*LIB*/", lib), ("/*SEED*/", seed), ("/*META*/", meta),
                        ("/*PKG*/", base64.b64encode(pkg).decode()), ("/*DISK*/", base64.b64encode(dbytes).decode()),
                        ("<!--DEBUG-->", dbg)):

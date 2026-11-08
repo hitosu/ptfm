@@ -20,8 +20,8 @@ out, LINE GAIN and USB GAIN, on its first page.
   computer exactly its rate, so a recording and a live monitor both run without drift or clicks. One
   resampler serves both rates; integer arithmetic; it runs only while a computer records. Its CPU,
   measured on the FM-1 (the debug build's USB AUDIO stage): 6.3-6.7 % at 44.1 kHz with music (366-391
-  µs a half), whatever plays; the bench's pieces: an output frame 366 cycles, a 64-frame block 89.6 µs
-  at 44.1 kHz and 93.8 µs at 48 kHz.
+  µs a half), whatever plays; alone, an output frame 366 cycles, a 64-frame block 89.6 µs at 44.1 kHz
+  and 93.8 µs at 48 kHz.
   - **The resampler** is a windowed sinc of 16 taps, 128 phases, interpolated between two phases (about
     80 dB clean on a full-scale tone, measured on the PC).
   - **Its steering** follows the buffer's fill, smoothed, through a gentle integrator: within ±1,000 ppm
@@ -59,13 +59,16 @@ out, LINE GAIN and USB GAIN, on its first page.
 Both ports feed one queue and behave the same.
 
 - **Notes act as the FM-1's keys,** on every screen as its keys do: they play the current instrument,
-  write in the EDITOR with REC on, record into LOOPS, feed the arpeggiator. Velocity sets the note's
+  write in the EDITOR with REC on, overdub LOOPS' stage, feed the arpeggiator. Velocity sets the note's
   volume (1-127 as `01`-`7F`); the FM-1's own keys, which have none, keep KEYS VOLUME. Every note plays,
   not only the 27 keys' range.
 - **MIDI IN CHANNEL:** ALL (the default) or 1-16; messages on other channels are ignored.
 - **Program change** picks the instrument in the current cartridge, as PRESETS does (program *n* the
-  cartridge's *n*-th used slot, counted from 0); **bank select** (CC 0) picks the cartridge, as SEL + PRESETS
-  does (bank *n* the *n*-th cartridge).
+  cartridge's *n*-th used slot, counted from 0; in a FAVORITES cartridge its *n*-th used favourite, a missing one
+  counted and keeping the current instrument); **bank select** (CC 0) picks the cartridge, as SEL + PRESETS
+  does (bank *n* the *n*-th cartridge in the cartridge lists' one order, the FAVORITES cartridges first: bank 0 the
+  built-in FAVORITES, [ui/dialogs.md](ui/dialogs.md#the-cartridge-list); in INSTRUMENTS' edit mode only a cartridge
+  of the edit's own sort, as SEL + PRESETS there: [ui/screens/instruments.md](ui/screens/instruments.md)).
 - **Pitch bend** bends the keys' notes, ±2 semitones, those sounding and those to come: the FM-1's own keys'
   too, as they share the keys' voices.
 - **The sustain pedal** (CC 64) holds the notes played from MIDI while it is down; their note offs come
@@ -146,12 +149,12 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
 | Offset | Size | What |
 |---|---|---|
 | 0 | u8 | the version: 1 |
-| 1 | u8 | bit 0 the debug build; bit 1 MIRROR on; bit 2 ARP on; bit 3 ARP latched; bit 4 playing; bit 5 the USB test tone on ([debug.md](debug.md#the-usb-test-tone)) |
+| 1 | u8 | bit 0 the debug build; bit 1 MIRROR on; bit 2 ARP on; bit 3 ARP latched; bit 4 playing; bit 5 the USB test tone on ([debug.md](debug.md#the-usb-test-tone)); bit 6 the debug build's debug part in ([debug.md](debug.md#the-debug-part)) |
 | 2 | u8 | MIRROR's channel, 0-15 |
 | 3 | u8 | what plays: 0 nothing, 1 a song, 2 a pattern, 3 LOOPS, 4 DJ |
 | 4 | u8, u8, u8 | the song (`FF` none); its position; its row |
 | 7 | u16 | the tempo now, BPM × 10 |
-| 9 | u16 | the effects on and working now, a bit each by their numbers ([ui/screens/fx.md](ui/screens/fx.md)) |
+| 9 | u16 | the effects that worked in the last whole block, a bit each by their numbers ([ui/screens/fx.md](ui/screens/fx.md)) |
 | 11 | u8, u8 | VOICES, the limit in force (SETTINGS' 16 is 12 while the second core does not run); the voices sounding now |
 | 13 | u16 | the unsaved changes |
 | 15 | u16, u16 | HOLD DELAY; COMBINATION GRACE, ms |
@@ -171,7 +174,10 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
 | 325 | u16 | the edit memory ([files/ram.md](files/ram.md#editing-and-saving)), in 4-byte units as its three figures are: what the unsaved changes take, the pieces (each its room rounded up to 4 B) and their list's entries |
 | 327 | u16 | the edit memory filled, in 4-byte units: from its bottom to the last piece's end, plus the list at its top (room freed between pieces counts until pieces are moved down into it) |
 | 329 | u16 | the edit memory's size, in 4-byte units (17,152: 68,608 B; nothing borrows from it) |
-| 331 | | the end (331 B; 385 on the wire). A reader takes a shorter answer of version 1 as older (325 B: no edit memory) |
+| 331 | u16 | LOOPS: the notes the stage starts (0 with the stage empty). LOOPS' bytes (331-334) are given on every screen: the stage plays on outside LOOPS |
+| 333 | u8 | LOOPS: the selected loop's SHIFT, 0-127 (0 on `+ NEW LOOP`) |
+| 334 | u8 | LOOPS: bit 0 ADJUST open; bit 1 OVERWRITE on where it acts: on LOOPS, not in ADJUST, the pattern recorder or with the stage off; bit 2 OVERWRITE on (LFO's press), on every screen; bit 3 the stage off (ARP's switch, [ui/screens/loops.md](ui/screens/loops.md#the-stage)) |
+| 335 | | the end (335 B; 389 on the wire). A reader takes a shorter answer of version 1 as older (331 B: no LOOPS bytes; 325 B: no edit memory) |
 
 **The screen's cursor,** as each screen gives it (zeros elsewhere):
 
@@ -183,7 +189,7 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
 | FX | the page (0 LIVE, 1 EDIT, 2 MIXER); the picked effect, by its number; u16 the effects switched on in the setup it edits (its `ON` / `OFF`, a bit each by number: on even while nothing plays, unlike byte 9's, which are the ones at work) |
 | DJ | the song the list highlights; the pads' mode (0 PLAY, 1 LOOPS, 2 LFO); what K2 and K3 turn (0 FILTER, 1 VOLUME) |
 | SETTINGS | the page (0 the list, 1 MIDI); the line, from 0; the tool TOOLS picks |
-| LOOPS | the loops; the one selected (the loops' count: `+ NEW LOOP`); the notes it starts; a take armed (bit 0), a take recording (bit 1), the keys in CONTROL mode (bit 2), the selected loop muted (bit 3), soloed (bit 4), a song armed (bit 5), a song recording (bit 6), the pattern recorder open (bit 7); the length in bars (0 with no loops); the row the loops are at; u16 the notes all the loops start |
+| LOOPS | the loops; the one selected (the loops' count: `+ NEW LOOP`); the notes it starts; the loops armed (bit 0), the stage holding notes (bit 1), the keys in CONTROL mode (bit 2), the selected loop muted (bit 3), soloed (bit 4), a song armed (bit 5), a song recording (bit 6), the pattern recorder open (bit 7); the length in bars, whole bars rounded down (never 0: the length is always set; under a bar, 1); the row the loops are at (stopped: the play position); u16 the notes all the loops start. The stage's notes, the selected loop's SHIFT, ADJUST and OVERWRITE are in the state's LOOPS bytes (331-334) |
 
 ## MIDI out: USB
 
@@ -214,8 +220,12 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
     runs, it locks where it starts. A beat or more apart (the master's tempo jumped), its place is taken as the
     clock's again.
   - **On LOOPS and DJ** the master's START, STOP, CONTINUE and song position act on what that screen plays:
-    LOOPS as its PLAY (START the loops from bar 1, STOP paused, CONTINUE on, the song position that bar within
-    the loops' length; no loops yet, nothing); DJ as the main (left) deck's PLAY (START from its cue point, STOP
+    LOOPS ([ui/screens/loops.md](ui/screens/loops.md#the-play-position-play-and-jumps)): START plays the loops from
+    bar 1 (the play position 0), STOP pauses them where they are (not LOOPS' own STOP, which goes back to the
+    start), CONTINUE goes on from there, the song position moves the play position (at once while they play: a
+    jump); the loops armed, START or CONTINUE starts them as PLAY does, and RECORD LIVE armed starts with START as
+    PLAY starts it, both without the count-in: the master counts; with no loops they play all the same. DJ as the
+    main (left) deck's PLAY (START from its cue point, STOP
     paused, CONTINUE on; the song position nothing: the decks are moved by hand). DJ's main deck plays at the
     clock's tempo, its half or its double, whichever is nearest its song's own (as SYNC picks the right deck's:
     [ui/screens/dj.md](ui/screens/dj.md#tempo-and-sync)); a right deck synced follows the main, one not synced

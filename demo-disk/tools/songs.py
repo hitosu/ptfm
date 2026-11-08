@@ -79,7 +79,7 @@ bars first, once (the drums, then the hook coming in; DNB LOOP's the hats and th
 LOOP's and METAL LOOP's the riff palm-muted). Each is mastered by its instruments' jobs (its mix: each
 instrument's LEVEL against the kick, or the lead), all twelve at the same -26.0 LUFS (TRIM_DB).
 """
-from catalog import CAT, CARTRIDGES, DJ_LOOPS, DJ_VOICES, SONGS, dx7_r4
+from catalog import CAT, CARTRIDGES, DJ_LOOPS, DJ_VOICES, PATTERN_FIRST, SONGS, dx7_r4
 from common import DISK, TOOLS, read_json
 from compose import OFF, Pool, Song, chord_notes, midi, parse_cmd, voice
 from theory import Key
@@ -2213,7 +2213,7 @@ def build(pool):
 
 
 def main():
-    pool = Pool()
+    pool = Pool(PATTERN_FIRST)
     songs = build(pool)
     folders = {n: f for f, n in SONGS}
     for s in songs:

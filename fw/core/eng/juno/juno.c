@@ -7,6 +7,9 @@
 #include "juno.h"
 #include "juno_tables.h"                 /* made once from KR-106's models (its header says how) */
 #include "../dx7/dx7.h"                  /* dx7_tanh, dx7_freq: MSFA's integer helpers */
+#ifndef PLAT_COLD
+#define PLAT_COLD                        /* (a patch's work: built for size on the FM-1, core/plat.h) */
+#endif
 
 enum { JF_SAW = 1, JF_PULSE = 2, JF_PWM_MAN = 4, JF_ENV_NEG = 8, JF_GATE = 16 };
 enum { ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_DONE };
@@ -312,7 +315,7 @@ void juno_note_on(juno_voice_t *v, const uint8_t *p, int note, int32_t level_q12
 }
 
 /* a sounding voice's patch changed (the player's parameter commands: p is its own copy), its level */
-void juno_patch(juno_voice_t *v, const uint8_t *p)
+PLAT_COLD void juno_patch(juno_voice_t *v, const uint8_t *p)
 {
     patch_set(v, p);
     vca_target(v);

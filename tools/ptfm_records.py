@@ -10,10 +10,12 @@ Conventions (specs/files/README.md):
 - multi-byte numbers little-endian; CRC-32 is zlib's.
 
 The records (specs/files/store.md#a-record):
-- cartridges, kinds 0x01-0x06 (instruments.md): name (9 B), slots stored (1 B), then the slots at the
-  type's fixed size; a sampler's: name (9 B), instruments stored, samples stored, the instruments
-  (40 B each), the samples' table (16 B each);
-- sample audio, kind 0x10 (ptr.md): PTR;
+- cartridges, kinds 0x01-0x07 (instruments.md; 0x07 FAVORITES, its slots 3 B references): name (9 B), slots stored (1 B), then the slots at the
+  type's fixed size; a sampler's (version 2): name (9 B), instruments stored, the instruments (40 B each), an
+  instrument naming a sample by its number; the old sampler (version 1, read only): name (9 B), instruments
+  stored, samples stored, the instruments (40 B each), the samples' table (16 B each);
+- samples, kind 0x11 (instruments.md#samples): the entry (16 B) and the audio (ptr.md: PTR); the old form's audio,
+  kind 0x10, is the same audio under its sampler's number;
 - patterns, kind 0x20 (patterns.md), in parts split between tracks when one record would pass 4,080 B;
 - songs, kind 0x21 (songs.md), with their FX setup (64 B).
 
@@ -44,10 +46,13 @@ NAME_EMPTY = 63
 NOTE_OFF = 1                                                       # a cell's note byte for `===`
 
 KIND_DX7, KIND_JUNO, KIND_TB303, KIND_SAMPLER, KIND_FUSION, KIND_CHIP = 0x01, 0x02, 0x03, 0x04, 0x05, 0x06
-KIND_AUDIO, KIND_PATTERN, KIND_SONG = 0x10, 0x20, 0x21
+KIND_FAVORITES = 0x07                                              # a cartridge of references (instruments.md#favorites)
+KIND_AUDIO, KIND_SAMPLE, KIND_PATTERN, KIND_SONG = 0x10, 0x11, 0x20, 0x21   # 0x10: the old form's audio, 0x11: a sample
 KIND_NOTES = 0xE0                                                  # a disk's notes, never sent to the device
-VERSION = {KIND_DX7: 1, KIND_JUNO: 1, KIND_TB303: 1, KIND_SAMPLER: 1, KIND_FUSION: 1, KIND_CHIP: 1, KIND_AUDIO: 1,
-           KIND_PATTERN: 1, KIND_SONG: 1, KIND_NOTES: 1}
+VERSION = {KIND_DX7: 1, KIND_JUNO: 1, KIND_TB303: 1, KIND_SAMPLER: 2, KIND_FUSION: 1, KIND_CHIP: 1, KIND_FAVORITES: 1,
+           KIND_AUDIO: 1, KIND_SAMPLE: 1, KIND_PATTERN: 1, KIND_SONG: 1, KIND_NOTES: 1}   # (each kind's current version)
+SAMPLER_VERSION = 2                                                # the sampler cartridge's current version
+SAMPLES_MAX = 256                                                  # samples on an FM-1: the numbers 00-FF
 RECORD_MAX = 4080                                                  # a record a SAVE writes: 4 KB less its header
 
 
@@ -159,8 +164,10 @@ JUNO = [("lfo_rate", 7), ("lfo_delay", 7), ("dco_lfo", 7), ("dco_pwm", 7), ("dco
         ("env_d", 7), ("env_s", 7), ("env_r", 7), ("dco_sub", 7), ("range", 2), ("pulse", 1), ("saw", 1),
         ("chorus", 2), ("pwm_source", 1), ("env_polarity", 1), ("vca_mode", 1), ("hpf", 2)]   # 123 bits
 TB303 = [("wave", 7), ("cutoff", 7), ("resonance", 7), ("env_mod", 7), ("decay", 7), ("accent", 7)]
-SAMPLER = [("sample", 6), ("start", 20), ("end", 20), ("loop_start", 20), ("loop_end", 20), ("loop", 2),
-           ("base_note", 7), ("tune", 8)]               # then LEVEL 8, VOLUME 7, the envelope 56, name 60
+SAMPLER_REST = [("start", 20), ("end", 20), ("loop_start", 20), ("loop_end", 20), ("loop", 2),
+                ("base_note", 7), ("tune", 8)]          # then LEVEL 8, VOLUME 7, the envelope 56, name 60
+SAMPLER = [("sample", 8)] + SAMPLER_REST                 # version 2: SAMPLE a sample's number; spare 84
+SAMPLER_V1 = [("sample", 6)] + SAMPLER_REST              # version 1: SAMPLE its place in its sampler's table; spare 86
 ENV = [("r1", 7), ("r2", 7), ("r3", 7), ("r4", 7), ("l1", 7), ("l2", 7), ("l3", 7), ("l4", 7)]
 FUSION = [("pattern", 8)]
 CHIP_KINDS = CHIP_GEN.KINDS                                         # its tables: vol, arp, pitch, duty, noise
@@ -173,7 +180,8 @@ CHIP = [("osc", 3), ("duty", 2), ("bz_shape", 2), ("bz_steps", 1), ("bz_gate", 1
 
 SLOT = {  # kind: (fields, slot size, spare bits after name and LEVEL, slots at most)
     KIND_DX7: (None, 112, 44, 32), KIND_JUNO: (JUNO, 28, 33, 128), KIND_TB303: (TB303, 24, 82, 128),
-    KIND_FUSION: (FUSION, 16, 52, 64), KIND_CHIP: (CHIP, 28, 35, 128)}
+    KIND_FUSION: (FUSION, 16, 52, 64), KIND_CHIP: (CHIP, 28, 35, 128),
+    KIND_FAVORITES: (None, 3, 0, 128)}                              # a favourite: its source's cartridge, slot, spare
 SAMPLER_SLOT, SAMPLE_ENTRY, SAMPLER_MAX = 40, 16, 64
 
 CURVES = ["-lin", "-exp", "+exp", "+lin"]
@@ -344,8 +352,11 @@ def chip_patch(v):
 
 
 def pack_slot(kind, slot):
-    """a slot {name, level, ...values as the fields name them} -> its bytes; None: an empty slot"""
+    """a slot {name, level, ...values as the fields name them} -> its bytes; None: an empty slot. A favourite:
+    {cart, slot} -> its source's cartridge, slot and a spare byte (an empty one: slot FF)"""
     fields, size, spare, _ = SLOT[kind]
+    if kind == KIND_FAVORITES:
+        return bytes([0, 0xFF, 0]) if slot is None else bytes([slot["cart"] & 255, slot["slot"] & 255, 0])
     w = BitWriter()
     if slot is None:                                                    # empty: its name's first code 63
         w.spare(size * 8 - 60 - 8 - spare)
@@ -367,6 +378,8 @@ def pack_slot(kind, slot):
 
 def unpack_slot(kind, b):
     fields, size, spare, _ = SLOT[kind]
+    if kind == KIND_FAVORITES:
+        return None if b[1] == 0xFF else {"cart": b[0], "slot": b[1]}
     r = BitReader(b)
     if kind == KIND_DX7:
         out = {"ops": [_get_fields(r, DX7_OP) for _ in range(6)], "voice": _get_fields(r, DX7_VOICE)}
@@ -396,27 +409,29 @@ def unpack_cartridge(kind, b):
             "slots": [unpack_slot(kind, b[10 + i * size:10 + (i + 1) * size]) for i in range(n)]}
 
 
-def pack_sampler_instrument(s):
+def pack_sampler_instrument(s, ver=2):
+    """an instrument of a sampler cartridge: version 2 (SAMPLE 8 bits, spare 84), or the old form's (6 bits, 86)"""
+    spare = 84 if ver == 2 else 86
     if s is None:
         w = BitWriter()
-        w.spare(SAMPLER_SLOT * 8 - 86 - 60)
+        w.spare(SAMPLER_SLOT * 8 - spare - 60)
         w.put(NAME_EMPTY, 6)
         return w.bytes(SAMPLER_SLOT)
     w = BitWriter()
-    _put_fields(w, SAMPLER, s)
+    _put_fields(w, SAMPLER if ver == 2 else SAMPLER_V1, s)
     w.put_signed(s["level"], 8)
     w.put(s["volume"], 7)
     _put_fields(w, ENV, s["env"])
     w.put_name(s["name"], 10)
-    w.spare(86)
+    w.spare(spare)
     if w.n != SAMPLER_SLOT * 8:
         raise AssertionError(f"sampler slot: {w.n} bits")
     return w.bytes(SAMPLER_SLOT)
 
 
-def unpack_sampler_instrument(b):
+def unpack_sampler_instrument(b, ver=2):
     r = BitReader(b)
-    s = _get_fields(r, SAMPLER)
+    s = _get_fields(r, SAMPLER if ver == 2 else SAMPLER_V1)
     s["level"] = r.get_signed(8)
     s["volume"] = r.get(7)
     s["env"] = _get_fields(r, ENV)
@@ -445,23 +460,195 @@ def unpack_sample_entry(b):
     return None if e["name"] is None else e
 
 
-def pack_sampler(name, instruments, samples):
-    if len(instruments) > SAMPLER_MAX or len(samples) > SAMPLER_MAX:
+def pack_sampler(name, instruments, samples=None):
+    """a sampler cartridge, version 2: name (9 B), instruments stored (1 B), the instruments (40 B each), each
+    naming a sample by its number. Given `samples` (the old form's table) it writes the old form, version 1."""
+    if len(instruments) > SAMPLER_MAX or (samples is not None and len(samples) > SAMPLER_MAX):
         raise ValueError(f"{name}: more than {SAMPLER_MAX} instruments or samples")
+    if samples is not None:
+        return pack_sampler_v1(name, instruments, samples)
+    return (pack_name(name, 12) + bytes([len(instruments)])
+            + b"".join(pack_sampler_instrument(s) for s in instruments))
+
+
+def pack_sampler_v1(name, instruments, samples):
+    """the old sampler (version 1: instruments naming their place in the table, then the table)"""
     return (pack_name(name, 12) + bytes([len(instruments), len(samples)])
-            + b"".join(pack_sampler_instrument(s) for s in instruments)
+            + b"".join(pack_sampler_instrument(s, 1) for s in instruments)
             + b"".join(pack_sample_entry(e) for e in samples))
 
 
-def unpack_sampler(b):
+def sampler_version_of(b):
+    """a sampler record's version from its length: version 1 is 11 + 40 a + 16 b (odd), version 2 is 10 + 40 a (even)"""
+    return 1 if len(b) & 1 else 2
+
+
+def unpack_sampler_v1(b):
+    if len(b) < 11:                                     # (too short to say its counts: unreadable, as the JS twin has it)
+        raise ValueError(f"sampler cartridge: {len(b)} B, under its 11-byte head")
     ni, ns = b[9], b[10]
     if len(b) != 11 + ni * SAMPLER_SLOT + ns * SAMPLE_ENTRY:
         raise ValueError(f"sampler cartridge: {len(b)} B for {ni} instruments, {ns} samples")
     at = 11 + ni * SAMPLER_SLOT
     return {"name": unpack_name(b[0:9], 12),
-            "instruments": [unpack_sampler_instrument(b[11 + i * SAMPLER_SLOT:11 + (i + 1) * SAMPLER_SLOT])
+            "instruments": [unpack_sampler_instrument(b[11 + i * SAMPLER_SLOT:11 + (i + 1) * SAMPLER_SLOT], 1)
                             for i in range(ni)],
             "samples": [unpack_sample_entry(b[at + i * SAMPLE_ENTRY:at + (i + 1) * SAMPLE_ENTRY]) for i in range(ns)]}
+
+
+def unpack_sampler(b):
+    """a sampler cartridge: version 2 -> {name, instruments}; a record of the old form (odd length) is read as
+    unpack_sampler_v1 does, with its `samples`"""
+    if sampler_version_of(b) == 1:
+        return unpack_sampler_v1(b)
+    if len(b) < 10:
+        raise ValueError(f"sampler cartridge: {len(b)} B, under its 10-byte head")
+    ni = b[9]
+    if len(b) != 10 + ni * SAMPLER_SLOT:
+        raise ValueError(f"sampler cartridge: {len(b)} B for {ni} instruments")
+    return {"name": unpack_name(b[0:9], 12),
+            "instruments": [unpack_sampler_instrument(b[10 + i * SAMPLER_SLOT:10 + (i + 1) * SAMPLER_SLOT])
+                            for i in range(ni)]}
+
+
+def pack_sample(entry, audio):
+    """a sample's record (kind 0x11): the entry (16 B), then the audio as the old audio record: PTR whole"""
+    return pack_sample_entry(entry) + bytes(audio)
+
+
+def unpack_sample(b):
+    """a sample's record -> {entry, audio}; entry None for an emptied one (its name an empty slot's)"""
+    if len(b) < SAMPLE_ENTRY:
+        raise ValueError(f"sample: {len(b)} B")
+    return {"entry": unpack_sample_entry(b[:SAMPLE_ENTRY]), "audio": bytes(b[SAMPLE_ENTRY:])}
+
+
+# ------------------------------------------------------------------ the old form's converter ---
+def _sampler_v1_to_v2_slot(slot, number):
+    """an old instrument's 40 B -> version 2's: SAMPLE `number` (8 bits), every later field 2 bits further on (the
+    spare 86 -> 84); number None: an emptied slot"""
+    if number is None:
+        return pack_sampler_instrument(None)
+    bits = int.from_bytes(slot, "little")
+    bits = (((bits >> 6) << 8) | number) & ((1 << (SAMPLER_SLOT * 8)) - 1)
+    return bits.to_bytes(SAMPLER_SLOT, "little")
+
+
+class SamplerConverter:
+    """The old samplers to version 2 and samples of their own, one sampler at a time (disk.md#the-samplers-conversion).
+    `existing`: {number: payload} of the samples already there, `named`: the numbers version 2 instruments name.
+    Numbers: the lowest free ones (not existing, not named, not given yet), in the table's order; a sample whose
+    whole payload equals one already there (or given earlier) is that one."""
+
+    def __init__(self, existing=None, named=()):
+        self.samples = dict(existing or {})
+        self.by_payload = {p: n for n, p in sorted(self.samples.items(), reverse=True)}
+        self.taken = set(self.samples) | set(named)
+        self.full = False
+
+    def _free(self, count):
+        out, n = [], 0
+        while len(out) < count and n < SAMPLES_MAX:
+            if n not in self.taken and n not in out:
+                out.append(n)
+            n += 1
+        return out
+
+    def convert(self, number, payload, audio):
+        """the old sampler `number` (its record's payload), audio {index: audio bytes} ->
+        {sampler: version 2 payload, samples: [(number, payload, merged)], dropped: audio with no entry} or None
+        when its samples do not fit in the numbers left (the sampler stays old; `full` is set)"""
+        old = unpack_sampler_v1(payload)
+        table = 11 + len(old["instruments"]) * SAMPLER_SLOT
+        made, fresh = {}, []            # table index -> sample payload; the new payloads in order, once each
+        for i, e in enumerate(old["samples"]):
+            if e is not None and i in audio:
+                made[i] = bytes(payload[table + i * SAMPLE_ENTRY:table + (i + 1) * SAMPLE_ENTRY]) + bytes(audio[i])
+                if made[i] not in self.by_payload and made[i] not in fresh:
+                    fresh.append(made[i])
+        free = self._free(len(fresh))
+        if len(free) < len(fresh):
+            self.full = True
+            return None
+        given = dict(zip(fresh, free))
+        samples = []
+        number_of = {i: self.by_payload.get(p, given.get(p)) for i, p in made.items()}
+        for p in fresh:
+            self.samples[given[p]] = p
+            self.by_payload[p] = given[p]
+            self.taken.add(given[p])
+            samples.append((given[p], p, False))
+        slots = []
+        for i, inst in enumerate(old["instruments"]):
+            s = payload[11 + i * SAMPLER_SLOT:11 + (i + 1) * SAMPLER_SLOT]
+            use = None if inst is None else number_of.get(inst["sample"])
+            slots.append(_sampler_v1_to_v2_slot(s, use))
+        merged = sorted({number_of[i] for i in made} - {n for n, _, _ in samples})
+        dropped = sum(1 for i in audio if i not in made)
+        return {"sampler": payload[:10] + b"".join(slots), "samples": samples, "merged": merged, "dropped": dropped}
+
+
+def convert_samplers_report(records, limit=SAMPLES_MAX):
+    """the whole set at once: records [{kind, num, sub, ver, payload}] -> {records, converted: [numbers], older:
+    [numbers], samples: count made, dropped: old audio deleted for want of an entry, bad: [numbers unreadable]}.
+    Old samplers (kind 4 version 1) in number order become version 2 and their old audio (kind 0x10 version 1)
+    samples (kind 0x11); while a sampler's samples fit in the numbers left; the rest stay, with their audio."""
+    olds = sorted((r for r in records if r["kind"] == KIND_SAMPLER and r["ver"] == 1 and r["sub"] == 0),
+                  key=lambda r: r["num"])
+    audio = {}
+    for r in records:
+        if r["kind"] == KIND_AUDIO and r["ver"] == 1:
+            audio.setdefault(r["num"], {})[r["sub"]] = r["payload"]
+    existing = {r["num"]: r["payload"] for r in records if r["kind"] == KIND_SAMPLE}
+    named = set()
+    for r in records:
+        if r["kind"] == KIND_SAMPLER and r["ver"] == 2:
+            try:
+                named |= {s["sample"] for s in unpack_sampler(r["payload"])["instruments"] if s}
+            except ValueError:
+                pass
+    conv = SamplerConverter(existing, named)
+    new, done, older, bad, count, dropped = {}, set(), [], [], 0, 0
+    olds_by_num = {r["num"] for r in olds}
+    for r in olds:
+        if conv.full:
+            older.append(r["num"])
+            continue
+        try:
+            out = conv.convert(r["num"], r["payload"], audio.get(r["num"], {}))
+        except ValueError:
+            bad.append(r["num"])
+            continue
+        if out is None:
+            older.append(r["num"])
+            continue
+        new[r["num"]] = out["sampler"]
+        done.add(r["num"])
+        count += len(out["samples"])
+        dropped += out["dropped"]
+    result, fresh = [], {}
+    for r in records:
+        if r["kind"] == KIND_SAMPLER and r["ver"] == 1 and r["sub"] == 0 and r["num"] in done:
+            result.append({**r, "ver": 2, "payload": new[r["num"]]})
+        elif r["kind"] == KIND_AUDIO and r["ver"] == 1:
+            if r["num"] in done or r["num"] not in olds_by_num:    # converted, or no old sampler there: gone
+                if r["num"] not in done:
+                    dropped += 1
+                continue
+            result.append(r)
+        else:
+            result.append(r)
+    for n, p in sorted(conv.samples.items()):
+        if n not in existing:
+            result.append({"kind": KIND_SAMPLE, "num": n, "sub": 0, "ver": 1, "payload": p})
+    return {"records": result, "converted": sorted(done), "older": older, "samples": count, "dropped": dropped,
+            "bad": bad}
+
+
+def convert_samplers(records):
+    """-> (records, older_nums): see convert_samplers_report"""
+    r = convert_samplers_report(records)
+    return r["records"], r["older"]
 
 
 # ------------------------------------------------------------------------------------------- PTR ---
@@ -960,7 +1147,7 @@ def unpack_song(b):
 DISK_MAGIC = b"PTFMDISK"
 DISK_LAYOUT = 1
 DISK_ORDER = {0x30: 0, 0x31: 0, KIND_DX7: 1, KIND_JUNO: 1, KIND_TB303: 1, KIND_SAMPLER: 1, KIND_FUSION: 1,
-              KIND_CHIP: 1, KIND_SONG: 2, KIND_PATTERN: 3, 0x22: 4, 0x23: 4, KIND_NOTES: 5, KIND_AUDIO: 6}
+              KIND_CHIP: 1, KIND_FAVORITES: 1, KIND_SONG: 2, KIND_PATTERN: 3, 0x22: 4, 0x23: 4, KIND_NOTES: 5, KIND_AUDIO: 6, KIND_SAMPLE: 6}
 
 
 def disk_sort_key(f):
@@ -970,14 +1157,17 @@ def disk_sort_key(f):
 
 
 def pack_disk(files):
-    """files: [(kind, number, sub, payload)] -> a .ptfmdsk (disk.md): each (kind, number, sub) once, in order"""
+    """files: [(kind, number, sub, payload)] -> a .ptfmdsk (disk.md): each (kind, number, sub) once, in order, each of
+    its kind's current version; a file (kind, number, sub, payload, version) keeps its own (an older form's)"""
     seen = set()
     out = bytearray(DISK_MAGIC + bytes([DISK_LAYOUT, 0, 0, 0]) + struct.pack("<I", len(files)))
-    for kind, num, sub, payload in sorted(files, key=disk_sort_key):
+    for f in sorted(files, key=disk_sort_key):
+        kind, num, sub, payload = f[:4]
         if (kind, num, sub) in seen:
             raise ValueError(f"a file twice: {kind:02X} {num:02X} {sub}")
         seen.add((kind, num, sub))
-        out += bytes([kind, num, sub, VERSION[kind]]) + struct.pack("<II", len(payload), crc32(payload))
+        ver = f[4] if len(f) > 4 else VERSION[kind]
+        out += bytes([kind, num, sub, ver]) + struct.pack("<II", len(payload), crc32(payload))
         out += payload
         out += bytes(-len(out) % 4)
     return bytes(out)

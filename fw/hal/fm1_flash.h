@@ -15,6 +15,7 @@
 #pragma once
 #include <stdint.h>
 #include "fm1_xip.h"
+#include "fm1_flash_id.h"                                /* the chips written to: fl_jedec_ok */
 
 #define RAMFN  __attribute__((section(".ram_text"), noinline, used))
 #define RAMINL static inline __attribute__((always_inline))
@@ -117,19 +118,6 @@ RAMINL void fl_exit(const fl_saved_t *s)
     SFC_CON = s->sfc_con;                         /* XIP back on */
     fl_csync();
 }
-/* PT/FM's debug build (its bench): the cache's 32-byte lines of the XIP addresses [a, e) dropped, so the code
- * and constants there come from the flash again at their next use; from RAM code, interrupts off */
-RAMINL void fl_inval_xip(uint32_t a, uint32_t e)
-{
-    a &= ~31u;
-    fl_cache_idle();
-    for (; a < e; a += 32u) {
-        fl_csync();
-        __asm__ volatile("flushinv [%0]" :: "r"(a) : "memory");
-        fl_csync();
-        fl_cache_idle();
-    }
-}
 RAMINL void fl_inval(uint32_t off, uint32_t len)
 {
     uint32_t a = FL_XIP(off) & ~31u, e = FL_XIP(off) + len;
@@ -152,8 +140,10 @@ RAMINL int fl_wait_ready(uint32_t max_us, uint32_t *took_us)
 }
 
 /* ---- entry points: IRQs OFF, args/buffers in RAM ---- */
+/* (FL_READ_ONLY, set by the start check, which only reads: fl_read_ram alone, nothing that erases or programs) */
 
-static RAMFN uint32_t fl_jedec_ram(void)                 /* expect 0x856014 */
+#ifndef FL_READ_ONLY
+static RAMFN uint32_t fl_jedec_ram(void)                 /* one fl_jedec_ok takes (fm1_flash_id.h) */
 {
     fl_saved_t s; uint32_t id;
     if (fl_enter(&s)) return 0;
@@ -208,6 +198,7 @@ static RAMFN int fl_prog_ram(uint32_t off, const uint8_t *src, uint32_t n, uint3
     fl_exit(&s);
     return rc;
 }
+#endif
 
 static RAMFN int fl_read_ram(uint32_t off, uint8_t *dst, uint32_t n)   /* 0x0B fast read */
 {
@@ -238,6 +229,7 @@ static void fl_plain_window_init(void)
 static inline uint32_t irq_save(void) { __asm__ volatile("cli" ::: "memory"); return 0; }
 static inline void irq_restore(uint32_t f) { (void)f; __asm__ volatile("csync\n\tsti" ::: "memory"); }
 
+#ifndef FL_READ_ONLY
 static int fl_erase4k(uint32_t off, uint32_t *took_us)
 {
     uint32_t f = irq_save();
@@ -262,3 +254,4 @@ static int fl_write(uint32_t off, const uint8_t *src_ram, uint32_t n)
     }
     return 0;
 }
+#endif

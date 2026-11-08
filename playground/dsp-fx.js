@@ -292,6 +292,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             }
             else if (m.t === "tempo") fx.tempo = m.tempo;
             else if (m.t === "mute") fx.mutes[m.track] = m.on;
+            else if (m.t === "stagecol") fx.stageCol = m.track;   /* (LOOPS' stage: the loop's track whose mix it sounds through) */
             else if (m.t === "hush") fx.hush = !!m.on;    /* CUT (specs/ui/controls.md#cut) */
             else if (m.t === "master") fx.master = m.v;
             else if (m.t === "output") fx.mono = m.mono;
@@ -342,8 +343,12 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
          * on a level (LIMITER's CEILING, DRIVE's clipping, DUCK's following, LO-FI's bits) meet the FM-1's
          * levels; the page plays the mix at twice (PAGE, at the output) and sounds as loud as before */
         const MIX = .5, PAGE = 2;
+        /* LOOPS' stage (specs/ui/screens/loops.md#the-stage): a column of its own, carrying the mix of the loop's track it
+         * stands for (fx.stageCol) but never its mute or a solo; as that track a DUCK source and a FILTER envelope's */
+        const STAGE_T = E.STAGE, asStage = t => fx.stageCol != null && t === fx.stageCol;
         const mixRow = t => {
             if (t === KEYS_T) return Object.assign({ lvl: 127 }, fx.keysMix);  /* (the keys': their LVL is KEYS GAIN, on the voices) */
+            if (t === STAGE_T) return fx.stageCol != null && fx.stageCol !== STAGE_T ? mixRow(fx.stageCol) : null;
             const row = fx.mixer && fx.mixer[t - fx.base];
             return row ? Object.assign({}, row, fx.live[t]) : null;
         };
@@ -364,8 +369,9 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             }
             let level = 0;
             if (src >= 0 && tracks[src]) {
-                const b = tracks[src], r = mixRow(src);
-                for (let i = 0; i < BLK; i++) { const q = Math.abs(b[i]); if (q > level) level = q; }
+                const r = mixRow(src);
+                for (const b of asStage(src) && tracks[STAGE_T] ? [tracks[src], tracks[STAGE_T]] : [tracks[src]])   /* (the stage as its loop) */
+                    for (let i = 0; i < BLK; i++) { const q = Math.abs(b[i]); if (q > level) level = q; }
                 level *= MIX * (r ? r.lvl / 127 : 1);
             }
             const d = fx.st.duck, to = Math.min(1, level * 4);
@@ -378,7 +384,8 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 fx.levels[t] = Math.max(fx.levels[t] * .9, pk);
                 /* the dip this block, eased from the last block's over this one, so it never clicks */
                 const r = mixRow(t), dck = r ? r.dck / 127 : 0;
-                const k0 = fx.duckG[t], k1 = src >= 0 && t !== src ? 1 - d.env * depth * dck : 1;
+                const self = t === src || (t === STAGE_T && asStage(src));
+                const k0 = fx.duckG[t], k1 = src >= 0 && !self ? 1 - d.env * depth * dck : 1;
                 fx.duckG[t] = k1;
                 if (!pk) continue;
                 let lvl = 1, pan = 0, cho = 0, dly = 0, rev = 0;
@@ -404,7 +411,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             let fire = 0, held = 0;
             if (src <= 16) {
                 const t = src === 0 ? (deckBase != null ? -1 : KEYS_T) : fx.base + src - 1;   /* (KEYS: not on DJ's decks) */
-                if (t >= 0) { fire = proc.fireT[t]; held = proc.heldT[t]; }
+                if (t >= 0) { fire = proc.fireT[t]; held = proc.heldT[t] || (asStage(t) ? proc.heldT[STAGE_T] : 0); }   /* (the stage as its loop) */
             } else {
                 const I = [4, 2, 1, .5, .25][Math.min(4, src - 17)], b = beat();
                 const p0 = (t0 - fx.anchor) / b, p1 = p0 + BLK / SR / b;

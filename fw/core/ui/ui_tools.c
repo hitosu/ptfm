@@ -107,6 +107,12 @@ static void inst_used(uint8_t cart, uint8_t *used)
                 if (rec_cur_at(&cur, r, &cell) && (cell.has & RC_INS) && cell.cart == cart) set_bit(used, cell.slot);
         }
     }
+    n = ui_carts(nums, 256);                            /* the favourites naming them: uses too */
+    for (int i = 0; i < n && ui_cart_rank(nums[i]) < 2; i++) {
+        rec_cart_t c;
+        if (rec_cart(nums[i], &c)) continue;
+        for (int s = 0; s < c.nslots; s++) { const uint8_t *f = rec_fav(&c, (uint8_t)s); if (f && f[0] == cart) set_bit(used, f[1]); }
+    }
 }
 static void scan_uses(int skip)                         /* (skip: a song left out, or -1) */
 {
@@ -127,7 +133,7 @@ static void scan_uses(int skip)                         /* (skip: a song left ou
 
 /* -------------------------------------------------------- CHECK REFERENCES --- */
 /* each missing reference kept as its numbers, worded as it is drawn */
-enum { MS_CELL, MS_POS, MS_FUSION };
+enum { MS_CELL, MS_POS, MS_FUSION, MS_FAV, MS_SAMPLER };
 typedef struct { uint8_t kind, a, b, c, d, e; } miss_t;
 #define MISS_MAX 64
 static miss_t miss[MISS_MAX];
@@ -144,12 +150,32 @@ static void miss_text(const miss_t *m, char *s)
 {
     if (m->kind == MS_CELL) ui_fmt(s, 48, T("PATTERN %02X ROW %02X TRACK %02X: %02X:%02X"), m->a, m->b, m->c, m->d, m->e);
     else if (m->kind == MS_POS) ui_fmt(s, 48, T("SONG %02X POSITION %02X: PATTERN %02X"), m->a, m->b, m->c);
+    else if (m->kind == MS_FAV) ui_fmt(s, 48, T("FAVORITE %02X:%02X: %02X:%02X"), m->a, m->b, m->c, m->d);
+    else if (m->kind == MS_SAMPLER) ui_fmt(s, 48, T("SAMPLER %02X:%02X: SAMPLE %02X"), m->a, m->b, m->c);
     else ui_fmt(s, 48, T("FUSION %02X:%02X: PATTERN %02X"), m->a, m->b, m->c);
+}
+/* the old-form samplers (a sampler record in a version this firmware does not read, specs/files/instruments.md#the-old-form):
+ * one at num; their numbers, ascending. They, and what names them (a cell, a favourite), are no reference to nothing
+ * (specs/files/references.md): the list ends with each once and does not count them, so they are found as it is drawn
+ * and not kept */
+static int old_sampler(int num)
+{
+    uint32_t len;
+    uint8_t ver;
+    return store_get(REC_SAMPLER, (uint8_t)num, 0, &len, &ver) && ver != rec_cart_ver(REC_SAMPLER);
+}
+static int old_samplers(uint8_t *nums)
+{
+    uint8_t all[256];
+    int n = store_list(REC_SAMPLER, all, 256), k = 0;
+    for (int i = 0; i < n; i++) if (old_sampler(all[i])) nums[k++] = all[i];
+    return k;
 }
 static void ml_knob(ui_overlay_t *o, int e, int s, int c)
 {
     (void)o; (void)c;
-    int shown = nmiss < MISS_MAX ? nmiss : MISS_MAX;
+    uint8_t old[256];
+    int shown = (nmiss < MISS_MAX ? nmiss : MISS_MAX) + old_samplers(old);
     if (e == K_SELECT) miss_top = ui_clamp(miss_top + s, 0, shown - 14 > 0 ? shown - 14 : 0);
 }
 static int ml_tap(ui_overlay_t *o, int b) { (void)o; (void)b; return 0; }
@@ -160,15 +186,20 @@ static void ml_draw(ui_overlay_t *o)
     ui_fmt(t, sizeof t, "%s", ui_txt_v(T("MISSING REFERENCES: #"), ui_dec(nmiss)));
     int y = BODY_Y + 2;
     ui_panel(2, y, 236, 206, t, C_CYAN);
-    for (int i = 0; i < 14 && miss_top + i < nmiss && miss_top + i < MISS_MAX; i++) {
+    uint8_t old[256];
+    int kept = nmiss < MISS_MAX ? nmiss : MISS_MAX, nold = old_samplers(old);
+    for (int i = 0; i < 14 && miss_top + i < kept + nold; i++) {
         char s[48];
-        miss_text(&miss[miss_top + i], s);
+        int at = miss_top + i;
+        if (at < kept) miss_text(&miss[at], s);
+        else ui_fmt(s, sizeof s, T("CARTRIDGE %02X: OLDER FORM"), old[at - kept]);   /* (after the references, not counted) */
         g_textn(8, y + 18 + i * 13, &FONT_T, s, 37, C_LGREY);
     }
 }
 static void checked(void)
 {
-    if (!nmiss) { ui_toast(T("NO MISSING REFERENCES")); return; }
+    uint8_t old[256];
+    if (!nmiss && !old_samplers(old)) { ui_toast(T("NO MISSING REFERENCES")); return; }
     miss_top = 0;
     ui_overlay_t o = {.kind = OV_LIST, .opener = -1, .knob = ml_knob, .tap = ml_tap, .draw = ml_draw};
     ui_open(&o);
@@ -186,8 +217,9 @@ void ui_check_references(void)
             rec_cur_t cur;
             rec_cell_t cell;
             rec_cur_set(&cur, p.trk[t]);
-            for (int r = 0; r < p.rows; r++)
-                if (rec_cur_at(&cur, r, &cell) && (cell.has & RC_INS) && !ui_inst_name((uint16_t)(cell.cart << 8 | cell.slot), nm))
+            for (int r = 0; r < p.rows; r++)            /* (an old sampler's instrument: none) */
+                if (rec_cur_at(&cur, r, &cell) && (cell.has & RC_INS) && !ui_inst_name((uint16_t)(cell.cart << 8 | cell.slot), nm) &&
+                    !old_sampler(cell.cart))
                     add_miss(MS_CELL, nums[i], r, t, cell.cart, cell.slot);
         }
     }
@@ -200,10 +232,19 @@ void ui_check_references(void)
     n = ui_carts(nums, 256);
     for (int i = 0; i < n; i++) {
         rec_cart_t c;
-        if (ui_cart_kind(nums[i]) != ENG_FUSION || rec_cart(nums[i], &c)) continue;
-        for (int sl = 0; sl < c.nslots; sl++) {
+        uint16_t src;
+        if (rec_cart(nums[i], &c)) continue;
+        for (int sl = 0; sl < c.nslots; sl++) {         /* a FUSION's pattern; a favourite's source (FAVORITE FB:07: 0B:05) */
             const uint8_t *x = rec_slot(&c, (uint8_t)sl);
-            if (x && !ui_pattern_rows(rec_fusion_pattern(x))) add_miss(MS_FUSION, nums[i], sl, rec_fusion_pattern(x), 0, 0);
+            if (c.kind == REC_FUSION && x && !ui_pattern_rows(rec_fusion_pattern(x))) add_miss(MS_FUSION, nums[i], sl, rec_fusion_pattern(x), 0, 0);
+            if (c.kind == REC_FAV && ui_fav((uint16_t)(nums[i] << 8 | sl), &src) == UI_FAV_MISSING && !old_sampler(src >> 8))
+                add_miss(MS_FAV, nums[i], sl, src >> 8, src & 255, 0);
+            if (c.kind == REC_SAMPLER && x) {           /* a sample instrument naming a sample that is not there (or read as missing) */
+                rec_sinst_t si;
+                rec_sample_t sm;
+                rec_sampler_inst(x, &si);
+                if (rec_sample(si.sample, &sm)) add_miss(MS_SAMPLER, nums[i], sl, si.sample, 0, 0);
+            }
         }
     }
     ui_progress(T("CHECKING"), 600, checked);
@@ -218,9 +259,26 @@ static void kb(char *d, uint32_t b)                     /* `512 B`, `1.3K`, `14K
     else if (b < 10240) ui_fmt(d, 12, "%u.%uK", t / 10, t % 10);
     else ui_fmt(d, 12, "%uK", (b + 512) / 1024);
 }
-static void measure(void)
+/* the samples some sampler's instrument names, in any sampler cartridge (a bit a sample's number) */
+static void samples_named(uint8_t *named)
 {
     uint8_t nums[256];
+    memset(named, 0, 32);
+    int n = ui_carts(nums, 256);
+    for (int i = 0; i < n; i++) {
+        rec_cart_t c;
+        if (ui_cart_kind(nums[i]) != ENG_SAMPLER || rec_cart(nums[i], &c)) continue;
+        for (int sl = 0; sl < c.nslots; sl++) {
+            const uint8_t *x = rec_slot(&c, (uint8_t)sl);
+            if (x) { rec_sinst_t si; rec_sampler_inst(x, &si); set_bit(named, si.sample); }
+        }
+    }
+}
+static void measure(void)
+{
+    uint8_t nums[256], named[32];
+    uint32_t len;
+    uint8_t ver;
     memset(bytes, 0, sizeof bytes);
     memset(counts, 0, sizeof counts);
     scan_uses(-1);
@@ -228,27 +286,16 @@ static void measure(void)
     for (int i = 0; i < n; i++) {
         if (nums[i] >= 0xF0 || bit(pat_used, nums[i])) continue;
         counts[0]++;
-        for (int sub = 0; sub < 16; sub++) { uint32_t len; uint8_t ver; if (store_get(REC_PATTERN, nums[i], (uint8_t)sub, &len, &ver)) bytes[0] += len + 16; }
+        for (int sub = 0; sub < 16; sub++) if (store_get(REC_PATTERN, nums[i], (uint8_t)sub, &len, &ver)) bytes[0] += len + 16;
     }
+    samples_named(named);                               /* a sample no instrument names, in any sampler */
+    n = store_list(REC_SAMPLE, nums, 256);
+    for (int i = 0; i < n; i++)
+        if (!bit(named, nums[i]) && store_get(REC_SAMPLE, nums[i], 0, &len, &ver)) { counts[1]++; bytes[1] += len + 16; }
     n = ui_carts(nums, 256);
     for (int i = 0; i < n; i++) {
         rec_cart_t c;
         if (nums[i] >= 0xF0 || rec_cart(nums[i], &c)) continue;
-        int kind = ui_cart_kind(nums[i]);
-        if (kind == ENG_SAMPLER) {                      /* a sample no instrument of its cartridge plays */
-            uint8_t sused[8] = {0};
-            for (int sl = 0; sl < c.nslots; sl++) {
-                const uint8_t *x = rec_slot(&c, (uint8_t)sl);
-                if (x) { rec_sinst_t si; rec_sampler_inst(x, &si); set_bit(sused, si.sample); }
-            }
-            for (int k = 0; k < c.nsamples; k++) {
-                rec_sample_t sm;
-                uint32_t len;
-                uint8_t ver;
-                if (rec_sample(&c, (uint8_t)k, &sm) || bit(sused, k)) continue;
-                if (store_get(REC_AUDIO, nums[i], (uint8_t)k, &len, &ver)) { counts[1]++; bytes[1] += len + 16; }
-            }
-        }
         uint8_t used[32];
         inst_used(nums[i], used);
         for (int sl = 0; sl < c.nslots; sl++)
@@ -279,6 +326,14 @@ static void cleaned(int a, ui_check_t *rows)
             deleted++;
         }
     }
+    if (rows[1].on) {                                   /* the samples no instrument names, in any sampler (named
+                                                         * before any instrument below goes, as measure() counts) */
+        uint8_t named[32];
+        samples_named(named);
+        int n = store_list(REC_SAMPLE, nums, 256);
+        for (int i = 0; i < n; i++)
+            if (!bit(named, nums[i])) { ui_edit_del(REC_SAMPLE, nums[i], 0); deleted++; }
+    }
     int n = ui_carts(nums, 256);
     for (int i = 0; i < n; i++) {
         rec_cart_t c;
@@ -289,32 +344,14 @@ static void cleaned(int a, ui_check_t *rows)
         uint8_t used[32];
         if (rows[2].on) inst_used(nums[i], used);
         int changed = 0, kind = ui_cart_kind(nums[i]);
-        if (rows[1].on && kind == ENG_SAMPLER) {
-            uint8_t sused[8] = {0};
-            for (int sl = 0; sl < c.nslots; sl++) {
-                const uint8_t *x = rec_slot(&c, (uint8_t)sl);
-                if (x) { rec_sinst_t si; rec_sampler_inst(x, &si); set_bit(sused, si.sample); }
-            }
-            for (int k = 0; k < c.nsamples; k++) {
-                rec_sample_t sm;
-                uint32_t len;
-                uint8_t ver;
-                if (rec_sample(&c, (uint8_t)k, &sm) || bit(sused, k) || !store_get(REC_AUDIO, nums[i], (uint8_t)k, &len, &ver)) continue;
-                ui_edit_del(REC_AUDIO, nums[i], (uint8_t)k);
-                /* its entry in the table: length 0 (the sample is gone; the numbers of the others stay) */
-                uint32_t at = 11u + (uint32_t)c.nslots * 40u + (uint32_t)k * 16u;
-                if (at + 16 <= clen) { ui_put_bits(rec + at, 0, 20, 0); changed = 1; }
-                deleted++;
-            }
-        }
         if (rows[2].on) for (int sl = 0; sl < c.nslots; sl++) {
             const uint8_t *x = rec_slot(&c, (uint8_t)sl);
             if (!x || bit(used, sl)) continue;
             uint32_t at = rec_slot_at(&c, (uint8_t)sl);
             int size = rec_slot_size(c.kind);
             memset(rec + at, 0, (size_t)size);
-            /* empty: its name's first character 63 (specs/files/README.md) */
-            static const uint16_t NAME_BIT[ENG_COUNT] = {0, 784, 123, 42, 174, 8, 121};
+            /* empty: its name's first character 63 (specs/files/README.md; a sampler's slot in version 2) */
+            static const uint16_t NAME_BIT[ENG_COUNT] = {0, 784, 123, 42, 176, 8, 121};
             ui_put_bits(rec + at, NAME_BIT[kind], 6, 63);
             changed = 1;
             deleted++;

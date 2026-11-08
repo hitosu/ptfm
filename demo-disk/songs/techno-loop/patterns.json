@@ -3,7 +3,7 @@
   "version": 2,
   "patterns": [
     {
-      "number": 38,
+      "number": 204,
       "tracks": 6,
       "edit_step": 1,
       "what": "intro: the kick and closed hats, then the claps; the pluck coming in dark, brightening",
@@ -139,7 +139,7 @@
       ]
     },
     {
-      "number": 39,
+      "number": 205,
       "tracks": 6,
       "edit_step": 1,
       "what": "A DJ loop of the DX7: the FM DRUM KIT, the FM BASS rolling after the kick, a PROG PLUCK in dotted eighths, its brightness turned by commands",

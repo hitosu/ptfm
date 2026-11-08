@@ -9,7 +9,8 @@
  * A screen: {name, group, enter(from), leave(), page() -> "N/M" or null, draw(), footer() -> [text,
  * colour] or null, knob(enc, steps, coarse), mark(enc, steps), tap(btn) -> handled, key(note, down)
  * -> handled, back() -> closed something, lit(btn) -> LED level or undefined, does: [buttons with a
- * function here], combines: [buttons that wait the grace period], keyLeds(set)}. */
+ * function here], combines: [buttons that wait the grace period], recWith(btn) -> what REC with that button held
+ * does at REC's release, or null, keyLeds(set)}. */
 PTFM.ui = (function () {
     "use strict";
     const D = PTFM.draw, F = D.F, M = PTFM.model;
@@ -30,9 +31,12 @@ PTFM.ui = (function () {
         B, E, BNAME, WHITE, BLACK, BODY_Y, BODY_H, ROUND, GROUP_COL,
         screens: {}, screen: null, from: null, deep: [], overlays: [],
         song: 0, inst: 0xF000, lastInst: 0xF000, octave: 0,  /* (F0:00, the first built-in instrument: SAVE keeps the current one) */
+        /* the current place (specs/ui/navigation.md): the cartridge and slot the cursor stands on, PRESETS turns from; in a
+         * FAVORITES cartridge a favourite's (FB:07), whose source is U.inst, else U.inst itself */
+        place: 0xF000,
         pattern: M.EDITOR_PATTERN,                           /* (the EDITOR's: its own at first) */
         mutes: new Array(16).fill(false), solo: -1,
-        version: "0.26", dev: true,                          /* (fw/VERSION's number; the playground a dev build) */
+        version: "0.27", dev: true,                          /* (fw/VERSION's number; the playground a dev build) */
     };
     U.now = () => performance.now();
     U.set = k => M.state.settings[k];
@@ -60,32 +64,54 @@ PTFM.ui = (function () {
     U.instName = ref => { const i = M.inst(ref); return i ? i.name : "----------"; };
     /* lastInst: the last instrument picked that sounds by itself (not a FUSION slot), the one a new
      * FUSION pattern is offered to be filled with */
-    U.setInst = ref => {
-        U.inst = ref;
-        if (M.inst(ref) && M.instType(ref) !== "FUSION") U.lastInst = ref;
-        PTFM.audio.instrument(ref);
-        PTFM.player.repeatRef(ref);                  /* a note repeat running (ARP) plays it from its next note, however it was picked */
+    /* the current place, and so the instrument: ref; a favourite's source becomes the instrument, an empty or a missing
+     * favourite keeps the instrument as it is (specs/ui/screens/instruments.md#favorites) */
+    let favBack = null, favAt = null;            /* SEL + GLO's: the place before a FAVORITES cartridge became current; the
+                                                  * favourite last stood on (GLO + PRESETS' too) */
+    let instOnce = false;                        /* the instrument a favourite's, picked once (GLO + PRESETS): the place does
+                                                  * not lead it */
+    const instNow = src => {                     /* the keys' instrument */
+        U.inst = src;
+        if (M.inst(src) && M.instType(src) !== "FUSION") U.lastInst = src;
+        PTFM.audio.instrument(src);
+        PTFM.player.repeatRef(src);                  /* a note repeat running (ARP) plays it from its next note, however it was picked */
     };
-    /* PRESETS: through the cartridge's used slots, wrapping; from an empty one (INSTRUMENTS' cursor can stand
-     * there), the next used one its way */
-    U.stepInst = function (d) {
-        const c = M.cart(U.inst >> 8);
-        if (!c) return;
+    U.setInst = ref => {
+        if (M.isFav(ref >> 8)) { if (!M.isFav(U.place >> 8)) favBack = U.place; favAt = ref; }
+        U.place = ref;
+        instOnce = false;
+        const src = M.placeInst(ref);
+        if (src == null) return;                     /* (the instrument stays the last source picked) */
+        instNow(src);
+    };
+    /* the favourite at the cursor changed (EDIT, PASTE, REVERT, a reference rewritten): the instrument follows its source */
+    U.followPlace = () => { const src = M.placeInst(U.place); if (!instOnce && src != null && src !== U.inst) U.setInst(U.place); };
+    /* |d| used slots on from slot at of cartridge c, wrapping (a FAVORITES cartridge's favourites, the empty and missing
+     * ones skipped); -1 none */
+    function stepFrom(c, at, d) {
         const n = c.slots.length, dir = Math.sign(d) || 1;
-        let at = U.inst & 255;
         for (let k = 0; k < Math.abs(d); k++) {
             let next = -1;
-            for (let j = 1; j <= n && next < 0; j++) { const i = ((at + dir * j) % n + n) % n; if (c.slots[i]) next = i; }
-            if (next < 0) return;                    /* an empty cartridge */
+            for (let j = 1; j <= n && next < 0; j++) { const i = ((at + dir * j) % n + n) % n; if (M.slotUsed(c, i, true)) next = i; }
+            if (next < 0) return -1;                 /* an empty cartridge */
             at = next;
         }
-        U.setInst(c.id << 8 | at);
+        return at;
+    }
+    /* PRESETS: through the cartridge's used slots, wrapping; from an empty one (INSTRUMENTS' cursor can stand there), the
+     * next used one its way */
+    U.stepInst = function (d) {
+        const c = M.cart(U.place >> 8);
+        if (!c) return;
+        const at = stepFrom(c, U.place & 255, d);
+        if (at >= 0) U.setInst(c.id << 8 | at);
     };
-    U.stepCart = function (d) {                  /* SEL + PRESETS: the cartridges, wrapping */
-        const cs = M.state.carts, i = Math.max(0, M.cartIndex(U.inst >> 8));
+    /* a cartridge's first used slot (a favourite too), 0 with none: where picking it puts the cursor */
+    U.cartFirst = c => Math.max(0, c.slots.findIndex(Boolean));
+    U.stepCart = function (d) {                  /* SEL + PRESETS: the cartridges in the lists' order, wrapping */
+        const cs = M.state.carts, i = Math.max(0, M.cartIndex(U.place >> 8));
         const c = cs[((i + d) % cs.length + cs.length) % cs.length];
-        const first = c.slots.findIndex(Boolean);
-        U.setInst(c.id << 8 | Math.max(0, first));
+        U.setInst(c.id << 8 | U.cartFirst(c));
     };
     U.midi = n => 53 + n + 12 * U.octave;       /* key 0 is F-3 at OCT 0 */
     /* ARP held + SELECT on the EDITOR, INSTRUMENTS and FX: the setting ARP RHYTHM (specs/ui/screens/
@@ -527,7 +553,9 @@ PTFM.ui = (function () {
             draw() {
                 if (this.btn === B.HOME) return homePanel(home() || held.get(B.HOME) || {}, true);
                 const tail = this.btn === B.FX ? [[" + ", D.CYAN], ["KEYS", D.YELLOW]] : [[" +", D.CYAN]];   /* (FX: HOLD FX + KEYS) */
-                comboPanel([["HOLD ", D.CYAN], [BNAME[this.btn], D.YELLOW]].concat(tail), this.lines());
+                const lines = this.lines();
+                if (!lines.length) return;                       /* (no lines now: nothing drawn) */
+                comboPanel([["HOLD ", D.CYAN], [BNAME[this.btn], D.YELLOW]].concat(tail), lines);
             },
         };
         U.layers.push(l);
@@ -627,6 +655,7 @@ PTFM.ui = (function () {
             if (prev.name === "FX" && U.fxLoops && name !== "LOOPS") U.screens.LOOPS.leave(s);
             if (prev.name === "FX" && U.fxDj && name !== "DJ" && U.screens.DJ.leave) U.screens.DJ.leave(s);
         }
+        if (loopsToFx && prev.toFx) prev.toFx();            /* (LOOPS: the keys down stop writing onto the stage) */
         U.fxLoops = name === "FX" && loopsToFx;
         U.fxDj = name === "FX" && djToFx;
         U.overlays = U.overlays.filter(o => o.full || o.keep);   /* memory full stays until answered; HOME's
@@ -789,8 +818,7 @@ PTFM.ui = (function () {
         const st = M.storage();
         if (st.userFree < 0) {
             const cl = M.cleanable(), kbs = b => Math.ceil(b / 1024) + " KB";
-            const frees = cl.patterns.items.reduce((a, p) => a + M.bytes.pattern(p), 0) +
-                          cl.samples.items.reduce((a, x) => a + M.bytes.sample(x.c.samples[x.k]), 0);
+            const frees = cl.patterns.bytes + cl.samples.bytes;
             U.ask(["NOT ENOUGH STORAGE TO SAVE", kbs(-st.userFree) + " MORE NEEDED", "CLEAN UP FREES " + kbs(frees)], ["CLEAN UP", "BACK"], a => {
                 if (a === "CLEAN UP" && U.cleanUp) U.cleanUp(() => { if (M.storage().userFree >= 0) doSave(); });
             });
@@ -937,10 +965,14 @@ PTFM.ui = (function () {
     const keyUse = {};                           /* note -> what a combination took it for */
     const encT = new Array(7).fill(0);
     const holdMs = () => U.set("HOLD DELAY"), graceMs = () => U.set("COMBO GRACE");
+    U.LONG_HOLD = 2000;                          /* a hold no slow tap should reach, whatever HOLD DELAY says (LOOPS' EDIT) */
+    /* this button's tap comes at its release here: no grace, no hold, and only HOME takes it (on the screen itself) */
+    const tapNow = b => !U.top() && !!U.screen.tapNow && U.screen.tapNow.includes(b);
     const active = b => (held.has(b) && !held.get(b).closed) || (grace.has(b) && U.now() < grace.get(b).until);
     U.held = b => held.has(b);
     U.holdOf = b => held.get(b);                    /* a held button's state: a screen's combination sets its action (end at release) */
     U.active = active;
+    U.pending = b => held.has(b) || grace.has(b);       /* (down, or its tap still to come) */
     function consume(b) {
         const h = held.get(b);
         if (h) h.used = true;                    /* (its layer stays until it is let go) */
@@ -963,14 +995,16 @@ PTFM.ui = (function () {
     function closeCombos(except) {
         for (const [m, h] of held) {
             if (m === except || m === B.HOME || m === B.PLAY || m === B.REC || m === B.OCTM || m === B.OCTP) continue;
-            if (h.closed || h.action || h.custom || (U.screen.hold && U.screen.hold(m))) continue;
+            if (h.closed || h.action || h.custom || tapNow(m) || (U.screen.hold && U.screen.hold(m))) continue;
             h.closed = true; h.used = true;
         }
     }
     /* which buttons wait the grace period on this screen (specs/ui/controls.md) */
     function combines(b) {
+        if (tapNow(b)) return false;
         if ([B.HOME, B.LFO, B.SEL, B.FX, B.SAVE].includes(b)) return true;
-        if (b === B.ARP) return genericArp() || U.screen.ownArp === "preview";     /* ARP held + SELECT, ALGORITHM, K1, LFO */
+        if (b === B.ARP && (genericArp() || U.screen.ownArp === "preview")) return true;   /* ARP held + SELECT, ALGORITHM, K1, LFO
+                                                         * (LOOPS: + REC, its combines) */
         return !!(U.screen.combines && U.screen.combines.includes(b));
     }
     /* button + button combinations, either order (OCT never waits, so it is only ever the second); HOME's
@@ -991,7 +1025,7 @@ PTFM.ui = (function () {
         const k = 2 * l + c, name = PTFM.cmds.PUNCHES[k];
         return [[String(k + 1).padStart(2) + " ", D.YELLOW], [c ? name : name.padEnd(16), pin.k === k ? D.WHITE : D.LGREY]];
     }));
-    /* ARP held, wherever the arpeggiator is (the EDITOR has its own lines; LOOPS none) */
+    /* ARP held, wherever the arpeggiator is (the EDITOR and LOOPS have their own lines: arpLayer) */
     const ARP_LINES = ["SELECT: THE RHYTHM, # A NOTE, _ A REST", "ALGORITHM: THE PATTERN", "K1: HOW MANY NOTES LATCH",
                        "LFO: LET THE LATCHED NOTES GO"];
     U.ARP_LINES = ARP_LINES;
@@ -999,12 +1033,16 @@ PTFM.ui = (function () {
         [B.HOME]: () => () => homeLines(home() || held.get(B.HOME) || {}),
         [B.FX]: () => () => punchLines(),
         /* only what applies where you are (specs/ui/dialogs.md#hold-layers): in a name its groups; else the
-         * screen's own lines (marking, big steps), then PRESETS, which turns cartridges everywhere */
+         * screen's own lines (marking, big steps), then PRESETS, which turns cartridges everywhere, then GLO's
+         * FAVORITES where SEL + GLO works */
         [B.SEL]: () => {
             const o = U.top();
             if (o && o.kind === "text") return ["SELECT IN A NAME: NEXT GROUP"];
-            return (U.screen.selLines ? U.screen.selLines() : []).concat(U.screen.noKeyboard ? [] : ["PRESETS: OTHER CARTRIDGE"]);
+            return (U.screen.selLines ? U.screen.selLines() : []).concat(U.screen.noKeyboard ? [] : ["PRESETS: OTHER CARTRIDGE"])
+                .concat(selFavHere() && !instrEdit() ? ["GLO: FAVORITES AND BACK"] : []);
         },
+        /* GLO + PRESETS where it works; gone while the favourites' list shows */
+        [B.GLO]: () => U.gloFavHere() ? () => (U.overlays.length ? [] : ["PRESETS: A FAVORITE, ONCE"]) : null,
         [B.SAVE]: () => ["OCT+: SAVE", "OCT-: REVERT ALL"],
         /* DJ: then its LFO pads by key (scr-dj.js lfoLayer) */
         [B.LFO]: () => () => ["HOME: HELP FOR THIS SCREEN"].concat(U.screen.lfoLayer ? U.screen.lfoLayer() : []),
@@ -1014,6 +1052,47 @@ PTFM.ui = (function () {
     /* an overlay that captures the next FM-1 control (MIDI learn: specs/connections.md): it gets the
      * control instead of its job; HOME stays HOME (it cancels) */
     const capturing = () => { const o = U.top(); return o && o.capture ? o : null; };
+    /* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES (FB; deleted, the first
+     * FAVORITES cartridge in the lists' order), at the favourite last used there; with it current, back to the place
+     * before it. Where SEL + PRESETS works; refused in INSTRUMENTS' edit mode (GLO blinks). SEL's layer says so */
+    const selFavHere = () => !U.screen.noKeyboard && !U.overlays.length;
+    const instrEdit = () => U.screen.name === "INSTRUMENTS" && U.screen.editMode && U.screen.editMode();
+    function selFav() {
+        if (instrEdit()) { U.refuse(B.GLO); return; }
+        const favs = M.state.carts.filter(c => c.type === "FAVORITES"), to = favs[0];   /* (first in the lists' order) */
+        if (to && U.place >> 8 === to.id) { if (favBack != null) U.setInst(favBack); }
+        else if (!favs.some(c => c.slots.some(Boolean))) { U.toast("NO FAVORITES YET"); return; }
+        else U.setInst(to.id << 8 | (favAt != null && favAt >> 8 === to.id ? favAt & 255 : U.cartFirst(to)));
+        const c = M.cart(U.place >> 8);
+        U.showKnob("CARTRIDGE", M.hex(U.place >> 8) + " " + (c ? c.name : ""));
+    }
+    U.selFavLit = () => held.has(B.SEL) && selFavHere() && !instrEdit();     /* (GLO dim while SEL is held, where it works) */
+    /* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of the FAVORITES cartridge SEL + GLO goes
+     * to, picked once: the keys' instrument becomes its source, the current cartridge and slot stay (PRESETS alone goes
+     * on from them); a click from the favourite last used, the favourites' list shown till GLO is let go. Where SEL + GLO
+     * works, not on INSTRUMENTS (its cursor is the current instrument: GLO blinks). True when PRESETS was taken so */
+    U.gloFavHere = () => selFavHere() && U.screen.name !== "INSTRUMENTS";
+    function gloFav(d) {
+        const g = held.get(B.GLO), fl = ilFind() && ilFind().fav;
+        if (!g || g.closed || (g.used && g.lock !== "presets") || U.screen.noKeyboard || (U.overlays.length && !fl)) {
+            if (fl) ilEnd();
+            return false;
+        }
+        useCombo(B.GLO, "presets");
+        closeCombos(B.GLO);
+        if (U.screen.name === "INSTRUMENTS") { U.refuse(B.GLO); return true; }
+        const to = M.state.carts.find(c => c.type === "FAVORITES");     /* (first in the lists' order) */
+        const at = to ? stepFrom(to, favAt != null && favAt >> 8 === to.id ? favAt & 255 : d > 0 ? to.slots.length - 1 : 0, d) : -1;
+        const src = at < 0 ? null : M.placeInst(to.id << 8 | at);
+        if (src == null) { U.toast("NO FAVORITES YET"); return true; }
+        favAt = to.id << 8 | at;
+        instNow(src);
+        instOnce = true;
+        const ins = M.inst(src);
+        U.showKnob("PRESETS", M.refText(src) + " " + (ins ? ins.name : "EMPTY"));
+        ilShow(true);
+        return true;
+    }
     function buttonDown(b) {
         if (U.blocking()) return;
         if (capturing() && b !== B.HOME) { held.set(b, { t: U.now(), used: true }); capturing().capture({ button: b }); return; }
@@ -1052,7 +1131,22 @@ PTFM.ui = (function () {
                 if (!hc.closed && b !== B.PLAY && b !== B.REC) closeHome(hc);
             }
         }
-        if (b === B.PLAY || b === B.REC) closeCombos();     /* (no button combines with them but HOME) */
+        /* SEL held first + GLO, at GLO's press: to FAVORITES and back (GLO alone acts at once, as ever) */
+        if (b === B.GLO && held.has(B.SEL) && selFavHere() && useCombo(B.SEL, "button " + b)) {
+            closeCombos(B.SEL); held.set(b, { t, used: true }); selFav(); return;
+        }
+        /* a screen's button held (or let go within the grace period) + REC: the screen's own combination, at REC's
+         * release (LOOPS: ARP + REC, the pattern recorder); REC's press does none of its own jobs, the button's tap does
+         * not happen. Only on the screen itself, nothing open over it */
+        if (b === B.REC && U.screen.recWith && !U.top()) {
+            for (const m of [...held.keys(), ...grace.keys()]) {
+                if (m === b || !active(m)) continue;
+                const f = U.screen.recWith(m);
+                if (f && useCombo(m, "rec")) { closeCombos(m); held.set(b, { t, used: true, recUp: f }); return; }
+            }
+        }
+        if (b === B.PLAY || b === B.REC) closeCombos();     /* (no button combines with them but HOME, and a screen's own
+                                                             * with REC: above) */
         if (b === B.PLAY) {
             const o = U.top();
             if (o && o.play) { held.set(b, { t, used: true }); o.play(); return; }      /* the pattern list: a preview */
@@ -1088,6 +1182,7 @@ PTFM.ui = (function () {
         if (U.screen.holdStart && !U.top()) U.screen.holdStart(b, held.get(b), graceMs());
     }
     function startHold(b) {
+        if (tapNow(b)) return;
         const h = held.get(b);
         h.timer = setTimeout(() => {
             if (!held.has(b) || h.used) return;
@@ -1096,13 +1191,14 @@ PTFM.ui = (function () {
             if (U.top() && U.top().kind === "home") return;      /* HOME's combination tapped open: a button there acts on its release, however long */
             const lines = LAYERS[b] && LAYERS[b]();
             if (lines) { h.layer = true; h.layerO = U.layer(b, lines); }
-        }, holdMs());
+        }, U.screen.longHold === b && !U.top() ? U.LONG_HOLD : holdMs());
     }
     function buttonUp(b) {
         const h = held.get(b);
         held.delete(b);
         if (!h) return;
         if (b === B.SEL && pcFind() && pcFind().held) pcEnd();     /* (PRESETS' list opened with SEL held: gone with it) */
+        if (b === B.GLO && ilFind() && ilFind().fav) ilEnd();     /* (the favourites' list GLO + PRESETS showed: gone with GLO) */
         clearTimeout(h.timer);
         if (h.cut) U.cut(false);                                 /* (CUT let go: heard again) */
         if (h.recUp) h.recUp();
@@ -1261,8 +1357,10 @@ PTFM.ui = (function () {
      * nothing else was touched since; every overlay then open is one that tap opened */
     const pcFind = () => U.overlays.find(o => o.presetsList);
     function pcOpen() {
-        const o = U.cartList("CARTRIDGES", U.inst >> 8, () => {});
-        return Object.assign(o, { opener: B.SEL, presetsList: true, knob() {}, tap: () => false, cancel() { U.close(o); } });
+        const o = U.cartList("CARTRIDGES", U.place >> 8, () => {});
+        return Object.assign(o, { opener: B.SEL, presetsList: true, knob() {}, tap: () => false, cancel() { U.close(o); },
+                                  /* (big, no slots: read at a glance while PRESETS turns) */
+                                  draw() { U.cartLinesBig("CARTRIDGES", M.state.carts, Math.max(0, M.cartIndex(U.place >> 8))); } });
     }
     /* a control other than PRESETS: the list closes (true if it was open) and SEL's tap no longer counts */
     function pcEnd() {
@@ -1282,29 +1380,44 @@ PTFM.ui = (function () {
      * closes 1 s after the last click (ilPoll, each frame), or at any other control, which does its own job */
     const ilFind = () => U.overlays.find(o => o.instList);
     function ilEnd() { const o = ilFind(); if (o) U.close(o); }
-    function ilShow() {
-        if (U.set("PRESETS LIST") === "OFF" || U.screen.name === "INSTRUMENTS" || U.screen.noKeyboard || (U.overlays.length && !ilFind())) return;
+    /* not on INSTRUMENTS (its own list), but in a favourite's edit mode, where PRESETS picks the favourite's source and the
+     * list is the source's cartridge's */
+    /* fav: the favourites GLO + PRESETS turns (favAt's cartridge), shown till GLO is let go */
+    U.ilShow = function (fav) {
+        const fe = U.screen.name === "INSTRUMENTS" && U.screen.favEdit && U.screen.favEdit();
+        if (!fav && (U.set("PRESETS LIST") === "OFF" || (U.screen.name === "INSTRUMENTS" && !fe) || U.screen.noKeyboard || (U.overlays.length && !ilFind()))) return;
         const o = ilFind() || U.open({
             kind: "list", instList: true, knob() {}, tap: () => false, cancel() { U.close(this); },
             draw() {
-                const y = BODY_Y + 2, c = M.cart(U.inst >> 8), at = U.inst & 255;
-                U.panel(2, y, 236, 206, "INSTRUMENTS");
+                const p = this.fav ? favAt : U.screen.name === "INSTRUMENTS" ? U.inst : U.place;
+                const y = BODY_Y + 2, c = M.cart(p >> 8), at = p & 255;
+                U.panel(2, y, 236, 206, this.fav ? "FAVORITES" : "INSTRUMENTS");
                 if (!c) return;
-                D.text(8, y + 16, F.T, M.hex(c.id), M.asBuilt("cart", c) ? D.BROWN : D.LGREY);   /* the cartridge (built in: brown) */
-                D.text(26, y + 16, F.T, c.name, D.LGREY);
-                D.text(232 - D.tw(F.T, M.TYPE_NAMES[c.type]), y + 16, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
-                const used = c.slots.map((s, i) => s ? i : -1).filter(i => i >= 0), sel = Math.max(0, used.indexOf(at));
-                const ROWS = 13, top = Math.max(0, Math.min(sel - 6, used.length - ROWS));
+                U.cartBig(c, y + 16, false);               /* the cartridge, big (built in: its ID brown) */
+                /* the slots PRESETS steps through (a FAVORITES cartridge's: its favourites, the missing ones left out) */
+                const used = c.slots.map((s, i) => M.slotUsed(c, i, true) ? i : -1).filter(i => i >= 0), sel = Math.max(0, used.indexOf(at));
+                const ROWS = 6, top = Math.max(0, Math.min(sel - 2, used.length - ROWS));   /* (big: 6 lines of 26 px, F.B) */
                 used.slice(top, top + ROWS).forEach((s, k) => {
-                    const yy = y + 30 + k * 13, on = s === at;
-                    if (on) D.box(4, yy - 1, 232, 13, D.WHITE);
-                    D.text(8, yy, F.T, M.hex(s), on ? D.WHITE : D.DGREY);   /* (as INSTRUMENTS colours them) */
-                    D.text(26, yy, F.T, c.slots[s].name, on ? D.WHITE : M.ENGINES[c.type].col);
+                    const yy = y + 44 + k * 26, on = s === at;
+                    if (on) D.box(4, yy - 1, 232, 26, D.WHITE);
+                    D.text(6, yy, F.B, M.hex(s), on ? D.WHITE : D.DGREY);   /* (as INSTRUMENTS colours them) */
+                    if (c.type === "FAVORITES") U.favLine(36, yy, c.id << 8 | s, on, undefined, F.B, 66);
+                    else D.text(36, yy, F.B, c.slots[s].name, on ? D.WHITE : M.ENGINES[c.type].col);
                 });
             },
         });
-        o.until = U.now() + 1000;
-    }
+        o.fav = !!fav;
+        o.until = fav ? Infinity : U.now() + 1000;
+    };
+    const ilShow = U.ilShow;
+    /* a favourite as INSTRUMENTS lists it (specs/ui/screens/instruments.md#favorites): its source at x (`0B:05`, light
+     * grey), the source's name at x + 36 in its engine's colour; a missing one's both dark grey (`MISSING`); on: white */
+    U.favLine = function (x, y, ref, on, f = M.fav(ref), ft = F.T, dx = 36) {   /* (ft, dx: PRESETS' big list's F.B, 66) */
+        if (!f) return;
+        const miss = M.favMissing(f), ins = M.inst(f.src);
+        D.text(x, y, ft, M.refText(f.src), on ? D.WHITE : miss ? D.DGREY : D.LGREY);
+        D.text(x + dx, y, ft, miss ? "MISSING" : ins.name, on ? D.WHITE : miss ? D.DGREY : M.ENGINES[M.instType(f.src)].col);
+    };
     function ilPoll() { const o = ilFind(); if (o && U.now() >= o.until) U.close(o); }
     U.instListOpen = () => !!ilFind();
 
@@ -1330,6 +1443,7 @@ PTFM.ui = (function () {
         /* the held combinations' members: SEL + PRESETS the cartridges, + SELECT / ALGORITHM a mark, + K1-K4
          * big steps; ARP + SELECT the rhythm. Any other knob closes them and turns as it would. */
         if (e === E.PRESETS && U.screen.noKeyboard) { pcEnd(); closeCombos(); return; }   /* (DJ: no instrument, no cartridges) */
+        if (e === E.PRESETS && gloFav(step)) return;
         if (e === E.PRESETS) {
             let cart = active(B.SEL) && useCombo(B.SEL, "presets");
             closeCombos(cart ? B.SEL : undefined);
@@ -1338,18 +1452,19 @@ PTFM.ui = (function () {
             const list = pcFind() ? 1 : (cart || selArmed) && pcRoom(!cart && selArmed) ? 2 : 0;
             selArmed = false;
             if (list) cart = true;
-            const was = U.inst;                      /* the screen's own: INSTRUMENTS' (afloat: nothing) */
+            const was = U.place + ":" + U.inst;      /* the screen's own: INSTRUMENTS' (afloat: nothing) */
             const own = cart ? !!(U.screen.presetsCart && U.screen.presetsCart(step)) : !!(U.screen.presets && U.screen.presets(step));
             if (!own) { if (cart) U.stepCart(step); else U.stepInst(step); }
-            if (!cart && !own && U.inst !== was) ilShow();      /* (PRESETS' instrument list, where it may show) */
-            const c = M.cart(U.inst >> 8);
-            /* shown as every knob (specs/ui/frame.md): `PRESETS 01:03 E.PIANO`, with SEL `CARTRIDGE 01 KEYS/ORGANS`;
-             * a screen's own that changed nothing has said why */
-            if (!own || U.inst !== was) {
-                if (cart) U.showKnob("CARTRIDGE", M.hex(U.inst >> 8) + " " + (c ? c.name : ""));
+            const moved = U.place + ":" + U.inst !== was;
+            if (!cart && !own && moved) ilShow();    /* (PRESETS' instrument list, where it may show) */
+            const c = M.cart(U.place >> 8);
+            /* shown as every knob (specs/ui/frame.md): `PRESETS 01:03 E.PIANO` (a favourite's: its source), with SEL
+             * `CARTRIDGE 01 KEYS/ORGANS`; a screen's own that changed nothing has said why */
+            if (!own || moved) {
+                if (cart) U.showKnob("CARTRIDGE", M.hex(U.place >> 8) + " " + (c ? c.name : ""));
                 else { const ins = M.inst(U.inst); U.showKnob("PRESETS", M.refText(U.inst) + " " + (ins ? ins.name : "EMPTY")); }
                 if (list === 2) { U.overlays = U.overlays.filter(x => x.keep); pcOpen().held = held.has(B.SEL); }
-                if (pcFind()) pcFind().sel = Math.max(0, M.cartIndex(U.inst >> 8));
+                if (pcFind()) pcFind().sel = Math.max(0, M.cartIndex(U.place >> 8));
             }
             if (U.screen.presetsMoved) U.screen.presetsMoved();
             return c;
@@ -1381,6 +1496,7 @@ PTFM.ui = (function () {
 
     /* ----------------------------------------------------------------------- LEDs --- */
     const DIM = .25;
+    const MET_FLASH = .1;                 /* s: PLAY's flash a beat while the loops play (the visual metronome) */
     function blink(period) { return Math.floor(U.now() / period) % 2 === 0; }
     U.blink = blink;
     /* a breath (specs/ui/leds.md): dim to full and back in 2 s, even to the eye (the level grows
@@ -1400,6 +1516,7 @@ PTFM.ui = (function () {
         const o = U.top();
         if (o && o.opener !== undefined && o.kind !== "question") lv[o.opener] = 1;
         if (s.lit) for (let b = 0; b < 14; b++) { const v = s.lit(b); if (v !== undefined) lv[b] = v; }
+        if (U.selFavLit() && lv[B.GLO] < DIM) lv[B.GLO] = DIM;   /* (SEL held: GLO goes to FAVORITES and back) */
         if (o && o.kind === "pattern") { lv[B.REC] = DIM; lv[B.SEQ] = o.noteKeys ? 1 : DIM; }   /* RECORD PATTERN: REC writes, SEQ the keys (PLAY below) */
         if (o && o.mv) lv[B.SEL] = 1;                       /* an item afloat in a list: SEL puts it down */
         if (U.isDeep()) lv[B.EDIT] = 1;
@@ -1410,10 +1527,15 @@ PTFM.ui = (function () {
         const oct = (b, k) => k <= 0 ? 0 : k === 1 ? DIM : k === 2 ? 1 : (blink(k === 3 ? 500 : 150) ? 1 : 0);
         if (s.name !== "FX" && s.name !== "DJ") { lv[B.OCTM] = oct(B.OCTM, -U.octave); lv[B.OCTP] = oct(B.OCTP, U.octave); }   /* (DJ: HOME's mutes' tracks) */
         /* PLAY: green playing (brighter on the beat), red dim with a loop; red paused; at the start red
-         * dim; dark where PLAY has nothing to play (it would blink) */
+         * dim; dark where PLAY has nothing to play (it would blink). The loops playing: a visual metronome, the
+         * METRONOME's beats on or off, each a quick flash, the bar's first red, the others green, dark between */
         const P = PTFM.player;
         let green = 0, red = 0;
-        if (P.playing) { green = P.onBeat() ? 1 : .55; if (P.what !== "song" && P.what !== "dj") red = DIM; }
+        if (P.playing && P.what === "loops") {
+            const m = P.metroSeen(), flash = m && m.age < MET_FLASH;
+            green = flash && m.beat !== 0 ? 1 : 0;
+            red = flash && m.beat === 0 ? 1 : 0;
+        } else if (P.playing) { green = P.onBeat() ? 1 : .55; if (P.what !== "song" && P.what !== "dj") red = DIM; }
         else if (P.canPlay(s.name)) red = P.what && !P.atStart ? 1 : DIM;
         if (o && o.kind === "pattern") { red = 0; green = o.pv ? 1 : DIM; }   /* RECORD PATTERN: PLAY its preview, green while heard */
         lv[B.PLAY] = red;
@@ -1483,7 +1605,6 @@ PTFM.ui = (function () {
             sub = s.sub ? s.sub() : null;
             page = s.page ? s.page() : null;
             seq = s.seq && !U.overlays.length ? s.seq() : null;   /* where SEQ switches pages or views: where it stands */
-            if (s.name === "LOOPS") mark = "BETA";      /* (the name's mark, small: frame.md) */
         }
         const full = [text, sub, page].filter(Boolean).join(" "), room = 200;
         let end;
@@ -1614,6 +1735,7 @@ PTFM.ui = (function () {
     U.render = function (lcd, dev) {
         if (PTFM.ctl && PTFM.ctl.on) { PTFM.ctl.render(lcd, dev); return; }   /* (MIDI CONTROLLER: the tracker ended) */
         ilPoll();                                           /* (PRESETS' instrument list: gone 1 s after its last click) */
+        U.followPlace();                                    /* (the favourite at the cursor changed: its source current) */
         D.noclip();
         D.clear(D.BLACK);
         D.clip(0, BODY_Y, 240, BODY_H);
@@ -1642,6 +1764,7 @@ PTFM.ui = (function () {
     };
     U.start = function () {
         U.octave = U.set("KEYS OCTAVE");
+        if (!M.state.songs[U.song] && M.songNums().length) U.song = M.songNums()[0];   /* (the first song there) */
         if (M.state.dj.stand) PTFM.player.djRestore(M.state.dj.stand);   /* DJ's stand as saved, paused */
         const first = U.set("POWER-ON SCREEN");
         U.go(first === "LAST" ? "STATUS" : first);

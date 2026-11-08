@@ -7,6 +7,7 @@
  * walking every track's cells (the store's lookups and the walk were most of a pattern change's cost, and of a deck's start).
  * Work is done only when a replay has moved on, or the store changed. */
 #include "ahead.h"
+#include "../plat.h"
 #include "player.h"
 #include "rec.h"
 #include "../store/store.h"
@@ -30,7 +31,7 @@ static int song_pats(uint8_t song, uint8_t pos, uint8_t *w, int n)
     return n;
 }
 
-void ahead_poll(void)
+PLAT_COLD void ahead_poll(void)          /* (the main loop's) */
 {
     player_state_t st;
     uint8_t w[REC_AHEAD];

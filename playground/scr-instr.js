@@ -24,11 +24,16 @@
         [0x04, 0xc1, 0x11, 0x14, 0x01, 0x14], [0xc1, 0x14, 0x01, 0x14, 0x04, 0x04], [0x04, 0xc1, 0x11, 0x14, 0x04, 0x04],
         [0xc1, 0x14, 0x04, 0x04, 0x04, 0x04], [0xc4, 0x04, 0x04, 0x04, 0x04, 0x04],
     ];
-    const st = { edit: false, sess: null, mv: null, page: 0, group: 0, last: -1, mark: null, marking: false, clip: null };
+    /* fe: edit mode is a favourite's (which instrument it names), feWas the instrument at its EDIT */
+    const st = { edit: false, sess: null, mv: null, page: 0, group: 0, last: -1, mark: null, marking: false, clip: null, fe: false, feWas: null };
 
-    const cart = () => M.cart(U.inst >> 8);
-    const slot = () => U.inst & 255;
-    const inst = () => M.inst(U.inst);
+    /* the cursor is the current place (a favourite's in a FAVORITES cartridge); while the details show a favourite's source,
+     * that instrument stands in its place (det) */
+    let det = null;
+    const at = () => det != null ? det : U.place;
+    const cart = () => M.cart(at() >> 8);
+    const slot = () => at() & 255;
+    const inst = () => M.inst(at());
     const type = () => cart() ? cart().type : null;
 
     /* ----------------------------------------------------------- the parameters --- */
@@ -85,7 +90,7 @@
             { name: "KNOBS 2", params: [num("DECAY", ["decay"], 0, 127), num("ACCENT", ["accent"], 0, 127)] }, NAME, lvlGroup] }],
         SAMPLER: [
             { name: "SAMPLE", groups: [
-                { name: "SAMPLE", params: [{ n: "SAMPLE", path: ["sample"], min: 0, max: 63, sample: true }, num("START", ["start"], 0, 1e7),
+                { name: "SAMPLE", params: [{ n: "SAMPLE", path: ["sample"], min: 0, max: 255, sample: true }, num("START", ["start"], 0, 1e7),
                                            num("END", ["end"], 0, 1e7)] },
                 /* RELEASE is the envelope's R4 shown as a time, here by the loop: how long the tail takes to fade
                  * once the key is let go, from the quickest up to the tail's own length */
@@ -161,7 +166,7 @@
     /* the tail: what plays after a release at most, START (or LOOP START) to END at the base note; a
      * longer fade is never heard, so RELEASE stops there */
     function tailMs(p) {
-        const s = cart().samples[p.sample], data = s && M.audio[s.audio];
+        const s = M.sample(p.sample), data = s && M.audio[s.audio];
         if (!data) return 0;
         const end = Math.min(p.end || data.length, data.length), from = p.loop !== "OFF" ? p.loopStart : p.start;
         return Math.max(0, end - from) / s.rate * 1000;
@@ -184,7 +189,7 @@
     function ptext(ins, d) {
         const v = pval(ins, d);
         if (d.release) return msText(RELEASE_MS[v]);
-        if (d.sample) { const s = cart().samples[v]; return s ? M.hex(v) : "--"; }
+        if (d.sample) return M.sample(v) ? M.hex(v) : "--";            /* (a number with no sample: --) */
         if (d.pattern) return v == null ? "--" : M.hex(v) + (M.pattern(v) ? "" : " MISSING");
         if (d.values) { const i = d.values.indexOf(v); return d.labels ? d.labels[i] : String(v); }
         if (d.fmt) return d.fmt(v);
@@ -199,6 +204,23 @@
     function turn(d, s, coarse) {
         const ins = inst();
         if (!ins || !d) return;
+        if (d.sample) {                         /* K1 on SAMPLE: every sample on the FM-1 by number, a click a sample,
+                                                 * passing over those whose deletion waits for SAVE; from a missing one the
+                                                 * next there either way; none further: nothing changes. Played whole */
+            const v = ins.p.sample;
+            let nv = v;
+            for (let k = Math.abs(s); k > 0; k--) {
+                let f = nv + Math.sign(s);
+                while (f >= 0 && f < M.SAMPLES_MAX && !M.sample(f)) f += Math.sign(s);
+                if (f < 0 || f >= M.SAMPLES_MAX) break;
+                nv = f;
+            }
+            if (nv === v) return;
+            U.edit(() => { whole(ins.p, nv); });
+            U.showKnob(d.long || d.n, ptext(ins, d));
+            PTFM.audio.instrument(U.inst);
+            return;
+        }
         U.edit(() => {
             if (d.level) { ins.level = U.clamp(ins.level + s * (coarse ? 6 : .5), d.min, d.max); return; }
             if (d.release) { releaseStep(ins.p, coarse ? s * 4 : s); return; }
@@ -217,24 +239,19 @@
             }
             if (d.step2) { set(ins.p, d.path, U.clamp(v + s * (coarse ? 32 : 2), d.min, d.max)); return; }   /* (kept in 2s) */
             let max = d.max, step = coarse ? 16 : 1;
-            if (type() === "SAMPLER") {
-                const smp = cart().samples[ins.p.sample];
-                if (d.sample) { max = cart().samples.length - 1; step = 1; }
-                else if (smp && max > 1e6) { max = smp.length; step = Math.max(1, Math.round(smp.length / 200)) * (coarse ? 10 : 1); }
+            if (type() === "SAMPLER") {                 /* (a sample position: of the instrument's sample) */
+                const smp = M.sample(ins.p.sample);
+                if (smp && max > 1e6) { max = smp.length; step = Math.max(1, Math.round(smp.length / 200)) * (coarse ? 10 : 1); }
             }
             if (d.path[d.path.length - 1] === "coarse" || d.max === 7 || d.max === 3) step = 1;
-            const nv = U.clamp(v + s * step, d.min, max);
-            set(ins.p, d.path, nv);
-            if (d.sample) whole(ins.p, nv);
+            set(ins.p, d.path, U.clamp(v + s * step, d.min, max));
         });
         U.showKnob(d.long || d.n, ptext(ins, d));
         PTFM.audio.instrument(U.inst);
     }
-    /* another sample: the instrument plays it whole (specs/files/instruments.md) */
-    function whole(p, k) {
-        const smp = cart().samples[k];
-        Object.assign(p, { sample: k, start: 0, end: smp.length, loop: "OFF", loopStart: 0, loopEnd: smp.length });
-    }
+    /* another sample: the instrument plays it whole (specs/files/instruments.md); a new one on sample n, named after it */
+    const whole = (p, n) => M.wholeSample(p, n);
+    const newInst = n => M.newSampleInst(n);
     function reset(d) {
         const ins = inst();
         if (!ins || !d || d.pattern) return;
@@ -254,14 +271,14 @@
      * (specs/ui/screens/instruments.md) */
     function openFusion() {                              /* (the EDITOR's own pattern's warning first) */
         const n = inst().p.pattern;
-        U.ownAsk(() => { U.pattern = n; U.goDeep("EDITOR", { row: 0x3C + 12 * U.octave, track: 0, locked: true, fusion: U.inst }); });
+        U.ownAsk(() => { U.pattern = n; U.goDeep("EDITOR", { row: 0x3C + 12 * U.octave, track: 0, locked: true, fusion: U.place }); });
     }
 
     /* ---------------------------------------------------------------- menus --- */
     function rename() {
         const ins = inst();
         if (!ins) return;                                /* (built in too: edited as any) */
-        U.textEntry("INSTRUMENT " + M.refText(U.inst), ins.name, 10, B.EDIT, n => { if (n != null) U.edit(() => { ins.name = n || "NO NAME"; }); });
+        U.textEntry("INSTRUMENT " + M.refText(U.place), ins.name, 10, B.EDIT, n => { if (n != null) U.edit(() => { ins.name = n || "NO NAME"; }); });
     }
     /* SEL, MOVE or SWAP: the instrument floats; SELECT (ALGORITHM by 8) shows it where it would go and
      * what would take its place, SEL puts it down (after the question about references), HOME takes it
@@ -288,7 +305,8 @@
         const c = cart(), { mode, from, at } = st.mv, ref = c.id << 8 | from, tref = c.id << 8 | at;
         st.mv = null;
         if (at === from) return;
-        U.refAsk(M.refText(ref), M.instUses(ref) + (mode === "SWAP" ? M.instUses(tref) : 0), upd => {
+        /* (nothing refers to a favourite's place: a FAVORITES cartridge's MOVE and SWAP ask nothing) */
+        U.refAsk(M.refText(ref), c.type === "FAVORITES" ? 0 : M.instUses(ref) + (mode === "SWAP" ? M.instUses(tref) : 0), upd => {
             const s = c.slots[from];
             c.slots[from] = mode === "SWAP" ? c.slots[at] : null;
             c.slots[at] = s;
@@ -296,29 +314,79 @@
             U.setInst(tref);
         });
     }
+    /* references (specs/files/references.md): the cells and the favourites naming from made to name to (swap: and back) */
     function remap(from, to, swap) {
-        for (const p of M.state.patterns) if (p) for (const c of p.cells) {
-            if (!c) continue;
-            if (c.inst === from) c.inst = to;
-            else if (swap && c.inst === to) c.inst = from;
+        const one = o => { if (o.k === from) o.set(to); else if (swap && o.k === to) o.set(from); };
+        for (const p of M.state.patterns) if (p) for (const c of p.cells) if (c) one({ k: c.inst, set: v => { c.inst = v; } });
+        for (const ca of M.state.carts) if (ca.type === "FAVORITES") for (const f of ca.slots) if (f) one({ k: f.src, set: v => { f.src = v; } });
+    }
+    /* the FAVORITES cartridges, in the lists' order */
+    const favCarts = () => M.state.carts.filter(c => c.type === "FAVORITES");
+    const favName = c => M.hex(c.id) + " " + c.name;
+    /* ADD TO FAVORITES (specs/ui/screens/instruments.md#favorites): the slots' instruments, each into fc's first empty
+     * slot, those there already and the empty slots skipped; nothing added unless they all fit */
+    function favAdd(fc, r0, r1) {
+        const c = cart(), add = [];
+        let there = -1;
+        for (let k = r0; k <= r1; k++) {
+            if (!c.slots[k]) continue;
+            const src = c.id << 8 | k, j = fc.slots.findIndex(f => f && f.src === src);
+            if (j >= 0) { if (there < 0) there = j; continue; }
+            add.push(src);
         }
+        if (!add.length) { if (there >= 0) U.toast("ALREADY IN " + M.refText(fc.id << 8 | there)); return; }
+        const empty = fc.slots.map((f, j) => f ? -1 : j).filter(j => j >= 0);
+        if (empty.length < add.length) { U.toast("FAVORITES FULL"); return; }
+        U.edit(() => add.forEach((src, k) => { fc.slots[empty[k]] = { src }; }));
+        U.toast("ADDED TO " + M.refText(fc.id << 8 | empty[0]));
+    }
+    /* NEW's types (the menus' order) and a new one's name; a new cartridge at the smallest number free */
+    const TYPES = ["DX7", "JUNO-106", "TB-303", "CHIP", "SAMPLER", "FUSION", "FAVORITES"];
+    function newCart(a) {
+        const ty = { "JUNO-106": "JUNO", "TB-303": "TB303" }[a] || a, id = M.freeCart();
+        if (id < 0) { U.toast("ALL CARTRIDGE NUMBERS USED"); return -1; }
+        U.edit(() => {
+            const nc = { id, name: ty === "FAVORITES" ? "MY FAVORITES" : "NEW " + a, type: ty, size: M.SIZES[ty], slots: new Array(M.SIZES[ty]).fill(null) };
+            M.state.carts.push(nc);
+            M.state.carts.sort(M.cartCmp);
+        });
+        U.toast("CARTRIDGE " + M.hex(id) + " MADE");
+        return id;
     }
     /* the SEL menu; in edit mode only what changes the edited instrument's own record (no MOVE, SWAP or
-     * DELETE: they move slots and their references), and a FUSION slot's way into its pattern */
+     * DELETE: they move slots and their references), and a FUSION slot's way into its pattern; in a FAVORITES cartridge
+     * MARK, COPY, PASTE, MOVE, SWAP, REMOVE, NEW CARTRIDGE, REVERT. A sampler's (specs/ui/screens/instruments.md,
+     * Sampler cartridges): REPLACE SAMPLE on one instrument, after PASTE; CREATE in INIT's place on one empty slot (an
+     * instrument needs a sample); in edit mode DELETE too on a sample instrument (edit mode left first) */
     function slotMenu() {
-        const c = cart(), i = slot(), ins = inst(), ref = U.inst;
+        const c = cart(), i = slot(), ins = inst(), ref = U.place, fav = c.type === "FAVORITES";
         const range = st.mark != null ? [Math.min(st.mark, i), Math.max(st.mark, i)] : [i, i];
         const fusion = st.edit && c.type === "FUSION" && ins && M.pattern(ins.p.pattern);
+        const sampler = c.type === "SAMPLER", replace = sampler && ins && st.mark == null && "REPLACE SAMPLE";
+        const init = sampler && !ins && st.mark == null ? "CREATE" : "INIT";
         /* built in (specs/ui/screens/instruments.md): the same items, edited as any */
         /* REVERT while the slot has something unsaved; with slots marked, never */
         const unsaved = M.unsavedThing("slot", [c.id, i]);
-        const items = st.edit ? [fusion && "EDIT PATTERN", "COPY", "PASTE", "INIT", "RENAME", "AUTO LEVEL", unsaved && "REVERT"]
-                              : [st.mark == null && "MARK", "COPY", "PASTE", "MOVE", "SWAP", "DELETE", "INIT", "RENAME", "AUTO LEVEL",
-                                 st.mark == null && unsaved && "REVERT"];
-        U.menu(st.edit ? "slot-edit" : "slots", st.mark != null ? "SLOTS " + M.hex(range[0]) + "-" + M.hex(range[1]) : "SLOT " + M.refText(ref), items, a => {
+        /* ADD TO FAVORITES on an instrument, while a FAVORITES cartridge is there: one, an action; several, a group (the
+         * first six: the menu's room) */
+        const fcs = favCarts().slice(0, 6), canAdd = fcs.length && !fav && (ins || st.mark != null);
+        const add = canAdd && (fcs.length === 1 ? "ADD TO FAVORITES" : { group: "ADD TO FAVORITES", items: fcs.map(favName) });
+        const NEWC = { group: "NEW CARTRIDGE", items: TYPES };
+        const items = st.edit ? [fusion && "EDIT PATTERN", add, "COPY", "PASTE", replace, init, "RENAME", "AUTO LEVEL",
+                                 sampler && ins && "DELETE", unsaved && "REVERT"]
+                    : fav ? [st.mark == null && "MARK", "COPY", "PASTE", "MOVE", "SWAP", "REMOVE", NEWC, st.mark == null && unsaved && "REVERT"]
+                    : [st.mark == null && "MARK", add, "COPY", "PASTE", replace, "MOVE", "SWAP", "DELETE", init, "RENAME", "AUTO LEVEL", NEWC,
+                       st.mark == null && unsaved && "REVERT"];
+        const title = st.mark != null ? "SLOTS " + (fav ? M.hex(c.id) + ":" : "") + M.hex(range[0]) + "-" + M.hex(range[1]) : "SLOT " + M.refText(ref);
+        U.menu(st.edit ? "slot-edit" : "slots", title, items, a => {
             st.marking = false;
             /* MARK (specs/ui/screens/instruments.md): SELECT / ALGORITHM then stretch the slots from here, SEL their menu */
             if (a === "MARK") { st.marking = true; st.mark = i; U.toast("SELECT, ALG: MARK  SEL: ITS MENU"); return; }
+            const fc = a === "ADD TO FAVORITES" ? fcs[0] : fcs.find(x => favName(x) === a);
+            if (fc) favAdd(fc, range[0], range[1]);
+            if (TYPES.includes(a)) { const id = newCart(a); if (id >= 0) U.setInst(id << 8); }    /* NEW CARTRIDGE: made, opened */
+            /* REMOVE: the favourites go, their sources stay (FB emptied is the firmware's own again: SAVE keeps no copy) */
+            if (a === "REMOVE") U.edit(() => { for (let k = range[0]; k <= range[1]; k++) c.slots[k] = null; });
             if (a === "EDIT PATTERN") openFusion();
             if (a === "COPY") { st.clip = c.slots.slice(range[0], Math.min(range[1] + 1, range[0] + 4)).map(s => s && structuredClone(s)); st.clipType = c.type; U.toast("COPIED " + st.clip.length); }
             if (a === "PASTE") {
@@ -327,7 +395,16 @@
                 if (st.clipType !== c.type) { U.refuse(B.SEL); U.toast("COPIED FROM " + M.TYPE_NAMES[st.clipType] + ": NOT HERE"); return; }
                 U.edit(() => st.clip.forEach((s, k) => { if (i + k < c.size) c.slots[i + k] = s && structuredClone(s); }));
             }
-            if (a === "INIT") U.edit(() => { for (let k = range[0]; k <= range[1]; k++) c.slots[k] = M.init(c.type); });
+            /* INIT; a sampler's keeps each used slot's sample, every other value a new instrument's, named after its sample
+             * (INIT with none there), and leaves the empty ones empty */
+            if (a === "INIT") U.edit(() => {
+                for (let k = range[0]; k <= range[1]; k++) {
+                    if (!sampler) c.slots[k] = M.init(c.type);
+                    else if (c.slots[k]) c.slots[k] = newInst(c.slots[k].p.sample);
+                }
+            });
+            if (a === "REPLACE SAMPLE" && ins) sampleList(SM.REPLACE, ins.p.sample);
+            if (a === "CREATE") sampleList(SM.CREATE, -1);
             if (a === "RENAME") rename();
             if (a === "AUTO LEVEL" && ins) {
                 const lv = Math.round((Math.random() * 6 - 4) * 2) / 2;
@@ -338,7 +415,9 @@
                 M.revertThing("slot", [c.id, i]);
                 PTFM.audio.instrument(ref);
             });
-            if (a === "DELETE") {                        /* (marked slots: their uses together) */
+            if (a === "DELETE") {                        /* (marked slots: their uses together; in edit mode, a sample
+                                                          * instrument's: edit mode left first, its changes kept) */
+                if (st.edit) { st.edit = st.fe = false; st.sess = null; }
                 const refs = [];
                 for (let k = range[0]; k <= range[1]; k++) if (c.slots[k]) refs.push(c.id << 8 | k);
                 const uses = refs.reduce((n, r) => n + M.instUses(r), 0);
@@ -347,7 +426,7 @@
                     if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && refs.includes(cl.inst)) cl.inst = null;
                 });
             }
-            if ((a === "MOVE" || a === "SWAP") && ins) {
+            if ((a === "MOVE" || a === "SWAP") && c.slots[i]) {
                 if (a === "MOVE" && !c.slots.some(x => !x)) { U.toast("NO EMPTY SLOT: SWAP INSTEAD"); return; }
                 st.mv = { mode: a, from: i, at: i };
                 U.toast("SELECT MOVES IT, SEL PUTS IT DOWN");
@@ -355,52 +434,45 @@
             st.mark = null;
         });
     }
+    /* the cartridges (ENV), and after them, while the FM-1 holds a sample, the samples' line (specs/ui/screens/
+     * instruments.md#the-cartridges-env): ALL SAMPLES, their size as STATUS writes sizes and their count of 256; ENV on it
+     * opens THE SAMPLES list over the cartridge list, to look, listen and delete; SEL there opens nothing */
+    const allSamples = {
+        shown: () => M.sampleRows().length > 0,
+        open: () => sampleList(SM.ALL, -1),
+        draw(y, on) {
+            const rows = M.sampleRows(), bytes = rows.reduce((a, r) => a + M.bytes.sample(r.s), 0);
+            if (on) D.box(4, y - 1, 232, 13, D.WHITE);
+            D.text(26, y, F.T, "ALL SAMPLES", on ? D.WHITE : D.YELLOW);
+            D.text(110, y, F.T, M.kb(bytes), D.LGREY);
+            D.text(170, y, F.T, M.dec(rows.length, 3) + "/" + M.SAMPLES_MAX, D.LGREY);
+        },
+    };
     function cartList() {
-        return U.cartList("CARTRIDGES", U.inst >> 8, c => U.setInst(c.id << 8 | Math.max(0, c.slots.findIndex(Boolean))), cartMenu);
+        return U.cartList("CARTRIDGES", U.place >> 8, c => U.setInst(c.id << 8 | U.cartFirst(c)), cartMenu, allSamples);
     }
     /* a cartridge's menu (specs/ui/screens/instruments.md): NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL; a
      * built-in one, edited as any, NEW, CLONE, RENAME, AUTO LEVEL ALL, and once changed BACK TO BUILT-IN (the change
-     * dropped). NEW is a group: the new cartridge's type */
-    const TYPES = ["DX7", "JUNO-106", "TB-303", "CHIP", "SAMPLER", "FUSION"];
-    /* a sampler's samples' audio (those not deleted): what a CLONE or MOVE of it copies, 0 none */
-    const sampleBytes = c => c.type !== "SAMPLER" ? 0 : (c.samples || []).reduce((n, s) => n + (s && !s.deleted ? M.bytes.sample(s) : 0), 0);
+     * dropped). NEW is a group: the new cartridge's type. A sampler's CLONE, MOVE and DELETE are any cartridge's: its
+     * instruments only (its samples are records of their own: a clone's instruments name the same ones, a MOVE leaves
+     * them where they are, a DELETE leaves them for CLEAN UP) */
     function cartMenu(list) {
-        const c = M.state.carts[list.sel], label = "CARTRIDGE " + M.hex(c.id);
+        const c = M.state.carts[list.sel], label = "CARTRIDGE " + M.hex(c.id), fav = c.type === "FAVORITES";
         const NEW = { group: "NEW", items: TYPES };
-        const items = c.builtin ? [NEW, "CLONE", "RENAME", "AUTO LEVEL ALL", M.builtinChanged("cart", c) && "BACK TO BUILT-IN"]
-                    : [NEW, "CLONE", "MOVE", "DELETE", "RENAME", "AUTO LEVEL ALL"];
+        /* (FAVORITES: no AUTO LEVEL ALL, it has no sounds of its own) */
+        const items = c.builtin ? [NEW, "CLONE", "RENAME", !fav && "AUTO LEVEL ALL", M.builtinChanged("cart", c) && "BACK TO BUILT-IN"]
+                    : [NEW, "CLONE", "MOVE", "DELETE", "RENAME", !fav && "AUTO LEVEL ALL"];
         if (M.unsavedThing("cart", c.id)) items.push("REVERT");          /* (last, while the cartridge has something unsaved) */
         U.menu("carts", label, items, a => {
-            /* a new cartridge's number: after the last of the user's, so it ends the user's part of the list
-             * (the first free one once EF is taken) */
-            if (TYPES.includes(a)) {
-                const ty = { "JUNO-106": "JUNO", "TB-303": "TB303" }[a] || a, id = M.freeCart();
-                if (id < 0) { U.toast("ALL CARTRIDGE NUMBERS USED"); return; }
-                U.edit(() => {
-                    const nc = { id, name: "NEW " + a, type: ty, size: M.SIZES[ty], slots: new Array(M.SIZES[ty]).fill(null) };
-                    if (ty === "SAMPLER") nc.samples = [];
-                    M.state.carts.push(nc);
-                    M.state.carts.sort((x, y) => x.id - y.id);
-                });
-                list.sel = M.cartIndex(id);
-                U.toast("CARTRIDGE " + M.hex(id) + " MADE");
-            }
+            if (TYPES.includes(a)) { const id = newCart(a); if (id >= 0) list.sel = M.cartIndex(id); }
             if (a === "CLONE") {                             /* an editable copy in the user area */
                 const id = M.freeCart();
                 if (id < 0) { U.toast("ALL CARTRIDGE NUMBERS USED"); return; }
                 const nc = structuredClone(c); nc.id = id; nc.name = (c.name.slice(0, 9) + " 2").trim();
                 delete nc.rom; delete nc.builtin;
-                const put = st => { st.carts.push(structuredClone(nc)); st.carts.sort((x, y) => x.id - y.id); };
-                const done = () => { list.sel = M.cartIndex(id); U.toast(M.hex(c.id) + " CLONED TO " + M.hex(id)); };
-                /* a sampler with samples: its audio cannot wait among the edits, so the copy is saved at once
-                 * (specs/ui/screens/instruments.md) */
-                const sb = sampleBytes(c);
-                if (!sb) { U.edit(() => put(M.state)); done(); return; }
-                if (sb + M.bytes.cart(c) > M.storage().userFree) { U.toast("NO ROOM IN THE USER AREA"); return; }
-                PTFM.player.pauseAll();
-                U.progress("CLONING ITS SAMPLES", 400 + Math.min(1600, Math.round(sb / 64)), () => {
-                    M.commit(put); done(); PTFM.audio.changed();
-                });
+                if (!U.edit(() => { M.state.carts.push(nc); M.state.carts.sort(M.cartCmp); })) return;
+                list.sel = M.cartIndex(id);
+                U.toast(M.hex(c.id) + " CLONED TO " + M.hex(id));
             }
             if (a === "BACK TO BUILT-IN") U.edit(() => {         /* (an edit: REVERT brings the change back) */
                 M.state.carts[M.cartIndex(c.id)] = M.builtinOriginal("cart", c.id);
@@ -412,51 +484,31 @@
                 const id = c.id;
                 M.revertThing("cart", id);
                 list.sel = U.clamp(M.cartIndex(id) >= 0 ? M.cartIndex(id) : list.sel, 0, M.state.carts.length - 1);
-                if (!M.cart(U.inst >> 8)) U.setInst(M.state.carts[list.sel].id << 8 | Math.max(0, M.state.carts[list.sel].slots.findIndex(Boolean)));
-                else PTFM.audio.instrument(U.inst);
+                if (!M.cart(U.place >> 8)) U.setInst(M.state.carts[list.sel].id << 8 | U.cartFirst(M.state.carts[list.sel]));
+                else { U.followPlace(); PTFM.audio.instrument(U.inst); }
             });
             if (a === "RENAME") U.textEntry("CARTRIDGE " + M.hex(c.id), c.name, 12, B.EDIT, n => { if (n != null) U.edit(() => { c.name = n || "NO NAME"; }); });
+            /* (nothing refers to a FAVORITES cartridge: its MOVE and DELETE ask nothing; a DELETE leaves the favourites
+             * naming what it deletes: missing) */
+            const cartUses = () => { let u = 0; if (!fav) for (let k = 0; k < c.size; k++) if (c.slots[k]) u += M.instUses(c.id << 8 | k); return u; };
             if (a === "DELETE") {
-                let uses = 0;
-                for (let k = 0; k < c.size; k++) if (c.slots[k]) uses += M.instUses(c.id << 8 | k);
-                U.refAsk("CARTRIDGE " + M.hex(c.id), uses, upd => {
+                U.refAsk("CARTRIDGE " + M.hex(c.id), cartUses(), upd => {
                     M.state.carts.splice(M.state.carts.indexOf(c), 1);
                     if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && cl.inst >> 8 === c.id) cl.inst = null;
                     list.sel = U.clamp(list.sel, 0, M.state.carts.length - 1);
-                    if (!M.cart(U.inst >> 8)) U.setInst(M.state.carts[0].id << 8);
+                    if (!M.cart(U.place >> 8)) U.setInst(M.state.carts[0].id << 8);
                 });
             }
             if (a === "MOVE") list.float(c.id, to => {        /* afloat in the list; SEL puts it down here */
-                let uses = 0;
-                for (let k = 0; k < c.size; k++) if (c.slots[k]) uses += M.instUses(c.id << 8 | k);
+                const uses = cartUses();
                 const old = c.id, refs = upd => {
                     if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && cl.inst >> 8 === old) cl.inst = to << 8 | (cl.inst & 255);
+                    if (upd) for (const fc of favCarts()) for (const f of fc.slots) if (f && f.src >> 8 === old) f.src = to << 8 | (f.src & 255);
                     if (U.inst >> 8 === old) U.inst = to << 8 | (U.inst & 255);
+                    if (U.place >> 8 === old) U.place = to << 8 | (U.place & 255);
                     list.sel = M.cartIndex(to);
                 };
-                const sb = sampleBytes(c);
-                if (!sb) {
-                    U.refAsk("CARTRIDGE " + M.hex(c.id), uses, upd => { c.id = to; M.state.carts.sort((x, y) => x.id - y.id); refs(upd); });
-                    return;
-                }
-                /* a sampler with samples moves in the flash at once (its audio cannot wait among the edits): its
-                 * changes saved first; then the references, saved as a MOVE's always are */
-                if (M.unsavedThing("cart", old) || (c.samples || []).some((s, k) => M.unsavedThing("sample", [old, k]))) {
-                    U.toast("SAVE IT FIRST"); return;
-                }
-                const go = upd => {
-                    if (sb + M.bytes.cart(c) > M.storage().userFree) { U.toast("NO ROOM IN THE USER AREA"); return; }
-                    PTFM.player.pauseAll();
-                    U.progress("MOVING ITS SAMPLES", 400 + Math.min(1600, Math.round(sb / 64)), () => {
-                        M.commit(st => { st.carts.find(x => x.id === old).id = to; st.carts.sort((x, y) => x.id - y.id); });
-                        refs(upd);
-                        if (upd) { M.version++; U.saveRefs(uses); }
-                        PTFM.audio.changed();
-                    });
-                };
-                if (!uses) { go(false); return; }
-                U.ask(["CARTRIDGE " + M.hex(old) + " IS USED " + uses + " TIME" + (uses === 1 ? "" : "S"), "UPDATE REFERENCES?"],
-                      ["YES", "NO"], a2 => { if (a2 === "YES") go(true); else if (a2 === "NO") go(false); });
+                U.refAsk("CARTRIDGE " + M.hex(c.id), uses, upd => { c.id = to; M.state.carts.sort(M.cartCmp); refs(upd); });
             });
             /* AUTO LEVEL ALL asks first: it changes every slot's LEVEL at once */
             if (a === "AUTO LEVEL ALL") {
@@ -474,74 +526,135 @@
         if (g && g.patternRow) return "patterns";
         return null;
     }
-    function sampleList() {
-        const c = cart(), ins = inst();
+    /* THE SAMPLES list (specs/ui/screens/instruments.md#the-samples): every sample on the FM-1, a row a sample in number
+     * order (those whose deletion waits for SAVE among them, `(DELETED)`), titled SAMPLES (23) however it opens:
+     *   INST     ENV on a sample instrument's SAMPLE (edit mode): the keys play the highlighted sample through the
+     *            instrument, ENV picks it (played whole), HOME leaves the instrument as it was;
+     *   REPLACE  REPLACE SAMPLE: the keys play it as a new instrument would, ENV makes the instrument play it as a new one
+     *            would (its name following when it was the old sample's), HOME leaves it as it was;
+     *   CREATE   CREATE (and EDIT on an empty sampler slot: edit mode then opens on the new instrument): ENV makes one
+     *            there, named after its sample, HOME makes nothing;
+     *   ALL      the cartridge list's ALL SAMPLES line: to look, listen and delete; ENV or HOME back to the line.
+     * A `(DELETED)` row is not picked (ENV refused) and SEL there opens nothing. With no sample to pick (ALL aside),
+     * `NO SAMPLES ON THE FM-1` and nothing opens. num: the sample to highlight (else the first that can be picked; ALL's
+     * the first); edit: CREATE's from EDIT */
+    const SM = { INST: 0, REPLACE: 1, CREATE: 2, ALL: 3 };
+    /* the hundredths of a second a sample lasts, rounded (as the firmware writes `0.50S`) */
+    const secs = s => { const cs = s.rate ? Math.floor((s.length * 100 + Math.floor(s.rate / 2)) / s.rate) : 0;
+                        return Math.floor(cs / 100) + "." + String(cs % 100).padStart(2, "0"); };
+    function sampleList(mode, num, edit) {
+        const rows = M.sampleRows, pickable = n => !!M.sample(n);
+        if (mode !== SM.ALL && !rows().some(r => !r.gone)) { U.toast("NO SAMPLES ON THE FM-1"); return null; }
+        const at = rows().findIndex(r => r.n === num && (!r.gone || mode === SM.ALL));
         const o = U.open({
-            kind: "list", title: "SAMPLES OF " + M.hex(c.id) + " " + c.name, opener: B.ENV, sel: ins.p.sample,
-            knob(e, s) { if (e === E.SELECT) this.sel = U.clamp(this.sel + s, 0, c.samples.length - 1); },
+            kind: "list", samples: true, mode, opener: B.ENV, keys: false,   /* (samples: THE SAMPLES list, for the checks) */
+            sel: at >= 0 ? at : Math.max(0, rows().findIndex(r => !r.gone || mode === SM.ALL)),
+            num() { const r = rows()[this.sel]; return r ? r.n : -1; },        /* the highlighted row's sample, -1 none */
+            get title() { return "SAMPLES (" + rows().length + ")"; },
+            knob(e, s) { if (e === E.SELECT) this.sel = U.clamp(this.sel + s, 0, Math.max(0, rows().length - 1)); },
             tap(b) {
                 if (b === B.ENV) {
-                    U.close(this);
-                    U.edit(() => whole(ins.p, this.sel));
-                    PTFM.audio.instrument(U.inst);
+                    const n = this.num();
+                    if (this.mode === SM.ALL) { smClose(this); return true; }     /* (back to the line) */
+                    if (!pickable(n)) { U.refuse(B.ENV); return true; }
+                    smClose(this);
+                    put(this.mode, n, edit);
                     return true;
                 }
-                if (b === B.SEL) {
-                    /* (specs/ui/screens/instruments.md) DELETE alone; a deleted sample opens nothing */
-                    const k = this.sel, smp = c.samples[k], list = this;
-                    if (smp.deleted) return true;
-                    U.menu("samples", "SAMPLE " + M.hex(k), ["DELETE"], () => {
-                        /* the instruments that use it go with it, after a warning; its index stays empty */
-                        const users = c.slots.map((s, j) => s && s.p.sample === k ? j : -1).filter(j => j >= 0);
-                        const del = () => {
-                            U.edit(() => {
-                                c.samples[k] = Object.assign({}, smp, { name: "(DELETED)", length: 0, deleted: true });
-                                users.forEach(j => { c.slots[j] = null; });
-                            });
-                            U.toast("SAMPLE " + M.hex(k) + " DELETED");
-                            if (users.includes(slot())) { U.close(list); st.edit = false; st.sess = null; }   /* its instrument went too */
-                        };
-                        if (!users.length) { del(); return; }
-                        U.ask(["DELETE SAMPLE?", users.length + " INSTRUMENT" + (users.length === 1 ? " USES IT AND IS" : "S USE IT AND ARE"), "DELETED TOO"],
-                              ["DELETE", "KEEP"], a => { if (a === "DELETE") del(); });
-                    });
-                    return true;
-                }
+                if (b === B.SEL) { sampleMenu(this); return true; }
                 return false;
             },
-            key(n, down) {                       /* the keys play the highlighted sample */
-                if (down) {
-                    const ref = U.inst, keep = structuredClone(ins.p);
-                    whole(ins.p, this.sel);
-                    M.version++;
-                    U.keyOn(n, ref);
-                    ins.p = keep;
-                    M.version++;
-                } else U.keyOff(n);
+            cancel() { smClose(this); },
+            /* the keys: the highlighted sample before it is picked: through the instrument (INST), else as a new instrument
+             * would play it; under FE:FF, no cartridge's (a deletion waiting: no sample there, silent) */
+            key(n, down) {
+                if (!down) { U.keyOff(n); return true; }
+                const s = this.num();
+                if (s < 0) return true;
+                const ins = inst();
+                M.keysSample = this.mode === SM.INST && ins ? Object.assign(structuredClone(ins), { p: whole(structuredClone(ins.p), s) })
+                                                             : newInst(s);
+                U.keyOn(n, M.KEYS_SAMPLE);
+                this.keys = true;
                 return true;
             },
             draw() {
-                const y = Y0 + 2;
-                U.panel(2, y, 236, 206, this.title.slice(0, 37));
-                const top = Math.max(0, Math.min(this.sel - 6, c.samples.length - 14));
-                for (let i = top; i < Math.min(c.samples.length, top + 14); i++) {
-                    const s = c.samples[i], yy = y + 18 + (i - top) * 13, on = i === this.sel;
+                const y = Y0 + 2, rs = rows(), n = rs.length;
+                this.sel = U.clamp(this.sel, 0, Math.max(0, n - 1));          /* (as they are now: a deletion meanwhile) */
+                U.panel(2, y, 236, 206, this.title);
+                const top = Math.max(0, Math.min(this.sel - 6, n - 14));
+                for (let i = top; i < Math.min(n, top + 14); i++) {
+                    const { n: k, s, gone } = rs[i], yy = y + 18 + (i - top) * 13, on = i === this.sel;
                     if (on) D.box(4, yy - 1, 232, 13, D.WHITE);
-                    D.text(8, yy, F.T, M.hex(i), D.DGREY);
-                    D.text(24, yy, F.T, s.name.slice(0, 12), s.deleted ? D.RED : on ? D.WHITE : D.YELLOW);
-                    D.text(100, yy, F.T, (s.length / s.rate).toFixed(2) + "S", D.LGREY);
+                    D.text(8, yy, F.T, M.hex(k), D.DGREY);
+                    D.text(24, yy, F.T, gone ? "(DELETED)" : s.name.slice(0, 12), gone ? D.DGREY : on ? D.WHITE : D.YELLOW);
+                    D.text(100, yy, F.T, secs(s) + "S", gone ? D.DGREY : D.LGREY);
                     D.text(140, yy, F.T, String(s.rate), D.DGREY);              /* the rate, Hz */
-                    wave(M.audio[s.audio], 176, yy, 56, 10, s.deleted ? D.DGREY : D.BROWN);
+                    /* the waveform on the cursor's row only (each row's would be decoded at every redraw on the FM-1),
+                     * none on a (DELETED) one */
+                    if (on && !gone) wave(M.audio[s.audio], 176, yy, 56, 10, D.BROWN);
                 }
             },
         });
         return o;
     }
+    function smClose(o) {                       /* (its keys' notes let go: their let-go would find no list) */
+        if (o.keys) for (let n = 0; n < 27; n++) U.keyOff(n);
+        M.keysSample = null;
+        U.close(o);
+    }
+    /* ENV's pick: sample n into the current slot as the list's mode makes it */
+    function put(mode, n, edit) {
+        const c = cart(), i = slot(), was = inst();
+        if (mode === SM.INST) { if (was) U.edit(() => whole(was.p, n)); }
+        else if (mode === SM.REPLACE) {                  /* every value a new instrument's; its name following when it was
+                                                          * the old sample's, else kept */
+            if (!was) return;
+            const ni = newInst(n), old = M.sample(was.p.sample);
+            if (!old || old.name !== was.name) ni.name = was.name;
+            U.edit(() => { c.slots[i] = ni; });
+        } else {                                         /* CREATE: a new instrument there */
+            if (edit) {                                  /* (EDIT's: edit mode on it, as it was at EDIT should HOME leave it) */
+                st.edit = true; st.page = 0; st.group = 0; st.last = -1;
+                st.sess = U.session();
+                keep(U.place);
+            }
+            U.edit(() => { c.slots[i] = newInst(n); });
+            U.setInst(U.place);
+        }
+        PTFM.audio.instrument(U.inst);
+    }
+    /* Its SEL menu, `SAMPLE 03`: DELETE (not on a row whose deletion waits: nothing opens). Deleting a sample deletes the
+     * instruments that use it in every sampler (specs/files/instruments.md#deleting), after a warning counting them; an
+     * unused one goes at once, `SAMPLE 03 DELETED`. In edit mode it first leaves edit mode keeping the changes, so HOME
+     * never takes a confirmed deletion back with them; ENV on SAMPLE's list, an edit mode's, then only looks */
+    function sampleMenu(list) {
+        const n = list.num();
+        if (!M.sample(n)) return;
+        U.menu("samples", "SAMPLE " + M.hex(n), ["DELETE"], () => {
+            if (st.edit) {
+                st.edit = st.fe = false; st.sess = null;
+                if (list.mode === SM.INST) list.mode = SM.ALL;
+            }
+            const users = M.sampleUsers(n).length;
+            const del = () => {
+                if (!U.edit(() => {
+                    M.state.samples[n] = null;
+                    for (const { c, k } of M.sampleUsers(n)) c.slots[k] = null;
+                })) return;                                /* (refused, the memory full: no toast, as the firmware's) */
+                if (!users) U.toast("SAMPLE " + M.hex(n) + " DELETED");
+            };
+            if (!users) { del(); return; }
+            U.ask(["DELETE SAMPLE?", users === 1 ? "1 INSTRUMENT USES IT AND IS" : users + " INSTRUMENTS USE IT AND ARE", "DELETED TOO"],
+                  ["DELETE", "KEEP"], a => { if (a === "DELETE") del(); });
+        });
+    }
 
     /* ------------------------------------------------------------- pictures --- */
-    /* where the voices playing a sample are in it: a mark each (yellow), for wave() */
+    /* where the voices playing the instrument's sample are in it (this cartridge's slots on that sample): a mark each
+     * (yellow), for wave() */
     const playing = (cartId, sample) => (PTFM.audio.stats.voices || [])
-        .filter(v => v.engine === "SAMPLER" && v.key === cartId + ":" + sample && v.pos != null).map(v => [v.pos, D.YELLOW]);
+        .filter(v => v.engine === "SAMPLER" && v.key === sample && v.ref >> 8 === cartId && v.pos != null).map(v => [v.pos, D.YELLOW]);
     function wave(data, x, y, w, h, col, mk) {
         const n = data.length, mid = y + h / 2;
         for (let i = 0; i < w; i++) {
@@ -844,7 +957,10 @@
     /* the details under the list (browsing) */
     function details(y) {
         const c = cart(), ins = inst(), h = 226 - y;
-        if (!ins) { D.text(4, y + 30, F.T, "EMPTY SLOT: SEL MENU, INIT OR PASTE", D.DGREY); return; }
+        if (!ins) {                                     /* (a sampler's: CREATE in INIT's place) */
+            D.text(4, y + 30, F.T, c.type === "SAMPLER" ? "EMPTY SLOT: SEL MENU, CREATE OR PASTE" : "EMPTY SLOT: SEL MENU, INIT OR PASTE", D.DGREY);
+            return;
+        }
         const p = ins.p, col = M.ENGINES[c.type].col;
         if (c.type === "DX7") {
             D.runs(0, y, F.T, [["ALG ", D.CYAN], [M.hex(p.algorithm - 1), D.WHITE], ["  FB ", D.CYAN], [M.hex(p.feedback, 1), D.WHITE],
@@ -879,9 +995,10 @@
             ["wave", "cutoff", "reso", "envmod", "decay", "accent"].forEach((k, i) =>
                 knob(22 + i * 39, y + 26, 14, p[k], ["WAVE", "CUTOFF", "RESO", "ENVMOD", "DECAY", "ACCENT"][i], col));
         } else if (c.type === "SAMPLER") {
-            const smp = c.samples[p.sample];
-            if (!smp || smp.deleted) { D.text(0, y + 20, F.T, "THE SAMPLE IS DELETED", D.RED); return; }
-            D.runs(0, y, F.T, [[smp.name, col], ["  " + (smp.length / smp.rate).toFixed(2) + " S  " + smp.rate + " HZ", D.LGREY]]);
+            const smp = M.sample(p.sample);           /* (a number with no sample: grey, as every reference to nothing) */
+            if (!smp) { D.text(0, y + 20, F.T, "THE SAMPLE IS MISSING", D.DGREY); return; }
+            D.runs(0, y, F.T, [["SAMPLE " + M.hex(p.sample) + " ", D.LGREY], [smp.name, col],
+                               ["  " + secs(smp) + " S  " + smp.rate + " HZ", D.LGREY]]);
             wave(M.audio[smp.audio], 0, y + 16, 240, h - 34, D.BROWN, [[p.start, D.WHITE], [p.end, D.WHITE],
                 ...(p.loop !== "OFF" ? [[p.loopStart, D.GREEN], [p.loopEnd, D.GREEN]] : []), ...playing(c.id, p.sample)]);
             D.text(0, y + h - 14, F.T, "LOOP " + p.loop + "  BASE " + M.noteName(p.base) + "  TUNE " + M.sgn(p.tune, 2), D.LGREY);
@@ -1109,6 +1226,86 @@
     }
 
     /* edit mode: the parameters and a picture */
+    /* a favourite's details (specs/ui/screens/instruments.md#favorites): its source as its own cartridge shows it; nothing
+     * for a missing one; an empty one says how to fill it */
+    function favDetails(y) {
+        const f = M.fav(U.place);
+        if (!f) { D.text(4, y + 30, F.T, "EMPTY SLOT: EDIT PICKS AN INSTRUMENT", D.DGREY); return; }
+        if (M.favMissing(f)) return;
+        det = f.src;
+        try { details(y); } finally { det = null; }
+    }
+    /* a favourite's edit mode: which instrument it names, the picked one's details below */
+    function drawFavEdit() {
+        D.rect(0, Y0, 240, U.BODY_H, D.BLACK);
+        D.text(4, 20, F.T, "FAVORITE " + M.refText(U.place), D.CYAN);
+        D.text(4, 33, F.T, "SOURCE", D.DGREY);
+        U.favLine(46, 33, U.place, false);
+        D.text(4, 46, F.T, "K1: CARTRIDGE  PRESETS: INSTRUMENT", D.DGREY);
+        favDetails(100);
+    }
+    /* a favourite's edit mode (specs/ui/screens/instruments.md#favorites): K1 the source's cartridge over every cartridge
+     * with an instrument, the cartridge list showing; PRESETS and SELECT that cartridge's instruments; ENV the same list,
+     * ENV again picks. Each change written into the slot at once (the mode's copy kept: HOME drops it), the instrument
+     * following it */
+    const firstInst = c => c && c.type !== "FAVORITES" ? c.slots.findIndex(Boolean) : -1;
+    const reach = () => M.state.carts.filter(c => firstInst(c) >= 0);
+    function favPut(src) { const c = cart(), i = slot(); U.edit(() => { c.slots[i] = { src }; }); U.setInst(U.place); }
+    function favStep(d) {                                /* (from the cartridge's first when the source is missing; with no
+                                                         * cartridge there, K1's first) */
+        const f = M.fav(U.place), ok = !!f && !M.favMissing(f);
+        let c = f ? M.cart(f.src >> 8) : null;
+        if (firstInst(c) < 0) { c = reach()[0]; if (!c) return; }
+        const n = c.slots.length, from = ok && c === M.cart(f.src >> 8) ? f.src & 255 : -1;
+        for (let j = 0; j < n; j++) {
+            const i = from >= 0 ? ((from + d * (j + 1)) % n + n) % n : j;
+            if (c.slots[i]) { favPut(c.id << 8 | i); break; }
+        }
+        U.ilShow();
+    }
+    const flFind = () => U.overlays.find(o => o.favList);
+    const flSel = list => { const f = M.fav(U.place); return Math.max(0, list.findIndex(c => f && c.id === f.src >> 8)); };
+    function flOpen(env) {
+        const o = flFind() || U.open({
+            kind: "list", favList: true, opener: env ? B.ENV : null, passes: true,
+            knob(e, s) {
+                if (e === E.K1) { favCart(Math.sign(s)); return; }
+                if (e === E.SELECT && this.env) { this.sel = U.clamp(this.sel + s, 0, reach().length - 1); return; }
+                U.close(this);                           /* (any other control: its own job) */
+                scr.knob(e, s);
+            },
+            tap(b) {
+                if (b !== B.ENV) { U.close(this); return false; }
+                const list = reach();
+                if (this.env && list[this.sel]) { U.close(this); favPut(list[this.sel].id << 8 | firstInst(list[this.sel])); return true; }
+                this.env = true; this.sel = flSel(list);     /* (open from K1: ENV's now, kept open) */
+                return true;
+            },
+            cancel() { U.close(this); },
+            draw() {
+                if (!this.env && U.now() >= this.until) { U.close(this); return; }   /* (K1's: a second after its last click) */
+                const list = reach();
+                U.cartLines("CARTRIDGES", list, this.env ? this.sel : flSel(list));
+            },
+        });
+        o.until = U.now() + 1000;
+        o.env = !!env;
+        if (env) o.sel = flSel(reach());
+    }
+    function favCart(d) {                                /* K1: the source's cartridge; a missing source starts at its own */
+        const list = reach(), f = M.fav(U.place), ok = !!f && !M.favMissing(f);
+        if (!list.length) return;
+        let i = f ? list.findIndex(c => c.id === f.src >> 8) : -1;
+        i = i < 0 ? 0 : ok ? ((i + d) % list.length + list.length) % list.length : i;
+        favPut(list[i].id << 8 | firstInst(list[i]));
+        flOpen(false);
+    }
+    function favEdit() {                                 /* EDIT on a favourite: an empty one starts at the current instrument */
+        st.edit = st.fe = true; st.page = 0; st.group = 0; st.last = -1; st.feWas = U.inst;
+        st.sess = U.session();
+        keep(U.place);
+        if (!M.fav(U.place)) favPut(U.inst);
+    }
     function drawEdit() {
         const c = cart(), ins = inst(), pg = pages()[st.page];
         D.rect(0, Y0, 240, U.BODY_H, D.BLACK);
@@ -1137,9 +1334,12 @@
             tbWave(p.wave, 224, picY + 4, col);
             tbFilter(p, 124, picY + 18, 114, 66, col);
         } else if (sampler) {                                     /* (both pages: ALGORITHM turns only the table) */
-            const smp = c.samples[p.sample];
-            if (smp && !smp.deleted) sampPicture(p, smp, c.id, picY, col);
-            else D.text(0, 213, F.T, "WHITE START/END  GREEN LOOP  YELLOW PLAY", D.DGREY);
+            const smp = M.sample(p.sample);
+            if (smp) sampPicture(p, smp, c.id, picY, col);
+            else {                                                /* (where the waveform would be: grey) */
+                D.text(0, picY + 30, F.T, "THE SAMPLE IS MISSING", D.DGREY);
+                D.text(0, 213, F.T, "WHITE START/END  GREEN LOOP  YELLOW PLAY", D.DGREY);
+            }
         } else if (c.type === "FUSION") {
             const pt = M.pattern(p.pattern);
             D.runs(0, picY + 2, F.T, [["PATTERN ", D.CYAN], [p.pattern == null ? "--" : M.hex(p.pattern), D.WHITE],
@@ -1177,7 +1377,7 @@
         does: [B.EDIT, B.SEL, B.ENV, B.GLO, B.ARP, B.LFO],
         combines: [B.ARP],
         /* on its edit page the instrument is being edited: it plays as edited */
-        editing: (what, key) => what === "inst" && st.edit && key === U.inst,
+        editing: (what, key) => what === "inst" && st.edit && !st.fe && key === U.place,
         sub: () => st.edit ? "EDIT" : null,                 /* the header's subpage: its edit page */
         seq: () => st.edit && pages().length > 1 ? M.pageOf(st.page, pages().length) : null,   /* SEQ turns the edit pages */
         page() {
@@ -1189,15 +1389,34 @@
             if (b === B.EDIT && st.edit) return 1;
             if (b === B.SEQ) return st.edit && pages().length > 1 ? .25 : 0;
             if (b === B.SEL && (st.mark != null || st.mv)) return 1;
-            if (b === B.ENV && st.edit && !envList()) return 0;        /* in edit mode only on SAMPLE / PATTERN */
+            if (b === B.ENV && st.edit && !st.fe && !envList()) return 0;  /* in edit mode only on SAMPLE / PATTERN */
+            if (b === B.LFO && st.fe) return 0;          /* (a favourite's edit mode: nothing to reset) */
         },
         /* SEL held's layer: marking slots while browsing, big steps on the edit page */
         selLines: () => st.edit ? ["K1-K4: BIG STEPS"] : ["SELECT, ALGORITHM: MARK SLOTS"],
         /* an instrument afloat: the cartridge stays; else PRESETS as everywhere, empty slots skipped (SELECT and
          * ALGORITHM go over every slot) */
-        presets: () => !!st.mv,
+        presets(step) { if (st.fe) favStep(Math.sign(step)); return !!st.mv || st.fe; },   /* (a favourite's: its source) */
+        /* SEL + PRESETS in edit mode: the cartridges of the edit's own sort only (a favourite's the FAVORITES ones, an
+         * instrument's the others), so an edit never goes on in a slot of the other sort */
+        presetsCart(step) {
+            if (!st.edit) return false;
+            const cs = M.state.carts.filter(c => (c.type === "FAVORITES") === !!st.fe);
+            if (cs.length) {
+                const i = Math.max(0, cs.findIndex(c => c.id === U.place >> 8)), c = cs[((i + Math.sign(step)) % cs.length + cs.length) % cs.length];
+                U.setInst(c.id << 8 | U.cartFirst(c));
+            }
+            return true;
+        },
+        favEdit: () => st.fe,
+        editMode: () => st.fe ? 2 : st.edit ? 1 : 0,     /* (SEL + GLO is refused in either edit mode) */
         knob(e, s, coarse) {
             const c = cart();
+            if (st.fe) {                                 /* a favourite's: K1 the cartridge, SELECT its instruments */
+                if (e === E.K1) favCart(Math.sign(s));
+                else if (e === E.SELECT) favStep(Math.sign(s));
+                return;
+            }
             if (st.edit) {
                 if (e === E.SELECT) { st.group = U.clamp(st.group + Math.sign(s), 0, groups().length - 1); st.last = -1; return; }
                 if (e === E.ALGORITHM) { st.page = U.clamp(st.page + Math.sign(s), 0, pages().length - 1); st.group = 0; st.last = -1; return; }
@@ -1224,8 +1443,14 @@
         tap(b) {
             const c = cart(), ins = inst();
             if (st.mv) { if (b === B.SEL) putDown(); return true; }         /* afloat: only SEL (and HOME) */
+            if (st.fe && b !== B.EDIT && b !== B.GLO) {      /* a favourite's edit mode: ENV the cartridges; SEL, ALGORITHM,
+                                                             * LFO nothing */
+                if (b === B.ENV) flOpen(true);
+                return [B.ENV, B.SEL, B.LFO, B.SEQ].includes(b);
+            }
             if (b === B.EDIT) {
-                if (st.edit) { st.edit = false; st.sess = null; return true; }      /* keeping the changes */
+                if (st.edit) { st.edit = st.fe = false; st.sess = null; return true; }      /* keeping the changes */
+                if (c.type === "FAVORITES") { favEdit(); return true; }        /* (which instrument the favourite names) */
                 if (c.type === "FUSION" && (!ins || ins.p.pattern == null || !M.pattern(ins.p.pattern))) {
                     /* (it ends in the EDITOR: the EDITOR's own pattern's warning first, then this again) */
                     if (M.patternHolds(M.EDITOR_PATTERN)) { U.ownAsk(() => this.tap(B.EDIT)); return true; }
@@ -1236,7 +1461,7 @@
                     if (n < 0) { U.toast("ALL " + (M.USER_LAST + 1) + " PATTERNS USED"); return true; }
                     /* the sounds a FUSION can be filled with: every instrument of the cartridges that are not FUSION */
                     const sounds = [];
-                    for (const cc of M.state.carts) if (cc.type !== "FUSION") cc.slots.forEach((x, i) => { if (x) sounds.push(cc.id << 8 | i); });
+                    for (const cc of M.state.carts) if (cc.type !== "FUSION" && cc.type !== "FAVORITES") cc.slots.forEach((x, i) => { if (x) sounds.push(cc.id << 8 | i); });
                     let src = M.inst(U.lastInst) ? U.lastInst : sounds[0];
                     const make = fill => {
                         U.edit(() => {
@@ -1273,6 +1498,8 @@
                     };
                     return true;
                 }
+                /* an empty sampler slot: CREATE's pick, then edit mode on the new instrument */
+                if (c.type === "SAMPLER" && !ins) { sampleList(SM.CREATE, -1, true); return true; }
                 if (!ins) { U.toast("EMPTY SLOT: SEL, INIT"); return true; }
                 st.edit = true; st.page = 0; st.group = 0; st.last = -1;
                 st.sess = U.session();
@@ -1299,9 +1526,9 @@
             }
             if (b === B.ENV) {
                 const l = envList();
-                if (l === "samples") { sampleList(); return true; }
+                if (l === "samples") { sampleList(SM.INST, ins.p.sample); return true; }   /* (every sample on the FM-1) */
                 if (l === "patterns") {                          /* on a FUSION slot's PATTERN: the pattern list */
-                    U.patternList("PATTERN FOR " + M.refText(U.inst), ins.p.pattern, n => { U.edit(() => { ins.p.pattern = n; }); },
+                    U.patternList("PATTERN FOR " + M.refText(U.place), ins.p.pattern, n => { U.edit(() => { ins.p.pattern = n; }); },
                                   B.ENV, { fusionKeys: true });
                     return true;
                 }
@@ -1311,14 +1538,18 @@
             return false;                                    /* (ARP: the arpeggiator, ui.js's) */
         },
         presetsMoved() {
-            if (st.edit) keep(U.inst);                       /* editing goes on with this one: it can be dropped too */
+            if (st.edit && !st.fe) keep(U.place);            /* editing goes on with this one: it can be dropped too */
             /* another engine may have fewer pages and groups (SEL + PRESETS into another cartridge) */
             st.page = U.clamp(st.page, 0, Math.max(0, pages().length - 1));
             st.group = U.clamp(st.group, 0, Math.max(0, groups().length - 1));
         },
         back() {
             if (st.mv) { st.mv = null; U.toast("NOT MOVED"); return true; }
-            if (st.edit) { st.sess.drop(); st.edit = false; st.sess = null; return true; }      /* HOME: dropping them */
+            if (st.edit) {                               /* HOME: dropping them (a favourite's: its source again) */
+                st.sess.drop(); st.edit = false; st.sess = null;
+                if (st.fe) { st.fe = false; U.inst = st.feWas; U.setInst(U.place); }
+                return true;
+            }
             if (st.mark != null) { st.mark = null; st.marking = false; return true; }
             return false;
         },
@@ -1328,12 +1559,14 @@
             return c ? [M.hex(c.id) + " " + c.name, M.ENGINES[c.type].col] : null;
         },
         draw() {
-            if (st.edit) return drawEdit();
+            if (st.edit) return st.fe ? drawFavEdit() : drawEdit();
             const c = cart();
             if (!c) return;
             const used = c.slots.filter(Boolean).length;
-            D.runs(0, Y0, F.S, [[M.hex(c.id) + " ", D.WHITE], [c.name + " ", D.LGREY], [M.TYPE_NAMES[c.type] + " ", M.ENGINES[c.type].col],
-                                [used + "/" + c.size, D.DGREY]], D.CROP_S.map((v, i) => i ? 16 : 0));
+            const line = [[M.hex(c.id) + " ", D.WHITE], [c.name + " ", D.LGREY], [M.TYPE_NAMES[c.type] + " ", M.ENGINES[c.type].col],
+                          [used + "/" + c.size, D.DGREY]];
+            if (line.reduce((n, r) => n + r[0].length, 0) > 30) D.runs(0, Y0, F.T, line);      /* (past its 30 characters: in T) */
+            else D.runs(0, Y0, F.S, line, D.CROP_S.map((v, i) => i ? 16 : 0));
             const cur = st.mv ? st.mv.at : slot(), page = Math.floor(cur / 16) * 16, col = M.ENGINES[c.type].col;
             const m0 = st.mark != null ? Math.min(st.mark, slot()) : -1, m1 = st.mark != null ? Math.max(st.mark, slot()) : -1;
             for (let k = 0; k < 16; k++) {
@@ -1343,10 +1576,12 @@
                 if (i >= m0 && i <= m1) D.rect(x, y - 1, 119, 12, D.DEEP + D.MAGENTA);
                 if (on) D.box(x, y - 1, 119, 12, st.mv ? D.YELLOW : D.WHITE);
                 D.text(x + 2, y, F.T, M.hex(i), on ? D.WHITE : D.DGREY);
-                D.text(x + 20, y, F.T, s ? s.name : "----------", s ? (on ? D.WHITE : col) : D.DGREY);
+                if (s && c.type === "FAVORITES") U.favLine(x + 20, y, null, on, s);   /* (its source) */
+                else D.text(x + 20, y, F.T, s ? s.name : "----------", s ? (on ? D.WHITE : col) : D.DGREY);
             }
             D.hline(0, Y0 + 113, 240, D.DGREY);
-            details(Y0 + 116);
+            if (c.type === "FAVORITES") favDetails(Y0 + 116);
+            else details(Y0 + 116);
         },
     };
     U.register(scr);

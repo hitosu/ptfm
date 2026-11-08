@@ -10,6 +10,7 @@
 #   JIELI_TOOLCHAIN  JieLi Linux toolchain (default: ~/.jieli/toolchain)
 #   AC79_SDK         JieLi AC79 SDK checkout, V1.2.1 (default: ~/fw-AC79_AIoT_SDK)
 #   JIELI_DOCKER     1 (default): the compiler in an offline container; 0: run it natively
+#   SOURCE_DATE_EPOCH  the build's time (seconds), in its code on the crash screens; default now
 set -e
 cd "$(dirname "$0")"
 export JIELI_TOOLCHAIN="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"

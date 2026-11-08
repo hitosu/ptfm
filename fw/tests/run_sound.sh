@@ -7,6 +7,7 @@
 #  - every demo song's notes against the playground's replay (playground/player.js, with Node);
 #  - LEG (legato_test): legato onto a held DX7, JUNO-106, CHIP and sampler note; a plain note elsewhere;
 #  - the voice pool: a note taken from its voice parked and back where its envelope would be (voices_test);
+#  - the effects at work as another core reads them inside a block: the last whole block's (fxact_test);
 #  - every demo song rendered (build/fw/sound/song_NN.wav) with its loudness, peak, most voices (and at 8
 #    voices with the sanitizers: notes parked and back);
 #  - the second core's hand-over (c2_test): one session (DJ, every song, the punch-ins, a COUNT-IN, CUT, the keys
@@ -42,6 +43,7 @@ gcc $CF $SAN -o $OUT/gliss_test fw/tests/sound/gliss_test.c $CORE -lm
 gcc $CF $SAN -o $OUT/legato_test fw/tests/sound/legato_test.c $CORE -lm
 gcc $CF $SAN -o $OUT/transport_test fw/tests/sound/transport_test.c fw/core/play/player.c $CORE -lm
 gcc $CF $SAN -o $OUT/voices_test fw/tests/sound/voices_test.c fw/core/play/player.c $CORE -lm
+gcc $CF $SAN -o $OUT/fxact_test fw/tests/sound/fxact_test.c fw/core/fx/fx.c fw/core/eng/dx7/dx7.c -lm
 gcc $CF $SAN -pthread -o $OUT/c2_test fw/tests/sound/c2_test.c fw/core/play/player.c fw/core/play/dj.c fw/core/spare.c $CORE -lm
 gcc $CF $SAN -pthread -DPL_ONE_CORE_16=1 -o $OUT/c2_test16 fw/tests/sound/c2_test.c fw/core/play/player.c fw/core/play/dj.c \
     fw/core/spare.c $CORE -lm
@@ -59,6 +61,7 @@ $OUT/gliss_test
 $OUT/legato_test $DISK
 $OUT/transport_test $DISK
 $OUT/voices_test $DISK
+$OUT/fxact_test
 
 fail=0
 # (the seven modes at once: each its own process, its files in c2/MODE; mode 0's the reference; then 16 voices, in

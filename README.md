@@ -37,7 +37,7 @@ page) turns the FM-1 into a USB-MIDI controller, for the virtual FM-1 or any syn
 | `tools/`, `tests/`, `assets/` | build scripts, host tests, fonts |
 
 The layout in full: [specs/layout.md](specs/layout.md). What changed from version to version:
-[CHANGELOG.md](CHANGELOG.md).
+[CHANGELOG.md](CHANGELOG.md); how and why, a report for each version: [specs/reports/](specs/reports/).
 
 ## Licence
 

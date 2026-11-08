@@ -18,6 +18,7 @@
 #define LV_DIM 64                       /* an LED's "dim": a quarter */
 #define LV_FULL 255
 #define LV_NONE (-1)                    /* a screen's lit(): no opinion */
+#define UI_MET_FLASH 100                /* ms: PLAY's flash a beat while the loops play (the visual metronome) */
 #define BIT(b) (1u << (b))
 
 enum { G_MAKE, G_PLAY, G_HEAR, G_SYSTEM };                       /* the screens' groups */
@@ -60,8 +61,8 @@ struct ui_screen {
     void (*paused)(void);               /* what played paused (SAVE waiting goes on) */
     void (*tick)(void);                 /* every pass of the main loop while it is the screen */
     int (*has_combo)(int held, int b);  /* whether combo() acts on held + b (asked before it is called) */
-    int (*hold_action)(int b);          /* b held is an action of the screen's (LOOPS' LFO erase): other
-                                         * controls do not close it */
+    void (*press)(int b);               /* a button pressed on the screen itself (no overlay, no combination): its own
+                                         * at the press (LOOPS' HOME, a song recording) */
     void (*layer_up)(int b);            /* b let go after its layer showed (DJ: LFO's, into the LFO pads) */
     int (*armed)(void);                 /* a take armed (COUNT-IN KEY): the count-in's box says TAKE ARMED */
     int (*recording)(void);             /* a take, an overdub, the loops recording: the header's red ● */
@@ -80,6 +81,9 @@ struct ui_screen {
     int (*presets_cart)(int step);      /* SEL + PRESETS of its own: 1 taken */
     uint8_t own_arp;                    /* ARP is the screen's own here, UI_ARP_*: the arpeggiator is not; ARP's
                                          * tap goes to tap() */
+    uint8_t long_hold;                  /* the button whose hold takes UI_LONG_HOLD here, on the screen itself (0 none) */
+    uint16_t tap_now;                   /* BIT(B_*): buttons whose tap comes at their release here, on the screen itself: no
+                                         * grace, no hold, and only HOME takes them (LOOPS' LFO) */
     /* what it edits now, for the player (player_editing: PL_ED_*, its key): commands never change it
      * (specs/ui/screens/editor.md); NULL: nothing */
     void (*editing)(uint8_t *what, uint32_t *key);
@@ -148,9 +152,11 @@ typedef struct ui_mitem {
     txt_t name;                         /* TX("REVERT"); none (0): left out */
     int id;                             /* what pick() gets */
     const struct ui_mitem *items;       /* a group's items (NULL: an action) */
-    uint8_t n;                          /* a group's count */
+    int n;                              /* a group's count */
 } ui_mitem_t;
 void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n, void (*pick)(int id), int opener);
+void ui_menu_name(int id, const char *name);    /* (right after ui_menu) an item named as made, not a fixed text: a
+                                                 * cartridge's (`FB FAVORITES`) */
 
 /* RECORD PATTERN (specs/ui/dialogs.md#record-pattern, ui_recpat.c): the dialog the EDITOR's SEL menu opens. What is
  * set (ui_rp) stays for the next time until power-off. */
@@ -215,6 +221,22 @@ int ui_blocking(void);
 /* the song list (ENV on STATUS, PLAYBACK ...): the songs, their tempo and length; ENV picks (pick may be
  * NULL: ENV just closes it); PLAY plays the highlighted one (play may be NULL). Songs by their numbers. */
 void ui_song_list(const char *title, int current, void (*pick)(int song), void (*play)(int song));
+/* the cartridge list's panel (dialogs.md#the-cartridge-list; PRESETS', LOOPS', INSTRUMENTS'): titled, its head, 13
+ * lines, line i showing number ids[i] and cartridge who[i] (its name, type and slots used), n of them in the order
+ * given, line sel boxed (afloat: yellow, a cartridge being moved), kept in the middle while it can. The slots used are
+ * kept for the lines shown while the store stays as it was */
+void ui_cart_lines(const char *title, const uint8_t *ids, const uint8_t *who, int n, int sel, int afloat);
+/* the same with `more` lines of the caller's after the n cartridges (sel counting them too: INSTRUMENTS' ALL SAMPLES):
+ * the y of the first of them when it shows, else -1 */
+int ui_cart_lines_more(const char *title, const uint8_t *ids, const uint8_t *who, int n, int more, int sel, int afloat);
+/* PRESETS' lists, big (dialogs.md#presets-cartridge-list): a cartridge on a line at y, its ID and name in FONT_B, its type
+ * small at the right; the cartridges in their order, 7 lines, sel boxed */
+void ui_cart_big(uint8_t c, int y, int on);
+void ui_cart_lines_big(const char *title, const uint8_t *who, int n, int sel);
+/* PRESETS' and LOOPS' list's cartridges, as it opens (they are never open together): ui_cart_nums_fill takes them (a bit
+ * a number), the number of them; ui_cart_nums puts their numbers into nums (256 at most, the caller's), the number */
+int ui_cart_nums_fill(void);
+int ui_cart_nums(uint8_t *nums);
 /* the pattern list (ENV): the user's patterns, their size and the songs using them; the opener picks
  * (a first, plain version: the EDITOR's notes map and its SEL menu are to come) */
 
@@ -246,6 +268,7 @@ void ui_octave(int step);               /* the keys' octave a step up (1) or dow
 /* ------------------------------------------------------------ the grammar's state --- */
 int ui_held(int b);                     /* the button is down */
 int ui_active(int b);                   /* held (its combination open) or in its grace period */
+int ui_pending(int b);                  /* down, or its tap still to come */
 int ui_use_combo(int b, int kind);      /* may this member of b's combination act (and so lock it) */
 void ui_consume(int b);                 /* b's release is no tap */
 uint32_t ui_now(void);                  /* ms */
@@ -256,7 +279,11 @@ int ui_breath(uint32_t t0);             /* HOME's breath: dim to full and back i
 typedef struct {
     uint8_t song;                       /* the current song */
     uint8_t pattern;                    /* the EDITOR's pattern */
-    uint16_t inst;                      /* the current instrument: cartridge << 8 | slot (kept by SAVE) */
+    uint16_t inst;                      /* the current instrument: cartridge << 8 | slot (kept by SAVE): the keys play it,
+                                         * REC writes it; always an instrument's own number, never a favourite's */
+    uint16_t place;                     /* the current place (specs/ui/navigation.md): the cartridge and slot the cursor
+                                         * stands on, PRESETS turns from; a favourite's (FB:07) in a FAVORITES cartridge,
+                                         * whose source is inst, else inst itself */
     int8_t octave;                      /* the keys' octave, -4..4 */
     uint32_t mutes;                     /* bit t: track t muted */
     int8_t solo;                        /* the track soloed, or -1 */
@@ -267,7 +294,16 @@ extern ui_cur_t ui_cur;
 int ui_muted(int t);
 void ui_mutes_changed(void);            /* to the player */
 int ui_midi(int n);                     /* key n's MIDI note at the octave */
+/* the current place (and so the instrument): ref; a favourite's source becomes the current instrument, an empty or a
+ * missing favourite keeps the instrument as it is (specs/ui/screens/instruments.md#favorites) */
 void ui_set_inst(uint16_t ref);
+int ui_cart_first(uint8_t cart);        /* its first used slot (a favourite too), 0 with none: where picking it goes */
+void ui_fav_draw(int x, int y, uint16_t ref, int on);  /* a favourite as listed: `0B:05`, its name (or MISSING) at x + 36 */
+void ui_fav_draw_f(const ui_font_t *f, int x, int y, uint16_t ref, int on, int dx);   /* the same in font f, the name
+                                                                                      * at x + dx */
+void ui_il_show(void);                  /* PRESETS' instrument list (dialogs.md#presets-instrument-list): open, or a second
+                                         * more, where it may show */
+int scr_instr_edit(void);               /* INSTRUMENTS' edit mode: 0 none, 1 an instrument's, 2 a favourite's */
 extern uint16_t ui_last_inst;           /* the last instrument picked that sounds by itself (not a FUSION slot), 0xFFFF
                                          * none: a new FUSION pattern is first offered filled with it */
 void ui_all_sound_off(void);
@@ -305,6 +341,7 @@ extern const uint8_t UI_GROUP_COL[4];           /* MAKE light blue, PLAY green, 
 void ui_key_line(g_run_t *runs, int *n, const char *line);
 
 /* --------------------------------------------------------------------- settings --- */
+#define UI_LONG_HOLD 2000               /* a hold no slow tap should reach, whatever HOLD DELAY says, ms (LOOPS' EDIT) */
 enum {
     S_OUTPUT, S_LINE_GAIN, S_USB_GAIN, S_VOICES, S_SECOND_CORE, S_THEME, S_KEYS_VOLUME, S_KEYS_GAIN, S_KEYS_FX, S_KEYS_OCTAVE,
     S_KNOB_SPEED,

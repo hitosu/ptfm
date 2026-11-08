@@ -80,18 +80,20 @@ static const ins_grp_t TB_KNOBS[] = {
 };
 static const ins_page_t TB_PAGES[] = {{TX("KNOBS"), 4, TB_KNOBS, 0}};
 
+/* (a sample instrument's fields, version 2: SAMPLE a sample's number, 8 bits, then the rest 2 bits on from version 1's:
+ * play/rec.h) */
 static const ins_grp_t S_SAMPLE[] = {
-    {TX("SAMPLE"), -1, 0, 0, 3, {{TX("SAMPLE"), 0, 0, 6, PK_SAMPLE, 0, 63, 0}, {TX("START"), 0, 6, 20, PK_POS, 0, 0, 0},
-                                 {TX("END"), 0, 26, 20, PK_POS, 0, 0, 0}}},
-    {TX("LOOP"), -1, 0, 0, 4, {L(TX("LOOP"), 86, 2, LOOP_MODES, 3), {TX("FROM"), TX("LOOP START"), 46, 20, PK_POS, 0, 0, 0},
-                               {TX("TO"), TX("LOOP END"), 66, 20, PK_POS, 0, 0, 0}, {TX("RELEASE"), 0, 139, 7, PK_RELEASE, 0, 99, 0}}},
-    {TX("PITCH"), -1, 0, 0, 4, {{TX("BASE NOTE"), 0, 88, 7, PK_NOTE, 12, 127, 0}, {TX("TUNE"), 0, 95, 8, PK_TUNE, -128, 127, 0},
-                                N(TX("VOLUME"), 111, 7, 64), LEVEL_P(103)}},
+    {TX("SAMPLE"), -1, 0, 0, 3, {{TX("SAMPLE"), 0, 0, 8, PK_SAMPLE, 0, 255, 0}, {TX("START"), 0, 8, 20, PK_POS, 0, 0, 0},
+                                 {TX("END"), 0, 28, 20, PK_POS, 0, 0, 0}}},
+    {TX("LOOP"), -1, 0, 0, 4, {L(TX("LOOP"), 88, 2, LOOP_MODES, 3), {TX("FROM"), TX("LOOP START"), 48, 20, PK_POS, 0, 0, 0},
+                               {TX("TO"), TX("LOOP END"), 68, 20, PK_POS, 0, 0, 0}, {TX("RELEASE"), 0, 141, 7, PK_RELEASE, 0, 99, 0}}},
+    {TX("PITCH"), -1, 0, 0, 4, {{TX("BASE NOTE"), 0, 90, 7, PK_NOTE, 12, 127, 0}, {TX("TUNE"), 0, 97, 8, PK_TUNE, -128, 127, 0},
+                                N(TX("VOLUME"), 113, 7, 64), LEVEL_P(105)}},
     NAME_G,
 };
 static const ins_grp_t S_ENV[] = {
-    {TX("RATES"), -1, 0, 0, 4, {N(TX("R1"), 118, 7, 99), N(TX("R2"), 125, 7, 99), N(TX("R3"), 132, 7, 99), N(TX("R4"), 139, 7, 99)}},
-    {TX("LEVELS"), -1, 0, 0, 4, {N(TX("L1"), 146, 7, 99), N(TX("L2"), 153, 7, 99), N(TX("L3"), 160, 7, 99), N(TX("L4"), 167, 7, 99)}},
+    {TX("RATES"), -1, 0, 0, 4, {N(TX("R1"), 120, 7, 99), N(TX("R2"), 127, 7, 99), N(TX("R3"), 134, 7, 99), N(TX("R4"), 141, 7, 99)}},
+    {TX("LEVELS"), -1, 0, 0, 4, {N(TX("L1"), 148, 7, 99), N(TX("L2"), 155, 7, 99), N(TX("L3"), 162, 7, 99), N(TX("L4"), 169, 7, 99)}},
 };
 static const ins_page_t S_PAGES[] = {{TX("SAMPLE"), 4, S_SAMPLE, 0}, {TX("ENVELOPE"), 2, S_ENV, 0}};
 
@@ -218,8 +220,8 @@ void ins_set(uint8_t *s, const ins_prm_t *p, int v)
     if (raw > (int)((1u << p->bits) - 1)) raw = (int)((1u << p->bits) - 1);
     put_bits(s, p->bit, p->bits, (uint32_t)raw);
 }
-int ins_name_pos(int kind) { return kind == REC_DX7 ? 784 : kind == REC_JUNO ? 123 : kind == REC_TB303 ? 42 : kind == REC_SAMPLER ? 174 : kind == REC_CHIP ? 121 : 8; }
-int ins_level_pos(int kind) { return kind == REC_DX7 ? 844 : kind == REC_JUNO ? 183 : kind == REC_TB303 ? 102 : kind == REC_SAMPLER ? 103 : kind == REC_CHIP ? 181 : 68; }
+int ins_name_pos(int kind) { return kind == REC_DX7 ? 784 : kind == REC_JUNO ? 123 : kind == REC_TB303 ? 42 : kind == REC_SAMPLER ? 176 : kind == REC_CHIP ? 121 : 8; }
+int ins_level_pos(int kind) { return kind == REC_DX7 ? 844 : kind == REC_JUNO ? 183 : kind == REC_TB303 ? 102 : kind == REC_SAMPLER ? 105 : kind == REC_CHIP ? 181 : 68; }
 void ins_name_set(uint8_t *p, int bit, int chars, const char *name)
 {
     static const char SET[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-?|/\\*#$@%";
@@ -248,7 +250,7 @@ static void ms_text(uint32_t ms, char *o, int max)
     else if (ms < 10000) { uint32_t t = (ms + 50) / 100; ui_fmt(o, max, "%u.%u S", t / 10, t % 10); }
     else ui_fmt(o, max, "%u S", (ms + 500) / 1000);
 }
-void ins_text(const uint8_t *s, const ins_prm_t *p, uint8_t cart, char *o, int max)
+void ins_text(const uint8_t *s, const ins_prm_t *p, char *o, int max)
 {
     int v = ins_get(s, p);
     switch (p->kind) {
@@ -258,10 +260,9 @@ void ins_text(const uint8_t *s, const ins_prm_t *p, uint8_t cart, char *o, int m
     case PK_RELEASE: ms_text(RELEASE_MS[ui_clamp(v, 0, 99)], o, max); return;
     case PK_NOTE: ui_note_name(o, v); return;
     case PK_POS: ui_fmt(o, max, "%X", v); return;
-    case PK_SAMPLE: {
-        rec_cart_t c;
+    case PK_SAMPLE: {                                   /* (a sample's number: `--` when it is not there) */
         rec_sample_t sm;
-        if (rec_cart(cart, &c) || rec_sample(&c, (uint8_t)v, &sm)) ui_fmt(o, max, "--");
+        if (rec_sample((uint8_t)v, &sm)) ui_fmt(o, max, "--");
         else ui_fmt(o, max, "%02X", v);
         return;
     }
@@ -322,12 +323,12 @@ void ins_init(int kind, uint8_t *s)
         setb(s, 121, 2, 1);                             /* HPF 1 */
     } else if (kind == REC_TB303) {
         for (int k = 1; k < 6; k++) setb(s, 7 * k, 7, 64);
-    } else if (kind == REC_SAMPLER) {
-        setb(s, 88, 7, 60);                             /* BASE NOTE C-4 */
-        setb(s, 95, 8, 128);                            /* TUNE 0 */
-        setb(s, 111, 7, 64);                            /* VOLUME */
-        setb(s, 118, 7, 99); setb(s, 125, 7, 99); setb(s, 132, 7, 99); setb(s, 139, 7, 80);
-        setb(s, 146, 7, 99); setb(s, 153, 7, 99); setb(s, 160, 7, 99);
+    } else if (kind == REC_SAMPLER) {                   /* (version 2's bits) */
+        setb(s, 90, 7, 60);                             /* BASE NOTE C-4 */
+        setb(s, 97, 8, 128);                            /* TUNE 0 */
+        setb(s, 113, 7, 64);                            /* VOLUME */
+        setb(s, 120, 7, 99); setb(s, 127, 7, 99); setb(s, 134, 7, 99); setb(s, 141, 7, 80);
+        setb(s, 148, 7, 99); setb(s, 155, 7, 99); setb(s, 162, 7, 99);
     } else if (kind == REC_FUSION) setb(s, 0, 8, 0xFF);                         /* no pattern yet */
     else if (kind == REC_CHIP) {                         /* the engine's reference: PULSE 50 %, CLOCK EXACT, FILTER NONE */
         setb(s, 3, 2, 2);                               /* DUTY 50 % */
@@ -356,51 +357,51 @@ int ins_slot_bytes(uint8_t cart, int slot, uint8_t *out)
 {
     rec_cart_t c;
     if (rec_cart(cart, &c)) return 0;
-    const uint8_t *s = rec_slot(&c, (uint8_t)slot);
+    const uint8_t *s = c.kind == REC_FAV ? rec_fav(&c, (uint8_t)slot) : rec_slot(&c, (uint8_t)slot);   /* (a favourite's 3
+                                                         * bytes too) */
     if (!s) return 0;
     memcpy(out, s, (size_t)rec_slot_size(c.kind));
     return 1;
 }
-static int empty_slot(int kind, const uint8_t *s) { return rec_bits(s, (uint32_t)ins_name_pos(kind), 6) == REC_NAME_EMPTY; }
+/* an empty slot: its name's first character 63; a favourite's slot byte FF */
+static int empty_slot(int kind, const uint8_t *s) { return kind == REC_FAV ? s[1] == 0xFF : rec_bits(s, (uint32_t)ins_name_pos(kind), 6) == REC_NAME_EMPTY; }
+static void clear_slot(int kind, uint8_t *d, int size)
+{
+    memset(d, 0, (size_t)size);
+    if (kind == REC_FAV) d[1] = 0xFF;
+    else put_bits(d, (uint32_t)ins_name_pos(kind), 6, REC_NAME_EMPTY);
+}
 int ins_cart_copy(uint8_t cart, rec_cart_t *c, uint8_t *dst, uint32_t *len, uint8_t *ver)
 {
     uint8_t v;
     if (rec_cart(cart, c)) return -1;
     return store_edit_build(c->kind, cart, 0, dst, UI_SCRATCH, len, ver ? ver : &v) ? -1 : 0;
 }
+/* (a cartridge of any kind: its 10 bytes, then its slots; written in the version this firmware reads, rec_cart_ver: a
+ * sampler's version 2, instruments only) */
 int ins_put_slot(uint8_t cart, int slot, const uint8_t *bytes)
 {
     rec_cart_t c;
     uint32_t clen;
-    uint8_t tab[64 * 16];                               /* a sampler's samples' table, after its instruments */
     if (ins_cart_copy(cart, &c, rb, &clen, 0)) return -1;
-    int kind = c.kind, size = rec_slot_size(c.kind), samp = kind == REC_SAMPLER, head = samp ? 11 : 10;
-    int n = c.nslots, ns = samp ? c.nsamples : 0, nn = bytes && slot + 1 > n ? slot + 1 : n;
-    if (ns > 64 || head + nn * size + ns * 16 > UI_SCRATCH) return -1;
-    memcpy(tab, rb + head + n * size, (size_t)ns * 16);
-    for (int k = n; k < nn; k++) {                      /* new empty slots up to it */
-        memset(rb + head + k * size, 0, (size_t)size);
-        put_bits(rb + head + k * size, (uint32_t)ins_name_pos(kind), 6, REC_NAME_EMPTY);
-    }
+    int kind = c.kind, size = rec_slot_size(c.kind), head = REC_CART_HEAD;
+    int n = c.nslots, nn = bytes && slot + 1 > n ? slot + 1 : n;
+    if (head + nn * size > UI_SCRATCH) return -1;
+    for (int k = n; k < nn; k++) clear_slot(kind, rb + head + k * size, size);   /* new empty slots up to it */
     if (slot < nn) {
         uint8_t *d = rb + head + slot * size;
         if (bytes) memcpy(d, bytes, (size_t)size);
-        else { memset(d, 0, (size_t)size); put_bits(d, (uint32_t)ins_name_pos(kind), 6, REC_NAME_EMPTY); }
+        else clear_slot(kind, d, size);
     }
     while (nn > 0 && empty_slot(kind, rb + head + (nn - 1) * size)) nn--;     /* stored up to the last one used */
     rb[9] = (uint8_t)nn;
-    uint32_t len = (uint32_t)(head + nn * size);
-    if (samp) {
-        memcpy(rb + len, tab, (size_t)ns * 16);
-        len += (uint32_t)ns * 16;
-    }
-    return ui_edit_put((uint8_t)kind, cart, 0, 1, rb, len);
+    return ui_edit_put((uint8_t)kind, cart, 0, rec_cart_ver((uint8_t)kind), rb, (uint32_t)(head + nn * size));
 }
 int ins_new_cart(uint8_t num, int kind, const char *name)
 {
-    memset(rb, 0, 11);
+    memset(rb, 0, REC_CART_HEAD);
     ins_name_set(rb, 0, 12, name);
-    return ui_edit_put((uint8_t)kind, num, 0, 1, rb, kind == REC_SAMPLER ? 11 : 10);
+    return ui_edit_put((uint8_t)kind, num, 0, rec_cart_ver((uint8_t)kind), rb, REC_CART_HEAD);
 }
 int ins_rename_cart(uint8_t num, const char *name)
 {
@@ -408,7 +409,7 @@ int ins_rename_cart(uint8_t num, const char *name)
     uint32_t len;
     if (ins_cart_copy(num, &c, rb, &len, 0)) return -1;
     ins_name_set(rb, 0, 12, name);
-    return ui_edit_put(c.kind, num, 0, 1, rb, len);
+    return ui_edit_put(c.kind, num, 0, rec_cart_ver(c.kind), rb, len);
 }
 int ins_copy_cart(uint8_t from, uint8_t to, const char *name)
 {
@@ -416,27 +417,19 @@ int ins_copy_cart(uint8_t from, uint8_t to, const char *name)
     uint32_t len;
     if (ins_cart_copy(from, &c, rb, &len, 0)) return -1;
     ins_name_set(rb, 0, 12, name);
-    return ui_edit_put(c.kind, to, 0, 1, rb, len);
+    return ui_edit_put(c.kind, to, 0, rec_cart_ver(c.kind), rb, len);
 }
 int ins_delete_cart(uint8_t num)
 {
     rec_cart_t c;
     if (rec_cart(num, &c)) return -1;
-    ui_edit_del(c.kind, num, 0);
-    if (c.kind == REC_SAMPLER) for (int k = 0; k < c.nsamples; k++) ui_edit_del(REC_AUDIO, num, (uint8_t)k);
+    ui_edit_del(c.kind, num, 0);                        /* (a sampler's instruments alone: its samples stay) */
     return 0;
 }
+/* the numbers in use are every cartridge's, an old sampler's among them (rec_cart_taken: no NEW lands there) */
 int ins_free_cart(void)
 {
-    uint8_t nums[256];
-    int n = ui_carts(nums, 256), last = -1;
-    for (int i = 0; i < n; i++) if (nums[i] <= 0xEF && nums[i] > last) last = nums[i];
-    if (last < 0xEF) return last + 1;
-    for (int k = 0; k <= 0xEF; k++) {
-        int used = 0;
-        for (int i = 0; i < n; i++) if (nums[i] == k) used = 1;
-        if (!used) return k;
-    }
+    for (int k = 0; k <= 0xEF; k++) if (!rec_cart_taken((uint8_t)k)) return k;
     return -1;
 }
 

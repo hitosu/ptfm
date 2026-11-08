@@ -227,8 +227,8 @@ PLAT_COLD int dj_on(int on)
     }
     for (int d = 0; d < 2; d++) {
         if (!has(d)) continue;
-        tempo_to_player(d, d == 1 && dj_sync() && has(0) ? dj_deck_bpm10(0) * (dj_sync_mult() == 2 ? 2 : 1) /
-                        (dj_sync_mult() == 1 ? 2 : 1) : dj_deck_bpm10(d));
+        tempo_to_player(d, d == 1 && dj_sync() && has(0) ? (int)pl_mult_bpm10((uint32_t)dj_deck_bpm10(0),
+                        (uint32_t)dj_sync_mult()) : dj_deck_bpm10(d));
         player_deck_mutes(d, mute_mask(d));
         loop_to_player(d);
     }
@@ -296,6 +296,9 @@ int dj_deck_state(int d, dj_deck_state_t *s)
     s->loop_row = ps.deck[d].loop_row;
     s->loop_rows = ps.deck[d].loop_rows;
     s->roll = ps.deck[d].roll;
+    s->land = ps.deck[d].land;
+    s->loads = ps.deck[d].loads;
+    s->jumps = ps.deck[d].jumps;
     s->halves = ps.halves;
     return 1;
 }
@@ -320,6 +323,19 @@ void dj_deck_arm(int d)                 /* the deck starts on the other's next b
     player_deck_arm(d, k[DK_POS], k[DK_ROW]);
 }
 void dj_deck_place(int d, int pos, int row) { if (live) player_deck_place(d, (uint8_t)pos, (uint8_t)row); }
+void dj_deck_load_at(int d, uint8_t song, int bpm10)
+{
+    if (!live) return;
+    if (song == DJ_NO_SONG) { player_deck_load_at(d, 0xFF, 0, 0); return; }
+    uint32_t own = dj_song_own10(song), share = (uint32_t)bpm10 * 65536u / (own ? own : 1200u);
+    int fixed = d == 1 && dj_sync() && has(0);   /* (as tempo_to_player) */
+    player_deck_load_at(d, song, share, (uint16_t)(fixed ? bpm10 : 0));
+}
+void dj_deck_jump_at(int d, int pos, int row, int move)
+{
+    const uint8_t *k = dj_deck(d);
+    if (live) player_deck_jump_at(d, (uint8_t)pos, (uint8_t)row, move, k[DK_LOOP] >= 2 && k[DK_REPEAT]);
+}
 void dj_deck_hand(int d, int pos, int row, int ms)
 {
     if (!live) dj_on(1);                /* (the decks live: the hand is heard) */

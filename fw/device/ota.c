@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Copyright (C) 2026 Vasily Kazantsev (OTA_BUFS: the buffers lent by the includer) */
+ * Copyright (C) 2026 Vasily Kazantsev (OTA_BUFS: the buffers lent by the includer; the loader kept at boot) */
 /* M-UPGRADE update entry.
  *
  * The updater talks SysEx (F0 pack7(00 59 cmd len24 body chk) F7):
@@ -401,19 +401,38 @@ static int ota_session(void)
     return 0;
 }
 
-/* boot: a staging area left over (we are running, so the update finished or
- * never started): erase it so the SPL does not re-enter the loader */
+/* boot: the staging as an update left it (we are running, so the update finished or never started). An update
+ * loader of PT/FM's stays (the start check runs it for update mode: fw/stub): its head written last checks out and
+ * its first bytes carry both marks (crt0_ldr.S); anything else goes, a flash copy of the update record too.
+ * Returns 1 when a loader is kept, 0 when none, -1 on a read error */
+static int ota_kept_loader(const uint8_t *h, const uint8_t *b)   /* the head (32 B), the bytes 0x48 on (64 + 24 B) */
+{
+    static const char NAME[11] = "LOADER.BIN";
+    uint32_t i, len = ota_rd32(h + 8);
+    if (ota_crc16(h + 2, 30, 0) != ota_rd16(h) || ota_rd32(h + 4) != OTA_AREA || h[12] != 0x41u || len < 0x100u ||
+        len > OTA_AREA_LEN - 0x100u || !ota_memeq(h + 16, (const uint8_t *)NAME, 11))
+        return 0;
+    for (i = 0; i <= 64u; i++)
+        if (ota_memeq(b + i, (const uint8_t *)"FELUCCA-LOADER-1PTFM-LD1", 24))
+            return 1;
+    return 0;
+}
 static int ota_boot_cleanup(void)
 {
-    uint8_t a[4], r[8];
-    uint32_t i, used = 0;
-    if (ota_fread(OTA_AREA, a, 4) || ota_fread(OTA_RES, r, 8))
+    uint8_t h[32], b[64 + 24], r[8];
+    uint32_t i, used = 0, kept;
+    if (ota_fread(OTA_AREA, h, 32) || ota_fread(OTA_AREA + 0x48u, b, sizeof b) || ota_fread(OTA_RES, r, 8))
         return -1;
-    for (i = 0; i < 4u; i++)
-        used |= a[i] != 0xFFu;
+    kept = (uint32_t)ota_kept_loader(h, b);
     for (i = 0; i < 8u; i++)
         used |= r[i] != 0xFFu;
+    if (kept && used && ota_rd32(h + 8) <= (OTA_RES & ~0xFFFu) - OTA_AREA)
+        ota_erase(OTA_RES & ~0xFFFu);                       /* (a record an older firmware's install wrote) */
+    if (kept)
+        return 1;
+    for (i = 0; i < 32u; i++)
+        used |= h[i] != 0xFFu;
     if (used)
         ota_unstage();
-    return (int)used;
+    return 0;
 }

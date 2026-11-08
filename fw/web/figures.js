@@ -10,27 +10,23 @@
  *                                       the window's number
  *   PTFM_figures.decode2(message)    -> core 2's window (37 FIGURES 2), or null; join(fig, c2) puts it in its window
  *                                       (fig.c2) when their numbers match (true), as the 37 comes right after its 31
- *   PTFM_figures.c2Text(c2)          -> core 2's state as a word (STARTING, ON, OFF, OFF (38), STOPPED: FAULT ...)
- *   PTFM_figures.secondAsk(on)       -> Uint8Array: 38 SECOND CORE (0: core 2 off, 1: as SETTINGS says)
- *   PTFM_figures.session()           -> the RUNS: { add(fig, now): kept while recording, last: the latest always;
+ *   PTFM_figures.c2Text(c2)          -> core 2's state as a word (STARTING, ON, OFF, STOPPED: FAULT ...)
+ *   PTFM_figures.session()          -> the RUNS: { add(fig, now): kept while recording, last: the latest always;
  *                                         record(name, now), stop(now), recording, reset(), sections (the runs),
  *                                         all, of(i), remove(i), stats(list), runReport(i, now), report(now) }
  *   A run's figures count only the windows the FM-1 played in (the stopped ones left out, and said so),
  *   unless it never played.
  *   PTFM_figures.sectionLines(name, stats) -> a run's (or an autotest's measured stretch's) report lines
  *   PTFM_figures.unsentIn(windows)   -> the FIGURES answers the FM-1 could not send between the first and the last
- *   PTFM_figures.benchAsk(run)       -> Uint8Array: 32 BENCH (run 1: start it, 0: stop it)
- *   PTFM_figures.decodeBench(msg)    -> a 33 BENCH RECORD: START, CORE, ALONE or END, or null
- *   PTFM_figures.bench()             -> { add(record), rows, start, end, running(), lines(): the report's }
  *   PTFM_figures.proveAsk(what)      -> Uint8Array: 35 PROVE (0 the records, 1 the watchdog test, 2 the main loop's
- *                                       stack's overflow, 3 the interrupts'; 4 core 2 faults, 5 a misread, 6 core 2
- *                                       stuck: no restart)
+ *                                       stack's overflow, 3 the interrupts')
  *   PTFM_figures.decodeRecords(msg)  -> a 36 RECORDS, or null; PTFM_figures.recordsLines(r) -> its lines
  */
 (function (root) {
 "use strict";
 const PREFIX = [0xF0, 0x7D, 0x50, 0x54], ASK = 0x30, FIGS = 0x31, VERSION = 11;
-const FIGS2 = 0x37, VERSION2 = 2, LEN2 = 56, SECOND = 0x38;   /* 37 FIGURES 2: core 2's window; 38 SECOND CORE */
+const FIGS2 = 0x37, VERSION2 = 2, LEN2 = 56;      /* 37 FIGURES 2: core 2's window */
+const HALF_US = 5804;                                     /* an audio half, us (the worst half's share) */
 const C2_STATE = ["STARTING", "ON", "OFF", "STOPPED"];
 const C2_WHY = ["", "NO ANSWER", "MISREAD", "STUCK", "FAULT", "AFTER A CRASH"];
 const STAGES = ["START", "CONTROL", "DJ DECKS", "DJ LFOS", "REPLAY", "CELLS", "NOTES", "VOICES", "DX7", "JUNO", "TB-303",
@@ -103,7 +99,7 @@ function decode2(m) {
     const b = unpack7(m.subarray ? m.subarray(5, m.length - 1) : m.slice(5, m.length - 1));
     if (b.length < LEN2 || b[0] !== VERSION2) return null;
     const u16 = (o) => b[o] | b[o + 1] << 8, u32 = (o) => (u16(o) + u16(o + 2) * 65536);
-    return { win: b[1], state: b[2], why: b[3], setting: !!(b[4] & 1), forced: !!(b[4] & 2), clk: !!(b[4] & 4),
+    return { win: b[1], state: b[2], why: b[3], setting: !!(b[4] & 1), clk: !!(b[4] & 4),
              whole: !!(b[4] & 8), start10ns: u16(6), sum: u32(8), max: u16(12), blocks: u16(14), misreads: u16(16),
              waitSum: u32(18), waitMax: u16(22), late1: u16(24), late2: u16(26), stackUsed: u16(28), stackSize: u16(30),
              faultVec: u32(32), faultPc: u32(36),
@@ -119,9 +115,7 @@ function join(f, c) {
     f.c2 = c;
     return true;
 }
-const c2Text = (c) => (C2_STATE[c.state] || `STATE ${c.state}`) + (c.state === 3 && c.why ? `: ${C2_WHY[c.why] || c.why}` :
-                                                                   c.state === 2 && c.forced ? " (38)" : "");
-function secondAsk(on) { return Uint8Array.from(PREFIX.concat([SECOND, on ? 1 : 0, 0xF7])); }
+const c2Text = (c) => (C2_STATE[c.state] || `STATE ${c.state}`) + (c.state === 3 && c.why ? `: ${C2_WHY[c.why] || c.why}` : "");
 
 /* ---- USB (FIGURES' USB: specs/debug.md): audio, and the FIGURES answers the FM-1 could not send ---- */
 function usbAt(b, o) {
@@ -516,78 +510,11 @@ function session() {
     return S;
 }
 
-/* ---- the bench (specs/debug.md, The bench): 32 BENCH asks, 33 BENCH RECORD brings each result ---- */
-const BENCH = 0x32, BREC = 0x33, BENCH_VERSION = 5, TICKS_US = 24, MHZ = 360;
-const BKIND = ["START", "CORE", "ALONE", "STEP", "END", "NEXT"];
-const UNIT = ["cycles", "bytes", "call", "block"];
-function benchAsk(run) { return Uint8Array.from(PREFIX.concat([BENCH, run ? 1 : 0, 0xF7])); }
-
-function decodeBench(m) {
-    if (!m || m.length < 7 || m[m.length - 1] !== 0xF7 || m[4] !== BREC) return null;
-    for (let i = 0; i < 4; i++) if (m[i] !== PREFIX[i]) return null;
-    const b = unpack7(m.subarray ? m.subarray(5, m.length - 1) : m.slice(5, m.length - 1));
-    if (b.length < 26 || b[0] !== BENCH_VERSION || b[1] > 5) return null;
-    const u16 = (o) => b[o] | b[o + 1] << 8, u32 = (o) => (u16(o) + u16(o + 2) * 65536);
-    const str = (o, n) => { let s = ""; for (let i = 0; i < n && b[o + i]; i++) s += String.fromCharCode(b[o + i]); return s; };
-    const r = { kind: BKIND[b[1]], n: u16(2), total: u16(4), name: str(6, 20) };
-    if (r.kind === "START") Object.assign(r, { version: str(26, 24), voices: b[50], uptime: u32(52) });
-    else if (r.kind === "END") Object.assign(r, { status: b[26], ms: u32(28) });
-    else if (r.kind === "CORE" || r.kind === "ALONE")
-        Object.assign(r, { unit: UNIT[b[26]] || "cycles", runs: b[27], ops: u32(28), first: u32(32), min: u32(36),
-                           max: u32(40), sum: u32(44) });
-    else return null;                                   /* (STEP and NEXT: the steps', gone from the firmware) */
-    return r;
-}
-
-/* a run's records -> its report's lines (and what the page shows) */
-function bench() {
-    const B = { rows: [], start: null, end: null };
-    B.add = (r) => {
-        if (r.kind === "START") { B.rows = []; B.start = r; B.end = null; return; }
-        if (r.kind === "END") { B.end = r; return; }
-        B.rows.push(r);
-    };
-    B.running = () => !!B.start && !B.end;
-    B.lines = () => benchLines(B);
-    return B;
-}
-
-const BLOCK_FRAMES = 64;
-function measureText(r) {                               /* a CORE or ALONE row's figures */
-    const mean = r.runs ? r.sum / r.runs : r.min;
-    if (r.unit === "cycles") {
-        const c = (t) => (t * MHZ / TICKS_US / r.ops).toFixed(1);
-        return `${c(r.min).padStart(7)} cycles  (${(r.min / TICKS_US * 1000 / r.ops).toFixed(1)} ns)  mean ${c(mean)}  first ${c(r.first)}`;
-    }
-    if (r.unit === "bytes") return `${(r.ops * TICKS_US / r.min).toFixed(0).padStart(7)} MB/s  first ${(r.ops * TICKS_US / r.first).toFixed(0)}`;
-    const us = (t) => (t / TICKS_US).toFixed(1);
-    if (r.unit === "call") return `${us(r.min).padStart(7)} us  first ${us(r.first)}`;
-    if (!r.runs) return "    (no sound: its audio is not there)";
-    const voice = BLOCK_FRAMES / 44100 * 1e6;
-    return `warm ${us(r.min).padStart(6)} / ${us(mean).padStart(6)} / ${us(r.max).padStart(6)} us   cold ${us(r.first).padStart(6)}` +
-           `   ${(r.min / TICKS_US / voice * 100).toFixed(1).padStart(4)}% of its time`;
-}
-const HALF_US = 5804;
-function benchLines(B) {
-    const L = [];
-    if (!B.start) return L;
-    const end = B.end ? `${B.end.name.toLowerCase()} after ${mmss(B.end.ms / 1000)}` : "unfinished";
-    L.push(`== BENCH  (${B.rows.length} of ${B.start.total} pieces, ${end}; firmware ${B.start.version}, VOICES ${B.start.voices})`);
-    const core = B.rows.filter((r) => r.kind === "CORE"), alone = B.rows.filter((r) => r.kind === "ALONE");
-    if (core.length) {
-        L.push(`THE CORE  (interrupts off; the best of ${core[0].runs} runs after the first; cycles at ${MHZ} MHz a turn or op)`);
-        for (const r of core) L.push(`  ${r.name.padEnd(20)} ${measureText(r)}`);
-    }
-    if (alone.length) {
-        L.push("ALONE  (one voice or effect, a 64-frame block, interrupts off: warm best / mean / worst;");
-        L.push("        cold: the code cache emptied first; the share: of the 1,451 us the block plays)");
-        for (const r of alone) L.push(`  ${r.name.padEnd(20)} ${measureText(r)}`);
-    }
-    return L;
-}
-
 /* ---- PROVE (specs/debug.md, Proving the layout): 35 PROVE asks, 36 RECORDS answers ---- */
-const PROVE = 0x35, RECS = 0x36, RECS_VERSION = 3, RECS_LEN = 120;
+const PROVE = 0x35, RECS = 0x36, RECS_VERSION = 4, RECS_LEN = 136;   /* (version 3, 120 B: without the start check) */
+const STUB_DID = ["?", "the firmware", "the update loader (UPDATE MODE)", "THE CHIP'S OWN USB MODE"];
+const STUB_WHY = ["OCT- held", "the firmware asked (two failed starts)", "no mark", "the firmware not its mark's",
+                  "no update loader kept", "the loader started once already"];
 const PSTEP = ["none", "the watchdog test, its first restart", "the watchdog test, its second restart",
                "the main loop's stack's overflow", "the interrupts' stack's overflow"];
 const CRASH_MAGIC = 0x43525348, PROVE_VEC = 0xFFFFFFFE;
@@ -598,7 +525,8 @@ function decodeRecords(m) {
     if (!m || m.length < 7 || m[m.length - 1] !== 0xF7 || m[4] !== RECS) return null;
     for (let i = 0; i < 4; i++) if (m[i] !== PREFIX[i]) return null;
     const b = unpack7(m.subarray ? m.subarray(5, m.length - 1) : m.slice(5, m.length - 1));
-    if (b.length < RECS_LEN || b[0] !== RECS_VERSION) return null;
+    const v4 = b[0] === RECS_VERSION && b.length >= RECS_LEN;
+    if (!v4 && !(b[0] === 3 && b.length >= 120)) return null;
     const u16 = (o) => b[o] | b[o + 1] << 8, u32 = (o) => (u16(o) + u16(o + 2) * 65536);
     const crash = {};
     CRASH.forEach((k, i) => { crash[k] = u32(20 + 4 * i); });
@@ -610,6 +538,10 @@ function decodeRecords(m) {
         stacks: { mainLo: u32(92), mainTop: u32(96), irqLo: u32(100), irqTop: u32(104) },
         /* the pointers the start's check read (usp, ssp, and sp: the one in use then), which chose the windows */
         read: { usp: u32(108), ssp: u32(112), sp: u32(116) },
+        /* the start check's (version 4): its last decision, why, the loader's starts, its check's time; the debug part,
+           the staging */
+        start: v4 ? { did: b[120], why: b[121], tries: b[122], part: !!b[123], checkUs: u32(124), starts: u16(128),
+                      p3: b[130], loader: b[132] } : null,
     };
 }
 function recordsLines(r) {
@@ -634,12 +566,21 @@ function recordsLines(r) {
                (c.stack ? `, STACK: ${c.stack === 2 ? "THE INTERRUPTS'" : "THE MAIN LOOP'S"}` : ""));
         L.push(`  core 2 at the crash: ${c.c2 === 1 ? "RUNNING (it stays off till the power goes off)" : "not running"}`);
     } else L.push("the crash record: none");
+    if (r.start) {
+        const s = r.start, why = STUB_WHY.filter((w, i) => s.why >> i & 1);
+        L.push(`the start check: ${STUB_DID[s.did] || "?"}${why.length ? " (" + why.join(", ") + ")" : ""}; ` +
+               (s.checkUs ? `its CRC-32 of the firmware ${(s.checkUs / 1000).toFixed(1)} ms` : "the firmware not read") +
+               `; ${s.starts} start${s.starts === 1 ? "" : "s"} since the power-on (the update loader's since the firmware's: ${s.tries})` +
+               `; it read the reset reasons ${s.p3.toString(2).padStart(8, "0")}`);
+        L.push(`the update loader in the staging: ${s.loader === 1 ? "PT/FM's, kept" : s.loader === 0 ? "NONE KEPT" : "not read"}; ` +
+               `the debug part: ${s.part ? "in" : "NOT IN"}`);
+    }
     return L;
 }
 
-const F = { ask, decode, decode2, join, c2Text, secondAsk, unpack7, stats, session, quantile, sectionLines, unsentIn, STAGES,
-            INSIDE, ENGINES, LEN, LEN2, C2_STATE, C2_WHY, RESET: 1, FREEZE: 2, UNFREEZE: 4, benchAsk, decodeBench, bench,
-            proveAsk, decodeRecords, recordsLines };
+const F = { ask, decode, decode2, join, c2Text, unpack7, stats, session, quantile, sectionLines, unsentIn, STAGES,
+            INSIDE, ENGINES, LEN, LEN2, C2_STATE, C2_WHY, RESET: 1, FREEZE: 2, UNFREEZE: 4, proveAsk, decodeRecords,
+            recordsLines };
 if (typeof module !== "undefined" && module.exports) module.exports = F;
 else root.PTFM_figures = F;
 })(typeof window !== "undefined" ? window : globalThis);

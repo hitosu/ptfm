@@ -1,0 +1,155 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Vasily Kazantsev
+# One RECORD LIVE session as data, played by both twins on their virtual clocks: fw/tests/ui3_test.c (its --session
+# mode) and tests/playground/live_twin.js; each writes the song as text, fw/tests/run_ui3.sh compares them. A line is a
+# step, in order: a time ROW.TICK of the loops' replay first waits for it (rows of 6 ticks from the replay's start,
+# whatever the tempo; a step that finds its time gone by fails), none goes on at once. Steps: fresh ROWS TEMPO (LOOPS as a
+# check wants it), loop INST BASE
+# REPEATS MONO SHIFT ROW:LANE:NOTE[:VOLUME] ... (in rows' order, NOTE off a note off), select I, wait MS, homekey N, down /
+# up BUTTON, keydown / keyup KEY (0-26), turn KNOB CLICKS, menu ITEM (SEL's menu open: onto that item), heard / unheard NOTE
+# (checked: a voice of the count sounds it, held), end (the song ended: the text written)
+#
+# VOICES 8, so a note is taken and comes back
+homekey 20
+turn SELECT -30
+wait 200
+turn SELECT 1
+wait 200
+turn SELECT 1
+wait 200
+turn SELECT 1
+wait 200
+turn K1 -1
+wait 200
+turn K1 -1
+wait 200
+homekey 22
+fresh 64 120
+loop F000 16 4 0 0 0:0:60 4:0:off 8:0:62 12:0:off
+loop F100 16 4 0 0 0:0:off 14:0:72
+loop F800 16 4 0 0 2:0:48 10:0:off
+# (FUSION: CHIPIN, whose layers run on the ticks; SPACE PAD, a plain one)
+loop 0603 64 1 0 0 22:0:60 23:0:off
+# (past the count, at rows 44 and 108: chords fill the voices, the quietest first to go: a row on, to a note of its own loop,
+# which takes its track too; then to loop 01's)
+loop F000 32 1 0 32 12:0:67:10 12:1:71:30 12:2:74:60 13:3:86:64 15:1:off 15:2:off 15:3:off 28:0:off
+loop F000 16 1 0 32 12:0:79:60 12:1:81:60 12:2:83:60 12:3:84:60 15:0:off 15:1:off 15:2:off 15:3:off
+loop F000 16 1 0 32 12:0:77:60 15:0:off
+loop 0600 64 1 0 0 36:0:60 37:0:off
+select 8
+wait 600
+# the loops set going; armed; REC starts the song at replay row 16, its row 0
+down PLAY
+up PLAY
+0.2 down SEL
+0.4 up SEL
+2.0 menu RECORD LIVE
+8.2 down SEL
+8.4 up SEL
+10.1 down REC
+10.3 up REC
+16.2 down REC
+16.3 up REC
+# a mute (loop 02's note sounding, from row 2) and the mute off (nothing written till its next note)
+21.1 down SEQ
+21.3 keydown 4
+21.5 keyup 4
+22.1 up SEQ
+25.2 down SEQ
+25.3 keydown 4
+25.5 keyup 4
+26.1 up SEQ
+# a solo: loop 00 alone (loop 02's and loop 01's notes sounding end there), off again
+34.1 down SEQ
+34.2 keydown 17
+34.3 keyup 17
+34.5 keydown 0
+35.0 keyup 0
+36.0 keydown 0
+36.2 keyup 0
+36.3 keydown 17
+36.4 keyup 17
+37.0 up SEQ
+# (the quietest note, taken at row 45, is parked; it comes back as a voice comes free, nothing written of it, its note off neither)
+47.0 unheard 67
+# the stage overdubbed (QUANTIZE ROW): a key near its row, heard at once; one near the next, heard there; each key's end as
+# it lands; REC sends the stage on + NEW LOOP (a loop now, its note going on with it)
+48.2 keydown 12
+50.4 keyup 12
+52.4 keydown 16
+54.1 keyup 16
+58.0 heard 67
+58.2 keydown 19
+60.1 down REC
+60.2 up REC
+61.1 keyup 19
+# the pattern recorder: its preview heard (a step on: step 9 of 16), its REC puts the pattern on the stage
+64.1 down ARP
+64.2 down REC
+64.3 up REC
+64.4 up ARP
+68.0 keydown 14
+68.2 keyup 14
+82.1 down REC
+82.2 up REC
+# the stage overdubbed again, and OVERWRITE by LFO's tap, erasing its notes as they come round, then OVERDUB by its tap
+85.2 keydown 14
+86.2 keyup 14
+96.1 down LFO
+96.2 up LFO
+106.1 down LFO
+106.2 up LFO
+# ARP's tap: the stage off, the keys as played (note delays, key offs), a key's note shorter than a tick; ARP's tap: on again
+112.1 down ARP
+112.3 up ARP
+114.2 keydown 5
+115.3 keyup 5
+116.4 keydown 7
+116.4 keyup 7
+117.1 down ARP
+117.3 up ARP
+# a tempo change and back (K4's job, TEMPO)
+118.1 turn K4 3
+122.1 turn K4 -3
+# an FX turn; on the page after it a key, played on another screen; a punch-in
+126.0 down FX
+126.2 up FX
+128.0 turn K1 2
+130.1 down SEQ
+130.2 up SEQ
+131.0 keydown 9
+131.4 keyup 9
+132.0 down SEQ
+132.1 up SEQ
+132.2 down SEQ
+132.3 up SEQ
+132.4 down FX
+132.5 up FX
+134.0 down FX
+134.2 keydown 0
+135.3 keyup 0
+135.4 up FX
+# a mix turned (loop 03's, the loop selected, silent with the stage holding notes)
+137.0 turn SELECT -6
+143.0 turn K1 -3
+# loop 01's note off lands exactly on row 144, the song's row 128; then it is selected, silent with the stage holding notes
+146.2 turn SELECT -1
+149.2 turn SELECT -1
+# PLAY: the loops silent from the next row, the keys as played, PLAY: on again from their place
+150.5 down PLAY
+151.0 up PLAY
+153.2 keydown 9
+154.3 keyup 9
+166.5 down PLAY
+167.0 up PLAY
+# DELETE LOOP on it with loop 02's note sounding (from row 178): that ends there, another loop standing in its place
+172.1 down SEL
+172.3 up SEL
+174.0 menu DELETE LOOP
+180.1 down SEL
+180.3 up SEL
+# HOME's cut-back: the song's last row is the one it was pressed in, what came after it gone
+190.2 down HOME
+192.3 up HOME
+wait 500
+end

@@ -12,6 +12,7 @@
 #include "play/rec.h"
 #include "store/store.h"
 #include "ui/ui_core.h"
+#include "ui/ui_lp.h"
 
 static uint8_t asked;
 
@@ -73,7 +74,7 @@ int remote_state(uint8_t *f)
     f[1] = (uint8_t)((mir ? 2u : 0u) | (ui_arp_on() ? 4u : 0u) | (ui_set[S_ARP_LATCH] ? 8u : 0u) |
                      (st.playing ? 16u : 0u));
 #ifdef PTFM_DEBUG
-    f[1] |= (uint8_t)(1u | (dbg_usb_tone ? 32u : 0u));
+    f[1] |= (uint8_t)(1u | (dbg_usb_tone ? 32u : 0u) | (plat_dbg_part() ? 64u : 0u));   /* (64: the debug part's in) */
 #endif
     f[2] = (uint8_t)mch;
     f[3] = st.what;
@@ -111,6 +112,7 @@ int remote_state(uint8_t *f)
     put16(f + 325, store_edit_used() / 4u);             /* the edit memory (u16 in 4-byte units: each a multiple of 4) */
     put16(f + 327, store_edit_top() / 4u);
     put16(f + 329, store_edit_limit() / 4u);
+    lp_state(f + 331);                                  /* LOOPS' bytes: the stage's notes, SHIFT, ADJUST, OVERWRITE */
     return REMOTE_STATE_LEN;
 }
 

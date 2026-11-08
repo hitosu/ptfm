@@ -29,16 +29,18 @@ static const uint8_t DJ_FX[5] = {FE_CHORUS, FE_DELAY, FE_REVERB, FE_LIMITER, FE_
 static struct {
     int page, sel, kpage, last;
     int move;                           /* MOVE: the chain as it was, for HOME */
-    uint8_t move_chain[12];
     int move_n, move_sel;
     int gate_edit;                      /* GATE's steps edited: what HOME puts back */
-    uint8_t gate_was[16][16];           /* the user's patterns as they were */
     uint8_t gate_knob_was[4];
     int gate_changed;
     int mix_t, mix_r;
     int bypass;
-    struct { uint8_t down, was, turned; } held[16];
 } fx = {.page = LIVE, .last = -1};
+static struct {                         /* (SIZE: the arrays apart, all 0 at the start: .bss, not the image) */
+    uint8_t move_chain[12];
+    uint8_t gate_was[16][16];           /* the user's patterns as they were */
+    struct { uint8_t down, was, turned; } held[16];
+} fxb;
 
 /* ------------------------------------------------------------------- what it edits --- */
 static fxt_t tg;
@@ -116,7 +118,7 @@ static void ch_knob(uint8_t *s, void *a) { chg_t *c = a; fxd_set(s, c->e, c->k, 
 static void ch_on(uint8_t *s, void *a) { chg_t *c = a; fxd_set_on(s, c->e, c->on); }
 static void ch_reset(uint8_t *s, void *a) { chg_t *c = a; fxd_reset(s, c->e); }
 static void ch_routing(uint8_t *s, void *a) { chg_t *c = a; fxd_set_routing(s, c->v); }
-static void ch_chain(uint8_t *s, void *a) { (void)a; fxd_set_chain(s, fx.move_chain, fx.move_n); }
+static void ch_chain(uint8_t *s, void *a) { (void)a; fxd_set_chain(s, fxb.move_chain, fx.move_n); }
 static uint8_t chain_new[12];
 static int chain_new_n;
 static void ch_chain_new(uint8_t *s, void *a) { (void)a; fxd_set_chain(s, chain_new, chain_new_n); }
@@ -501,10 +503,10 @@ static void knob(int e, int s, int coarse)
         int any = 0, pat = fxd_get(set_s, FE_GATE, 0), first = -1;
         uint8_t st[16];
         gate_steps(pat, st);
-        for (int k = 0; k < 16; k++) if (fx.held[k].down) {
+        for (int k = 0; k < 16; k++) if (fxb.held[k].down) {
             any = 1;
             if (first < 0) first = k;
-            fx.held[k].turned = 1;
+            fxb.held[k].turned = 1;
             st[k] = (uint8_t)ui_clamp(st[k] + (s > 0 ? 1 : -1), 1, 4);
         }
         if (any) {
@@ -603,7 +605,7 @@ static void menu_pick(int id)
     if (id == 1) {                                      /* MOVE */
         if (fixed_fx(e)) { ui_refuse(B_SEL); ui_toast(ui_txt_v(T("# DOES NOT MOVE"), T(FX_EFF[e].name))); return; }
         fx.move = 1;
-        fx.move_n = fxd_chain(set_s, fx.move_chain);
+        fx.move_n = fxd_chain(set_s, fxb.move_chain);
         fx.move_sel = fx.sel;
         ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
     } else if (id == 2 && e < FE_N) {                   /* RESET */
@@ -722,7 +724,7 @@ static int tap(int b)
     if (b == B_EDIT && e == FE_GATE && fx.page == EDIT) {
         if (fx.gate_edit) { fx.gate_edit = 0; return 1; }                   /* keeping the changes */
         /* the session: HOME puts back the user's patterns and GATE's knobs as they were */
-        for (int i = 0; i < 16; i++) gate_steps(16 + i, fx.gate_was[i]);
+        for (int i = 0; i < 16; i++) gate_steps(16 + i, fxb.gate_was[i]);
         for (int k = 0; k < 4; k++) fx.gate_knob_was[k] = (uint8_t)fxd_get(set_s, FE_GATE, k);
         fx.gate_changed = 0;
         int pat = fxd_get(set_s, FE_GATE, 0);
@@ -744,7 +746,7 @@ static int tap(int b)
             ui_toast(line);
         }
         fx.gate_edit = 1;
-        memset(fx.held, 0, sizeof fx.held);
+        memset(fxb.held, 0, sizeof fxb.held);
         return 1;
     }
     if (b == B_ENV && e == FE_GATE && fx.page == EDIT) {
@@ -773,13 +775,13 @@ static int key(int n, int down)
         uint8_t st[16];
         gate_steps(pat, st);
         if (down) {
-            fx.held[wi].down = 1;
-            fx.held[wi].was = st[wi];
-            fx.held[wi].turned = 0;
+            fxb.held[wi].down = 1;
+            fxb.held[wi].was = st[wi];
+            fxb.held[wi].turned = 0;
             if (!st[wi]) { st[wi] = 1; gate_put(pat, st); }
         } else {
-            int was = fx.held[wi].was, turned = fx.held[wi].turned;
-            fx.held[wi].down = 0;
+            int was = fxb.held[wi].was, turned = fxb.held[wi].turned;
+            fxb.held[wi].down = 0;
             if (was && !turned) { st[wi] = 0; gate_put(pat, st); }
         }
         return 1;
@@ -834,7 +836,7 @@ static int back(void)
         fx.move = 0;
         uint8_t c[12];
         int n = fxd_chain(set_s, c);
-        if (n != fx.move_n || memcmp(c, fx.move_chain, (size_t)n)) {
+        if (n != fx.move_n || memcmp(c, fxb.move_chain, (size_t)n)) {
             if (!edit(ch_chain, 0, B_HOME) && tg.plays) player_fx_reload();
         }
         fx.sel = fx.move_sel;
@@ -844,7 +846,7 @@ static int back(void)
     if (fx.gate_edit) {                                 /* HOME: dropping the changes */
         fx.gate_edit = 0;
         if (fx.gate_changed) {
-            for (int i = 0; i < 16; i++) gate_put(16 + i, fx.gate_was[i]);
+            for (int i = 0; i < 16; i++) gate_put(16 + i, fxb.gate_was[i]);
             for (int k = 0; k < 4; k++) {
                 if (fxd_get(set_s, FE_GATE, k) == fx.gate_knob_was[k]) continue;
                 chg_t c = {FE_GATE, k, fx.gate_knob_was[k], 0};
@@ -856,8 +858,35 @@ static int back(void)
     }
     return 0;
 }
+/* the footer's CPU figure (fx.md): the picked effect's time over the last quarter second, % x 10 of the audio's
+ * time, read in tick (the same in a frame's two halves); -1 until a quarter second of it is measured. DUCK (its work
+ * spread through the tracks' mixing) and a platform whose timer stands still in the sound's work (the emulator, the
+ * tests): the FM-1's figures (FX_EFF) */
+static struct { uint32_t at, us, h; int16_t pm; int8_t e; } cost = {0, 0, 0, -1, -1};
+static int cost_table(int e) { return !PLAT_WORK_TIMED || e == FE_DUCK; }
+static void cost_read(int e)
+{
+    uint32_t now = ui_now(), us, n;
+    plat_cpu_t c;
+    int same = e == cost.e && cost.at;
+    if (e < 0 || e >= FE_N || cost_table(e) || (same && (int32_t)(now - cost.at) < 250)) return;   /* (| 1) */
+    plat_cpu(&c, 0);
+    us = fx_spent_us(e);
+    n = (c.halves - cost.h) * c.half_us;
+    if (!same) cost.pm = -1;
+    else if (n && (int32_t)(now - cost.at) < 1000)    /* (longer: the main loop held up, the flash: a quarter more) */
+        cost.pm = (int16_t)(((us - cost.us) * 1000u + n / 2u) / n);
+    cost.e = (int8_t)e;
+    cost.us = us;
+    cost.h = c.halves;
+    cost.at = now | 1;
+}
+static int cost_pm(int e) { return cost_table(e) ? FX_EFF[e].cpu10 : e == cost.e ? cost.pm : -1; }
+
 static void enter(const ui_screen_t *from)
 {
+    fx_timed(1);                                        /* (the footer's figures: the effects timed while FX is open) */
+    cost.at = 0;
     fxt_from(from ? T(from->name) : 0);
     refresh();
     if (fx.page >= page_count()) fx.page = LIVE;
@@ -885,6 +914,7 @@ static void tick(void)
     int e = fx.page != MIXER && tg.plays ? sel_e() : -1;
     mine_send(e < FE_N ? e : -1);
     fx_watch(fx.page == EDIT);                          /* (the activity meters: measured only while EDIT shows) */
+    cost_read(fx.page == MIXER ? -1 : sel_e());
 }
 static void editing(uint8_t *what, uint32_t *key)       /* the MIXER: the mixer shown, the song's or the loops' */
 {
@@ -897,6 +927,7 @@ static void leave(const ui_screen_t *to)
     (void)to;
     mine_send(-1);
     fx_watch(0);
+    fx_timed(0);
     fx.gate_edit = 0;
     if (fx.bypass) { fx.bypass = 0; player_fx_bypass(0); }
     if (fx.page == LIVE && !ui_punch_kept()) ui_punch_off();   /* (one ARP holds on plays on) */
@@ -916,9 +947,10 @@ static const char *footer(uint8_t *col)
     *col = C_LGREY;
     if (fx.page == MIXER && mix_keys(fx.mix_t)) return T("KEYS");
     if (fx.page == MIXER) { ui_fmt(b, sizeof b, "%s%s", tg.what == FT_LOOPS ? T("LOOP ") : T("TRACK "), ui_hex2(fx.mix_t)); return b; }
-    int e = sel_e();
+    int e = sel_e(), pm;
     if (e >= FE_N) return 0;
-    ui_fmt(b, sizeof b, T("%s %d.%d%% CPU"), T(FX_EFF[e].name), FX_EFF[e].cpu10 / 10, FX_EFF[e].cpu10 % 10);
+    if ((pm = cost_pm(e)) < 0) return T(FX_EFF[e].name);   /* (its first quarter second: the name alone) */
+    ui_fmt(b, sizeof b, T("%s %d.%d%% CPU"), T(FX_EFF[e].name), pm / 10, pm % 10);
     return b;
 }
 static int sel_lines(const char **lines, int max)

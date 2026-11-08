@@ -55,7 +55,8 @@ AMBER, WHITE, DAYLIGHT, PAPER, MANUAL, SILVER, LCD, COMMANDER; DEFAULT at first<
 <dt>KEYS GAIN</dt><dd>How loud you hear the keys while playing them (the FM-1's and MIDI's), not how they are
 recorded. <span class="range">-24 to +12 dB, 0 dB at first</span></dd>
 <dt>KEYS</dt><dd>THROUGH FX: the keys go through the effects as everything else. DRY: past every effect, straight
-to the output. <span class="range">THROUGH FX, DRY; THROUGH FX at first</span></dd>
+to the output. Neither this nor KEYS GAIN touches what you play onto LOOPS' stage, which sounds as the loop will
+(<a href="#loops-stage">chapter 14</a>). <span class="range">THROUGH FX, DRY; THROUGH FX at first</span></dd>
 <dt>KEYS OCTAVE</dt><dd>The keys' octave at power-on. <span class="range">-4 to +4, 0 at first</span></dd>
 <dt>KNOB SPEED</dt><dd>Bigger steps when a knob is turned fast. <span class="range">OFF, LOW, HIGH; LOW at
 first</span></dd>
@@ -94,13 +95,20 @@ RANDOM, AS PLAYED; UP at first</span></dd>
 <dl class="params">
 <dt>TOOLS</dt><dd>The line of tools below.</dd>
 <dt>CHECK REFERENCES</dt><dd>Lists the references to things that are missing (a note's instrument gone, a song's
-pattern deleted): <samp class="msg" data-t="MISSING REFERENCES: #">MISSING REFERENCES: 3</samp>, or
-<samp class="msg">NO MISSING REFERENCES</samp>.</dd>
+pattern deleted, a sampler instrument whose sample is gone, as <b>SAMPLER 01:05: SAMPLE 23</b>):
+<samp class="msg" data-t="MISSING REFERENCES: #">MISSING REFERENCES: 3</samp>, or
+<samp class="msg">NO MISSING REFERENCES</samp>. After them, not counted, it lists each sampler cartridge still in the
+older form (made by an older PT/FM, before samples were things of their own), once, as <samp class="msg"
+data-t="CARTRIDGE %02X: OLDER FORM">CARTRIDGE 03: OLDER FORM</samp>: this PT/FM leaves it alone and plays nothing from
+it until it is converted (the install page does that after an install, <a href="#install-firmware">chapter 2</a>;
+the EDITOR page with a READ and a WRITE, <a href="#editor-page-fm1">chapter 17</a>).</dd>
 <dt>CHECK STORAGE</dt><dd>Reads every saved record and checks it is whole (<samp class="msg">CHECKING STORAGE</samp>):
 <samp class="msg">STORAGE OK</samp>, or a list of problems (<samp class="msg" data-t="STORAGE PROBLEMS: #">STORAGE
-PROBLEMS: 2</samp>). It writes nothing.</dd>
+PROBLEMS: 2</samp>), among them a sample whose entry and audio disagree
+(<samp class="msg" data-t="SAMPLE %02X">SAMPLE 23</samp><samp class="msg">: ENTRY AND AUDIO DIFFER</samp>): it is
+read as missing. It writes nothing.</dd>
 <dt>CLEAN UP</dt><dd>Finds what nothing uses and asks what goes, as a checklist
-(<samp class="msg" data-t="CLEAN UP: FREES #">CLEAN UP: FREES 1.3K</samp>): UNUSED PATTERNS, UNUSED SAMPLES (ticked at first), UNUSED INSTRUMENTS (not:
+(<samp class="msg" data-t="CLEAN UP: FREES #">CLEAN UP: FREES 1.3K</samp>): UNUSED PATTERNS, UNUSED SAMPLES (those no instrument of any sampler plays; ticked at first), UNUSED INSTRUMENTS (not:
 most of a bank is a library, not leftovers). SELECT picks a line, K1 ticks it, OCT+ cleans up
 (<samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>; nothing to do:
 <samp class="msg">NOTHING TO CLEAN UP</samp>). Built-in things are never listed.

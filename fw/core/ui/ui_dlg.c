@@ -157,6 +157,10 @@ static void menu_draw(ui_overlay_t *o)
         if (it->group >= 0 && m->level < 0) g_text(x + w - 12, yy, &FONT_T, ">", on ? C_WHITE : C_LGREY);
     }
 }
+void ui_menu_name(int id, const char *name)
+{
+    for (int i = 0; i < menu_s.n; i++) if (menu_s.it[i].id == id) strncpy(menu_s.it[i].name, name, sizeof menu_s.it[i].name - 1);
+}
 void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n, void (*pick)(int id), int opener)
 {
     menu_t *m = &menu_s;
@@ -257,8 +261,9 @@ const char *ui_overlay_words(const ui_overlay_t *o)    /* (the state a page asks
 }
 
 /* --------------------------------------------------------------- properties --- */
-#define P_ITEMS 10                      /* (a screen's properties: 7 at most so far) */
-static struct { char title[32], sub[20]; ui_prop_t items[P_ITEMS]; char names[P_ITEMS][20]; int n, sel; } props_s;
+#define P_ITEMS 12                      /* (a screen's properties: LOOPS' 12 at most; their names fixed texts, drawn
+                                         * through T() as they are drawn) */
+static struct { char title[32], sub[20]; ui_prop_t items[P_ITEMS]; int n, sel; } props_s;
 static void props_knob(ui_overlay_t *o, int e, int s, int c)
 {
     (void)o;
@@ -283,7 +288,7 @@ static void props_draw(ui_overlay_t *o)
         const ui_prop_t *it = &props_s.items[i];
         int yy = y + 19 + sub + i * 14, on = i == props_s.sel;
         if (on) g_box(8, yy - 2, 224, 14, C_WHITE);
-        g_text(12, yy, &FONT_T, props_s.names[i], on ? C_WHITE : C_CYAN);
+        g_text(12, yy, &FONT_T, T(it->name), on ? C_WHITE : C_CYAN);
         const char *v = it->get ? it->get() : "";
         int col = it->col ? it->col(on) : on ? C_WHITE : C_LGREY;
         if (!it->change && !it->edit) col = C_DGREY;
@@ -295,11 +300,7 @@ void ui_props(const char *title, const ui_prop_t *items, int n, int opener)
     strncpy(props_s.title, title, sizeof props_s.title - 1);
     props_s.sub[0] = 0;
     props_s.n = n > P_ITEMS ? P_ITEMS : n;
-    for (int i = 0; i < props_s.n; i++) {
-        props_s.items[i] = items[i];
-        strncpy(props_s.names[i], T(items[i].name), sizeof props_s.names[0] - 1);
-        props_s.names[i][sizeof props_s.names[0] - 1] = 0;
-    }
+    for (int i = 0; i < props_s.n; i++) props_s.items[i] = items[i];
     props_s.sel = 0;
     ui_overlay_t o = {.kind = OV_PROPS, .opener = (int8_t)opener, .knob = props_knob, .tap = props_tap, .draw = props_draw};
     ui_open(&o);
@@ -434,7 +435,7 @@ void ui_dlg_poll(void)
 /* readings of the keys whose names say little (help.md) */
 static const char *const READ_KEY[12] = {"LFO", "ENV", "SEQ", "ARP", "OP1", "OP2", "OP3", "OP4", "OP5", "PIT", "MONO", "POLY"};
 static const txt_t READ_TXT[12] = {
-    TX("LEAVE FIELD OPEN"), TX("EXPLORE NAMED VAULTS"), TX("SHOW ELSE, QUICK"), TX("AGAIN, REPEAT, PLEASE"), TX("OPEN PAGE 1"),
+    TX("LEAVE FIELD OPEN"), TX("EXPLORE NAMED VAULTS"), TX("SHOW ELSE, QUICK"), TX("AUTOMATIC REPEAT PROCEDURE"), TX("OPEN PAGE 1"),
     TX("OPEN PAGE 2"), TX("OPEN PAGE 3"), TX("OPEN PAGE 4"), TX("OPEN PAGE 5"), TX("PICTURES IN TIME"), TX("MY OWN NERDY OPTIONS"),
     TX("PARTY ON, LOOP YOURSELF")};
 static int screen_col(const char *n)
@@ -701,15 +702,22 @@ static int layer_lines(int b, g_run_t (*lines)[UI_LINE_RUNS], int *nr, int max)
             for (int i = 0; i < k && n < max; i++) { ui_key_line(lines[n], &nr[n], l[i]); n++; }
         }
         if (!s->no_keyboard && n < max) { ui_key_line(lines[n], &nr[n], T("PRESETS: OTHER CARTRIDGE")); n++; }
+        if (ui_sel_fav_here() && n < max) { ui_key_line(lines[n], &nr[n], T("GLO: FAVORITES AND BACK")); n++; }
         return n;
-    case B_ARP:                                         /* the arpeggiator's; the EDITOR's row preview its rhythm */
+    case B_ARP:                                         /* the arpeggiator's; the EDITOR's row preview its rhythm; LOOPS' + REC,
+                                                         * on the screen itself */
         if (s->own_arp == UI_ARP_PREVIEW) { ui_key_line(lines[0], &nr[0], T("SELECT: THE RHYTHM, # A ROW, _ A REST")); return 1; }
+        if (s->own_arp == UI_ARP_PATTERN && !o) { ui_key_line(lines[0], &nr[0], T("REC: RECORD PATTERN")); return 1; }
         if (s->own_arp) return 0;
         ui_key_line(lines[0], &nr[0], T("SELECT: THE RHYTHM, # A NOTE, _ A REST"));
         ui_key_line(lines[1], &nr[1], T("ALGORITHM: THE PATTERN"));
         ui_key_line(lines[2], &nr[2], T("K1: HOW MANY NOTES LATCH"));
         ui_key_line(lines[3], &nr[3], T("LFO: LET THE LATCHED NOTES GO"));
         return 4;
+    case B_GLO:                                         /* GLO + PRESETS (screens/instruments.md#favorites) */
+        if (!ui_glo_fav_here()) return 0;
+        ui_key_line(lines[0], &nr[0], T("PRESETS: A FAVORITE, ONCE"));
+        return 1;
     case B_SAVE:
         ui_key_line(lines[0], &nr[0], T("OCT+: SAVE"));
         ui_key_line(lines[1], &nr[1], T("OCT-: REVERT ALL"));

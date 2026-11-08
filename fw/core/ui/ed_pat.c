@@ -231,16 +231,6 @@ int ed_copy_pattern(uint8_t from, uint8_t to)
     return ok;
 }
 int ed_delete_pattern(uint8_t pat) { return ui_edit_del(REC_PATTERN, pat, 0); }
-int ed_first_free(void)
-{
-    uint8_t nums[256];
-    int n = store_list(REC_PATTERN, nums, 256), k = 0;
-    for (int i = 0; i <= 0xEF; i++) {
-        while (k < n && nums[k] < i) k++;
-        if (k >= n || nums[k] != i) return i;
-    }
-    return -1;
-}
 
 /* ---------------------------------------------------------------------------- the clipboard --- */
 static uint8_t clip[ED_CLIP];

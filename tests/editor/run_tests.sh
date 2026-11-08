@@ -13,9 +13,13 @@ mkdir -p build/editor
 python3 -I tests/editor/py_dump.py dist/firmware/demo.ptfmdsk build/editor/py_dump.json
 node tests/editor/records_test.js build/editor/py_dump.json
 node tests/editor/loops_test.js
+node tests/editor/loops_preview_test.js
 node tests/editor/model_test.js
 node tests/editor/device_test.js
 node tests/editor/preview_test.js
 node tests/editor/conv_test.js "$@"
+node tests/editor/slices_test.js
+node tests/editor/favorites_test.js
+node tests/editor/slotops_test.js
 node tests/editor/pictures_test.js build/editor/wasm/ptfm.wasm
 echo "EDITOR: ALL PASSED"

@@ -4,174 +4,76 @@
 #include <string.h>
 #include "live.h"
 #include "../plat.h"
+#include "../spare.h"
 #include "loops.h"
 #include "player.h"
 #include "rec.h"
 #include "../store/store.h"
 
-/* The changes waiting for their pattern, in the order they came, 4 B each: the row (| 0x80: the pattern after
- * live_done()'s), what, two values. What: 0-95 a loop's mix byte (loop * RM_N + RM_*; a its new value, b the one before),
- * EV_SIL the loops not heard from there (a, b the mask), EV_CMD a global command (a its code, b its value), EV_PUNCH a
- * punch-in's command still running (b set to the rows it ran as it ends), EV_LOOPS the loops heard from there at their
- * row a (0xFF silent), EV_KEY up a keys' cell: EV_KEY | joined to the note before << 6 | its lane << 4 | its note delay
- * (EDx), a its note (0 none, 1 a note off) | its SLD << 7, b its instrument (kin's index) << 5 | its key off's tick (Kxx;
- * K_NONE none). Joined: a 320, or with a's bit 7 a LEG (a TB-303's note is never joined, so its bit 7 is its SLD) */
-#define LOG_N 255                       /* (a full log drops the change, counted as left out: the song goes on) */
-enum { EV_SIL = 0x60, EV_CMD, EV_PUNCH, EV_LOOPS, EV_KEY = 0x80 };
-#define EV_MIXES (LP_MAX * RM_N)
-#define K_NONE 31
-#define SILENT 0xFF
-typedef struct { uint8_t at, kind, a, b; } ev_t;
+/* The log, the pattern being written, in rows' order (row: within it, past 127 the next's), their order kept within a row,
+ * 8 B an entry: k its kind << 4 | its track. LG_NOTE: a the note, b its volume (0xFF none), c d the instrument, e its 3xx's
+ * xx, f its tick (EDx) | PTF_ACC, SLD, LEG << 5. LG_OFF: a its tick. LG_MIX: a mixer command's code, b its value. LG_CMD
+ * a global command (a its code, b its value, c placed in a cell so far), LG_PUNCH the same for a punch-in's still running
+ * (b set to the rows it ran as it ends). A full log drops what comes: the song goes on, a note dropped counted as left out
+ * (a note off, a mix or a command dropped counts nothing). Lent from the spare zone with the FX setup as last seen */
+enum { LG_NOTE, LG_OFF, LG_MIX, LG_CMD, LG_PUNCH };
+typedef struct { uint8_t row, k, a, b, c, d, e, f; } __attribute__((aligned(4))) lg_t;   /* (the borrow is aligned: copied by words) */
+#ifndef LIVE_LOG_BYTES
+#define LIVE_LOG_BYTES 16000u           /* (a test may build it smaller: -DLIVE_LOG_BYTES=) */
+#endif
+#ifndef LIVE_RING_N
+#define LIVE_RING_N 64u                 /* (the same: -DLIVE_RING_N=, a power of 2) */
+#endif
+#define LOG_BYTES LIVE_LOG_BYTES
+#define LOG_N (LOG_BYTES / sizeof(lg_t))
+#define LENT (LOG_BYTES + 64u)
+#define RING_N LIVE_RING_N              /* the tap's ring: what a slow main loop leaves waiting */
+#define K_OF(g) ((g)->k >> 4)
+#define T_OF(g) ((g)->k & 15)
 #define TRACK_MAX (STORE_MAX_REC - STORE_HDR - 5u)     /* a pattern track's stream at most: a part's payload, its head */
+#define NO_OWNER 0xFFu
 static const uint8_t MIX_DEF[RM_N] = {0x7F, 0x80, 0, 0, 0, 0};
 #define DUCK_SRC (16 + 0xAA - 0x90)     /* the FX setup's DUCK SOURCE and FILTER's envelope's SOURCE (songs.md) */
 #define ENV_SRC (16 + 0xB1 - 0x90)
 
+/* a track of the song: on, holding a note; lane: the lane it played last, key: a key's own number on the keys' lanes; owner:
+ * the source of its mix (a replay's channel, PT_KEYCH the keys'; NO_OWNER none yet); its last note's row and tick; have: its
+ * mix as written so far */
+typedef struct {
+    uint8_t on, lane, key, owner, ntick;
+    uint16_t nrow;
+    uint8_t have[RM_N];
+} tr_t;
+static pl_tap_t ring[RING_N];
 static struct {
-    uint8_t on, song, len, nl, made, over, kvol;
-    uint8_t lr0;                        /* the loops' row heard at the next pattern's first row (SILENT) */
-    uint16_t done, left;
-    uint32_t t0, rows0;
-    uint8_t name[12];
-    uint16_t tempo;                     /* the loops' setup at the start: the song's */
-    uint8_t ticks, rpb, swing, fx[64];
-    int8_t plan[LP_MAX][LP_LANES];      /* each loop's lanes' tracks (-1 none free) */
-    int8_t ktrk[4];                     /* the keys' lanes' tracks */
-    int8_t owner[16];                   /* the loop whose note a track played last (-1 none) */
-    uint8_t have[16][RM_N];             /* each track's mix as written so far (at the start: the song's mixer) */
-    uint16_t sil;                       /* at the pattern's start: the loops left out (not heard) ... */
-    uint8_t snd[LP_MAX], ksnd;          /* ... each lane (bit) with a note sounding, the keys' lanes' */
+    uint8_t on, known, song, made, ticks, rpb, swing, landed;
+    uint16_t done, left, tempo, tnow, n;
+    uint32_t h0, t0, land[4];
+    uint8_t name[12], km[RM_N];
+    uint8_t mix0[16][RM_N];             /* each track's mix at the song's start */
+    uint8_t fx0[64];                    /* the loops' setup at the start: the song's */
+    tr_t tr[16];
     int8_t pk;                          /* the punch-in running (-1 none) ... */
     uint16_t pabs;                      /* ... since that row of the song ... */
     uint8_t pw, pwrow, pwtrk;           /* ... its command written there (pw the pattern, 0xFF none) */
-    uint8_t nkin;
-    uint16_t kin[8];                    /* the keys' instruments (EV_KEY's index) */
-    uint8_t nev;
-    ev_t ev[LOG_N];
-} lv;                                   /* (set by live_begin: nothing of it read before) */
+    lg_t *log;                          /* (lent; with the FX setup as last seen after it) */
+} lv;                                   /* (set by live_arm and live_begin: nothing of it read before) */
+#define FX_SEEN ((uint8_t *)lv.log + LOG_BYTES)
 
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static uint32_t a4(uint32_t n) { return (n + 3u) & ~3u; }
-static int is_note(const rec_cell_t *c) { return (c->has & RC_NOTE) && c->note != REC_NOTE_OFF; }
 static int cmd_val(const rec_cell_t *c, int code)
 {
     for (int k = 0; k < c->n; k++) if (c->cmd[k][0] == code) return c->cmd[k][1];
     return -1;
 }
-static void cmd_add(rec_cell_t *c, int code, int v)
-{
-    if (c->n >= 4) return;
-    c->cmd[c->n][0] = (uint8_t)code;
-    c->cmd[c->n][1] = (uint8_t)v;
-    c->n++;
-    c->has |= RC_CMD;
-}
-static void note_off(rec_cell_t *c)
-{
-    memset(c, 0, sizeof *c);
-    c->has = RC_NOTE;
-    c->note = REC_NOTE_OFF;
-}
-static int bridge(const rec_cell_t *c)  /* a loop's stream's gap bridged: an ED0 alone */
-{
-    return !(c->has & (RC_NOTE | RC_VOL)) && c->n == 1 && c->cmd[0][0] == 0x0E && c->cmd[0][1] == 0xD0;
-}
-/* a cell ends its lane's note: a note off, a key off; a note's own key off past its delay ends that note in its row */
-static int cell_ends(const rec_cell_t *c)
-{
-    int k = cmd_val(c, 0x14), d = cmd_val(c, 0x0E);
-    if (!is_note(c)) return (c->has & RC_NOTE) || k >= 0;
-    return k >= 0 && k > (d >= 0 && d >> 4 == 0xD ? d & 15 : 0);
-}
-/* the track's mix brought up to the loop's, as far as the cell has room (mixer commands in LP_MIX_KEY's order) */
-static void catch_up(rec_cell_t *c, uint8_t *have, const uint8_t *mix)
-{
-    for (int k = 0; k < RM_N; k++) {
-        int key = LP_MIX_KEY[k];
-        if (have[key] == mix[key] || c->n >= 4) continue;
-        cmd_add(c, LP_MIX_CODE[k], mix[key]);
-        have[key] = mix[key];
-    }
-}
-
-/* ---------------------------------------------------------------- the loops' lanes --- */
-/* loop i's lanes as they play over the length: its stream's cursor (read at the loops' rows as they come; an earlier
- * row reads it again from its start), its base and repeats, and whether the length cuts its last repeat (its notes end
- * there, at row 0) */
-typedef struct { rec_cur_t cu; const uint8_t *s; int base, reps, cut; } lane_t;
-static void lane_start(lane_t *o, int i)
-{
-    const uint8_t *end;
-    o->s = loops_stream(i, &end);
-    o->base = loops_base(i);
-    o->reps = loops_repeats(i);
-    o->cut = lv.len % o->base && (lv.len - 1) / o->base < o->reps;
-    rec_cur_set_end(&o->cu, o->s, end);
-}
-/* lane l at the loops' row r: its cell (1, in c), and *ends: its note ends there (a cut repeat's end, its rest's start) */
-static int lane_at(lane_t *o, int r, int l, rec_cell_t *c, int *ends)
-{
-    int k = r / o->base;
-    if (k >= o->reps) { *ends = k == o->reps && r % o->base == 0; return 0; }
-    *ends = !r && o->cut;
-    return o->s && rec_cur_at(&o->cu, 4 * (r % o->base) + l, c) && !bridge(c);
-}
-/* the loops' rows a lane takes on its track: from its first cell to its last; one still sounding at the length's end
- * (it rings on into their next pass) its track whole. 0: no notes */
-static int lane_span(int i, int l, int *from, int *to)
-{
-    lane_t o;
-    rec_cell_t c;
-    int first = -1, last = 0, snd = 0, notes = 0, ends;
-    lane_start(&o, i);
-    for (int r = 0; r < lv.len; r++) {
-        int has = lane_at(&o, r, l, &c, &ends);
-        if (!has && !(ends && snd)) continue;
-        if (first < 0) first = r;
-        last = r;
-        notes += has && is_note(&c);
-        snd = has && !cell_ends(&c) && (is_note(&c) || snd);
-    }
-    if (!notes) return 0;
-    *from = snd ? 0 : first;
-    *to = snd ? lv.len : last + 1;
-    return 1;
-}
-/* the song's tracks, kept from its start: each loop's lanes in order on the first track free over their rows (the loop
- * whose rows come first there its owner, its mix the track's), then up to 4 tracks of their own for the keys' lanes
- * (their mix keys_mix) */
-static void plan(const uint8_t *keys_mix)
-{
-    uint8_t lf[64], lt[64], lk[64];
-    int nlane = 0, from0[16], k = 0;
-    for (int t = 0; t < 16; t++) { lv.owner[t] = -1; from0[t] = 0x100; memcpy(lv.have[t], MIX_DEF, RM_N); }
-    for (int i = 0; i < lv.nl; i++)
-        for (int l = 0; l < LP_LANES; l++) {
-            int f, e, t;
-            lv.plan[i][l] = -1;
-            if (!lane_span(i, l, &f, &e)) continue;
-            for (t = 0; t < 16; t++) {
-                int ov = 0;
-                for (int j = 0; j < nlane && !ov; j++) ov = lk[j] == t && f < lt[j] && lf[j] < e;
-                if (!ov) break;
-            }
-            if (t >= 16) continue;
-            lf[nlane] = (uint8_t)f;
-            lt[nlane] = (uint8_t)e;
-            lk[nlane++] = (uint8_t)t;
-            lv.plan[i][l] = (int8_t)t;
-            if (f < from0[t]) { from0[t] = f; lv.owner[t] = (int8_t)i; }
-        }
-    for (int t = 0; t < 16; t++) {
-        if (lv.owner[t] >= 0) memcpy(lv.have[t], loops_mix(lv.owner[t]), RM_N);
-        else if (k < 4 && from0[t] == 0x100) { lv.ktrk[k++] = (int8_t)t; memcpy(lv.have[t], keys_mix, RM_N); }
-    }
-    while (k < 4) lv.ktrk[k++] = -1;
-}
-/* DUCK's and FILTER's envelope's SOURCE name a loop in LOOPS (its track there): in the song, its first lane's track */
+/* a source's mix: channel c's (a loop's, the next loop's past them), PT_KEYCH the keys' on another screen */
+static const uint8_t *mix_of(int c) { return c == PT_KEYCH ? lv.km : loops_mix(c); }
+/* DUCK's and FILTER's envelope's SOURCE name a loop in LOOPS (its track there): in the song, the first track its notes
+ * took */
 static int src_trk(int i)
 {
-    for (int l = 0; i < lv.nl && l < LP_LANES; l++) if (lv.plan[i][l] >= 0) return lv.plan[i][l];
+    for (int t = 0; t < 16; t++) if (lv.tr[t].owner == i) return t;
     return i;
 }
 static int src_of(int code, int v)
@@ -181,160 +83,213 @@ static int src_of(int code, int v)
     return v;
 }
 
+/* ------------------------------------------------------------------------ the log --- */
+static void lost(void) { if (lv.left < 0xFFFFu) lv.left++; }     /* a note left out (the count stops at its top) */
+/* a place in the log for an entry at the row, 0 when there is none (full, or the row past a pattern's 255 a note off at
+ * 255 would step over): nothing counted here, the caller counts a note */
+static lg_t *log_put(int row, int kind, int t)
+{
+    if (lv.n >= LOG_N || !lv.log || row > 255) return 0;
+    int k = lv.n++;
+    while (k && lv.log[k - 1].row > row) { lv.log[k] = lv.log[k - 1]; k--; }
+    lg_t *g = &lv.log[k];
+    memset(g, 0, sizeof *g);
+    g->row = (uint8_t)row;
+    g->k = (uint8_t)(kind << 4 | t);
+    return g;
+}
+/* a command's key: the last at a row wins (an effect's ON and OFF one; any punch-in one) */
+static int cmd_key(int code, int v) { return code == 0xAE || code == 0xAF ? 0x100 | v : code >= 0xC3 && code <= 0xD2 ? 0x200 : code; }
+static void log_cmd(int row, int kind, int code, int v)
+{
+    lg_t *g = 0;
+    for (int x = lv.n - 1; x >= 0 && lv.log[x].row >= row && !g; x--)
+        if (lv.log[x].row == row && lv.log[x].k >= LG_CMD << 4 && cmd_key(lv.log[x].a, lv.log[x].b) == cmd_key(code, v))
+            g = &lv.log[x];
+    if (!g && !(g = log_put(row, kind, 0))) return;
+    g->k = (uint8_t)(kind << 4);
+    g->a = (uint8_t)code;
+    g->b = (uint8_t)v;
+}
+/* the commands track t's cell at the row still has room for: a key off kept room for after a note */
+static int cell_room(int t, int row)
+{
+    int n = 0, note = 0, off = 0;
+    for (int x = lv.n - 1; x >= 0 && lv.log[x].row >= row; x--) {
+        const lg_t *g = &lv.log[x];
+        if (g->row != row || K_OF(g) > LG_MIX || T_OF(g) != t) continue;
+        if (K_OF(g) == LG_NOTE) { note = 1; n += ((g->f & 31) != 0) + (g->e || (g->f >> 5 & PTF_LEG)) + ((g->f >> 5 & 3) != 0); }
+        else { off |= K_OF(g) == LG_OFF; n++; }
+    }
+    return 4 - n - (note && !off);
+}
+/* track t's mix brought up to its source's at the row, as far as the cell has room (mixer commands in LP_MIX_KEY's order);
+ * the rest at a row after (changes) */
+static void mix_sync(int t, int row)
+{
+    tr_t *x = &lv.tr[t];
+    const uint8_t *mix = mix_of(x->owner);
+    for (int k = 0; k < RM_N; k++) {
+        int key = LP_MIX_KEY[k], y;
+        if (x->have[key] == mix[key]) continue;
+        for (y = lv.n - 1; y >= 0 && lv.log[y].row >= row; y--)
+            if (lv.log[y].row == row && K_OF(&lv.log[y]) == LG_MIX && T_OF(&lv.log[y]) == t && lv.log[y].a == LP_MIX_CODE[k]) break;
+        if (y >= 0 && lv.log[y].row == row) lv.log[y].b = mix[key];
+        else {
+            lg_t *g = cell_room(t, row) > 0 ? log_put(row, LG_MIX, t) : 0;
+            if (!g) continue;
+            g->a = LP_MIX_CODE[k];
+            g->b = mix[key];
+        }
+        x->have[key] = mix[key];
+    }
+}
+
+/* ------------------------------------------------------- the tap's events on the rows --- */
+static int held(const pl_tap_t *e)      /* the track holding the event's lane's note (a key's, by its key), -1 none */
+{
+    for (int t = 0; t < 16; t++)
+        if (lv.tr[t].on && lv.tr[t].lane == e->lane && (e->lane < PT_KEY || lv.tr[t].key == e->glide)) return t;
+    return -1;
+}
+/* the track's note ends at the row, tick: a tick after it starts at least */
+static void note_end(int t, int row, int tick)
+{
+    tr_t *x = &lv.tr[t];
+    lg_t *g;
+    x->on = 0;
+    if (x->nrow == lv.done * LIVE_ROWS + row && tick <= x->ntick) {
+        tick = x->ntick + 1;
+        if (tick >= lv.ticks) { row++; tick = 0; }
+    }
+    if ((g = log_put(row, LG_OFF, t)) != 0) g->a = (uint8_t)tick;
+}
+/* a track for the note at the song's row abs (a track takes one note a row): free, the lane's first, then any with its
+ * source's mix, then one unused, then the one whose mix differs least; -1 none */
+static int track_for(const pl_tap_t *e, int abs)
+{
+    const uint8_t *mix = mix_of(e->ch);
+    int best = -1, bn = 99;
+    for (int t = 0; t < 16; t++) {
+        const tr_t *x = &lv.tr[t];
+        int n = 0;
+        if (x->on || x->nrow == abs) continue;
+        if (x->owner == e->ch) n = x->lane == e->lane ? -3 : -2;
+        else if (x->owner == NO_OWNER) n = -1;
+        else for (int k = 0; k < RM_N; k++) n += x->have[k] != mix[k];
+        if (n < bn) { bn = n; best = t; }   /* (the first of the best) */
+    }
+    return best;
+}
+/* a note as it sounds: on the track holding its lane's note (ending that one there) when its mix is the note's and the
+ * track has no note at the row, else on a track of its own (a glide, a legato or a slide kept only on the same track);
+ * none free: left out, counted */
+static void note_at(const pl_tap_t *e, int row, int tick)
+{
+    int abs = lv.done * LIVE_ROWS + row, t = held(e), joined = 0;
+    if (t >= 0) {
+        if (lv.tr[t].owner == e->ch && lv.tr[t].nrow != abs) joined = 1;
+        else { note_end(t, row, tick); t = -1; }
+    }
+    if (t < 0 && (t = track_for(e, abs)) < 0) { lost(); return; }
+    tr_t *x = &lv.tr[t];
+    if (x->owner == NO_OWNER && !lv.done) {             /* (its first pattern: the song's mixer has it from the start) */
+        memcpy(x->have, mix_of(e->ch), RM_N);
+        memcpy(lv.mix0[t], x->have, RM_N);
+    }
+    if ((e->fl & PTF_SLID) && joined)                   /* (a TB-303's slide: SLD on the note it comes from, if not written) */
+        for (int y = lv.n - 1; y >= 0; y--)
+            if (lv.log[y].k == (LG_NOTE << 4 | t)) { lv.log[y].f |= PTF_SLD << 5; break; }
+    x->on = 1;
+    x->lane = e->lane;
+    x->key = e->lane < PT_KEY ? 0 : e->glide;
+    x->owner = e->ch;
+    x->nrow = (uint16_t)abs;
+    x->ntick = (uint8_t)(tick > 15 ? 15 : tick);
+    lg_t *g = log_put(row, LG_NOTE, t);
+    if (!g) { lost(); return; }
+    g->a = e->note;
+    g->b = e->vol;
+    g->c = e->cart;
+    g->d = e->slot;
+    g->e = joined && e->lane < PT_KEY ? e->glide : 0;
+    g->f = (uint8_t)(x->ntick | (e->fl & (PTF_ACC | PTF_SLD | (joined ? PTF_LEG : 0))) << 5);
+    mix_sync(t, row);
+}
+static void tap_event(const pl_tap_t *e, uint32_t now)
+{
+    uint32_t tk = now + (uint32_t)(int32_t)(int16_t)(e->t - (uint16_t)now);   /* (the ring's 16 bits, around the tick now) */
+    if (e->note == PT_MOVE) {                         /* (lanes going on as others: the notes on them with them) */
+        for (int t = 0; t < 16; t++)
+            if (lv.tr[t].on && lv.tr[t].lane == e->lane) { lv.tr[t].lane = e->vol; lv.tr[t].owner = e->ch; }
+        return;
+    }
+    if (e->lane >= PT_SKEYS && e->lane < PT_SKEYS + 4u && (lv.landed >> (e->lane - PT_SKEYS) & 1)) {
+        uint32_t at = lv.land[e->lane - PT_SKEYS];      /* (as it landed; one left over from a note gone is stale) */
+        lv.landed &= (uint8_t)~(1u << (e->lane - PT_SKEYS));
+        if (tk - at <= 3u * lv.ticks) tk = at;
+    }
+    if ((int32_t)(tk - lv.t0) < 0) return;              /* (before its row 0) */
+    uint32_t d = tk - lv.t0;
+    int row = (int)(d / lv.ticks) - lv.done * LIVE_ROWS, tick = (int)(d % lv.ticks);
+    if (row < 0) { row = 0; tick = 0; }                 /* (a pattern written: its next row) */
+    if (row > 255) { if (e->note >= 12) lost(); return; }
+    if (e->note == PT_MUTE) {                           /* (the loops silent now: their notes end there) */
+        uint32_t mask = (uint32_t)e->cart | (uint32_t)e->slot << 8;
+        for (int t = 0; t < 16; t++)
+            if (lv.tr[t].on && lv.tr[t].lane < 4u * LP_MAX && (mask >> (lv.tr[t].lane >> 2) & 1u)) note_end(t, row, tick);
+        return;
+    }
+    if (e->note == PT_OFF || e->note == PT_LOST) {
+        int t = held(e);
+        if (t >= 0) note_end(t, row, tick);
+        return;
+    }
+    note_at(e, row, tick);
+}
+
 /* -------------------------------------------------------------------- the changes --- */
-/* the song's row heard now, to the nearest row (a change made now is written there), never in a pattern written; 0:
- * not heard (the loops' replay not playing) */
+/* the song's row heard now, to the nearest row (a change made now is written there), never in a pattern written; 0: not
+ * heard (the loops' replay not playing) */
 static int heard(int *at)
 {
     player_state_t st;
     player_state(&st, 0);
-    if (!(st.what == PL_LOOPS && st.playing) || !lv.rows0) return 0;
-    int sp = st.speed ? st.speed : 6, s = (int)(st.rows_played - lv.rows0) + (2 * st.tick >= sp);
-    if (s < lv.done * LIVE_ROWS) s = lv.done * LIVE_ROWS;
-    *at = s;
+    if (!(st.what == PL_LOOPS && st.playing) || !lv.known) return 0;
+    uint32_t d = (int32_t)(st.lp_ticks - lv.t0) < 0 ? 0u : st.lp_ticks - lv.t0;
+    int s = (int)(d / lv.ticks) + (2u * (d % lv.ticks) >= lv.ticks);
+    *at = s < lv.done * LIVE_ROWS ? lv.done * LIVE_ROWS : s;
     return 1;
 }
-static uint8_t at_of(int at) { return (uint8_t)((at / LIVE_ROWS > lv.done ? 0x80 : 0) | (at % LIVE_ROWS)); }
-static ev_t *ev_new(uint8_t at)
+/* what changed since the last look, logged at the row heard: TEMPO as F00 back to the song's own, else Fxx held within
+ * 20-FF; an effect switched as FX ON / OFF; an FX knob with a command as its command (SOURCE as the song has it); the
+ * chain, ROUTING and the METRONOME's knobs not; the tracks' mixes brought up to their sources' */
+static void changes(void)
 {
-    if (lv.nev >= LOG_N) { lv.left++; return 0; }
-    ev_t *e = &lv.ev[lv.nev++];
-    e->at = at;
-    return e;
-}
-/* a command's key: the last at a row wins (an effect's ON and OFF one; any punch-in one) */
-static int cmd_key(int code, int v) { return code == 0xAE || code == 0xAF ? 0x100 | v : code >= 0xC3 && code <= 0xD2 ? 0x200 : code; }
-static void log_cmd(int at_, int kind, int code, int v)
-{
-    uint8_t at = at_of(at_);
-    ev_t *e = 0;
-    for (int x = 0; x < lv.nev && !e; x++)
-        if (lv.ev[x].at == at && (lv.ev[x].kind == EV_CMD || lv.ev[x].kind == EV_PUNCH) &&
-            cmd_key(lv.ev[x].a, lv.ev[x].b) == cmd_key(code, v))
-            e = &lv.ev[x];
-    if (!e && !(e = ev_new(at))) return;
-    e->kind = (uint8_t)kind;
-    e->a = (uint8_t)code;
-    e->b = (uint8_t)v;
-}
-static void log_mix(int at_, int what, int was, int now)
-{
-    uint8_t at = at_of(at_);
-    ev_t *e;
-    for (int x = 0; x < lv.nev; x++)
-        if (lv.ev[x].at == at && lv.ev[x].kind == what) { lv.ev[x].a = (uint8_t)now; return; }   /* (its first's before kept) */
-    if (!(e = ev_new(at))) return;
-    e->kind = (uint8_t)what;
-    e->a = (uint8_t)now;
-    e->b = (uint8_t)was;
-}
-static void log_one(int at_, int kind, int a, int b)   /* a row's mask or the loops' row: the last at a row wins */
-{
-    uint8_t at = at_of(at_);
-    ev_t *e = 0;
-    for (int x = 0; x < lv.nev && !e; x++) if (lv.ev[x].at == at && lv.ev[x].kind == kind) e = &lv.ev[x];
-    if (!e && !(e = ev_new(at))) return;
-    e->kind = (uint8_t)kind;
-    e->a = (uint8_t)a;
-    e->b = (uint8_t)b;
-}
-static void log_sil(int at, int mask) { log_one(at, EV_SIL, mask & 0xFF, mask >> 8); }
-void live_loops(int at, int row)
-{
-    if (!lv.on) return;
-    if (at < lv.done * LIVE_ROWS) at = lv.done * LIVE_ROWS;   /* (a pattern written: from the next's first row) */
-    log_one(at, EV_LOOPS, row < 0 || row >= lv.len ? SILENT : row, 0);
-}
-/* loops.c's hook: a change of the loops heard now, logged at its row; TEMPO as F00 back to the song's own, else Fxx held
- * within 20-FF; an effect switched as FX ON / OFF; an FX knob with a command as its command (SOURCE as the song has it);
- * the chain, ROUTING and the METRONOME's knobs not */
-static void hook(int what, int i, int was, int now)
-{
-    int at;
-    if (!lv.on || !heard(&at)) return;
-    if (what == LH_MIX) log_mix(at, i, was, now);
-    else if (what == LH_SILENT) log_sil(at, now);
-    else if (what == LH_TEMPO) log_cmd(at, EV_CMD, 0x0F, now == lv.tempo ? 0 : clamp(now, 0x20, 0xFF));
-    else if (i == 7 || i == 8) {
-        for (int b = 0; b < 8; b++) {
-            int n = (i - 7) * 8 + b;
-            if (n <= 9 && ((was ^ now) >> b & 1)) log_cmd(at, EV_CMD, now >> b & 1 ? 0xAE : 0xAF, n);
+    int at, now = loops_tempo();
+    if (!lv.log || !heard(&at)) return;
+    int row = at - lv.done * LIVE_ROWS;
+    const uint8_t *f = loops_fx();
+    uint8_t *seen = FX_SEEN;
+    if (now != lv.tnow) {
+        lv.tnow = (uint16_t)now;
+        log_cmd(row, LG_CMD, 0x0F, now == lv.tempo ? 0 : clamp(now, 0x20, 0xFF));
+    }
+    if (memcmp(f, seen, 64)) {
+        for (int i = 7; i < 64; i++) {
+            if (f[i] == seen[i]) continue;
+            if (i == 7 || i == 8) {
+                for (int b = 0; b < 8; b++) {
+                    int n = (i - 7) * 8 + b;
+                    if (n <= 9 && ((f[i] ^ seen[i]) >> b & 1)) log_cmd(row, LG_CMD, f[i] >> b & 1 ? 0xAE : 0xAF, n);
+                }
+            } else if (i >= 16 && i != 16 + 0xAE - 0x90 && i != 16 + 0xAF - 0x90)
+                log_cmd(row, LG_CMD, 0x90 + i - 16, src_of(0x90 + i - 16, f[i]));
         }
-    } else if (i >= 16 && i < 64 && i != 16 + 0xAE - 0x90 && i != 16 + 0xAF - 0x90)
-        log_cmd(at, EV_CMD, 0x90 + i - 16, src_of(0x90 + i - 16, now));
-}
-
-/* ---- the keys' cells ---- */
-static int kin_of(uint16_t inst)        /* the instrument's index, one not waiting in a cell given again if need be */
-{
-    for (int k = 0; k < lv.nkin; k++) if (lv.kin[k] == inst) return k;
-    if (lv.nkin < 8) { lv.kin[lv.nkin] = inst; return lv.nkin++; }
-    for (int k = 0; k < 8; k++) {
-        int used = 0;
-        for (int x = 0; x < lv.nev && !used; x++) used = lv.ev[x].kind >= EV_KEY && lv.ev[x].b >> 5 == k;
-        if (!used) { lv.kin[k] = inst; return k; }
+        memcpy(seen, f, 64);
     }
-    return 7;
-}
-static ev_t *key_at(uint8_t at, int lane)
-{
-    for (int x = 0; x < lv.nev; x++)
-        if (lv.ev[x].at == at && lv.ev[x].kind >= EV_KEY && (lv.ev[x].kind >> 4 & 3) == lane) return &lv.ev[x];
-    return 0;
-}
-int live_key(int at_, int lane, int note, int delay, int glide, uint16_t inst)
-{
-    uint8_t at = at_of(at_);
-    ev_t *e = key_at(at, lane);
-    if (!e && !(e = ev_new(at))) return -1;
-    e->kind = (uint8_t)(EV_KEY | (glide ? 0x40 : 0) | lane << 4 | (delay & 15));
-    e->a = (uint8_t)((note & 0x7F) | (glide == 2 ? 0x80 : 0));   /* (LEG: joined, bit 7) */
-    e->b = (uint8_t)(kin_of(inst) << 5 | K_NONE);
-    return 0;
-}
-void live_key_slide(int at, int lane)
-{
-    ev_t *e = at / LIVE_ROWS < lv.done ? 0 : key_at(at_of(at), lane);
-    if (e && (e->a & 0x7F) >= 12 && !(e->kind & 0x40)) e->a |= 0x80;   /* (a joined note is never a TB-303's) */
-}
-int live_key_off(int at_, int lane, int kxx, int own)
-{
-    uint8_t at = at_of(at_);
-    ev_t *e = key_at(at, lane);
-    if (e && kxx >= 0 && own && (e->b & 31) == K_NONE) {   /* (let go in its note's row: that cell's key off) */
-        e->b = (uint8_t)((e->b & 0xE0) | kxx);
-        return 1;
-    }
-    if (e && (e->a & 0x7F) >= 12) return 0;                 /* (a note there ends it) */
-    if (e && kxx >= 0) {
-        if ((e->b & 31) == K_NONE) e->b = (uint8_t)((e->b & 0xE0) | kxx);
-        return 2;
-    }
-    if (!e && !(e = ev_new(at))) return 0;
-    e->kind = (uint8_t)(EV_KEY | lane << 4);
-    e->a = (uint8_t)(kxx >= 0 ? 0 : REC_NOTE_OFF);
-    e->b = (uint8_t)(kxx >= 0 ? kxx : K_NONE);
-    return 2;
-}
-static void key_cell(const ev_t *e, rec_cell_t *c)
-{
-    int note = e->a & 0x7F, k = e->b & 31;
-    memset(c, 0, sizeof *c);
-    if (note) {
-        c->has = RC_NOTE;
-        c->note = (uint8_t)note;
-    }
-    if (note >= 12) {                   /* (a note: the instrument, the keys' volume, its note delay, its glide, LEG or SLD) */
-        uint16_t in = lv.kin[e->b >> 5];
-        c->has |= RC_INS | RC_VOL;
-        c->cart = (uint8_t)(in >> 8);
-        c->slot = (uint8_t)in;
-        c->vol = lv.kvol;
-        if (e->kind & 15) cmd_add(c, 0x0E, 0xD0 | (e->kind & 15));
-        if (e->kind & 0x40) cmd_add(c, e->a & 0x80 ? 0xD3 : 0x03, e->a & 0x80 ? 0 : 0x20);
-        else if (e->a & 0x80) cmd_add(c, 0xC1, 0);
-    }
-    if (k != K_NONE) cmd_add(c, 0x14, k);
+    if (lv.n < LOG_N)                   /* (a full log takes no mix: no walk each pass) */
+        for (int t = 0; t < 16; t++) if (lv.tr[t].owner != NO_OWNER) mix_sync(t, row);
 }
 
 /* ---- the punch-ins ---- */
@@ -362,11 +317,11 @@ PLAT_COLD void live_punch_end(int at)
 {
     int v = clamp(at - lv.pabs, 1, 255), x;
     if (lv.pk < 0) return;
-    for (x = 0; x < lv.nev && lv.ev[x].kind != EV_PUNCH; x++)
+    for (x = 0; x < lv.n && lv.log[x].k != LG_PUNCH << 4; x++)
         ;
-    if (x < lv.nev) {                   /* (its pattern not written yet: its value there) */
-        lv.ev[x].kind = EV_CMD;
-        lv.ev[x].b = (uint8_t)v;
+    if (x < lv.n) {                     /* (its pattern not written yet: its value there) */
+        lv.log[x].k = LG_CMD << 4;
+        lv.log[x].b = (uint8_t)v;
     } else if (lv.pw != 0xFF) {
         patch(lv.pw, lv.pwtrk, lv.pwrow, 0xC3 + lv.pk, v);
     }
@@ -376,161 +331,68 @@ PLAT_COLD void live_punch_end(int at)
 void live_punch(int k)
 {
     int at;
-    if (!lv.on || k == lv.pk || !heard(&at)) return;
+    if (!lv.on || !lv.log || k == lv.pk || !heard(&at)) return;
     live_punch_end(at);
     if (k < 0) return;
-    log_cmd(at, EV_PUNCH, 0xC3 + k, 1);
+    log_cmd(at - lv.done * LIVE_ROWS, LG_PUNCH, 0xC3 + k, 1);
     lv.pk = (int8_t)k;
     lv.pabs = (uint16_t)at;
 }
 
 /* ------------------------------------------------------------- writing a pattern --- */
-/* the pattern being written: its changes in rows' order (their order kept within a row), the loops' mixes at its start
- * (the value before each one's first change waiting), the commands put in a cell so far (a sweep over the tracks from
- * 0), where the punch-in still running went (-1 nowhere), the loops' row heard after its last row (SILENT) */
-typedef struct {
-    uint8_t idx[LOG_N], n, end, lr_end;
-    uint8_t mix0[LP_MAX][RM_N];
-    uint8_t placed[LOG_N / 8];
-    int8_t prow, ptrk;
-} pass_t;
-static int ev_row(int x) { return lv.ev[x].at & 0x7F; }
-static void pass_start(pass_t *p, int end)
+/* the commands placed as they go: a sweep over the tracks from 0 */
+static void sweep(void) { for (int x = 0; x < lv.n; x++) if (lv.log[x].k >= LG_CMD << 4) lv.log[x].c = 0; }
+/* track t of the pattern, rows up to end: the cell of its entries at each row: its note in its instrument, note delay,
+ * glide, legato, ACC, SLD; a note's own end (it came after it) a key off at its tick; an end before a note a key off before
+ * its delay (the note ends what sounds, at its tick or sooner); alone a note off on the row's first tick, else a key off;
+ * its mixer commands; the row's commands where they find room first. Into e; its stream's length; *prow, *ptrk where the
+ * punch-in still running went */
+static PLAT_COLD uint32_t build(int t, lp_enc_t *e, int end, int *prow, int *ptrk)
 {
-    p->n = 0;
-    p->end = (uint8_t)end;
-    for (int x = 0; x < lv.nev; x++) {
-        int k;
-        if (lv.ev[x].at & 0x80) continue;
-        for (k = p->n++; k > 0 && ev_row(p->idx[k - 1]) > ev_row(x); k--) p->idx[k] = p->idx[k - 1];
-        p->idx[k] = (uint8_t)x;
-    }
-    for (int i = 0; i < lv.nl; i++) memcpy(p->mix0[i], loops_mix(i), RM_N);
-    for (int x = lv.nev - 1; x >= 0; x--)
-        if (lv.ev[x].kind < EV_MIXES) p->mix0[lv.ev[x].kind / RM_N][lv.ev[x].kind % RM_N] = lv.ev[x].b;
-}
-static void sweep(pass_t *p) { memset(p->placed, 0, sizeof p->placed); p->prow = p->ptrk = -1; }
-/* track t of the pattern (t < 0: what fits no track, counted): row by row the cell of the lanes on it as they played at
- * the loops' row heard there (none while they were silent, their notes ending where they fell silent; a loop silenced
- * left out, its notes ending there; a note bringing the track's mix to its loop's), a loop's mix turned on the track it
- * holds, the keys' cells, the row's commands where they find room first. Into e (NULL: not encoded); keep: the track's
- * state at the end kept for the next pattern. Its stream's length (t < 0: the notes left out) */
-static PLAT_COLD uint32_t build(pass_t *p, int t, lp_enc_t *e, int keep)
-{
-    lane_t ln[LP_MAX];
-    uint8_t mix[LP_MAX][RM_N], have[RM_N], snd[LP_MAX], on[LP_MAX], ksnd = lv.ksnd, kon = 0;
-    int owner = t >= 0 ? lv.owner[t] : -1, left = 0, x = 0, lr = lv.lr0;
-    uint16_t sil = lv.sil;
-    rec_cell_t c;
-    memcpy(mix, p->mix0, sizeof mix);
-    memcpy(snd, lv.snd, sizeof snd);
-    memcpy(have, t >= 0 ? lv.have[t] : MIX_DEF, RM_N);
-    for (int i = 0; i < lv.nl; i++) {
-        on[i] = 0;
-        for (int l = 0; l < LP_LANES; l++) if (lv.plan[i][l] == t) on[i] |= (uint8_t)(1u << l);
-        if (on[i]) lane_start(&ln[i], i);
-    }
-    for (int l = 0; l < 4; l++) if (lv.ktrk[l] == t) kon |= (uint8_t)(1u << l);
-    for (int r = 0; r < p->end; r++) {
-        int has = 0, q = x, nsil = -1, nlr = -1;
-        uint16_t turned = 0;
-        while (q < p->n && ev_row(p->idx[q]) == r) q++;
-        for (int j = x; j < q; j++) {   /* the loops' mixes turned, the loops silenced, where the loops are heard */
-            const ev_t *v = &lv.ev[p->idx[j]];
-            if (v->kind < EV_MIXES) { mix[v->kind / RM_N][v->kind % RM_N] = v->a; turned |= (uint16_t)(1u << (v->kind / RM_N)); }
-            else if (v->kind == EV_SIL) nsil = v->a | v->b << 8;
-            else if (v->kind == EV_LOOPS) nlr = v->a;
+    int x = 0;
+    while (x < lv.n && lv.log[x].row < end) {
+        rec_cell_t c;
+        int r = lv.log[x].row, q = x, n = -1, delay = 0;
+        while (q < lv.n && lv.log[q].row == r) q++;
+        memset(&c, 0, sizeof c);
+        for (int j = x; j < q && n < 0; j++) {
+            const lg_t *g = &lv.log[j];
+            if (g->k != (LG_NOTE << 4 | t)) continue;
+            int fl = g->f >> 5;
+            n = j;
+            delay = g->f & 31;
+            c.has = RC_NOTE | RC_INS;
+            c.note = g->a;
+            c.cart = g->c;
+            c.slot = g->d;
+            if (g->b != 0xFF) { c.has |= RC_VOL; c.vol = g->b; }
+            if (delay) loops_cmd_add(&c, 0x0E, 0xD0 | delay);
+            if (fl & PTF_LEG) loops_cmd_add(&c, 0xD3, 0);
+            else if (g->e) loops_cmd_add(&c, 0x03, g->e);
+            if (fl & (PTF_ACC | PTF_SLD)) loops_cmd_add(&c, fl & PTF_ACC ? (fl & PTF_SLD ? 0xC2 : 0xC0) : 0xC1, 0);
         }
-        if (nlr >= 0) {                 /* (silent from here: their notes end; on again: from that row, nothing sounding) */
-            if (nlr == SILENT && lr != SILENT)
-                for (int i = 0; i < lv.nl; i++) {
-                    if ((snd[i] & on[i]) && !has) { note_off(&c); has = 1; }
-                    snd[i] = 0;
-                }
-            lr = nlr;
+        for (int j = x; j < q; j++) {
+            const lg_t *g = &lv.log[j];
+            if (g->k != (LG_OFF << 4 | t)) continue;
+            if (n >= 0 && j > n) loops_cmd_add(&c, 0x14, g->a);
+            else if (n >= 0) { if (g->a < delay) loops_cmd_add(&c, 0x14, g->a); }
+            else if (g->a) loops_cmd_add(&c, 0x14, g->a);
+            else { c.has |= RC_NOTE; c.note = REC_NOTE_OFF; }
         }
-        if (nsil >= 0) {
-            for (int i = 0; i < lv.nl; i++)
-                if ((nsil & ~sil) >> i & 1) {
-                    if ((snd[i] & on[i]) && !has) { note_off(&c); has = 1; }
-                    snd[i] = 0;
-                }
-            sil = (uint16_t)nsil;
+        for (int j = x; j < q; j++)
+            if (lv.log[j].k == (LG_MIX << 4 | t)) loops_cmd_add(&c, lv.log[j].a, lv.log[j].b);
+        for (int j = x; j < q; j++) {
+            lg_t *g = &lv.log[j];
+            if (g->k < LG_CMD << 4 || g->c) continue;
+            if (c.n >= 4 || cmd_val(&c, g->a) >= 0) continue;
+            loops_cmd_add(&c, g->a, g->b);
+            g->c = 1;
+            if (g->k == LG_PUNCH << 4) { *prow = r; *ptrk = t; }
         }
-        for (int i = 0; lr != SILENT && i < lv.nl; i++) {
-            if ((sil >> i & 1) || !on[i]) continue;
-            for (int l = 0; l < LP_LANES; l++) {
-                rec_cell_t d;
-                int ends, bit = 1 << l;
-                if (!(on[i] & bit)) continue;
-                if (!lane_at(&ln[i], lr, l, &d, &ends)) {
-                    if (ends && (snd[i] & bit)) { if (!has) { note_off(&c); has = 1; } snd[i] &= (uint8_t)~bit; }
-                    continue;
-                }
-                if (!cell_ends(&d) && (is_note(&d) || (snd[i] & bit))) snd[i] |= (uint8_t)bit; else snd[i] &= (uint8_t)~bit;
-                if (t < 0) { left += is_note(&d); continue; }
-                if (is_note(&d)) {
-                    uint16_t in = loops_inst(i);
-                    d.has |= RC_INS;
-                    d.cart = (uint8_t)(in >> 8);
-                    d.slot = (uint8_t)in;
-                    catch_up(&d, have, mix[i]);
-                    owner = i;
-                }
-                c = d;
-                has = 1;
-            }
-        }
-        for (int i = 0; t >= 0 && i < lv.nl; i++) {
-            rec_cell_t y;
-            if (!(turned >> i & 1) || owner != i || !on[i]) continue;
-            if (has) y = c; else memset(&y, 0, sizeof y);
-            catch_up(&y, have, mix[i]);
-            if (y.has) { c = y; has = 1; }
-        }
-        for (int j = x; j < q; j++) {   /* the keys' cells */
-            const ev_t *v = &lv.ev[p->idx[j]];
-            rec_cell_t k;
-            int bit = 1 << (v->kind >> 4 & 3);
-            if (v->kind < EV_KEY || !(kon & bit)) continue;
-            key_cell(v, &k);
-            if (!cell_ends(&k) && (is_note(&k) || (ksnd & bit))) ksnd |= (uint8_t)bit; else ksnd &= (uint8_t)~bit;
-            if (t < 0) { left += is_note(&k); continue; }
-            c = k;
-            has = 1;
-        }
-        for (int j = x; t >= 0 && j < q; j++) {   /* the row's commands: each in the first cell with room, from track 0 */
-            int k = p->idx[j];
-            const ev_t *v = &lv.ev[k];
-            if ((v->kind != EV_CMD && v->kind != EV_PUNCH) || (p->placed[k >> 3] >> (k & 7) & 1)) continue;
-            if (has && (c.n >= 4 || cmd_val(&c, v->a) >= 0)) continue;
-            if (!has) { memset(&c, 0, sizeof c); has = 1; }
-            cmd_add(&c, v->a, v->b);
-            p->placed[k >> 3] |= (uint8_t)(1u << (k & 7));
-            if (v->kind == EV_PUNCH) { p->prow = (int8_t)r; p->ptrk = (int8_t)t; }
-        }
-        if (has && e) loops_enc_cell(e, r, &c);
-        if (lr != SILENT) lr = (lr + 1) % lv.len;   /* (the loops' next row: their start again past the length) */
+        if (c.has) loops_enc_cell(e, r, &c);
         x = q;
     }
-    p->lr_end = (uint8_t)lr;
-    if (keep && t >= 0) {
-        memcpy(lv.have[t], have, RM_N);
-        lv.owner[t] = (int8_t)owner;
-        for (int i = 0; i < lv.nl; i++) lv.snd[i] = (uint8_t)((lv.snd[i] & ~on[i]) | (snd[i] & on[i]));
-        lv.ksnd = (uint8_t)((lv.ksnd & ~kon) | (ksnd & kon));
-    }
-    return t < 0 ? (uint32_t)left : e ? loops_enc_end(e) : 0u;
-}
-static int free_pattern(void)           /* the first pattern number of the user's free (00-EF), -1 none */
-{
-    uint8_t nums[256];
-    int n = store_list(REC_PATTERN, nums, 256), k = 0;
-    for (int i = 0; i <= 0xEF; i++) {
-        while (k < n && nums[k] < i) k++;
-        if (k >= n || nums[k] != i) return i;
-    }
-    return -1;
+    return loops_enc_end(e);
 }
 /* the song's record with its pattern num last: made with the first (its name, the loops' setup at the start, its
  * tracks' mixes, plays once and stops), then a position more each pattern */
@@ -548,7 +410,7 @@ static int song_put(int num)
     if (!b) return STORE_ERR_STATE;
     if (!lv.made) {
         int nt = 16;
-        while (nt > 0 && !memcmp(lv.have[nt - 1], MIX_DEF, RM_N)) nt--;   /* (the mixer: up to the last that differs) */
+        while (nt > 0 && !memcmp(lv.mix0[nt - 1], MIX_DEF, RM_N)) nt--;   /* (the mixer: up to the last that differs) */
         memset(b, 0, 23);
         memcpy(b, lv.name, 12);
         b[12] = (uint8_t)lv.tempo;
@@ -560,9 +422,11 @@ static int song_put(int num)
         b[19] = 64;
         b[21] = (uint8_t)num;           /* (one position) */
         b[22] = (uint8_t)nt;
-        for (int t = 0; t < nt; t++) memcpy(b + 23 + RM_N * t, lv.have[t], RM_N);
+        for (int t = 0; t < nt; t++) memcpy(b + 23 + RM_N * t, lv.mix0[t], RM_N);
         len = 23u + RM_N * (uint32_t)nt;
-        memcpy(b + len, lv.fx, 64);
+        memcpy(b + len, lv.fx0, 64);
+        b[len + DUCK_SRC] = (uint8_t)src_of(0xAA, b[len + DUCK_SRC]);
+        b[len + ENV_SRC] = (uint8_t)src_of(0xB1, b[len + ENV_SRC]);
         memset(b + len + 64, 0, 8);
         len += 72u;
     } else {
@@ -579,97 +443,126 @@ static int song_put(int num)
     store_scratch_claim(0);
     return r;
 }
-static void log_next(void)              /* the pattern written: its changes go, the next one's become the current's */
-{
-    int k = 0;
-    for (int x = 0; x < lv.nev; x++)
-        if (lv.ev[x].at & 0x80) {
-            lv.ev[k] = lv.ev[x];
-            lv.ev[k++].at &= 0x7F;
-        }
-    lv.nev = (uint8_t)k;
-}
 PLAT_COLD int live_chunk(int end)
 {
-    pass_t p;
     lp_enc_t e;
     uint32_t len[16], need;
-    int hi = 0, num, t, r;
+    int hi = 0, num, t, r, prow = -1, ptrk = -1;
     uint8_t *b;
-    if (lv.over) return LIVE_FULL;
     end = clamp(end, 1, LIVE_ROWS);
-    pass_start(&p, end);
-    sweep(&p);
+    sweep();
     for (t = 0; t < 16; t++) {          /* the room first: each track's stream, the commands placed as they will be */
         loops_enc_track(&e, 0, TRACK_MAX);
-        if ((len[t] = build(&p, t, &e, 0)) > TRACK_MAX) return LIVE_FULL;
+        len[t] = build(t, &e, end, &prow, &ptrk);   /* (128 cells of 16 B at most: never near TRACK_MAX) */
         if (len[t] > 1u) hi = t + 1;
     }
     if (!hi) hi = 1;
-    lv.left = (uint16_t)(lv.left + build(&p, -1, 0, 0));
-    if ((num = free_pattern()) < 0) return LIVE_PATTERNS;
+    if ((num = rec_free_pattern()) < 0) return LIVE_PATTERNS;
     need = a4(song_len()) + 8u + 12u;
-    for (t = 0; t < 16; t++) need += a4(len[t]) + 8u;
+    for (t = 0; t < hi; t++) need += a4(len[t]) + 8u;
     if (!store_edit_reserve(need) || song_put(num) != STORE_OK) return LIVE_FULL;
-    sweep(&p);                          /* (then its tracks written, their state kept) */
+    sweep();                            /* (then its tracks written) */
     {
         uint8_t h[3] = {(uint8_t)hi, (uint8_t)(end - 1), 1};
         if (store_edit_piece(REC_PATTERN, (uint8_t)num, STORE_PC_HEAD, 1, h, 3) != STORE_OK) return LIVE_FULL;
     }
-    for (t = 0; t < 16; t++) {
+    for (t = 0; t < hi; t++) {
         if (!(b = store_scratch_claim(1))) return LIVE_FULL;
         loops_enc_track(&e, b, TRACK_MAX);
-        len[t] = build(&p, t, &e, 1);
+        len[t] = build(t, &e, end, &prow, &ptrk);
         r = store_edit_piece(REC_PATTERN, (uint8_t)num, (uint16_t)t, 1, b, len[t]);
         store_scratch_claim(0);
         if (r != STORE_OK) return LIVE_FULL;
     }
-    for (int j = 0; j < p.n; j++) if (lv.ev[p.idx[j]].kind == EV_SIL) lv.sil = (uint16_t)(lv.ev[p.idx[j]].a | lv.ev[p.idx[j]].b << 8);
-    lv.lr0 = p.lr_end;
-    if (p.prow >= 0) { lv.pw = (uint8_t)num; lv.pwrow = (uint8_t)p.prow; lv.pwtrk = (uint8_t)p.ptrk; }
-    log_next();
+    if (prow >= 0) { lv.pw = (uint8_t)num; lv.pwrow = (uint8_t)prow; lv.pwtrk = (uint8_t)ptrk; }
+    {                                   /* (the next one's entries become the current's) */
+        int k = 0;
+        for (int x = 0; x < lv.n; x++)
+            if (lv.log[x].row >= end) {
+                lv.log[k] = lv.log[x];
+                lv.log[k++].row = (uint8_t)(lv.log[x].row - end);
+            }
+        lv.n = (uint16_t)k;
+    }
     lv.done++;
     lv.made = 1;
     return LIVE_OK;
 }
 
-/* --------------------------------------------------------------------- its start --- */
-PLAT_COLD void live_begin(uint8_t song, const uint8_t *name, const uint8_t *keys_mix, uint8_t keys_vol, uint32_t halves,
-                          uint32_t rows0, int punch, int loops_row)
+/* ------------------------------------------------------------- its start and end --- */
+static void lend(void)                  /* the log's memory, when the zone has it free (DJ's may be going back still) */
+{
+    if (lv.log) return;
+    lv.log = spare_borrow(LENT);
+    if (lv.log) memcpy(FX_SEEN, lv.on ? lv.fx0 : loops_fx(), 64);
+}
+void live_arm(void)
 {
     memset(&lv, 0, sizeof lv);
+    lend();
+    player_tap(ring, RING_N);
+}
+void live_disarm(void)
+{
+    player_tap(0, 0);
+    if (lv.log) spare_return();
+    lv.log = 0;
+    lv.on = 0;
+}
+PLAT_COLD void live_begin(uint8_t song, const uint8_t *name, const uint8_t *keys_mix, uint32_t halves, uint32_t t0, int known, int punch)
+{
     lv.song = song;
-    lv.t0 = halves;
-    lv.rows0 = rows0;
-    lv.len = (uint8_t)(loops_rows() ? loops_rows() : 1);
-    lv.lr0 = (uint8_t)(loops_row < 0 || loops_row >= lv.len ? SILENT : loops_row);
-    lv.nl = (uint8_t)loops_n();
-    lv.kvol = keys_vol;
+    lv.h0 = halves;
+    lv.t0 = t0;
+    lv.known = (uint8_t)(known != 0);
+    memcpy(lv.km, keys_mix, RM_N);
     memcpy(lv.name, name, 12);
-    lv.tempo = (uint16_t)loops_tempo();
+    lv.tempo = lv.tnow = (uint16_t)loops_tempo();
     lv.ticks = (uint8_t)loops_ticks();
     lv.rpb = (uint8_t)loops_rpb();
     lv.swing = (uint8_t)loops_swing();
-    plan(keys_mix);
-    memcpy(lv.fx, loops_fx(), 64);
-    lv.fx[DUCK_SRC] = (uint8_t)src_of(0xAA, lv.fx[DUCK_SRC]);
-    lv.fx[ENV_SRC] = (uint8_t)src_of(0xB1, lv.fx[ENV_SRC]);
-    lv.sil = (uint16_t)loops_silent_mask();
+    memcpy(lv.fx0, loops_fx(), 64);
+    if (lv.log) memcpy(FX_SEEN, lv.fx0, 64);
+    for (int t = 0; t < 16; t++) {
+        lv.tr[t].owner = NO_OWNER;
+        lv.tr[t].lane = 0xFF;
+        lv.tr[t].nrow = 0xFFFF;
+        memcpy(lv.tr[t].have, MIX_DEF, RM_N);
+        memcpy(lv.mix0[t], MIX_DEF, RM_N);
+    }
     lv.pk = (int8_t)punch;              /* (a punch-in running from before: not written) */
     lv.pw = 0xFF;
     lv.on = 1;
-    loops_hook = hook;
 }
-void live_stop(void)
+void live_poll(void)
 {
-    lv.on = 0;
-    loops_hook = 0;
+    pl_tap_t e;
+    player_state_t st;
+    player_state(&st, 0);
+    if (!lv.log) lend();
+    if (!lv.on) {                       /* (armed: only what the row playing has started kept, and never more than half the
+                                         * ring, the oldest going: keys played with the loops stopped fill no ring) */
+        uint16_t from = (uint16_t)(st.lp_ticks - st.tick);
+        while (player_tap_peek(&e) && ((int16_t)(e.t - from) < 0 || player_tap_held() > RING_N / 2u)) player_tap_next();
+        return;
+    }
+    if (!lv.log || !lv.known) return;
+    while (player_tap_peek(&e)) {
+        player_tap_next();
+        tap_event(&e, st.lp_ticks);
+    }
+    changes();
 }
-int live_on(void) { return lv.on; }
+void live_land(int lane, uint32_t tick)
+{
+    lv.land[lane & 3] = tick;
+    lv.landed |= (uint8_t)(1u << (lane & 3));
+}
 uint8_t live_song(void) { return lv.song; }
-uint32_t live_rows0(void) { return lv.rows0; }
-void live_rows0_set(uint32_t rows0) { lv.rows0 = rows0; }
-int live_done(void) { return lv.done; }
-int live_left(void) { return lv.left; }
+int live_known(void) { return lv.known; }
+void live_known_set(uint32_t t0) { lv.t0 = t0; lv.known = 1; }
 uint32_t live_t0(void) { return lv.t0; }
-int live_over(void) { return lv.over; }
+int live_ticks(void) { return lv.ticks; }
+int live_done(void) { return lv.done; }
+int live_left(void) { return lv.left + (int)player_tap_lost(); }
+uint32_t live_h0(void) { return lv.h0; }

@@ -2,9 +2,9 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* The FM-1 (specs/editor.md, The FM-1: READ, WRITE and disks): no connection kept. READ and WRITE each find the FM-1
  * among the computer's MIDI ports, talk the seeding protocol (fw/web/seed.js) for as long as they run, and let it go.
- * UPLOAD DISK puts a disk in the FM-1 panel, DOWNLOAD DISK saves the panel as one, REVERT puts back what it showed after
- * the last READ or WRITE.
- *   ED.fm1.read(), write(), uploadDisk(), downloadDisk(), revert()
+ * UPLOAD DISK puts a disk in the FM-1 panel, DOWNLOAD DISK saves the panel as one, DOWNLOAD AS DISK the TABLE's selection
+ * (selectionDisk: no DOM), REVERT puts back what it showed after the last READ or WRITE.
+ *   ED.fm1.read(), write(), uploadDisk(), downloadDisk(), downloadSelection(ids), revert()
  *   ED.fm1.readFrom(session, st) / planWrite(layout, st, heldBytes?) / writeTo(session, st, o): the same without the page
  *   (the tests)
  *   ED.fm1.connect: async () -> { session, close(), name }: Web MIDI, or the virtual FM-1 (the page's own firmware, its
@@ -47,7 +47,7 @@ const api = {
 /* why HELLO failed, in the status line's words */
 function helloError(e) {
     if (e && e.code === S.RESULT.UNSAVED) return "THE FM-1 HAS EDITS NOT SAVED: SAVE OR REVERT FIRST ON THE FM-1";
-    if (e && e.timeout) return "THE FM-1 DID NOT ANSWER AS PT/FM: IT RUNS ANOTHER FIRMWARE OR THE USB RESCUE (INSTALL PT/FM FIRST)";
+    if (e && e.timeout) return "THE FM-1 DID NOT ANSWER AS PT/FM: IT RUNS ANOTHER FIRMWARE OR WAITS IN UPDATE MODE (INSTALL PT/FM FIRST)";
     return (e && e.message ? e.message : String(e)).toUpperCase();
 }
 function otherVersion(layout) {
@@ -73,10 +73,24 @@ async function readFrom(session, st, onProgress) {
         if (known.has(k)) { recs.push({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, payload: known.get(k) }); continue; }
         recs.push({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, payload: await readRecord(session, r, n => { done += n; if (onProgress) onProgress(done, total); }) });
     }
-    const items = keepIds(M.fromRecords(recs, { side: "R" }).items, st.base || []);
+    /* (an FM-1 holding samples in the old form: converted as the records load, as a disk is; its first WRITE rewrites
+     * every sample, and says so) */
+    const loaded = M.fromRecords(recs, { side: "R" });
+    const items = keepIds(loaded.items, st.base || []);
     const fm1 = { from: "read", when: null, name: null, fw: (layout.fwText || "").trim() || null, lastSave: layout.lastSave,
         layout: slimLayout(layout), other: otherVersion(layout) };
-    return { items, fm1, layout, read: todo.length, kept: live.length - todo.length };
+    return { items, fm1, layout, read: todo.length, kept: live.length - todo.length, conversion: loaded.conversion };
+}
+/* what a conversion did, in the status line's words: "" when there was none */
+function conversionText(c) {
+    if (!c || !(c.converted.length || c.older.length || c.dropped)) return "";
+    const t = [];
+    if (c.converted.length) t.push(c.converted.length + (c.converted.length === 1 ? " SAMPLER" : " SAMPLERS") + " CONVERTED TO " + c.samples + (c.samples === 1 ? " SAMPLE" : " SAMPLES") + " OF THEIR OWN");
+    if (c.older.length) t.push(c.older.length + (c.older.length === 1 ? " SAMPLER" : " SAMPLERS") + " LEFT IN THE OLDER FORM: PAST 256 SAMPLES" +
+        (c.olderSamples != null ? ", " + (c.olderSamples === 1 ? "1 SAMPLE NEEDS A NUMBER" : c.olderSamples + " SAMPLES NEED NUMBERS") +
+         ", " + c.free + " FREE" : "") + " (DELETE SAMPLES, OR THEM, TO FREE NUMBERS)");
+    if (c.dropped) t.push(c.dropped + " OLD AUDIO RECORDS NO SAMPLER NAMED DROPPED");
+    return " · " + t.join(" · ");
 }
 /* one of the layout's records read back and checked (its header's CRC over the bytes); tick(n) after each piece */
 async function readRecord(session, r, tick) {
@@ -126,6 +140,20 @@ function planWrite(layout, st, heldBytes) {
     /* an object of a version the FM-1 does not take, where it takes an older one this page goes down to: converted
      * (WRITE writes that), what the older version cannot hold named */
     const odd = new Map();
+    /* the samplers go down together with the samples they name (an FM-1 that reads the old form only has no samples of
+     * their own): each sampler an old sampler holding copies, numbered under it; the samples themselves are not sent. Its
+     * NOT KEPT names the samples no instrument names, and each sample several samplers name (a copy in each) */
+    const oldForm = !acc.has(K.SAMPLE << 8 | R.VERSION[K.SAMPLE]) && !acc.has(K.SAMPLER << 8 | 2) && acc.has(K.SAMPLER << 8 | 1);
+    if (oldForm && files.some(f => (f.kind === K.SAMPLER && f.ver === 2) || f.kind === K.SAMPLE)) {
+        const part = files.filter(f => (f.kind === K.SAMPLER && f.ver === 2) || f.kind === K.SAMPLE);
+        let d = null;
+        try { d = R.samplersV2to1(part); }
+        catch (e) { out.problems.push("THE SAMPLERS DO NOT FIT THE OLD FORM, THE ONE THE FM-1 READS: " + String(e.message || e).toUpperCase()); }
+        if (d) {
+            files = files.filter(f => !part.includes(f)).concat(d.recs.map(fileOf));
+            out.converted.push({ name: "SAMPLERS", from: 2, to: 1, lost: d.lost });
+        }
+    }
     for (const f of files) if (!acc.has(f.kind << 8 | f.ver)) { const k = f.kind + "." + f.num; if (!odd.has(k)) odd.set(k, []); odd.get(k).push(f); }
     for (const g of odd.values()) {
         const f0 = g[0], name = S.describe(f0).replace(/\.\d+$/, "");
@@ -192,6 +220,11 @@ function planWrite(layout, st, heldBytes) {
     const goes = layout.records.filter(x => !x.deleted && !stays.has(recKey(x) + "." + x.crc));
     out.backup = goes.filter(x => !seen.has(recKey(x) + "." + x.crc));
     out.seenGone = goes.length - out.backup.length;
+    /* the FM-1 holds samples in the old form and the panel's are records of their own (the panel was converted as it
+     * loaded): this write rewrites every sample, the old records among those it removes, and its BACKUP is offered first
+     * (the panel's last READ did not see them as they are: they are never "seen already") */
+    const olds = goes.filter(x => x.kind === K.AUDIO || (x.kind === K.SAMPLER && x.ver === 1));
+    if (olds.length && files.some(f => f.kind === K.SAMPLE)) out.rewritesSamples = olds.length;
     return out;
 }
 /* BACKUP before a WRITE: the FM-1's items now (its records: the panel's bytes where it holds the same, the rest read),
@@ -218,6 +251,7 @@ function removedNames(P, st) {
     const base = st.base || [], bm = M.byIdMap(base), out = new Set();
     for (const d of P.del) {
         const b = base.find(it => it.kind === d.kind && (it.kind === K.AUDIO ? (bm.get(it.owner) || {}).num === d.num && it.idx === d.sub : it.num === d.num));
+        if (b && st.R.some(i => i.id === b.id && i.kind !== K.AUDIO && i.num !== b.num)) continue;  /* (it took another number: still there) */
         out.add(b ? M.label(b, base) : S.describe(d).replace(/\.\d+$/, ""));
     }
     return [...out];
@@ -287,6 +321,7 @@ async function read() {
         r.fm1.when = u.nowLabel();
         const st = Object.assign({}, a.st, { R: r.items, base: r.items, fm1: Object.assign({}, r.fm1, { baseInfo: Object.assign({}, r.fm1) }) });
         a.commit(st, "READ FROM " + c.name + ": " + u.plural(r.items.length, "ITEM") + " (" + r.read + " RECORDS READ, " + r.kept + " ALREADY KNOWN)" +
+            conversionText(r.conversion) + (r.conversion && r.conversion.converted.length ? " · THE FIRST WRITE REWRITES EVERY SAMPLE" : "") +
             (r.fm1.other ? " · " + r.fm1.other : ""), { ok: true });
     });
 }
@@ -303,6 +338,8 @@ function confirmDialog(w, layout, st) {
             !P.upToDate && w.converted.length ? h("div", null, h("div", { class: "lbl" }, "CONVERTED FOR THE FM-1'S VERSION"), h("ul", null, w.converted.map(c =>
                 h("li", { class: c.lost.length ? "warn" : null }, c.name + ": VERSION " + c.from + " WRITTEN AS VERSION " + c.to +
                     (c.lost.length ? " · NOT KEPT: " + c.lost.join(", ") : " · NOTHING LOST"))))) : null,
+            !P.upToDate && w.rewritesSamples ? h("p", { class: "box" }, "THE FM-1 HOLDS ITS SAMPLES IN THE OLDER FORM. THIS FIRST WRITE REWRITES EVERY SAMPLE AS A RECORD OF ITS OWN AND REMOVES THE " +
+                u.plural(w.rewritesSamples, "OLD RECORD") + " (SAMPLERS AND THEIR AUDIO)" + (P.clean ? ", WRITING THE WHOLE USER AREA ANEW" : "") + ". THE OLD RECORDS ARE BACKED UP ON THE TABLE FIRST.") : null,
             P.clean ? h("p", { class: "box" }, "THIS PANEL DOES NOT FIT AROUND WHAT STAYS ON THE FM-1, BUT IT FITS THE FM-1 EMPTIED: " +
                 "THE WHOLE USER AREA IS WRITTEN ANEW, WHICH TAKES LONGER. AFTER IT THE FM-1 HOLDS EXACTLY THIS PANEL, AS AFTER ANY WRITE.") : null,
             P.upToDate ? h("p", null, "THE FM-1 ALREADY HOLDS EXACTLY THIS PANEL: NOTHING TO WRITE.") :
@@ -371,7 +408,7 @@ function diskItems(bytes, side, src) {
     if (!d.kind) throw new Error("NOT A PT/FM DISK");
     const good = d.files.filter(f => S.crc32(f.payload) === f.crc);
     const r = M.fromRecords(good, { side, src });
-    return { items: r.items, skipped: r.skipped, problems: d.problems, damaged: d.files.length - good.length };
+    return { items: r.items, skipped: r.skipped, problems: d.problems, damaged: d.files.length - good.length, conversion: r.conversion };
 }
 /* UPLOAD DISK: a disk picked, or the one dropped on the FM-1 panel (file) */
 async function uploadDisk(file) {
@@ -385,24 +422,46 @@ async function uploadDisk(file) {
         const st = Object.assign({}, a.st, { R: r.items, fm1: Object.assign({}, a.st.fm1, { from: "disk", name: f.name.toUpperCase() }) });
         a.commit(st, "UPLOAD DISK: " + f.name.toUpperCase() + " IN THE FM-1 PANEL, " + u.plural(r.items.length, "ITEM") +
             (dims ? " (" + dims + " OF A VERSION THIS PAGE CANNOT READ: KEPT, NOT WRITTEN)" : "") +
-            (r.damaged ? " · " + u.plural(r.damaged, "DAMAGED RECORD") + " LEFT OUT" : "") + " · NOTHING CHANGES ON THE FM-1 UNTIL WRITE", { ok: !r.damaged, err: !!r.damaged });
+            (r.damaged ? " · " + u.plural(r.damaged, "DAMAGED RECORD") + " LEFT OUT" : "") + conversionText(r.conversion) +
+            " · NOTHING CHANGES ON THE FM-1 UNTIL WRITE", { ok: !r.damaged, err: !!r.damaged });
     } catch (e) { u.status("UPLOAD DISK: " + (e.message || e).toUpperCase(), { err: true }); }
 }
 function diskOf(items) {
     return S.makeDisk(M.toRecords(items).map(r => ({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, payload: r.payload })));
 }
+/* the day in a disk's file name: 2026-10-26 */
+const day = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 function downloadDisk() {
     const u = U(), a = app();
-    const d = new Date(), name = "ptfm-" + d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") + ".ptfmdsk";
+    const name = "ptfm-" + day(new Date()) + ".ptfmdsk";
     const bytes = diskOf(a.st.R);
-    const blob = new Blob([bytes], { type: "application/octet-stream" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = name;
-    document.body.append(link);
-    link.click();
-    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 2000);
+    ED.util.saveFile(bytes, name);
     u.status("DOWNLOAD DISK: " + name + ", " + u.plural(a.st.R.length, "ITEM") + ", " + u.kb(bytes.length), { ok: true });
+}
+/* DOWNLOAD AS DISK (the TABLE's selection bar): the TABLE's items picked with everything they use, numbered as the move to
+ * an empty FM-1 panel numbers them (the move itself: the built-ins left out, a changed one they use at its number; each
+ * item at the number it remembers when free, else the lowest free one, references rewritten); refused as that move
+ * refuses (NO DISK SAVED for NOTHING MOVED), so also when it does not fit an empty FM-1. No panel changes.
+ * -> { ok, msg (a refusal), items (the disk's, numbered), bytes, name, said (what the move left out, or "") } */
+function selectionDisk(L, ids, o) {
+    o = o || {};
+    ids = ids.filter(id => L.some(i => i.id === id));
+    if (!ids.length) return { ok: false, msg: "PICK SOMETHING TO DOWNLOAD FIRST" };
+    /* (an empty FM-1 panel: no records, the built-ins and defaults the firmware's, the user area's own layout) */
+    const r = M.transfer({ L, R: [], base: [] }, "L", ids, {});
+    if (!r.ok) return { ok: false, msg: /NOTHING MOVED/.test(r.msg) ? r.msg.replace("NOTHING MOVED", "NO DISK SAVED") : r.msg + " · NO DISK SAVED" };
+    const one = ids.length === 1 ? L.find(i => i.id === ids[0]) : null;
+    /* (one item: its name as a file's, lowercase, spaces and signs a dash; several: the selection and the day) */
+    const base = one ? M.nameOf(one, L).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") : "";
+    const said = r.msg.split(" · ").filter(p => /^THE FM-1 KEEPS ONE OF EACH/.test(p)).map(p => p.replace(/ NOT MOVED$/, " LEFT OUT")).join(" · ");
+    return { ok: true, items: r.st.R, bytes: diskOf(r.st.R), name: (base || "ptfm-selection-" + day(o.date || new Date())) + ".ptfmdsk", said };
+}
+function downloadSelection(ids) {
+    const u = U(), d = selectionDisk(app().st.L, ids);
+    if (!d.ok) { u.status(d.msg, { err: true }); return false; }
+    ED.util.saveFile(d.bytes, d.name);
+    u.status("DOWNLOAD AS DISK: " + d.name + ", " + u.plural(d.items.length, "ITEM") + ", " + u.kb(d.bytes.length) + (d.said ? " · " + d.said : ""), { ok: true });
+    return true;
 }
 function revert() {
     const u = U(), a = app();
@@ -411,7 +470,7 @@ function revert() {
     a.commit(Object.assign({}, a.st, { R: a.st.base, fm1: Object.assign({}, info, { baseInfo: info }) }), "REVERTED: THE FM-1 PANEL AS AFTER THE LAST READ OR WRITE");
 }
 
-Object.assign(api, { read, write, uploadDisk, downloadDisk, revert, readFrom, planWrite, writeTo, removedNames, diskItems, diskOf,
-    otherVersion, helloError, connectVirtual });
+Object.assign(api, { read, write, uploadDisk, downloadDisk, downloadSelection, selectionDisk, revert, readFrom, planWrite, writeTo,
+    removedNames, diskItems, diskOf, otherVersion, helloError, connectVirtual, conversionText });
 ED.fm1 = api;
 })(globalThis.ED = globalThis.ED || {});

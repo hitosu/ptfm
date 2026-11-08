@@ -12,9 +12,10 @@ screen's Help part (specs/ui/screens/<screen>.md) and the shared pages (specs/ui
 page, its lines split by a line break. A text used in several places is stored once.
 
 Packing: byte-pair encoding over all the texts together. The symbols start as the texts' characters; the
-commonest pair of symbols becomes a new token, again and again. A token is one byte (a table of up to 256)
-or 12 bits (up to 4,096); several table sizes are tried and the smallest total of texts, table and index
-is kept. The table stores each token as its two halves.
+commonest pair of symbols becomes a new token, again and again. A token is as many bits as the table's size
+needs (9 for up to 512, 10 for 1,024 ...), every size is tried and the smallest total of texts, table and
+index is kept. The table stores each token as its two halves, bit-packed as the texts' tokens are. The index:
+each text's length in tokens, a byte, and every 16th text's start (txt.c's TXT_STEP).
 """
 import os
 import re
@@ -113,9 +114,10 @@ def help_readings():
     return dict(zip(keys, txts))
 
 
-def help_drawn(line, read, named):
+def help_drawn(line, read, named, seen=None):
     """a help line as drawn (ui_dlg.c help_line): the marks' brackets gone, a reading written after its key kept, a
-    {KEY*}'s added where this help has not named the key yet; named: the keys named so far, updated"""
+    {KEY*}'s added where this help has not named the key yet; named: the keys named so far, updated; seen: each mention
+    of a key with a reading appended, (key, its reading drawn, the line as drawn up to it ending in `+`)"""
     out, i = "", 0
     while i < len(line):
         ch = line[i]
@@ -127,16 +129,50 @@ def help_drawn(line, read, named):
         name, i = line[i + 1:e], e + 1
         auto = name.endswith("*")
         name = name.rstrip("*")
+        held = out.rstrip().endswith("+")
         out += name
         r = " (%s)" % read[name] if ch == "{" and name in read else None
+        drawn = False
         if r and auto and name not in named:
             out += r
             named.add(name)
+            drawn = True
         elif r and line.startswith(r, i):
             out += r
             named.add(name)
             i += len(r)
+            drawn = True
+        if r and seen is not None:
+            seen.append((name, drawn, held))
     return out
+
+
+READ_FIRST = ("ENV", "SEQ", "ARP")      # readings given at the key's first mention (help.md's Readings)
+SCREEN_KEYS = ("OP1", "OP2", "OP3", "OP4", "OP5", "OP6", "PIT", "MONO", "POLY")   # theirs on the shared SCREENS page
+
+
+def reading_bad(screen, k, line, mine, name, drawn, held, counts):
+    """a mention's reading out of its place (help.md's Readings), or None: ENV's, SEQ's and ARP's at the key's first
+    mention and at no later one; LFO's (only where it clears) and the screen keys' at most once, the screen keys' only
+    on the shared pages. The hold lines: ARP's reading is allowed again, not required, wherever ARP's mark comes right
+    after a `+` (held: the line as drawn up to the mark ends in `+`, spaces aside: `+ {ARP}`, `HOLD {FX} + {ARP}`), and
+    such a reading counts for no other. line: the line as drawn, named in the message; counts: per key, its mentions so
+    far and the readings drawn, updated"""
+    c = counts.setdefault(name, [0, 0])
+    first = c[0] == 0
+    c[0] += 1
+    hold = name == "ARP" and held
+    at = "%s's help page %d, %r" % (screen, k + 1, line)
+    if first and name in READ_FIRST and not drawn:
+        return "%s: %s's first mention, without its reading" % (at, name)
+    if drawn and not hold:
+        c[1] += 1
+        again = not first if name in READ_FIRST else c[1] > 1
+        if again:
+            return "%s: %s's reading again (once, at its first mention)" % (at, name)
+    if drawn and mine and name in SCREEN_KEYS:
+        return "%s: %s's reading on the screen's own page (the SCREENS page gives it)" % (at, name)
+    return None
 
 
 def merge(s, a, b, new):
@@ -203,21 +239,97 @@ def spell(tok, base, pairs):
     return spell(a, base, pairs) + spell(b, base, pairs)
 
 
+IDX_STEP = 16                           # (SIZE) a text's start kept every 16 texts; each text's length a byte
+
+
+def index_len(n):
+    return n + 2 * ((n + IDX_STEP - 1) // IDX_STEP + 1)
+
+
 def pack(texts, base):
-    """the smallest of the table sizes tried: (bits, pairs, seqs, total bytes). One training run gives
-    every size: a smaller table's merges are the first ones of a bigger table's."""
+    """the smallest of every table size: (bits, pairs, seqs, total bytes). A token is as many bits as its table's size
+    needs (ceil(log2(characters + merges)), at least 8), a merge's two halves twice that; a merge stays in only while
+    it saves more than its own room (SIZE). One training run gives every size: a smaller table's merges are the first
+    ones of a bigger table's."""
     pairs, totals = train(texts, base, 4096)
     best = None
-    for bits, vocab in ((8, 256), (12, 512), (12, 1024), (12, 2048), (12, 4096)):
-        k = min(len(pairs), vocab - len(base))
+    for k in range(len(pairs) + 1):
+        bits = max(8, (len(base) + k - 1).bit_length())
         ntok = totals[k - 1] if k > 0 else sum(len(t) for t in texts)
-        data = ntok if bits == 8 else (ntok * 12 + 7) // 8 + 1
-        table = k * (2 if bits == 8 else 3)
-        total = data + table + 2 * (len(texts) + 1) + len(base)
-        if best is None or total < best[3]:
-            best = (bits, k, None, total)
-    bits, k, _, total = best
+        total = (ntok * bits + 7) // 8 + 2 + (k * 2 * bits + 7) // 8 + 2 + index_len(len(texts)) + len(base)
+        if best is None or total < best[2]:
+            best = (bits, k, total)
+    bits, k, total = best
     return bits, pairs[:k], apply_merges(texts, base, pairs[:k]), total
+
+
+def best_parse(texts, base, pairs):
+    """every text spelled with the fewest tokens of the table (any token anywhere: the decoder only expands them), by
+    dynamic programming over the tokens' spellings; the merges' own order gives more (SIZE)"""
+    spell_of = {}
+    for t in range(len(base) + len(pairs)):
+        spell_of[t] = base[t] if t < len(base) else spell_of[pairs[t - len(base)][0]] + spell_of[pairs[t - len(base)][1]]
+    first = {}
+    for t, s in spell_of.items():
+        first.setdefault(s[0], []).append((s, t))
+    out = []
+    for txt in texts:
+        n = len(txt)
+        best, how = [0] + [n + 1] * n, [None] * (n + 1)
+        for i in range(n):
+            for s, t in first.get(txt[i], ()):
+                j = i + len(s)
+                if j <= n and best[i] + 1 < best[j] and txt.startswith(s, i):
+                    best[j], how[j] = best[i] + 1, (i, t)
+        seq, j = [], n
+        while j:
+            j, t = how[j]
+            seq.append(t)
+        out.append(seq[::-1])
+    return out
+
+
+def packed(texts, base, out):
+    """pack and best_parse, kept in OUTDIR/texts.cache.json keyed by the texts and this file: a build with the same texts
+    reads it back instead of training again (~5 s)"""
+    import hashlib
+    import json
+    with open(os.path.abspath(__file__), "rb") as fh:
+        key = hashlib.sha256(fh.read() + json.dumps([texts, base]).encode()).hexdigest()
+    path = os.path.join(out, "texts.cache.json")
+    try:
+        with open(path) as fh:
+            c = json.load(fh)
+        if c.get("key") == key:
+            return c["bits"], [tuple(p) for p in c["pairs"]], c["seqs"]
+    except (OSError, ValueError):
+        pass
+    bits, pairs, _, _ = pack(texts, base)
+    seqs = best_parse(texts, base, pairs)
+    os.makedirs(out, exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump({"key": key, "bits": bits, "pairs": pairs, "seqs": seqs}, fh)
+    return bits, pairs, seqs
+
+
+def bitpack(vals, bits):
+    """vals at bits each, low bits first, and 2 spare bytes (the decoder reads three at a time)"""
+    acc, nb, buf = 0, 0, bytearray()
+    for v in vals:
+        acc |= v << nb
+        nb += bits
+        while nb >= 8:
+            buf.append(acc & 255)
+            acc >>= 8
+            nb -= 8
+    if nb:
+        buf.append(acc & 255)
+    return bytes(buf) + b"\0\0"
+
+
+def bits_at(p, b, n):
+    v = p[b >> 3] | p[(b >> 3) + 1] << 8 | p[(b >> 3) + 2] << 16
+    return v >> (b & 7) & ((1 << n) - 1)
 
 
 def cstr(s):
@@ -228,16 +340,16 @@ def comment(s):
     return s.replace("*/", "* /").replace("\n", "|")
 
 
-def unpack(bits, data, index, pairs, base, i):
-    toks = []
-    for k in range(index[i], index[i + 1]):
-        if bits == 8:
-            toks.append(data[k])
-        else:
-            b = k * 12
-            v = data[b >> 3] | data[(b >> 3) + 1] << 8 if (b >> 3) + 1 < len(data) else data[b >> 3]
-            toks.append((v >> (b & 7)) & 0xFFF)
-    return "".join(spell(t, base, pairs) for t in toks)
+def unpack(bits, data, lens, starts, ptab, base, i):
+    """text i as txt.c unpacks it: its start from the one kept for its 16 and the lengths before it in them"""
+    k = starts[i // IDX_STEP] + sum(lens[i - i % IDX_STEP:i])
+
+    def spell_t(t):
+        if t < len(base):
+            return base[t]
+        j = t - len(base)
+        return spell_t(bits_at(ptab, 2 * j * bits, bits)) + spell_t(bits_at(ptab, (2 * j + 1) * bits, bits))
+    return "".join(spell_t(bits_at(data, (k + m) * bits, bits)) for m in range(lens[i]))
 
 
 def main():
@@ -264,15 +376,22 @@ def main():
         for k, p in enumerate(pages + shared):
             if p.count("\n") + 1 > 17:
                 sys.exit("gen_texts: %s's help page %d: %d lines (17 at most)" % (screen, k + 1, p.count("\n") + 1))
-    # ... and every line 40 characters as drawn, with the readings it gets in that screen's page order
+    # ... and every line 40 characters as drawn, with the readings it gets in that screen's page order; each reading in
+    # its place there (reading_bad)
     read = help_readings()
     for screen, pages in own:
-        named = set()
+        named, counts = set(), {}
         for k, p in enumerate(shared + pages if screen == "STATUS" else pages + shared):
+            mine = k >= len(shared) if screen == "STATUS" else k < len(pages)
             for ln in p.split("\n"):
-                d = help_drawn(ln, read, named)
+                seen = []
+                d = help_drawn(ln, read, named, seen)
                 if len(d) > 40:
                     sys.exit("gen_texts: %s's help page %d: %d characters as drawn: %s" % (screen, k + 1, len(d), d))
+                for name, drawn, held in seen:
+                    bad = reading_bad(screen, k, d, mine, name, drawn, held, counts)
+                    if bad:
+                        sys.exit("gen_texts: " + bad)
     for t in texts:
         bad = set(t) - FONT_CHARS - {"\n"}
         if bad:
@@ -281,33 +400,28 @@ def main():
         if bare != bare.upper():
             sys.exit("gen_texts: lowercase in %r (the screens show capitals only)" % t[:40])
     base = sorted(set("".join(texts)) | {" "})
-    bits, pairs, seqs, total = pack(texts, base)
-    index = [0]
-    for s in seqs:
-        index.append(index[-1] + len(s))
-    flat = [t for s in seqs for t in s]
-    if bits == 8:
-        data = bytes(flat)
-    else:
-        acc, nb, buf = 0, 0, bytearray()
-        for t in flat:
-            acc |= t << nb
-            nb += 12
-            while nb >= 8:
-                buf.append(acc & 255)
-                acc >>= 8
-                nb -= 8
-        if nb:
-            buf.append(acc & 255)
-        buf.append(0)                                   # (a spare byte: the decoder reads two at a time)
-        data = bytes(buf)
+    bits, pairs, seqs = packed(texts, base, out)
+    lens = [len(s) for s in seqs]
+    if max(lens) > 255:
+        sys.exit("gen_texts: a text of %d tokens: more than its length's byte holds" % max(lens))
+    starts, at = [], 0
+    for i, n in enumerate(lens):
+        if i % IDX_STEP == 0:
+            starts.append(at)
+        at += n
+    starts.append(at)
+    if at > 65535:
+        sys.exit("gen_texts: %d tokens: more than a start's uint16 holds" % at)
+    data = bitpack([t for s in seqs for t in s], bits)
+    ptab = bitpack([h for ab in pairs for h in ab], bits)
+    total = len(data) + len(ptab) + len(lens) + 2 * len(starts) + len(base)
     depth = {}
     for k, (a, b) in enumerate(pairs):                  # the decoder's stack (txt.c: 64) holds a token's depth
         depth[len(base) + k] = 1 + max(depth.get(a, 0), depth.get(b, 0))
     if depth and max(depth.values()) > 60:
         sys.exit("gen_texts: a token %d deep: more than the decoder's stack" % max(depth.values()))
     for i, t in enumerate(texts):                       # the tool's own check: every text comes back
-        if unpack(bits, data, index, pairs, base, i) != t:
+        if unpack(bits, data, lens, starts, ptab, base, i) != t:
             sys.exit("gen_texts: text %d does not unpack" % i)
     if "--check" in args:
         print("gen_texts: %d texts unpack as written" % len(texts))
@@ -322,30 +436,26 @@ def main():
              "const uint8_t TXT_BITS = %d;" % bits,
              "const uint16_t TXT_BASE = %d;                /* tokens below this are characters */" % len(base),
              "const char TXT_CHARS[] = %s;" % cstr("".join(base)), ""]
-    lines.append("/* the merged tokens: each its two halves; its spelled-out words in the comment */")
-    if bits == 8:
-        lines.append("const uint8_t TXT_PAIRS[%d] = {" % max(1, 2 * len(pairs)))
-        for k, (a, b) in enumerate(pairs):
-            lines.append("    %d, %d,   /* 0x%02X %s */" % (a, b, len(base) + k, cstr(spell(len(base) + k, base, pairs))))
-    else:
-        lines.append("const uint8_t TXT_PAIRS[%d] = {             /* 3 bytes a token: a | b << 12 */" % max(1, 3 * len(pairs)))
-        for k, (a, b) in enumerate(pairs):
-            v = a | b << 12
-            lines.append("    %d, %d, %d,   /* 0x%03X %s */" % (v & 255, v >> 8 & 255, v >> 16, len(base) + k,
-                                                           cstr(spell(len(base) + k, base, pairs)).replace("*/", "* /")))
-    if not pairs:
-        lines.append("    0")
+    lines.append("/* the merged tokens' halves, TXT_BITS each, a then b, bit-packed (low bits first); the tokens' words: */")
+    for k in range(len(pairs)):
+        lines.append("/*   0x%03X %s */" % (len(base) + k, comment(cstr(spell(len(base) + k, base, pairs)))[:100]))
+    lines.append("const uint8_t TXT_PAIRS[%d] = {" % len(ptab))
+    for i in range(0, len(ptab), 24):
+        lines.append("    " + ", ".join(str(b) for b in ptab[i:i + 24]) + ",")
     lines += ["};", ""]
+    lines.append("/* the texts' tokens, TXT_BITS each, bit-packed (low bits first) */")
     lines.append("const uint8_t TXT_DATA[%d] = {" % len(data))
     for i in range(0, len(data), 24):
         lines.append("    " + ", ".join(str(b) for b in data[i:i + 24]) + ",")
     lines += ["};", ""]
-    lines.append("/* where each text starts, in tokens; text n is n's entry to n + 1's */")
-    lines.append("const uint16_t TXT_INDEX[%d] = {" % len(index))
+    lines.append("/* each text's length in tokens; text n starts at TXT_START[n / %d] plus the lengths before it there */"
+                 % IDX_STEP)
+    lines.append("const uint8_t TXT_LEN[%d] = {" % len(lens))
     for i, t in enumerate(texts):
-        lines.append("    %d,   /* %d %s */" % (index[i], i, comment(cstr(t))[:110]))
-    lines.append("    %d" % index[-1])
-    lines += ["};", "const uint16_t TXT_COUNT = %d;" % len(texts), ""]
+        lines.append("    %d,   /* %d %s */" % (lens[i], i, comment(cstr(t))[:110]))
+    lines += ["};"]
+    lines.append("const uint16_t TXT_START[%d] = {%s};" % (len(starts), ", ".join(map(str, starts))))
+    lines += ["const uint16_t TXT_COUNT = %d;" % len(texts), ""]
     lines.append("const txt_help_t TXT_HELP[] = {")
     for screen, first, n in help_ids:
         lines.append('    {"%s", %d, %d},' % (screen, first - len(src), n))

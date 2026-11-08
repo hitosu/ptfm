@@ -9,7 +9,7 @@ changed; an old version becomes garbage, and a block is erased only when nothing
 
 ## The flash
 
-The flash is 1 MiB of Puya NOR.
+The flash is 1 MiB of NOR, one of the two chips FM-1s carry ([../hardware.md](../hardware.md#the-flash)).
 - **Erase** works on 4 KB blocks and sets every bit to 1. **Program** writes 1 to 256 bytes within
   one 256 B page, and only clears bits.
 - **A page can be programmed again, in pieces,** before its next erase, also after a power-cycle: no
@@ -42,12 +42,12 @@ The flash is 1 MiB of Puya NOR.
 | Area | Holds |
 |---|---|
 | 0x000000 - 0x004000 | never: the boot code |
-| **FWS, the firmware space**, 0x004000 - the firmware's end | the firmware with its built-in instruments ([instruments.md](instruments.md#built-in-instruments)), written by installs |
+| **FWS, the firmware space**, 0x004000 - the firmware's end | the start check (0x004000 - 0x005000, the same in every build), then the firmware with its built-in instruments ([instruments.md](instruments.md#built-in-instruments)), written by installs |
 | **FWS's free part,** after the firmware, up to 0x092000 | nothing: the room the firmware grows into |
-| 0x092000 - 0x093000 | never: the SDK's files, written by installs |
+| 0x092000 - 0x093000 | never: the firmware's mark and the SDK's files, written by installs |
 | **the user area:** fast region 1, 0x093000 - 0x0E0000 (308 KB) | records; audio |
-| update staging, 0x0E0000 - 0x0E5000 | never |
-| **the user area:** fast region 2, 0x0E5000 - 0x0FF000 (104 KB) | records; audio |
+| update staging, 0x0E0000 - 0x0E5000 | PT/FM's update loader, kept: never the store's |
+| **the user area:** fast region 2, 0x0E5000 - 0x0FF000 (104 KB) | records; audio (the debug build: to 0x0F7000, its debug part above, [../debug.md](../debug.md#the-debug-part)) |
 | 0x0FF000 - 0x100000 | never: the packages' flash header reserves it for the chip |
 
 The screens name the user area USER and the firmware space FWS ([../ui/saving.md](../ui/saving.md#fws)).
@@ -78,17 +78,16 @@ The screens name the user area USER and the firmware space FWS ([../ui/saving.md
   write the fast regions too: for PT/FM their install is the loss of everything, and a copy made with the
   editor page before (READ, then DOWNLOAD DISK: a disk) is how it comes back once PT/FM is installed again
   ([blob.md](blob.md#seeding)).
-- **An install cut short by a power cut does not resume** at the next power-on: the boot code looks for
-  the request to run the update loader only in RAM. The USB rescue and the install page bring the FM-1
-  back.
+- **An install cut short by a power cut** is finished from update mode: at the next power-on the start check
+  finds no mark that fits the firmware and starts the update loader kept in the staging, and the install
+  page goes on ([../hardware.md](../hardware.md#updates-and-rescue)).
 - **What other firmwares leave** in the fast regions (their settings at 0x0FC000-0x0FEFFF, their
   projects in region 1) holds no record of PT/FM's: those blocks count as free, and are erased when
   the head reaches them ([The head, erases and wear](#the-head-erases-and-wear)).
-- **The update path** marks a pending update with a record in the last 256 B of a block (at
-  0x0E4F00, in the staging), where the boot code looks for it. An install's loader erases every
-  block from 0x093000 to 0x0FC000 that ends in such a record. A record is told by a marker and a
-  CRC-16, so data of the store matches one by chance about once in 4 billion blocks: nothing is done
-  about it.
+- **The update path** keeps its update record in RAM only; older firmwares also wrote a copy in the
+  last 256 B of the staging (0x0E4F00), which nothing reads. PT/FM's update loader erases that one
+  block (the staging's last) when it holds such a copy, and writes nothing else outside the slot: the
+  user area is never touched by an install.
 
 ## A record
 
@@ -97,8 +96,8 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 | Bytes | Field |
 |---|---|
 | 0 | kind (0xFF: erased flash, the end of a block's records) |
-| 1 | number: which cartridge, pattern, song (00-FF) |
-| 2 | sub: a pattern's or the loops' part (0-15); a sample's index in its cartridge (00-3F); else 0 |
+| 1 | number: which cartridge, pattern, song, sample (00-FF) |
+| 2 | sub: a pattern's or the loops' part (0-15); the old audio's index in its cartridge (00-3F, kind 0x10); else 0 |
 | 3 | the kind's format version |
 | 4-6 | the payload's length |
 | 7 | flags: bit 0 the last record of its save; bit 1 deleted (no payload) |
@@ -110,10 +109,13 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 | 0x01 | DX7 cartridge ([instruments.md](instruments.md)) | the cartridge, 00-FF | 0 | 1 |
 | 0x02 | Juno-106 cartridge | the cartridge | 0 | 1 |
 | 0x03 | TB-303 cartridge | the cartridge | 0 | 1 |
-| 0x04 | sampler cartridge | the cartridge | 0 | 1 |
+| 0x04 | sampler cartridge: instruments only ([instruments.md](instruments.md#sample-instruments)) | the cartridge | 0 | 2 |
 | 0x05 | FUSION cartridge | the cartridge | 0 | 1 |
 | 0x06 | CHIP cartridge | the cartridge | 0 | 1 |
-| 0x10 | sample audio ([ptr.md](ptr.md)) | its cartridge | the sample, 00-3F | 1 |
+| 0x07 | FAVORITES cartridge ([instruments.md](instruments.md#favorites)) | the cartridge | 0 | 1 |
+| 0x0F | a built-in cartridge deleted: its mark, no payload ([instruments.md](instruments.md#deleting-a-built-in-cartridge)) | the built-in's number, `F0`-`FF` | 0 | 1 |
+| 0x10 | the old form's sample audio: kept as audio, never read ([below](#audio)) | its sampler cartridge | its index there, 00-3F | 1 |
+| 0x11 | a sample: its entry and its audio ([instruments.md](instruments.md#samples), [ptr.md](ptr.md)) | the sample, 00-FF | 0 | 1 |
 | 0x20 | pattern ([patterns.md](patterns.md)) | 00-FF | the part, 0-15 | 1 |
 | 0x21 | song ([songs.md](songs.md)) | 00-FF | 0 | 1 |
 | 0x22 | the loops ([loops.md](loops.md)) | 00 | the part, 0-15 | 4 |
@@ -127,20 +129,30 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 - **The one-of-a-kind records** (the settings, the loops, DJ's setup, the MIDI map): with none in the
   flash the device runs on the firmware's defaults (the loops empty, no mappings), and nothing is copied
   at power-on; the record is written at the first SAVE that changes it, into the user area.
-- **Audio has blocks of its own in the user area:** only the uploader and CLONE or MOVE of a sampler
-  cartridge with samples write it, packed one record after another over consecutive blocks of one region,
-  and no other record shares those blocks. So compaction never meets a block it cannot free.
-- **CLONE or MOVE of a sampler cartridge with samples** ([../ui/screens/instruments.md](../ui/screens/instruments.md))
-  is one save written at once: every sample's audio copied under the new number (from wherever it lies),
-  a MOVE's deleted records for the old number, then the cartridge's record, the save's last. A power cut
-  leaves it as before or as after.
-- **The six cartridge kinds share one number space:** a cartridge number is live in at most one of
-  them. Writing a cartridge of another kind under a number deletes the old one in the same save, a
-  sampler's audio with it. **Cartridge, pattern and song numbers `F0`-`FF` are the
+- <a id="audio"></a>**Audio:** two kinds are audio, **0x11, the samples,** and **0x10, the old form's audio**
+  (numbered under its sampler, from before samples were records of their own: [disk.md](disk.md#versions)). This
+  firmware never reads 0x10 (it plays nothing, lists nothing and counts as no sample), but to the store both kinds
+  are alike: a record of either may cross blocks (the scan takes it), and the blocks they lie in are audio blocks.
+  So old audio stays whole, listed and in its place until a page converts it; taken for damage, its blocks would
+  count free and a save could write over it first.
+- **Audio has blocks of its own in the user area:** only the uploader writes it (the install page, the EDITOR
+  page's WRITE, the emulator's), packed one record after another over consecutive blocks of one region, and no
+  other record shares those blocks; the device writes no audio, only an audio record's deletion. So compaction
+  never meets a block it cannot free.
+- **The seven cartridge kinds share one number space:** a cartridge number is live in at most one of
+  them. Writing a cartridge of another kind under a number deletes the old one in the same save. A sample's number
+  is apart from them: sample `05` and cartridge `05` have nothing to do with each other. **Cartridge, pattern and song numbers `F0`-`FF` are the
   firmware's,** for its built-in things ([instruments.md](instruments.md#built-in-instruments),
   [patterns.md](patterns.md#numbers)): a record under one of them is a changed built-in. A cartridge there of
   a kind the firmware has no built-in of under that number (an earlier build's) is left out at power-on, dead,
   and its compaction drops it.
+- **A deleted built-in cartridge leaves a mark:** a live record of kind 0x0F, version 1, length 0, under the
+  built-in's number ([instruments.md](instruments.md#deleting-a-built-in-cartridge)). It is not a cartridge kind: the
+  cartridges' number space does not take it in. Every lookup of a marked number finds nothing: the built-in is left
+  out of every list and read as missing, as a deleted cartridge is. It is written in the same save as the changed
+  copy's deletion when there is one, so a power cut never leaves the copy deleted and the built-in back; carried by
+  compaction as any live record. A mark under a number where the firmware has no built-in is left out, dead, and its
+  compaction drops it. Its deletion (RESTORE on the EDITOR page, FACTORY RESET) brings the built-in back.
 
 ## Saving
 
@@ -166,11 +178,26 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 - **The scan:** every block's record headers in the user area are read in place; a big audio record's
   later blocks are skipped. The newest version of each object (kind, number, sub) wins; a deleted flag
   removes it. FWS's free part is not read: whatever an older firmware left there counts for nothing.
+- **Two cartridge kinds under one number** (an older firmware, which does not know FAVORITES, kept its record
+  but made another cartridge under the same number, and compaction may rewrite either as a newer save, so save
+  order tells nothing): **another cartridge kind always wins over FAVORITES.** The FAVORITES record is left out
+  (nothing refers to it) and the next SAVE writes its deletion.
+- **A cartridge record under a marked number** (an older firmware, which keeps the mark it does not know, may save a
+  changed copy there later, and compaction may rewrite either as a newer save, so save order tells nothing):
+  **the cartridge always wins.** The built-in counts as not deleted (the copy its changed one), and the next SAVE
+  writes the mark's deletion. A firmware that does not know the kind shows the built-in again.
 - **The check:** the CRC of every record in the user area is checked (~30 ms for all 412 KB). SETTINGS →
   TOOLS → CHECK STORAGE checks them all again on request ([../ui/screens/settings.md](../ui/screens/settings.md)).
 - **A record that fails its CRC** does not count. As its header may be wrong too, the scan finds the
   next record by trying each following 4-byte step for a header whose record checks: a bad record
   costs only itself.
+- **What counts as damaged** (the count a seeding's answer carries, the FM-1's `DATA RECEIVED, # BAD RECORDS`, the
+  pages' words) is what CHECK STORAGE names: a record whose CRC fails and that mattered, the one in use, one newer than
+  it, or one with none in use. Nothing else counts: not a copy older than the one in use, not the old form's audio,
+  not bytes that are no record. A deleted record's bytes stay in its blocks, which are free; when a save writes into
+  some of them (a sample's audio crosses blocks), what is left there is an older copy failing its CRC, or a piece at a
+  block's start that is no record: no damage, as nothing in use is lost. When the scan finds anything it cannot read,
+  it reads once more to count by that rule.
 - **The map:** what is live, and where, stays in RAM: 8 B an object, 4.4 KB for 560 objects.
 - **The scan's worst case,** a header every 16 B over all of the user area, takes 8.6 ms (a cold
   header read: 1.3 us in place).
@@ -215,8 +242,10 @@ always has room to be saved:
 - **Deletions first:** a SAVE that does not fit writes its deletions first, as a save of their own, then the
   rest once compaction has freed their blocks; a power cut between the two leaves the deletions saved and the
   rest not. Only deletions nothing among the changes could be made from go first: a thing deleted whole whose
-  kind (patterns; songs; the cartridges with their samples, as one) has no new thing among the changes (one
-  the flash does not hold, or one made anew, as MOVE and CLONE make), the EDITOR's pattern and the keys'
-  song apart. Otherwise the SAVE writes nothing and asks.
+  kind (patterns; songs; the cartridges; the samples) has no new thing among the changes (one the flash does not
+  hold, or one made anew, as MOVE and CLONE make), the EDITOR's pattern and the keys' song apart. A sample's
+  deletion always qualifies (the FM-1 makes no samples), so it goes first and the samplers whose instruments it
+  deleted follow; a power cut between leaves those instruments naming a missing sample
+  ([instruments.md](instruments.md#samples)). Otherwise the SAVE writes nothing and asks.
 - **STATUS** counts the 40 KB as used ([../ui/screens/status.md](../ui/screens/status.md)). The uploader's
   64 KB reserve covers them.

@@ -8,7 +8,10 @@
  *   cartridges: unpackCart(kind, bytes) -> { name, slots: [slot | null] }, packCart(kind, cart)
  *     slots by kind: DX7 { name, level, ops: [6 x {field}], voice: {field} } (OP6 first, as Yamaha's packed voice),
  *     Juno-106 / TB-303 / FUSION { name, level, ...fields }
- *   samplers: unpackSampler(bytes) -> { name, instruments: [inst | null], samples: [entry | null] }, packSampler
+ *   samplers: unpackSampler(bytes, ver?) -> { name, instruments: [inst | null] } (version 2: an instrument's SAMPLE is
+ *     a sample's number, 8 bits), or, for the old form (version 1, odd length), + samples: [entry | null]; packSampler(c)
+ *     (version 2; the old form when c holds `samples`)
+ *   samples (kind 0x11): unpackSample(bytes) -> { entry | null, audio }, packSample(entry, audio)
  *   PTR: ptrEncode(Int16Array|number[] samples, bits) -> Uint8Array, ptrDecode(bytes) -> { bits, samples }
  *   patterns: unpackPattern([part payloads]) -> { tracks, rows, step, cells: Map("row,track" -> cell) },
  *     packPattern(p) -> [part payloads]; a cell { note, ins, vol, cmds: [[code, value]] } (note 0 none, 1 off;
@@ -18,15 +21,19 @@
  *   the loops: unpackLoops([parts]) -> { the setup, loops: [{ instrument, ..., cells }] }, packLoops(L) -> [parts]
  *   older versions: upgrade(records) -> the records, each object of an older version converted (the loops' 3 -> 4)
  *   newer versions, for WRITE to an FM-1 that reads an older one: downgrade(an object's records, version) -> { recs,
- *     lost } or null; canDowngrade(kind, from, to) (the loops' 4 -> 3; the editor only, not the Python twin) */
+ *     lost } or null; canDowngrade(kind, from, to) (the loops' 4 -> 3, the samplers' 2 -> 1: given the samplers with the
+ *     samples they name, each an old sampler holding copies; the editor only, not the Python twin) */
 (function (ED) {
 "use strict";
 
-const KIND = { DX7: 0x01, JUNO: 0x02, TB303: 0x03, SAMPLER: 0x04, FUSION: 0x05, CHIP: 0x06, AUDIO: 0x10, PATTERN: 0x20,
-    SONG: 0x21, LOOPS: 0x22, DJ: 0x23, SETTINGS: 0x30, MIDIMAP: 0x31, NOTES: 0xE0 };
-const VERSION = { 0x01: 1, 0x02: 1, 0x03: 1, 0x04: 1, 0x05: 1, 0x06: 1, 0x10: 1, 0x20: 1, 0x21: 1, 0x22: 4, 0x23: 1, 0x30: 1,
-    0x31: 1, 0xE0: 1 };
-const CART_KINDS = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06];
+/* AUDIO (0x10) is the old form's audio under its sampler's number; SAMPLE (0x11) is a sample of its own */
+const KIND = { DX7: 0x01, JUNO: 0x02, TB303: 0x03, SAMPLER: 0x04, FUSION: 0x05, CHIP: 0x06, FAVORITES: 0x07, AUDIO: 0x10,
+    SAMPLE: 0x11, PATTERN: 0x20, SONG: 0x21, LOOPS: 0x22, DJ: 0x23, SETTINGS: 0x30, MIDIMAP: 0x31, NOTES: 0xE0 };
+/* (0x04 is 2: the sampler cartridge names its samples by number; the old form, version 1, is converted by upgrade()) */
+const VERSION = { 0x01: 1, 0x02: 1, 0x03: 1, 0x04: 2, 0x05: 1, 0x06: 1, 0x07: 1, 0x10: 1, 0x11: 1, 0x20: 1, 0x21: 1, 0x22: 4, 0x23: 1,
+    0x30: 1, 0x31: 1, 0xE0: 1 };
+const SAMPLER_VERSION = 2;
+const CART_KINDS = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
 const RECORD_MAX = 4080;
 const NAME_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-?|/\\*#$@%";
 const NAME_EMPTY = 63;
@@ -107,12 +114,15 @@ const CHIP = [["osc", 3], ["duty", 2], ["bz_shape", 2], ["bz_steps", 1], ["bz_ga
     ["wave", 4], ["tab_vol", 6], ["spd_vol", 2], ["tab_arp", 6], ["spd_arp", 2], ["tab_pitch", 6], ["spd_pitch", 2],
     ["tab_duty", 6], ["spd_duty", 2], ["tab_noise", 6], ["spd_noise", 2], ["vib_delay", 5], ["vib_speed", 2],
     ["vib_depth", 5]];
+/* an instrument of a sampler cartridge: version 1 (the old form) names its sample by its place in its sampler's table,
+ * 6 bits, spare 86; version 2 by the sample's number, 8 bits, spare 84 */
 const SAMPLER = [["sample", 6], ["start", 20], ["end", 20], ["loop_start", 20], ["loop_end", 20], ["loop", 2],
     ["base_note", 7], ["tune", 8]];
+const SAMPLER2 = [["sample", 8]].concat(SAMPLER.slice(1));
 const ENV = [["r1", 7], ["r2", 7], ["r3", 7], ["r4", 7], ["l1", 7], ["l2", 7], ["l3", 7], ["l4", 7]];
 /* kind: fields, slot size, spare bits after name and LEVEL, slots at most */
 const SLOT = { 0x01: [null, 112, 44, 32], 0x02: [JUNO, 28, 33, 128], 0x03: [TB303, 24, 82, 128], 0x05: [FUSION, 16, 52, 64],
-    0x06: [CHIP, 28, 35, 128] };
+    0x06: [CHIP, 28, 35, 128], 0x07: [null, 3, 0, 128] };   /* (FAVORITES: a slot names an instrument, no name of its own) */
 const SAMPLER_SLOT = 40, SAMPLE_ENTRY = 16, SAMPLER_MAX = 64;
 
 function getFields(r, fields) { const o = {}; for (const [f, bits] of fields) o[f] = r.get(bits); return o; }
@@ -124,6 +134,8 @@ function putFields(w, fields, v) {
 }
 
 function unpackSlot(kind, b) {
+    /* a favourite (specs/files/instruments.md#favorites): its source's cartridge and slot (FF: empty), a spare byte */
+    if (kind === KIND.FAVORITES) return b[1] === 0xFF ? null : { cart: b[0], slot: b[1], raw: b.slice() };
     const r = new BitReader(b);
     let s;
     if (kind === KIND.DX7) {
@@ -139,6 +151,7 @@ function unpackSlot(kind, b) {
 }
 function packSlot(kind, s) {
     const size = SLOT[kind][1];
+    if (kind === KIND.FAVORITES) return Uint8Array.from(s ? [s.cart & 255, s.slot & 255, 0] : [0, 0xFF, 0]);
     if (!s) {                                       /* empty: its name's first code 63 */
         const b = new Uint8Array(size), w = new BitWriter(b);
         w.skip(size * 8 - 60 - 8 - SLOT[kind][2]);
@@ -176,9 +189,11 @@ function packCart(kind, c) {
     return b;
 }
 
-function unpackSamplerInst(b) {
+/* (version 2, the current one, when not given; the old form passes 1) */
+function unpackSamplerInst(b, ver) {
+    if (!ver) ver = 2;
     const r = new BitReader(b);
-    const s = getFields(r, SAMPLER);
+    const s = getFields(r, ver === 2 ? SAMPLER2 : SAMPLER);
     s.level = r.getSigned(8);
     s.volume = r.get(7);
     s.env = getFields(r, ENV);
@@ -187,16 +202,17 @@ function unpackSamplerInst(b) {
     s.raw = b.slice();
     return s;
 }
-function packSamplerInst(s) {
+function packSamplerInst(s, ver) {
+    if (!ver) ver = 2;
     if (!s) {
         const b = new Uint8Array(SAMPLER_SLOT), w = new BitWriter(b);
-        w.skip(SAMPLER_SLOT * 8 - 86 - 60);
+        w.skip(SAMPLER_SLOT * 8 - (ver === 2 ? 84 : 86) - 60);
         w.put(NAME_EMPTY, 6);
         return b;
     }
     const b = s.raw && s.raw.length === SAMPLER_SLOT ? s.raw.slice() : new Uint8Array(SAMPLER_SLOT);
     const w = new BitWriter(b);
-    putFields(w, SAMPLER, s);
+    putFields(w, ver === 2 ? SAMPLER2 : SAMPLER, s);
     w.putSigned(Math.max(-128, Math.min(127, s.level | 0)), 8);
     w.put(Math.max(0, Math.min(127, s.volume | 0)), 7);
     putFields(w, ENV, s.env);
@@ -220,22 +236,55 @@ function packSampleEntry(e) {
     w.putName(e.name || "", 10);
     return b;
 }
-function unpackSampler(b) {
+/* A sampler cartridge, version 2: name (9 B), instruments stored, the instruments (40 B each) -> { name, instruments };
+ * the old form, version 1 (name, instruments stored, samples stored, the instruments, the samples' table) -> { name,
+ * instruments, samples }. The two lengths cannot be taken for each other (version 1's is odd, version 2's even), so
+ * `ver` may be left out. */
+function unpackSampler(b, ver) {
+    if (!ver) ver = b.length & 1 ? 1 : 2;
+    if (ver === 2) {
+        const ni = b[9];
+        if (b.length !== 10 + ni * SAMPLER_SLOT) throw new Error("a sampler cartridge: " + b.length + " B for " + ni + " instruments");
+        const instruments = [];
+        for (let i = 0; i < ni; i++) instruments.push(unpackSamplerInst(b.subarray(10 + i * SAMPLER_SLOT, 10 + (i + 1) * SAMPLER_SLOT), 2));
+        return { name: unpackName(b.subarray(0, 9), 12), instruments };
+    }
     const ni = b[9], ns = b[10];
     if (b.length !== 11 + ni * SAMPLER_SLOT + ns * SAMPLE_ENTRY)
         throw new Error("a sampler cartridge: " + b.length + " B for " + ni + " instruments, " + ns + " samples");
     const at = 11 + ni * SAMPLER_SLOT, instruments = [], samples = [];
-    for (let i = 0; i < ni; i++) instruments.push(unpackSamplerInst(b.subarray(11 + i * SAMPLER_SLOT, 11 + (i + 1) * SAMPLER_SLOT)));
+    for (let i = 0; i < ni; i++) instruments.push(unpackSamplerInst(b.subarray(11 + i * SAMPLER_SLOT, 11 + (i + 1) * SAMPLER_SLOT), 1));
     for (let i = 0; i < ns; i++) samples.push(unpackSampleEntry(b.subarray(at + i * SAMPLE_ENTRY, at + (i + 1) * SAMPLE_ENTRY)));
     return { name: unpackName(b.subarray(0, 9), 12), instruments, samples };
 }
+/* a sample record (kind 0x11): the entry (16 B), then the audio whole (ptr.md), its offsets counting from byte 16 ->
+ * { entry (null: an emptied one), audio } */
+function unpackSample(b) {
+    if (b.length < SAMPLE_ENTRY) throw new Error("a sample: " + b.length + " B");
+    return { entry: unpackSampleEntry(b.subarray(0, SAMPLE_ENTRY)), audio: b.subarray(SAMPLE_ENTRY) };
+}
+function packSample(entry, audio) {
+    const b = new Uint8Array(SAMPLE_ENTRY + audio.length);
+    b.set(packSampleEntry(entry), 0);
+    b.set(audio, SAMPLE_ENTRY);
+    return b;
+}
+/* version 2 (c has no `samples`), or the old form when c holds its table */
 function packSampler(c) {
+    if (!c.samples) {
+        if (c.instruments.length > SAMPLER_MAX) throw new Error(c.name + ": more than 64 instruments");
+        const b = new Uint8Array(10 + c.instruments.length * SAMPLER_SLOT);
+        b.set(packName(c.name, 12), 0);
+        b[9] = c.instruments.length;
+        c.instruments.forEach((s, i) => b.set(packSamplerInst(s, 2), 10 + i * SAMPLER_SLOT));
+        return b;
+    }
     if (c.instruments.length > SAMPLER_MAX || c.samples.length > SAMPLER_MAX) throw new Error(c.name + ": more than 64 instruments or samples");
     const b = new Uint8Array(11 + c.instruments.length * SAMPLER_SLOT + c.samples.length * SAMPLE_ENTRY);
     b.set(packName(c.name, 12), 0);
     b[9] = c.instruments.length;
     b[10] = c.samples.length;
-    c.instruments.forEach((s, i) => b.set(packSamplerInst(s), 11 + i * SAMPLER_SLOT));
+    c.instruments.forEach((s, i) => b.set(packSamplerInst(s, 1), 11 + i * SAMPLER_SLOT));
     const at = 11 + c.instruments.length * SAMPLER_SLOT;
     c.samples.forEach((e, i) => b.set(packSampleEntry(e), at + i * SAMPLE_ENTRY));
     return b;
@@ -592,16 +641,30 @@ function packMidiMap(m) {
     return b;
 }
 
-/* ---- the loops (loops.md, version 4): the head (an 8-byte header, the FX setup 8-71, the next loop's mix 72-77, the
- * loop table from 80, 12 B a loop), then with loops a pattern payload whose track i is loop i's stream (lane l of row
- * r at the stream's row 4r + l), its streams spread over parts as a pattern's tracks are ----
- *   { tempo, ticks, countIn, legato (MONO LEGATO: 0 GLIDE, 1 JUMP, 2 LEGATO), swing, grid, quantize, nextMono, n, selected,
- *     length, fx (64 B), mix: [6],
- *     loops: [{ cart, slot, colour, mono, muted, lanes, base, repeat, mixer: [6], cells: Map("row,lane" -> cell) }] }
+/* ---- the loops (loops.md, version 4): the head (an 8-byte header, the FX setup 8-71, the next loop's mix 72-77, VIEW
+ * and K1-K4's jobs 78-79, the loop table from 80, 12 B a loop), then with loops a pattern payload whose track i is loop
+ * i's stream (lane l of row r at the stream's row 4r + l), its streams spread over parts as a pattern's tracks are ----
+ *   { tempo, ticks, countIn, legato (MONO LEGATO: 0 GLIDE, 1 JUMP, 2 LEGATO), swing, grid, quantize, nextMono (the keys'
+ *     mode), n, selected, length (in rows, always: a head from before with none, 0, read as 4 bars or the most whole bars
+ *     that fit 128 rows), fx (64 B), mix: [6], view (bars a screen: 1, 2, 4), jobs: [K1-K4's, 0-7: LEVEL, PAN, DUCK,
+ *     CHORUS SEND, DELAY SEND, REVERB SEND, TEMPO, VIEW], jobsStored,
+ *     loops: [{ cart, slot, colour, mono, muted, lanes, base, repeat, shift (0-127, read modulo the length), mixer: [6],
+ *     cells: Map("row,lane" -> cell) }] }
  *   (an entry's bit 6, a solo, is never read and written 0: solos are not saved)
  * fields as stored (COUNT-IN 3 and QUANTIZE 5-7, read by the FM-1 as OFF and ROW, kept); the head's and each loop's
- * spare bits travel through `head` and `raw` */
+ * spare bits travel through `head` and `raw`, and so do VIEW, the jobs and a SHIFT packed as they were read (VIEW 3,
+ * jobs not stored, a SHIFT past the length kept byte for byte) */
 const LOOPS_HEAD = 80, LOOP_SIZE = 12, LOOPS_MAX = 16, LOOP_ROWS_MAX = 128, LOOP_STREAM_MAX = 3800;
+const LOOP_JOBS = [0, 1, 5, 6];                     /* K1-K4's jobs not stored: LEVEL, PAN, REVERB SEND, TEMPO */
+/* a head's length when byte 7 is 0: 4 bars, or the most whole bars that fit 128 rows (a bar BEATS A BAR beats, the FX
+ * setup's byte 11, 1-16 (0 read as 4), each the grid's rows: 4, 6 or 8) */
+function loopsRowsDefault(grid, fx) {
+    const beats = !fx[11] ? 4 : Math.min(16, fx[11]), bar = [4, 6, 8, 4][grid & 3] * beats;
+    return Math.max(1, Math.min(4, Math.floor(LOOP_ROWS_MAX / bar))) * bar;
+}
+const loopsView = b78 => [2, 1, 4, 2][b78 >> 6];
+const loopsJobs = (b78, b79) => b79 & 0x40 ? [b78 & 7, b78 >> 3 & 7, b79 & 7, b79 >> 3 & 7] : LOOP_JOBS.slice();
+const loopShift = e => (e[2] >> 7) << 6 | e[3] >> 2;
 /* a stream's gap past the skip byte's 255 rows is bridged by a cell holding only ED0 (a note delay with no note:
  * nothing), a skip of 255 after the cell before it, as often as needed (read wherever it is) */
 const LOOP_FILL = [0x0E, 0xD0];
@@ -610,13 +673,15 @@ function unpackLoops(parts) {
     if (!b || b.length < LOOPS_HEAD) throw new Error("the loops' head is short");
     const n = b[5], top = LOOPS_HEAD + LOOP_SIZE * n;
     if (n > LOOPS_MAX || b.length < top) throw new Error("the loops: " + n + " loops in " + b.length + " B");
+    const fx = b.slice(8, 72), length = b[7] ? Math.min(b[7], LOOP_ROWS_MAX) : loopsRowsDefault(b[4], fx);
     const L = { tempo: b[0] | b[1] << 8, ticks: b[2] & 31, countIn: (b[2] >> 5) & 3, legato: b[4] & 0x40 ? 2 : b[2] >> 7, swing: b[3], grid: b[4] & 3,
-        quantize: (b[4] >> 2) & 7, nextMono: (b[4] >> 5) & 1, n, selected: b[6], length: b[7], fx: b.slice(8, 72),
-        mix: Array.from(b.subarray(72, 78)), head: b.slice(0, LOOPS_HEAD), loops: [] };
+        quantize: (b[4] >> 2) & 7, nextMono: (b[4] >> 5) & 1, n, selected: b[6], length, fx,
+        mix: Array.from(b.subarray(72, 78)), view: loopsView(b[78]), jobs: loopsJobs(b[78], b[79]), jobsStored: !!(b[79] & 0x40),
+        head: b.slice(0, LOOPS_HEAD), loops: [] };
     for (let i = 0; i < n; i++) {
         const o = LOOPS_HEAD + LOOP_SIZE * i;
         L.loops.push({ cart: b[o], slot: b[o + 1], colour: b[o + 2] & 15, mono: (b[o + 2] >> 4) & 1, muted: !!(b[o + 2] & 0x20),
-            lanes: (b[o + 3] & 3) + 1, base: b[o + 4] + 1, repeat: b[o + 5],
+            lanes: (b[o + 3] & 3) + 1, base: b[o + 4] + 1, repeat: b[o + 5], shift: loopShift(b.subarray(o, o + 4)) % length,
             mixer: Array.from(b.subarray(o + 6, o + 12)), cells: new Map(), raw: b.slice(o, o + LOOP_SIZE) });
     }
     if (!n) return L;
@@ -667,23 +732,35 @@ function loopStream(cells) {
 function packLoops(L) {
     const n = L.loops.length, top = LOOPS_HEAD + LOOP_SIZE * n;
     if (n > LOOPS_MAX) throw new Error(n + " loops, " + LOOPS_MAX + " at most");
-    if (n && !(L.length >= 1 && L.length <= LOOP_ROWS_MAX)) throw new Error("the loops' length: " + L.length + " rows");
+    if (L.length && !(L.length >= 1 && L.length <= LOOP_ROWS_MAX)) throw new Error("the loops' length: " + L.length + " rows");
     const b = new Uint8Array(top);
     if (L.head && L.head.length === LOOPS_HEAD) b.set(L.head);
     b[0] = L.tempo & 0xFF; b[1] = L.tempo >> 8 & 0xFF;
     b[2] = (L.ticks & 31) | (L.countIn & 3) << 5 | (L.legato === 1 ? 0x80 : 0);
     b[3] = L.swing;
     b[4] = (b[4] & 0x80) | (L.grid & 3) | (L.quantize & 7) << 2 | (L.nextMono ? 0x20 : 0) | (L.legato === 2 ? 0x40 : 0);
-    b[5] = n; b[6] = L.selected; b[7] = n ? L.length : 0;
     b.set(L.fx, 8);
+    b[5] = n; b[6] = L.selected;
+    const length = b[7] = L.length || loopsRowsDefault(b[4], L.fx);   /* (always, with loops or none) */
     b.set(L.mix, 72);
+    /* VIEW and K1-K4's jobs: the head's bits where they read as given (VIEW 3, jobs not stored), else written (stored) */
+    const view = L.view === 1 || L.view === 4 ? L.view : 2, jobs = Array.isArray(L.jobs) && L.jobs.length === 4 ? L.jobs : LOOP_JOBS;
+    if (!jobs.every(j => j >= 0 && j <= 7)) throw new Error("K1-K4's jobs: " + jobs.join(", "));
+    if (loopsView(b[78]) !== view) b[78] = (b[78] & 0x3F) | (view === 1 ? 1 : view === 4 ? 2 : 0) << 6;
+    if (loopsJobs(b[78], b[79]).join() !== jobs.join()) {
+        b[78] = (b[78] & 0xC0) | jobs[0] | jobs[1] << 3;
+        b[79] = (b[79] & 0x80) | jobs[2] | jobs[3] << 3 | 0x40;
+    }
     L.loops.forEach((lp, i) => {
         const o = LOOPS_HEAD + LOOP_SIZE * i, raw = lp.raw && lp.raw.length === LOOP_SIZE ? lp.raw : new Uint8Array(LOOP_SIZE);
+        const shift = lp.shift || 0;
         if (!(lp.lanes >= 1 && lp.lanes <= 4 && lp.base >= 1 && lp.base <= LOOP_ROWS_MAX && lp.repeat >= 1 && lp.repeat <= 255))
             throw new Error("loop " + hex2(i) + ": " + lp.lanes + " lanes, a base of " + lp.base + " rows, " + lp.repeat + " repeats");
+        if (!(shift >= 0 && shift <= 127)) throw new Error("loop " + hex2(i) + ": a SHIFT of " + shift + " rows");
+        const sh = loopShift(raw) % length === shift ? loopShift(raw) : shift;   /* (as read: kept byte for byte) */
         b[o] = lp.cart; b[o + 1] = lp.slot;
-        b[o + 2] = (raw[2] & 0x80) | (lp.colour & 15) | (lp.mono ? 0x10 : 0) | (lp.muted ? 0x20 : 0);
-        b[o + 3] = (raw[3] & 0xFC) | (lp.lanes - 1);
+        b[o + 2] = (sh >> 6 & 1) << 7 | (lp.colour & 15) | (lp.mono ? 0x10 : 0) | (lp.muted ? 0x20 : 0);
+        b[o + 3] = (sh & 63) << 2 | (lp.lanes - 1);
         b[o + 4] = lp.base - 1; b[o + 5] = lp.repeat;
         b.set(lp.mixer, o + 6);
     });
@@ -705,7 +782,7 @@ function packLoops(L) {
         for (const i of part) { len += streams[i].length; mask |= 1 << i; }
         const p = new Uint8Array(len);
         if (!sub) p.set(b);
-        p[at0] = n; p[at0 + 1] = L.length - 1; p[at0 + 2] = 0; p[at0 + 3] = mask & 0xFF; p[at0 + 4] = mask >> 8;
+        p[at0] = n; p[at0 + 1] = length - 1; p[at0 + 2] = 0; p[at0 + 3] = mask & 0xFF; p[at0 + 4] = mask >> 8;
         let at = at0 + 5;
         for (const i of part) { p.set(streams[i], at); at += streams[i].length; }
         return p;
@@ -721,12 +798,13 @@ function loopsV3(parts) {
     const n = b[5];
     if (n > LOOPS_MAX || b.length < 72 + 10 * n + (n ? 5 : 0)) throw new Error("the loops (version 3): " + n + " loops in " + b.length + " B");
     const pat = n ? unpackPattern([b.subarray(72 + 10 * n)].concat(parts.slice(1))) : null;
-    const length = pat ? pat.rows : 0;              /* (its first 128 rows, as any pattern's: patterns.md#size) */
     const grid = (b[4] & 3) > 2 ? 0 : b[4] & 3, q = (b[4] >> 2) & 3, c = (b[2] >> 5) & 3, sel = b[6];
+    /* (its first 128 rows, as any pattern's: patterns.md#size; with no loops 4 bars, or the most whole bars that fit) */
+    const length = pat ? pat.rows : loopsRowsDefault(grid, b.subarray(8, 72));
     const L = { tempo: b[0] | b[1] << 8, ticks: b[2] & 31, countIn: c === 3 ? 0 : c, legato: 0, swing: b[3], grid,
         quantize: q === 1 ? 1 + grid : q === 2 ? 4 : 0,  /* STEP: ROW; 1/8: the half beat's 2, 3 or 4 ROWS; OFF: REAL TIME */
         nextMono: 0, selected: sel < n ? sel : Math.min(n, LOOPS_MAX - 1), length, fx: b.slice(8, 72), mix: MIX_DEFAULT.slice(),
-        loops: [] };
+        view: 2, jobs: LOOP_JOBS.slice(), loops: [] };   /* (VIEW and K1-K4's jobs the defaults: bytes 78-79 0) */
     const kept = ([k, v]) => k === CMD_KEY_OFF || (k === CMD_EXT && (v & 0xF0) === 0xD0);
     for (let i = 0; i < n; i++) {
         const o = 72 + 10 * i, track = b[o + 2], cells = new Map();
@@ -737,7 +815,7 @@ function loopsV3(parts) {
             if (hasField(y)) cells.set(cellKey(r, 0), y);
         }
         L.loops.push({ cart: b[o], slot: b[o + 1], colour: i % 12, mono: 0, muted: !!(b[o + 3] & 1), lanes: 1,
-            base: length, repeat: 1, mixer: Array.from(b.subarray(o + 4, o + 10)), cells });
+            base: length, repeat: 1, shift: 0, mixer: Array.from(b.subarray(o + 4, o + 10)), cells });
     }
     return packLoops(L);
 }
@@ -745,9 +823,30 @@ const CONVERT = { 0x22: { 3: loopsV3 } };
 const canConvert = (kind, ver) => !!(CONVERT[kind] && CONVERT[kind][ver]);
 
 /* ---- newer versions, converted down: WRITE to an FM-1 that reads only an older one (the editor only) ---- */
-/* the loops' version 4 -> version 3: each lane of a loop a loop of its own (16 at most), its base written out over the
- * length as it plays (its repeats, then nothing); QUANTIZE ROW STEP, REAL TIME OFF, the others 1/8. -> { parts, lost:
- * [what version 3 cannot hold, in words] } */
+/* one lane of a loop as it is heard over n rows (loops.md, "What is kept"): its base written out (its repeats one after
+ * another), a note off where it goes to rest with a note still sounding, or at row 0 where n cuts its last repeat (the
+ * player's stop at the wrap), then turned its SHIFT rows. -> [{row, note, ins, vol, cmds}] in row order (no bridge) */
+const isFill = c => !c.note && c.ins < 0 && c.vol < 0 && c.cmds.length === 1 && c.cmds[0][0] === LOOP_FILL[0] && c.cmds[0][1] === LOOP_FILL[1];
+const soundsAfter = (was, c) => c.cmds.some(x => x[0] === CMD_KEY_OFF) ? false : c.note ? c.note !== NOTE_OFF : was;
+function loopHeard(lp, lane, n) {
+    const flat = new Map(), end = lp.base * lp.repeat;
+    let held = false;
+    for (let r = 0; r < n && Math.floor(r / lp.base) < lp.repeat; r++) {
+        const c = lp.cells.get(cellKey(r % lp.base, lane));
+        if (!hasField(c) || isFill(c)) continue;
+        flat.set(r, c);
+        held = soundsAfter(held, c);
+    }
+    const stop = end < n ? end : n % lp.base ? 0 : -1;
+    if (held && stop >= 0 && !(flat.get(stop) || {}).note)
+        flat.set(stop, Object.assign({ ins: -1, vol: -1, cmds: [] }, flat.get(stop) || {}, { note: NOTE_OFF }));
+    const sh = ((lp.shift || 0) % n + n) % n;
+    return [...flat].map(([r, c]) => ({ row: (r + sh) % n, note: c.note, ins: -1, vol: c.vol, cmds: c.cmds })).sort((a, b) => a.row - b.row);
+}
+/* the loops' version 4 -> version 3: each lane of a loop a loop of its own (16 at most), written out over the length as
+ * it is heard (loopHeard: its repeats, then its rest, turned its SHIFT rows), so it plays the same; QUANTIZE ROW STEP,
+ * REAL TIME OFF, the others 1/8. -> { parts, lost: [what version 3 cannot hold, in words: VIEW and K1-K4's jobs when
+ * not the defaults, and with no loops a length that is not the default, last] } */
 function loopsV4to3(parts) {
     const L = unpackLoops(parts), lost = new Set(), out = [];
     const q = L.quantize === 0 ? 0 : L.quantize === 4 ? 2 : 1;
@@ -758,17 +857,17 @@ function loopsV4to3(parts) {
     L.loops.forEach((lp, i) => {
         if (lp.mono) lost.add("MONO (PLAYED POLY)");
         for (let lane = 0; lane < lp.lanes; lane++) {
-            const cells = [];
-            for (let r = 0; r < L.length && Math.floor(r / lp.base) < lp.repeat; r++) {
-                const c = lp.cells.get(cellKey(r % lp.base, lane));
-                if (hasField(c)) cells.push({ row: r, note: c.note, ins: -1, vol: c.vol, cmds: c.cmds });
-            }
+            const cells = loopHeard(lp, lane, L.length);
             if (lane && !cells.length) continue;    /* (an empty lane but the first: nothing to keep) */
             if (out.length >= LOOPS_MAX) { lost.add("LOOPS PAST 16 (EACH LANE TAKES ONE)"); continue; }
             if (i === L.selected && selected === null) selected = out.length;
             out.push({ cart: lp.cart, slot: lp.slot, muted: lp.muted, mixer: lp.mixer, cells });
         }
     });
+    if (L.view !== 2) lost.add("VIEW");
+    if (L.jobs.join() !== LOOP_JOBS.join()) lost.add("K1-K4'S JOBS");
+    if (!L.n && L.length !== loopsRowsDefault(L.grid, L.fx)) lost.add("THE LENGTH");   /* (version 3 has none with no loops:
+                                                     * read back up, the default) */
     const n = out.length, head = new Uint8Array(72 + 10 * n);
     head[0] = L.tempo & 0xFF; head[1] = L.tempo >> 8 & 0xFF;
     head[2] = (L.ticks & 31) | (L.countIn === 3 ? 0 : L.countIn & 3) << 5;
@@ -803,10 +902,51 @@ function loopsV4to3(parts) {
         return p;
     }) };
 }
+/* the sampler cartridges of version 2 -> the old form, for an FM-1 that reads only that (disk.md#versions). recs: the
+ * samplers (kind 4, version 2) and the samples (kind 0x11) they name. Each sampler becomes an old sampler holding copies of
+ * the samples its instruments name, numbered 00.. under it in the order the instruments name them (64 instruments name
+ * 64 samples at most: each fits), with their old audio (kind 0x10, sub the place); the samples themselves are not
+ * sent. -> { recs: the old samplers and their audio, lost: [in words] } */
+function samplersV2to1(recs) {
+    const samples = new Map(), samplers = recs.filter(r => r.kind === KIND.SAMPLER && r.payload && r.sub === 0).sort((a, b) => a.num - b.num);
+    for (const r of recs) if (r.kind === KIND.SAMPLE && r.payload && r.payload.length >= SAMPLE_ENTRY && unpackSampleEntry(r.payload.subarray(0, SAMPLE_ENTRY))) samples.set(r.num, r.payload);
+    const out = [], named = new Map();          /* sample number -> how many samplers name it */
+    let missing = 0;
+    const rec = (kind, num, sub, ver, payload) => ({ kind, num, sub, ver, len: payload.length, crc: ED.util ? ED.util.crc32(payload) : 0, payload });
+    for (const r of samplers) {
+        const c = unpackSampler(r.payload, 2), table = [], index = new Map(), here = new Set();
+        const body = new Uint8Array(11 + c.instruments.length * SAMPLER_SLOT);
+        body.set(r.payload.subarray(0, 10)); body[10] = 0;
+        c.instruments.forEach((inst, i) => {
+            const at = 11 + i * SAMPLER_SLOT;
+            if (!inst) { body.set(packSamplerInst(null, 1), at); return; }
+            if (!samples.has(inst.sample)) { missing++; body.set(packSamplerInst(null, 1), at); return; }
+            if (!index.has(inst.sample)) { index.set(inst.sample, table.length); table.push(inst.sample); }
+            here.add(inst.sample);
+            const slot = r.payload.subarray(10 + i * SAMPLER_SLOT, 10 + (i + 1) * SAMPLER_SLOT), o = body.subarray(at, at + SAMPLER_SLOT);
+            for (let k = 6; k < SAMPLER_SLOT * 8 - 2; k++) if ((slot[(k + 2) >> 3] >> ((k + 2) & 7)) & 1) o[k >> 3] |= 1 << (k & 7);
+            o[0] |= index.get(inst.sample);
+        });
+        for (const n of here) named.set(n, (named.get(n) || 0) + 1);
+        body[10] = table.length;
+        const entries = new Uint8Array(table.length * SAMPLE_ENTRY), tail = [];
+        table.forEach((n, k) => { entries.set(samples.get(n).subarray(0, SAMPLE_ENTRY), k * SAMPLE_ENTRY); tail.push(rec(KIND.AUDIO, r.num, k, 1, samples.get(n).slice(SAMPLE_ENTRY))); });
+        const whole = new Uint8Array(body.length + entries.length);
+        whole.set(body); whole.set(entries, body.length);
+        out.push(rec(KIND.SAMPLER, r.num, 0, 1, whole), ...tail);
+    }
+    const lost = [], unnamed = [...samples.keys()].filter(n => !named.has(n)).length, shared = [...named.values()].filter(n => n > 1).length;
+    if (unnamed) lost.push(unnamed + (unnamed === 1 ? " SAMPLE" : " SAMPLES") + " NO INSTRUMENT NAMES (NOT SENT)");
+    if (shared) lost.push(shared + (shared === 1 ? " SAMPLE" : " SAMPLES") + " SEVERAL SAMPLERS NAME (A COPY IN EACH)");
+    if (missing) lost.push(missing + (missing === 1 ? " INSTRUMENT" : " INSTRUMENTS") + " NAMING A MISSING SAMPLE (EMPTIED)");
+    return { recs: out, lost };
+}
 const DOWN = { 0x22: { 4: loopsV4to3 } };
 /* an object's records (its parts, in order) of version from -> version to, a step down at a time; null: no way down.
+ * The samplers (kind 4, version 2) to version 1 go together, with the samples they name among the records (kind 0x11)
  * -> { recs (numbered as the given ones), lost } */
 function downgrade(recs, to) {
+    if (to === 1 && recs.some(r => r.kind === KIND.SAMPLER && r.ver === 2)) return samplersV2to1(recs);
     const r0 = recs[0];
     let parts = recs.slice().sort((a, b) => a.sub - b.sub).map(r => r.payload), v = r0.ver;
     const lost = [];
@@ -818,10 +958,31 @@ function downgrade(recs, to) {
     }
     return { lost, recs: parts.map((payload, sub) => ({ kind: r0.kind, num: r0.num, sub, ver: to, payload })) };
 }
-const canDowngrade = (kind, from, to) => { for (let v = from; v > to; v--) if (!(DOWN[kind] && DOWN[kind][v])) return false; return from > to; };
+const canDowngrade = (kind, from, to) => {
+    if (kind === KIND.SAMPLER) return from === 2 && to === 1;
+    for (let v = from; v > to; v--) if (!(DOWN[kind] && DOWN[kind][v])) return false; return from > to;
+};
 /* records [{ kind, num, sub, ver, payload, ... }] -> the same, each object of a version converted here (all its parts)
- * replaced by its current records, in its place; one that does not convert is kept as it is */
-function upgrade(recs) {
+ * replaced by its current records, in its place; one that does not convert is kept as it is. The old samplers (kind 4
+ * version 1) and the old audio (kind 0x10) convert together, over the whole set, by PTFM_seed.convertSamplers (fw/web/
+ * seed.js, which the page loads before this script: the install page and the emulator share it): the samplers of version 2
+ * where they were, the samples appended; an old sampler that did not fit in 256 samples stays, with its audio, marked
+ * `older: true`. The result carries `.conversion` { converted, older, samples, dropped, bad, olderSamples, free } when
+ * that ran (olderSamples: the numbers the older ones need; free: the sample numbers left free).
+ * opts.samplers === false leaves the samplers alone (until a caller reads the new form). */
+function upgrade(recs, opts) {
+    let out = upgradeObjects(recs);
+    if (opts && opts.samplers === false) return out;
+    if (!out.some(r => r.payload && ((r.kind === KIND.SAMPLER && r.ver === 1) || (r.kind === KIND.AUDIO && r.ver === 1)))) return out;
+    const seed = globalThis.PTFM_seed;
+    if (!seed || !seed.convertSamplers) throw new Error("the samplers' converter (fw/web/seed.js) is not loaded");
+    const c = seed.convertSamplers(out);
+    out = c.recs;
+    out.conversion = { converted: c.converted, older: c.older, samples: c.samples, dropped: c.dropped, bad: c.bad,
+        olderSamples: c.olderSamples, free: c.free };
+    return out;
+}
+function upgradeObjects(recs) {
     const groups = new Map(), gkey = r => r.kind + "." + r.num + "." + r.ver;
     for (const r of recs) if (r.payload && canConvert(r.kind, r.ver)) {
         if (!groups.has(gkey(r))) groups.set(gkey(r), []);
@@ -862,6 +1023,7 @@ function parseNote(s) {
 
 ED.rec = { KIND, VERSION, CART_KINDS, RECORD_MAX, NAME_CHARS, NOTE_OFF, BitReader, BitWriter, nameCodes, nameText, cleanName,
     packName, unpackName, SLOT, DX7_OP, DX7_VOICE, JUNO, TB303, FUSION, CHIP, SAMPLER, ENV, SAMPLER_SLOT, SAMPLE_ENTRY,
+    SAMPLER2, SAMPLER_VERSION, SAMPLER_MAX, unpackSample, packSample, samplersV2to1,
     unpackCart, packCart, unpackSlot, packSlot, unpackSampler, packSampler, unpackSamplerInst, packSamplerInst,
     ptrEncode, ptrDecode, ptrInfo, PAT_ROWS_MAX, unpackPattern, packPattern, cellKey, unpackSong, packSong, newSong, MIX_FIELDS,
     MIX_DEFAULT, SONG_STOP, SONG_LINEAR, SONG_FAST_VOL, fxChain, setFxChain, fxOn, setFxOn, defaultFx, FX_CHAIN_DEFAULT,

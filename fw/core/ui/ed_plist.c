@@ -7,6 +7,7 @@
 #include "ui_priv.h"
 #include "ui_data.h"
 #include "ui_ed.h"
+#include "ui_lp.h"
 #include "ed_pat.h"
 #include "ed_inst.h"
 #include "../play/player.h"
@@ -38,10 +39,36 @@ static int fusion_uses(uint8_t pat)
 }
 int ed_pattern_fusion(uint8_t pat) { return fusion_uses(pat) > 0; }
 int ed_pattern_uses(uint8_t pat) { return song_uses(pat, 0) + fusion_uses(pat); }
+static struct { int from, to, swap, cart; } rm;
+/* the favourites naming ref (specs/files/references.md: a use too); rewrite: instead each one the remap (rm) hits renamed,
+ * a FAVORITES cartridge's record put once (a DELETE's, to < 0, leaves them: missing) */
+static int fav_refs(uint16_t ref, int rewrite)
+{
+    uint8_t carts[256], *b = ui_scratch;                /* (a FAVORITES cartridge copied to change it) */
+    int n = ui_carts(carts, 256), k = 0;
+    for (int i = 0; i < n && ui_cart_rank(carts[i]) < 2; i++) {     /* (the FAVORITES first in the lists' order) */
+        rec_cart_t c;
+        uint32_t len;
+        int hit = 0;
+        if (ins_cart_copy(carts[i], &c, b, &len, 0)) continue;
+        for (int s = 0; s < c.nslots; s++) {
+            uint8_t *sl = b + rec_slot_at(&c, (uint8_t)s);
+            int r = rm.cart ? sl[0] : sl[0] << 8 | sl[1], nw = r == rm.from ? rm.to : rm.from;
+            if (sl[1] == 0xFF) continue;
+            if (!rewrite) { k += (sl[0] << 8 | sl[1]) == ref; continue; }
+            if ((r != rm.from && !(rm.swap && r == rm.to)) || nw < 0) continue;
+            if (rm.cart) sl[0] = (uint8_t)nw;
+            else { sl[0] = (uint8_t)(nw >> 8); sl[1] = (uint8_t)nw; }
+            hit = 1;
+        }
+        if (hit) ui_edit_put(REC_FAV, carts[i], 0, 1, b, len);
+    }
+    return k;
+}
 int ed_inst_uses(uint16_t ref)
 {
     uint8_t nums[256];
-    int n = store_list(REC_PATTERN, nums, 256), k = 0;
+    int n = store_list(REC_PATTERN, nums, 256), k = fav_refs(ref, 0);
     for (int i = 0; i < n; i++) {
         rec_pat_t p;
         if (rec_pattern(nums[i], &p)) continue;
@@ -56,7 +83,6 @@ int ed_inst_uses(uint16_t ref)
     return k;
 }
 
-static struct { int from, to, swap, cart; } rm;
 static int rm_hit(const rec_cell_t *c)
 {
     if (!(c->has & RC_INS)) return 0;
@@ -90,6 +116,7 @@ void ed_remap(int from, int to, int swap, int whole_cart)
         }
         if (hit) ed_rewrite(nums[i], 0, 15, rm_fn, 0, -1, -1, -1);
     }
+    fav_refs(0, 1);                                     /* (the favourites naming it too) */
 }
 
 /* a song's order with a pattern taken out (DELETE) or renumbered (MOVE), as an edit; a song every
@@ -175,14 +202,16 @@ void ed_own_ask(void (*go)(void))
 }
 
 /* ------------------------------------------------------------------------------ the list --- */
-static struct {
+static struct {                         /* (SIZE: the arrays apart, all 0 at the start: .bss, not the image) */
     uint8_t nums[256];
+    char title[40];
+} plb;
+static struct {
     int n, sel, opener, fusion;
     int plus;                           /* `+ NEW PATTERN` first (line 0): SONGS' NEW */
     txt_t plus_text;                    /* ... or this text there (LOOPS' `NEW`), 0 none */
     int except;                         /* a pattern left out (STORE IN A PATTERN: the EDITOR's), -1 none */
     ed_timing_fn timing;                /* PLAY's preview at its own timing (LOOPS' LOAD), 0 the current song's */
-    char title[40];
     void (*pick)(int);
     uint8_t mv;                         /* MOVE: the pattern afloat */
     int mv_from, mv_at;
@@ -206,17 +235,18 @@ static void refill(void)
     int n = ui_patterns(all, 256);                      /* (never the EDITOR's own) */
     memset(pl_lines, 0, sizeof pl_lines);
     pl.n = 0;
-    for (int i = 0; i < n; i++) if (all[i] != pl.except) pl.nums[pl.n++] = all[i];
+    for (int i = 0; i < n; i++) if (all[i] != pl.except) plb.nums[pl.n++] = all[i];
     pl.sel = ui_clamp(pl.sel, 0, pl.n + pl.plus - 1 > 0 ? pl.n + pl.plus - 1 : 0);
 }
 /* the highlighted line's pattern; -1 none (+ NEW PATTERN) */
-static int sel_pat(void) { int i = pl.sel - pl.plus; return i >= 0 && i < pl.n ? pl.nums[i] : -1; }
-static void select_num(int pat) { for (int i = 0; i < pl.n; i++) if (pl.nums[i] == pat) pl.sel = i + pl.plus; }
+static int sel_pat(void) { int i = pl.sel - pl.plus; return i >= 0 && i < pl.n ? plb.nums[i] : -1; }
+static void select_num(int pat) { for (int i = 0; i < pl.n; i++) if (plb.nums[i] == pat) pl.sel = i + pl.plus; }
 static void hear_end(void) { if (pl.heard >= 0) { player_pause(); pl.heard = -1; } }
 static void hear(int pat)
 {
     uint16_t tempo;
     uint8_t ticks, rpb, swing;
+    if (lp_song_on()) return;           /* (a song recording: the loops' replay never stops) */
     pl.heard = pat;
     if (pl.timing && pl.timing(pat, &tempo, &ticks, &rpb, &swing))
         player_play_pattern_at((uint8_t)pat, 0, tempo, ticks, rpb, swing);
@@ -311,7 +341,7 @@ static void put_down(void)
 }
 static void menu_pick(int a)
 {
-    int n = pl.act_pat, free = ed_first_free();
+    int n = pl.act_pat, free = rec_free_pattern();
     char v[40], label[16];
     ui_fmt(label, sizeof label, T("PATTERN %02X"), n);
     if ((a == PM_NEW || a == PM_CLONE) && free < 0) { ui_toast(T("ALL 240 PATTERNS USED")); return; }
@@ -442,14 +472,14 @@ static void pl_draw(ui_overlay_t *o)
     uint8_t nums[256];
     int n = 0, sel = pl.sel;
     if (pl.mv) {
-        for (int i = 0; i < pl.n; i++) if (pl.nums[i] != pl.mv_from) nums[n++] = pl.nums[i];
+        for (int i = 0; i < pl.n; i++) if (plb.nums[i] != pl.mv_from) nums[n++] = plb.nums[i];
         int k = n;
         while (k > 0 && nums[k - 1] > pl.mv_at) { nums[k] = nums[k - 1]; k--; }
         nums[k] = (uint8_t)pl.mv_at;
         n++;
         sel = k;
-    } else { memcpy(nums, pl.nums, (size_t)pl.n); n = pl.n; sel -= pl.plus; }
-    ui_panel(2, y, 236, 206, pl.title, C_CYAN);
+    } else { memcpy(nums, plb.nums, (size_t)pl.n); n = pl.n; sel -= pl.plus; }
+    ui_panel(2, y, 236, 206, plb.title, C_CYAN);
     g_text(8, y + 16, &FONT_T, T("NR  SIZE   NOTES BY TRACK     SONGS"), C_DGREY);
     /* (lines: + NEW PATTERN at -1 when shown, then the patterns 0 .. n - 1) */
     int top = sel - 6 < n - rows + 1 ? sel - 6 : n - rows + 1;
@@ -498,7 +528,7 @@ static void pattern_list(const char *title, int current, void (*pick)(int pat), 
     pl.heard = -1;
     refill();
     select_num(current);
-    ui_fmt(pl.title, sizeof pl.title, "%s", title);
+    ui_fmt(plb.title, sizeof plb.title, "%s", title);
     pl.pick = pick;
     pl.opener = opener;
     pl.fusion = fusion_inst;

@@ -3,7 +3,7 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* PT/FM on the FM-1: the device's side. The app (fw/core) runs on what this file gives it (plat.h):
  * time, the panel, the LEDs, the screen, the sound, the flash, USB-MIDI SysEx. One compilation unit:
- * the device layer (the HAL is header-only; libc, lcd, gfx, usb, ota, recovery, core2), then the
+ * the device layer (the HAL is header-only; libc, lcd, gfx, usb, ota, core2), then the
  * interrupts, plat_*, the boot and the main loop.
  *
  * Time: TIMER5 at 10 kHz scans the matrix and keeps the clocks; every 5th tick polls USB (2 kHz);
@@ -13,13 +13,15 @@
  * reads MASTER and the battery, routes SysEx (PT/FM's to the app, the updater's to ota.c), runs
  * app_poll.
  *
- * The update path and the USB rescue: hold OCT- alone at power-on, or two failed boots in a row, for
- * USB RESCUE; the install page works from there. */
+ * The update path: an install's step 1 here (ota.c), its update loader kept in the staging. Update mode is the start
+ * check's (fw/stub), before this firmware: OCT- held alone at power-on, a firmware not whole, or two failed starts in
+ * a row (stub_update_mode); the install page works from there. */
 #include <stdint.h>
 #ifndef FW_ID
 #define FW_ID "FM-1_7101"                /* package identity (tools/build.py passes it) */
 #endif
-#define FW_OTA 1                         /* the update path (ota.c) and the USB rescue (recovery.c) */
+#define FW_OTA 1                         /* the update path (ota.c); update mode is the start check's (fw/stub) */
+#define FW_OTA_RAMONLY 1                 /* the update record in RAM only: nothing reads a flash copy */
 #define FW_UAC 1                         /* the USB audio input (usb.c, uac.h) */
 #define USB_BCD_DEVICE 0x7102u           /* (hosts cache a device's descriptors per version: 7102 the audio input) */
 #define LCD_BAUD 0u                      /* SPI1 at 60 MHz (lcd.c's 4 = 12 MHz): a full frame ~30 ms */
@@ -40,6 +42,7 @@
 
 static volatile uint32_t fm1_ms;         /* milliseconds since boot (TIMER4-based, the TIMER5 ISR) */
 #include "bootguard.h"
+#include "../stub/stub_core.h"
 bootguard_t bootguard __attribute__((section(".noinit")));
 
 #include "libc.c"
@@ -127,6 +130,7 @@ static void midi_out_move(void)          /* TIMER5 */
 #ifndef PTFM_BRINGUP
 #include "store/store.h"                 /* an update waits for a save being written */
 #include "store/seed.h"                  /* ... and for a seeding under way */
+#include "store/crc.h"                   /* (the debug build's debug part checked) */
 #else                                    /* (the bring-up app has neither) */
 static int store_saving(void) { return 0; }
 static int seed_active(void) { return 0; }
@@ -288,6 +292,10 @@ long long __moddi3(long long n, long long d)
                              FL_IN(off, n, FL_USER2_LO, FL_USER2_HI))
 #include "fm1_flash.h"
 static uint8_t flash_ok;                 /* the JEDEC id matched at boot */
+static uint8_t loader_kept = 0xFFu;      /* the staging at this start: 1 PT/FM's loader kept, 0 none, 0xFF not read */
+#ifdef PTFM_DEBUG
+static uint8_t dbg_part_ok;              /* the debug part checked out (dbg_part_check) */
+#endif
 static uint8_t fl_plain;                 /* the plain window is set: the user area reads in place */
 
 static void c2_quiet(void);              /* (core2.c, below) */
@@ -396,7 +404,7 @@ static uint32_t dbg_pass_max, dbg_pass_t0;
 #define DBG_SS_LO ((uint32_t *)_sstack_lo)
 #define DBG_SS_TOP ((uint32_t *)_sstack_top)
 #define DBG_PAINT 0x5AA5C33Cu
-static void dbg_paint(void)              /* before interrupts: the interrupts' stack whole, the main loop's below here */
+static PLAT_DBG void dbg_paint(void)     /* before interrupts: the interrupts' stack whole, the main loop's below here */
 {
     volatile uint32_t here = 0;
     uint32_t *p;
@@ -405,15 +413,16 @@ static void dbg_paint(void)              /* before interrupts: the interrupts' s
     for (p = DBG_US_LO; p < (uint32_t *)&here - 64; p++)
         *p = DBG_PAINT;
 }
-static uint16_t dbg_depth(const uint32_t *lo, const uint32_t *top)
+static PLAT_DBG uint16_t dbg_depth(const uint32_t *lo, const uint32_t *top)
 {
     const uint32_t *p = lo;
     while (p < top && *p == DBG_PAINT)
         p++;
     return (uint16_t)((const uint8_t *)top - (const uint8_t *)p);
 }
-static uint16_t sat16u(uint32_t v) { return (uint16_t)(v > 65535u ? 65535u : v); }
-void plat_dbg(plat_dbg_t *d)
+static uint16_t sat16u(uint32_t v) { return (uint16_t)(v > 65535u ? 65535u : v); }   /* (the audio interrupt's too:
+                                                                                       * never the debug part's) */
+PLAT_DBG void plat_dbg(plat_dbg_t *d)
 {
     uint32_t f = irq_save();
     d->isr_sum_us = dbg_isr_sum;
@@ -484,7 +493,7 @@ void plat_dbg(plat_dbg_t *d)
         last[1] = now[1];
     }
 }
-static void dbg_pass(void)               /* a main loop pass starts: the last one's length */
+static PLAT_DBG void dbg_pass(void)      /* a main loop pass starts: the last one's length */
 {
     uint32_t t = plat_us();
     if (dbg_pass_t0) {
@@ -496,11 +505,13 @@ static void dbg_pass(void)               /* a main loop pass starts: the last on
     dbg_pass_t0 = t;
 }
 
-/* ---- PROVE (specs/debug.md, Proving the layout): the RAM layout's guards tried on purpose (and core 2's fallbacks,
- * core2.c's c2_prove), the debug page's 35 PROVE asking, 36 RECORDS answering. Its own record sits beside the crash
+/* ---- PROVE (specs/debug.md, Proving the layout): the RAM layout's guards tried on purpose, the debug page's 35
+ * PROVE asking, 36 RECORDS answering. Its own record sits beside the crash
  * record and the boot guard, kept across restarts (.noinit). The band: the 256 B at _restart_band (app.ld),
  * patterned before every restart this build makes itself (the watchdog's here, a crash's in fm1_fault) and checked
  * at the next start, before the pool is set up, so whatever a restart writes there shows. ---- */
+/* a text the debug part's code alone draws: in the debug part too (app.ld's DBGX) */
+#define DBG_STR(s) ({ static const char dbg_s_[] __attribute__((section(".dbg_rodata"))) = s; dbg_s_; })
 #define PROVE_MAGIC 0x50525645u          /* "PRVE" */
 #define PROVE_VEC 0xFFFFFFFEu            /* the crash record the watchdog test writes (its vector: none of the 128) */
 enum { PV_NONE, PV_WDT1, PV_WDT2, PV_MAIN, PV_IRQ };
@@ -521,7 +532,8 @@ static volatile uint8_t prove_irq;       /* the next audio interrupt overflows t
 static volatile uint32_t prove_sink;
 
 static uint32_t band_word(uint32_t i) { return 0xB5A50000u ^ (i * 0x9E3779B1u); }
-static void prove_band_set(void)         /* before a restart this build makes (nothing writes the band till then) */
+static inline __attribute__((always_inline)) void prove_band_set(void)   /* before a restart this build makes (nothing
+                                         * writes the band till then); inlined: the crash path's never calls into the debug part */
 {
     uint32_t i;
     for (i = 0; i < BAND_WORDS; i++)
@@ -550,7 +562,7 @@ static void prove_start(int power_on)
     prove_rec.band = 2;
     prove_rec.band_changed = n;
 }
-static void prove_screen(const char *a, const char *b, const char *c)
+static PLAT_DBG void prove_screen(const char *a, const char *b, const char *c)
 {
     lcd_sync();
     fm1_lcd_baud(4);
@@ -560,7 +572,7 @@ static void prove_screen(const char *a, const char *b, const char *c)
     draw_text_box(0, 130, 240, &FONT_S, c, C_WHITE, 1);
     lcd_sync();
 }
-static void prove_starve(uint32_t step)  /* the main loop stops feeding the watchdog: its restart (~8 s) */
+static PLAT_DBG void prove_starve(uint32_t step)   /* the main loop stops feeding the watchdog: its restart (~8 s) */
 {
     c2_hold_reset();                     /* (core 2 held before the reset: the watchdog's may not hold it; a restart
                                           * of ours, so no ban) */
@@ -579,7 +591,8 @@ static void __attribute__((noinline)) prove_dive(uint32_t n)
     prove_dive(n + 1u);
     prove_sink += pad[0] + pad[31];
 }
-static void prove_watchdog(void)         /* 35 PROVE 1: two watchdog restarts in a row, the second ending in USB RESCUE */
+static PLAT_DBG void prove_watchdog(void)   /* 35 PROVE 1: two watchdog restarts in a row, the second ending in update
+                                             * mode (the boot guard asks the start check: stub_update_mode) */
 {
     uint32_t i, *w = (uint32_t *)&fm1_crash, count = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0;
     for (i = 0; i < sizeof fm1_crash / 4u; i++)
@@ -589,14 +602,13 @@ static void prove_watchdog(void)         /* 35 PROVE 1: two watchdog restarts in
     fm1_crash.vec = PROVE_VEC;
     fm1_crash.uptime_ms = fm1_ms;
     bootguard.failed = 0;                /* (from here the boot guard counts: this start is not yet healthy, so */
-    bootguard.pending = 1;               /* each restart counts as a failed start: the second, the rescue) */
+    bootguard.pending = 1;               /* each restart counts as a failed start: the second, update mode) */
     prove_rec.w_seen = 0;
-    prove_screen("WATCHDOG TEST", "THE MAIN LOOP STOPS", "RESTART 1 OF 2: ~8 S");
+    prove_screen(DBG_STR("WATCHDOG TEST"), DBG_STR("THE MAIN LOOP STOPS"), DBG_STR("RESTART 1 OF 2: ~8 S"));
     prove_starve(PV_WDT1);
 }
-static void prove_boot(void)             /* a start: the watchdog test's second step, after the first restart */
+static PLAT_DBG void prove_boot(void)    /* a start: the watchdog test's second step, after the first restart */
 {
-    char b[24];
     if (prove_rec.magic != PROVE_MAGIC || prove_rec.step != PV_WDT1)
         return;
     prove_rec.w_seen = 1;
@@ -605,40 +617,42 @@ static void prove_boot(void)             /* a start: the watchdog test's second 
     prove_rec.w_wdt = (uint32_t)(fm1_boot.p3_rst >> 2 & 1u);
     prove_rec.w_crash = fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.vec == PROVE_VEC;
     prove_rec.w_band = prove_rec.band == 2u ? prove_rec.band_changed : 0xFFFFu;
-    prove_screen("WATCHDOG TEST", prove_rec.w_crash ? "CRASH RECORD: KEPT" : "CRASH RECORD: LOST",
-                 prove_rec.w_failed == 1u ? "BOOT GUARD: 1 FAILED" : "BOOT GUARD: WRONG");
-    str_cpy(b, "RESET: ", sizeof b);
-    str_cpy(b + 7, prove_rec.w_wdt ? "WATCHDOG" : "NOT THE WATCHDOG", sizeof b - 7u);
-    draw_text_box(0, 160, 240, &FONT_S, b, C_WHITE, 1);
-    draw_text_box(0, 190, 240, &FONT_S, prove_rec.w_band == 0u ? "BAND: KEPT" : prove_rec.w_band == 0xFFFFu ?
-                  "BAND: NOT CHECKED" : "BAND: CHANGED", C_WHITE, 1);
+    prove_screen(DBG_STR("WATCHDOG TEST"), prove_rec.w_crash ? DBG_STR("CRASH RECORD: KEPT") :
+                 DBG_STR("CRASH RECORD: LOST"), prove_rec.w_failed == 1u ? DBG_STR("BOOT GUARD: 1 FAILED") :
+                 DBG_STR("BOOT GUARD: WRONG"));
+    draw_text_box(0, 160, 240, &FONT_S, prove_rec.w_wdt ? DBG_STR("RESET: WATCHDOG") :
+                  DBG_STR("RESET: NOT THE WATCHDOG"), C_WHITE, 1);
+    draw_text_box(0, 190, 240, &FONT_S, prove_rec.w_band == 0u ? DBG_STR("BAND: KEPT") : prove_rec.w_band == 0xFFFFu ?
+                  DBG_STR("BAND: NOT CHECKED") : DBG_STR("BAND: CHANGED"), C_WHITE, 1);
     lcd_sync();
     {
         uint32_t t0 = fm1_ticks();
         while ((uint32_t)(fm1_ticks() - t0) < 5000u * 1000u * FM1_TICKS_PER_US)
             fm1_wdt_feed();
     }
-    prove_screen("WATCHDOG TEST", "THE MAIN LOOP STOPS", "RESTART 2 OF 2: RESCUE");
+    prove_screen(DBG_STR("WATCHDOG TEST"), DBG_STR("THE MAIN LOOP STOPS"), DBG_STR("RESTART 2: UPDATE MODE"));
     prove_starve(PV_WDT2);
 }
-static void prove_overflow(int irq)      /* 35 PROVE 2, 3: a stack run past its bottom on purpose */
+static PLAT_DBG void prove_overflow(int irq)   /* 35 PROVE 2, 3: a stack run past its bottom on purpose */
 {
     prove_rec.step = irq ? PV_IRQ : PV_MAIN;
-    prove_screen("STACK TEST", irq ? "THE INTERRUPTS' STACK" : "THE MAIN LOOP'S STACK", "OVERFLOWS NOW");
+    prove_screen(DBG_STR("STACK TEST"), irq ? DBG_STR("THE INTERRUPTS' STACK") : DBG_STR("THE MAIN LOOP'S STACK"),
+                 DBG_STR("OVERFLOWS NOW"));
     if (irq)
         prove_irq = 1;                   /* (the next audio half dives) */
     else
         prove_dive(0);
 }
-static void prove_records(void)          /* 36 RECORDS (specs/debug.md, RECORDS' bytes) */
+static PLAT_DBG void prove_records(void) /* 36 RECORDS (specs/debug.md, RECORDS' bytes) */
 {
-    uint8_t r[120];
+    uint8_t r[136];
     uint32_t i;
     const uint32_t *cw = (const uint32_t *)&fm1_crash;
     const uint32_t ends[4] = {(uint32_t)(uintptr_t)_ustack_lo, (uint32_t)(uintptr_t)_ustack_top,
                               (uint32_t)(uintptr_t)_sstack_lo, (uint32_t)(uintptr_t)_sstack_top};
+    volatile stub_box_t *box = fm1_stub_box();
     memset(r, 0, sizeof r);
-    r[0] = 3;                            /* the version */
+    r[0] = 4;                            /* the version */
     r[1] = fm1_guard_windows;
     r[2] = (uint8_t)prove_rec.step;
     r[3] = (uint8_t)(prove_rec.band == 2u);
@@ -662,12 +676,21 @@ static void prove_records(void)          /* 36 RECORDS (specs/debug.md, RECORDS'
         r[92 + i] = (uint8_t)(ends[i >> 2] >> (8u * (i & 3u)));
     for (i = 0; i < 12u; i++)            /* the pointers the windows were chosen by: usp, ssp, sp (version 3) */
         r[108 + i] = (uint8_t)(fm1_guard_sp[i >> 2] >> (8u * (i & 3u)));
+    r[120] = box->last;                  /* the start check (version 4): its decision, why, the loader's starts */
+    r[121] = box->why;
+    r[122] = box->tries;
+    r[123] = dbg_part_ok;
+    for (i = 0; i < 4u; i++)
+        r[124 + i] = (uint8_t)(box->check_us >> (8u * i));
+    r[128] = (uint8_t)box->starts;
+    r[129] = (uint8_t)(box->starts >> 8);
+    r[130] = box->p3;                    /* (the reset reasons as the start check read them) */
+    r[132] = loader_kept;
     dbg_send(0x36, r, sizeof r);
 }
 typedef char prove_crash_len[sizeof(fm1_crash_t) == 72u ? 1 : -1];   /* (its 18 words sent) */
-/* a PT/FM SysEx for PROVE (F0 7D 50 54 35 what F7): 1 taken. 4-6 only while core 2 takes the blocks (else nothing:
- * 37 says why); after one it stays off till the next start (core2.c) */
-static int prove_sysex(const uint8_t *m, uint32_t n)
+/* a PT/FM SysEx for PROVE (F0 7D 50 54 35 what F7): 1 taken (another `what` does nothing) */
+static PLAT_DBG int prove_sysex(const uint8_t *m, uint32_t n)
 {
     if (n != 7u || m[4] != 0x35u || m[6] != 0xF7u)
         return 0;
@@ -677,15 +700,27 @@ static int prove_sysex(const uint8_t *m, uint32_t n)
         prove_watchdog();
     else if (m[5] == 2u || m[5] == 3u)
         prove_overflow(m[5] == 3u);
-    else if (m[5] >= 4u && m[5] <= 6u && fm1_c1.state == FM1_C1_RUNS && c2_want && !c2_forced) {
-        c2_prove_halves = 0;             /* (core 2's next block: faults, misread, stuck; dropped when the next half
-                                          * hands none over: core2.c) */
-        c2_prove = m[5];
-    }
     return 1;
 }
 
-#include "bench_core.c"                  /* the bench's THE CORE, plat_ticks, plat_cache_cold */
+/* The debug part (specs/debug.md#the-debug-part): the code marked PLAT_DBG, linked at DBG_PART_FLASH + 32 (app.ld's
+ * DBGX), written there by the debug page after the install (seed.c takes its blocks, the debug build's user area
+ * ending below them); its head: "PTDP", the build it belongs to (the mark's: the image's CRC-32), its length, its
+ * CRC-32. Run in place over the plain window. Taken at a start when all of it checks out and the last crash was not
+ * in it (then it stays off until the page writes it again: force) */
+#define DBG_PART_FLASH 0x000F7000u
+extern uint8_t _dbg_start[], _dbg_end[];
+static void dbg_part_check(int force)    /* (the head and the mark word-aligned: read as words) */
+{
+    const uint32_t *h = (const uint32_t *)FL_XIP(DBG_PART_FLASH), *mk = (const uint32_t *)STUB_MARK_XIP;
+    uint32_t len = (uint32_t)(_dbg_end - _dbg_start), pc = fm1_crash.pc - (uint32_t)(uintptr_t)_dbg_start;
+    dbg_part_ok = (uint8_t)(fl_plain && h[0] == 0x50445450u && h[1] == mk[3] && h[2] == len &&
+                            crc32_update(0, h + 8, len) == h[3] &&
+                            (force || fm1_crash.magic != FM1_CRASH_MAGIC || pc >= len));
+}
+int plat_dbg_part(void) { return dbg_part_ok; }
+void plat_dbg_part_recheck(void) { dbg_part_check(1); }
+void plat_dbg_part_stop(void) { dbg_part_ok = 0; }   /* (a seeding begins: it may erase the part's block) */
 #endif
 
 void fm1_alnk0_irq(void)                 /* via isr_alnk0 (hal/fm1_isr.S) */
@@ -751,22 +786,14 @@ static void audio_silence(void)          /* before the flash stops: the DMA woul
 }
 
 /* ---- the update path: ota.c's hooks ---- */
-static uint8_t recovery_active;
-#define OTA_IDENTITY (recovery_active ? "FM-1_000" : FW_ID)
 /* The update path's buffers (2,688 B): lcd_buf's bytes 1024 on (above), used only while an M-UPGRADE
  * message is handled or an update runs (the app stands still then, and the screen is the update's). */
 #define OTA_BUFS ((uint8_t *)lcd_buf + 1024u)
 #include "ota.c"
 typedef char ota_bufs_fit[1024u + OTA_FRAME_MAX + 0x400u + 1024u <= sizeof lcd_buf ? 1 : -1];
 typedef char ota_canvas_fit[CV_MAX * 2u <= 1024u ? 1 : -1];
-static void recovery_poll(void);
 static uint32_t ota_now_ms(void) { return fm1_ms; }
-static void ota_idle(void)
-{
-    fm1_wdt_feed();
-    if (recovery_active)
-        recovery_poll();
-}
+static void ota_idle(void) { fm1_wdt_feed(); }
 static int ota_in_area(uint32_t off, uint32_t n) { return FL_IN(off, n, OTA_AREA, OTA_AREA + OTA_AREA_LEN); }
 static int ota_erase(uint32_t off)
 {
@@ -809,8 +836,6 @@ static void ota_show(uint32_t step, int32_t code)
 {
     static const char *const STEP[] = {"", "PACKAGE", "CHECK HEAD", "LOADER", "CONFIRM", "RESTART"};
     char b[24];
-    if (recovery_active)
-        return;                          /* keep polled USB alive during OTA */
     lcd_fill(0, 0, 240, 240, C_BLACK);
     draw_text_box(0, 92, 240, &FONT_S, "UPDATE", C_WHITE, 1);
     if (step < 9u) {
@@ -836,16 +861,25 @@ static void dma_quiet(void)
 }
 static void ota_commit(const uint8_t *parm)
 {
-    c2_hold_reset();                     /* (the rescue never started core 2: harmless there) */
+    c2_hold_reset();
     bootguard_clear(&bootguard);         /* intentional update reset */
-    if (!recovery_active)
-        dma_quiet();                     /* (the rescue starts neither: its path stays as it was) */
+    dma_quiet();
     usb_detach();
     fm1_delay_ms(30);
     fm1_enter_update(parm);              /* record into RAM, core reset (fm1_sys.h) */
 }
-#include "recovery.c"
 
+/* Update mode is the start check's (fw/stub/stub_core.h): OCT- held at power-on, or a firmware that is not whole, or
+ * the firmware's own request: two failed starts in a row (the boot guard), the box's request set, then a restart.
+ * The start check starts the update loader kept in the staging (its screen says why), or, with none, or once already
+ * without the firmware starting between, the chip's own USB mode. */
+static volatile stub_box_t *stub_box(void) { return fm1_stub_box(); }
+static void stub_update_mode(void)
+{
+    bootguard_clear(&bootguard);
+    stub_box()->req = 1;                 /* (the box set up by the start check at this start) */
+    fm1_reboot();
+}
 /* ---- the clocks ---- */
 static volatile uint32_t us_seq, us_base, us_tbase;   /* plat_us: us_base at TIMER4 tick us_tbase */
 
@@ -933,27 +967,58 @@ void fm1_timer5_irq(void)
 extern void isr_timer5(void);
 
 /* ---- the crash screen ---- */
-static void hexs(char *b, uint32_t v)
-{
-    uint32_t i;
-    for (i = 0; i < 8u; i++)
-        b[i] = "0123456789ABCDEF"[(v >> (28u - 4u * i)) & 15u];
-    b[8] = 0;
-}
+#include "crash_screen.c"                /* (its drawing; the host test draws it too) */
 
+/* the red screen stays until a button or a key is pressed, so its numbers can be noted: what is held at the crash is
+ * let go first, then a press restarts. The panel scanned here (no interrupt runs now), the watchdog fed meanwhile.
+ * Both red screens end with the version and the build's code, so a report names the very build */
 static void crash_wait_reboot(void)
 {
-    uint32_t t0 = fm1_ticks();
+    uint32_t held = 1;
     fm1_cpu1_halt();                     /* (not c2_hold_reset: core 2 running at a crash, the next start bans it) */
     dma_quiet();
-    while ((uint32_t)(fm1_ticks() - t0) < 4000u * 1000u * FM1_TICKS_PER_US)
-        ;
+    crash_tail();
+    lcd_sync();
+    for (;;) {
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (!fm1_in.buttons && !fm1_in.notes)
+            held = 0;
+        else if (!held)
+            break;
+    }
     fm1_reboot();
 }
 
+/* PT/FM CRASH: what the fault found (the record, fm1_crash_more, core 2's state, the time up, the late halves) drawn by
+ * crash_screen */
 static void fm1_fault(const fm1_crash_t *c)   /* (core 1's: core 2's park in fm1_fault_c) */
 {
-    char b[12];
+    crash_info_t x;
+    uint32_t i;
+    memset(&x, 0, sizeof x);
+    x.vec = c->vec;
+    x.pc = c->pc;
+    x.emu = c->emu;
+    x.dbg = c->dbg;
+    x.rets = c->rets;
+    x.sp = c->sp;
+    x.wr = fm1_crash_more.wr;
+    for (i = 0; i < 4u; i++)
+        x.etm[i] = c->etm[i];
+    x.usp = fm1_crash_more.usp;
+    x.ssp = fm1_crash_more.ssp;
+    x.psr = c->psr;
+    x.icfg = c->icfg;
+    x.up_s = fm1_ms / 1000u;
+    x.late = cpu_late;
+    x.stack = (uint8_t)(c->stack == FM1_STACK_IRQ ? 2u : c->stack == FM1_STACK_MAIN ? 1u : 0u);
+    x.c2 = (uint8_t)(c2_banned ? CS_C2_BANNED : fm1_c1.state == FM1_C1_RUNS ? CS_C2_RUNS :   /* (as the crash found it:
+                                                                                             * the halt keeps them) */
+                     fm1_c1.state == FM1_C1_OFF ? CS_C2_OFF : CS_C2_STOPPED);
+    x.c2_why = fm1_c1.why;
+    x.c2_pc_ok = fm1_c1.why == FM1_C1_WHY_FAULT && fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC;
+    x.c2_pc = fm1_c1_fault.pc;
     fm1_cpu1_halt();                     /* (the record says whether it ran: fm1_fault_c) */
     fm1_audio_stop();
 #ifdef PTFM_DEBUG
@@ -961,21 +1026,7 @@ static void fm1_fault(const fm1_crash_t *c)   /* (core 1's: core 2's park in fm1
 #endif
     lcd_sync();
     fm1_lcd_baud(4);                     /* a readable screen whatever the clock was */
-    lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
-    draw_text_box(0, 8, 240, &FONT_S, "PT/FM CRASH", C_WHITE, 1);
-    hexs(b, c->vec);
-    draw_text_box(10, 40, 220, &FONT_S, b, C_WHITE, 0);
-    hexs(b, c->pc);
-    draw_text_box(10, 60, 220, &FONT_S, b, C_WHITE, 0);
-    hexs(b, c->emu);
-    draw_text_box(10, 84, 220, &FONT_S, b, C_WHITE, 0);
-    hexs(b, c->dbg);
-    draw_text_box(10, 102, 220, &FONT_S, b, C_WHITE, 0);
-    hexs(b, c->rets);
-    draw_text_box(10, 120, 220, &FONT_S, b, C_WHITE, 0);
-    if (c->stack != FM1_STACK_NONE)      /* (the stack check, or the guard band's write limit, on an overflow) */
-        draw_text_box(0, 150, 240, &FONT_S, c->stack == FM1_STACK_IRQ ? "STACK: INTERRUPTS" : "STACK: MAIN LOOP",
-                      C_WHITE, 1);
+    crash_screen(&x);
     crash_wait_reboot();
 }
 
@@ -1184,7 +1235,7 @@ uint32_t plat_lock(void)
         return 0x80000000u;
     irq_save();
     c2_quiet();                          /* (core 2 done: its voice job reads what the store changes, the patches and
-                                          * records; and the debug build's bench runs the effects' code on core 1) */
+                                          * records) */
     return lock_depth++;
 }
 
@@ -1392,7 +1443,7 @@ static void sysex_route(void)
         m[n + 1u] = 0xF7u;
         ota_frame_done();
 #ifdef PTFM_DEBUG
-        if (prove_sysex(m, n + 2u))      /* 35 PROVE: the device's own (specs/debug.md) */
+        if (dbg_part_ok && prove_sysex(m, n + 2u))   /* 35 PROVE: the device's own (specs/debug.md; the part's) */
             return;
 #endif
         app_sysex(m, n + 2u);
@@ -1421,24 +1472,27 @@ static void enter_uboot_now(const char *why)
 static void ptfm_main(void)
 {
     uint32_t healthy_since, dac_on = 0;
-#ifdef PTFM_DEBUG
-    dbg_paint();                         /* (interrupts are still off) */
-#endif
     {
         uint32_t f = irq_save();
-        flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;   /* the expected 1 MiB part */
+        flash_ok = (uint8_t)fl_jedec_ok(FL_FAR(fl_jedec_ram)());   /* one of the FM-1's two 1 MiB parts */
         irq_restore(f);
     }
-    if (flash_ok)
-        ota_boot_cleanup();              /* staging area left by an update */
+    if (flash_ok) {
+        int k = ota_boot_cleanup();      /* the staging: PT/FM's loader kept, anything else erased */
+        loader_kept = k < 0 ? 0xFFu : (uint8_t)k;
+    }
     lcd_init();
-#ifdef PTFM_DEBUG
-    prove_boot();                        /* (PROVE's watchdog test: its second restart, after the first's report) */
-#endif
     if (flash_ok) {
         fl_plain_window_init();          /* the user area reads plainly over XIP */
         fl_plain = 1;
     }
+#ifdef PTFM_DEBUG
+    dbg_part_check(0);                   /* (the debug part, read in place over the plain window) */
+    if (dbg_part_ok) {
+        dbg_paint();                     /* (no interrupt source runs yet: the stacks painted for their depths) */
+        prove_boot();                    /* (PROVE's watchdog test: its second restart, after the first's report) */
+    }
+#endif
     fm1_input_init();
     fm1_adc_init();
     uart_midi_init();                    /* the MIDI IN jack (before TIMER5: PORTH) */
@@ -1455,6 +1509,7 @@ static void ptfm_main(void)
     app_audio_usb(usb_block);            /* and the mix to USB audio */
     audio_silence();
     fm1_audio_init_muted(abuf, HALF_WORDS, isr_alnk0, 3);   /* (PC6, the data line, low until the clocks have run: a softer click) */
+    uac_fir_fill();                      /* USB audio's resampler table into RAM, before USB can start a stream */
     usb_start();
     ticking = 1;
     fm1_timer5_start(isr_timer5, 4);     /* above ALNK0 (3) */
@@ -1465,7 +1520,8 @@ static void ptfm_main(void)
     for (;;) {
         uint32_t now = fm1_ms;
 #ifdef PTFM_DEBUG
-        dbg_pass();
+        if (dbg_part_ok)
+            dbg_pass();
 #endif
         if (!dac_on && now - healthy_since >= 150u) {   /* 150 ms of silence through the codec, then its sound */
             fm1_audio_unmute();
@@ -1474,8 +1530,10 @@ static void ptfm_main(void)
         c2_poll(now - healthy_since);    /* core 2 started 2 s in, once SECOND CORE is on (core2.c) */
         fm1_wdt_feed();
         usb_retry(now);
-        if ((uint32_t)(now - healthy_since) >= 30000u && bootguard.pending)
+        if ((uint32_t)(now - healthy_since) >= 30000u && bootguard.pending) {
             bootguard_clear(&bootguard); /* 30 s up: this boot did not fail */
+            stub_box()->tries = 0;       /* (the update loader may start from the start check again) */
+        }
         adc_poll();
         usb_sx_poll();                   /* a SysEx cut short (the host stopped reading): its end out */
         sysex_route();
@@ -1508,7 +1566,7 @@ void fm1_cstart(void)
                                           * copy below writes over */
     fm1_time_init();
     fm1_reset_reason();
-    p3 = fm1_boot.p3_rst;
+    p3 = fm1_boot.p3_rst | stub_box()->p3;   /* (the start check read them first: its copy, should a read clear them) */
     src = fm1_boot.rst_src;
     wdt = fm1_boot.wdt_con;
     fm1_wdt_arm(0x0D);
@@ -1539,8 +1597,8 @@ void fm1_cstart(void)
     fm1_boot.rst_src = src;
     fm1_boot.wdt_con = (uint8_t)wdt;
     c2_boot((int)power_on);              /* (core 2 left off after a crash or the watchdog with it running: core2.c) */
-    if (boot_mode == BOOT_RECOVERY || recovery_key())   /* recovery_key scans the panel (50 ms) */
-        recovery_main();
+    if (boot_mode == BOOT_RECOVERY)
+        stub_update_mode();
     ptfm_main();
     for (;;)
         ;

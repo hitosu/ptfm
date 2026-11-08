@@ -1,6 +1,6 @@
 # The user interface
 
-Status: **settled** (2026-10-09), LOOPS' controls to be tried in the playground. The record:
+Status: **settled** (2026-10-09), LOOPS' controls to be tried on the FM-1. The record:
 [the UI proposal](../proposals/202610072229-ui.md), sections 2 and 10.
 
 PT/FM's UI: the screens, the controls, the colours and how they behave. These files hold no firmware
@@ -44,7 +44,7 @@ texts here are taken from it.
 | [screens/editor.md](screens/editor.md) | the EDITOR: patterns, the note editor |
 | [screens/instruments.md](screens/instruments.md) | INSTRUMENTS: cartridges and instruments |
 | [screens/playback.md](screens/playback.md) | PLAYBACK: what plays, followed |
-| [screens/loops.md](screens/loops.md) | LOOPS: the loop station, loops stacked over one length |
+| [screens/loops.md](screens/loops.md) | LOOPS: the loop station, loops stacked over one length, the keys overdubbing the stage that REC keeps as a loop |
 | [screens/dj.md](screens/dj.md) | DJ: two songs on two decks, in time, a crossfader, each deck's effects |
 | [screens/fx.md](screens/fx.md) | FX: the effects, the mixer, punch-ins, the metronome |
 | [screens/visual.md](screens/visual.md) | VISUAL: the visualisers |
@@ -76,14 +76,14 @@ texts here are taken from it.
   | LFO | low-frequency oscillator | `LEAVE FIELD OPEN`; with HOME, `LOOK FOR ONSWERS` | clear ([controls.md](controls.md#what-each-button-means)); the help ([help.md](help.md)) |
   | ENV | envelope | `EXPLORE NAMED VAULTS` | the lists of patterns, cartridges and samples |
   | SEQ | sequencer | `SHOW ELSE, QUICK` | the next subview |
-  | ARP | arpeggiator | `AGAIN, REPEAT, PLEASE` | the arpeggiator, as printed; on the EDITOR the row preview, on LOOPS the pattern recorder |
+  | ARP | arpeggiator | `AUTOMATIC REPEAT PROCEDURE` | the arpeggiator, as printed; on the EDITOR the row preview, on LOOPS the stage's switch (tapped), the pattern recorder (held + REC); with a punch-in's key held, the punch-in held on |
   | OP1-OP6 | FM operators | `OPEN PAGE 1` … `OPEN PAGE 6` | SONGS, EDITOR, INSTRUMENTS, PLAYBACK, DJ (OP6 reserved) |
   | PIT | pitch | `PICTURES IN TIME` | VISUAL |
   | MONO | mono | `MY OWN NERDY OPTIONS` | SETTINGS |
   | POLY | polyphonic | `PARTY ON, LOOP YOURSELF` | LOOPS |
 
-  - **Where they show:** only in the help, once in each screen's help, at the button's first mention
-    ([help.md](help.md)).
+  - **Where they show:** only in the help, once in each screen's help, at the button's first mention, ARP's also where
+    it holds something on ([help.md](help.md#readings)).
   - **The blank key** has no screen (kept for later); on DJ it turns the pads' mode. It has no print,
     so the help calls it `BLANK KEY`, with no reading.
 

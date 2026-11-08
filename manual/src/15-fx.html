@@ -67,7 +67,7 @@ it down, <samp class="msg">MOVED</samp>; HOME puts it back, <samp class="msg">NO
 the metronome stay: <samp class="msg" data-t="# DOES NOT MOVE">LIMITER DOES NOT MOVE</samp>), <b>RESET</b> (the
 effect as at first), <b>REVERT</b> (every effect as last saved).</li>
 <li>Each effect's picture shows what it does: the filter's curve, the echoes, the reverb's decay. The footer shows what
-the effect costs the processor (<b>GATE 0.4% CPU</b>). Each effect, its picture and its knobs are below.</li>
+the effect costs the processor, measured as it works (<b>GATE 1.1% CPU</b>; <b>0.0%</b> while it is off). Each effect, its picture and its knobs are below.</li>
 </ul>
 </section>
 
@@ -298,7 +298,8 @@ COWBELL; BEEP at first</span></dd>
 <dt>ROUTING</dt><dd>GLOBAL: one chain on the whole mix. SENDS: CHORUS, DELAY and REVERB leave the chain and become
 shared sends, each track sending its own amount (the MIXER's CHO, DLY, REV); their returns join the chain at the
 SENDS line (marked with a diamond): effects above it work on the dry sound only, below it on everything
-(<samp class="msg">ROUTING SENDS</samp>, <samp class="msg">ROUTING GLOBAL</samp>).</dd>
+(<samp class="msg">ROUTING SENDS</samp>, <samp class="msg">ROUTING GLOBAL</samp>). A song starts at GLOBAL, LOOPS at
+SENDS, so each loop's send knobs act from the start.</dd>
 <dt>KEYS, EVERYWHERE</dt><dd>THROUGH FX, or DRY: the keys skip every effect (as SETTINGS' KEYS)
 (<samp class="msg">KEYS DRY</samp>, <samp class="msg">KEYS THROUGH FX</samp>).</dd>
 <dt>TEMPO, SWING</dt><dd>For THE KEYS: their own tempo and swing.</dd>
@@ -315,7 +316,8 @@ SENDS line (marked with a diamond): effects above it work on the dry sound only,
 <kbd>LFO</kbd> resets it.</li>
 <li><b>KEYS</b>, the last column, is the keys' own strip, the same in every song (its LVL is SETTINGS' KEYS
 GAIN).</li>
-<li>In LOOPS the columns are the loops (MIXER: THE LOOPS).</li>
+<li>In LOOPS the columns are the loops (MIXER: THE LOOPS). The KEYS column's CHO, DLY and REV are also the next loop's
+sends: the stage on + NEW LOOP sounds with them, and REC gives them to the loop it makes there.</li>
 <li>A value a song's command moved shows white, BY THE SONG; muted tracks are dark.</li>
 </ul>
 </section>
@@ -339,7 +341,7 @@ and space:</b> LOW-PASS SWEEP, HIGH-PASS SWEEP, ECHO THROW, REVERB SWELL.</td></
 moves:</b> REVERSE, HALF SPEED, TAPE STOP, VINYL STOP.</td></tr>
 <tr><td><span class="combo"><kbd>FX</kbd> + <kbd class="w">white key</kbd></span> held</td><td>A punch-in on any
 screen.</td></tr>
-<tr><td><kbd>ARP</kbd>, with a punch-in's key held</td><td><b>Holds the punch-in on</b> after you let go of its key
+<tr><td><kbd>ARP</kbd>, with a punch-in's key held</td><td><i>Automatic Repeat Procedure:</i> <b>holds the punch-in on</b> after you let go of its key
 (<samp class="msg" data-t="# HELD ON: ITS KEY STOPS IT">LOOP 1/4 HELD ON: ITS KEY STOPS IT</samp>), so your hands
 are free; FX lights full meanwhile. Its key again (or another punch-in's) stops it, as does HOME + REC.</td></tr>
 </tbody>

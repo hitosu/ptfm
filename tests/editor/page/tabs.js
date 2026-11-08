@@ -56,11 +56,11 @@ module.exports = async api => {
         return [saved, x.instruments[0].level];
     })()`, r => r[0] === true && r[1] === -12);
     await shot("01-sampler");
-    await step("sample on the FM-1 panel: DEPTH 16 bits, its entry in its sampler", `(() => {
-        const s = ED.app.st.R.find(i => i.kind === 0x10); ED.tabs.open(s);
+    await step("sample on the FM-1 panel: DEPTH 16 bits, its entry in its own record", `(() => {
+        const s = ED.app.st.R.find(i => i.kind === 0x11); ED.tabs.open(s);
         TT.choice("DEPTH", 1);
         const saved = TT.save(), m = ED.model.byIdMap(ED.app.st.R), e = ED.model.sampleEntry(m.get(s.id), m);
-        return [saved, e.coding, !!m.get(s.id).entry, ED.rec.ptrDecode(m.get(s.id).recs[0].payload).bits];
+        return [saved, e.coding, !!m.get(s.id).entry, ED.rec.ptrDecode(ED.rec.unpackSample(m.get(s.id).recs[0].payload).audio).bits];
     })()`, r => r[0] === true && r[1] === 2 && r[2] === false && r[3] === 16);
     await step("a built-in instrument: SAVE makes a changed copy at its number", `(() => {
         const b = ED.files.viewItems("R").find(i => i.fw && i.kind === 0x02); ED.tabs.open(b);
@@ -102,7 +102,7 @@ module.exports = async api => {
         ED.tabs.close(ED.tabs.current()); const q = document.querySelector("#dlg h3").textContent;
         [...document.querySelectorAll("#dlg .btn")].find(b => b.textContent === "DISCARD").click();
         return [q, ED.tabs.list.length, ED.rec.unpackSong(ED.app.st.R.find(i => i.id === s.id).recs[0].payload).swing];
-    })()`, r => r[0] === "SAVE THE CHANGES TO SONG 00 PUNCH IN?" && r[1] === 0 && r[2] === 50);
+    })()`, r => r[0] === "SAVE THE CHANGES TO SONG A0 PUNCH IN?" && r[1] === 0 && r[2] === 50);
     await step("a tab whose item is deleted: said, SAVE off", `(() => {
         const c = ED.app.st.L.find(i => i.kind === 0x01 || i.kind === 0x05); ED.tabs.open(c); ED.tabs.show("files");
         const r = ED.model.remove(ED.app.st, "L", [c.id], false); ED.app.commit(r.st, "DELETED");

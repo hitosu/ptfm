@@ -57,7 +57,8 @@ show and do; these files say what is kept.
 
   An instrument's name (10 characters) takes 60 bits, a cartridge's (12) 9 bytes, a song's (16) 12
   bytes.
-- **Numbers:** cartridges, patterns and songs `00`-`FF`; samples `00`-`3F` within their cartridge.
+- **Numbers:** cartridges, patterns, songs and samples `00`-`FF`, a sample's apart from the cartridges'
+  ([instruments.md](instruments.md#samples)).
   Cartridges and patterns `F0`-`FF` are the firmware's built-in instruments'
   ([instruments.md](instruments.md#built-in-instruments)); the user's are `00`-`EF`. Song `FE` is the firmware's
   too, the keys' song ([../ui/screens/fx.md](../ui/screens/fx.md#the-fx-setup)), never listed; the user's songs
@@ -74,7 +75,9 @@ show and do; these files say what is kept.
   version.
 - **A device keeps the records it does not know,** and those of a version it does not read: it does not
   read them, and compaction moves them as they are, byte for byte. Only the PC side converts
-  ([disk.md](disk.md#versions)).
+  ([disk.md](disk.md#versions)). **One exception:** a record that crosses a block is taken only as audio, so a
+  firmware from before the samples' own kind (0x11) takes those samples for damage and frees their blocks; going
+  back to it needs a copy first ([disk.md](disk.md#versions)).
 - **Spare bits and bytes** are written 0, and a meaning given to them keeps 0 as "as before", so a new
   parameter in a slot's spare bits needs no new version.
 - **Larger slots** are a new version of their kind; every full cartridge leaves room in its block.

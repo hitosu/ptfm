@@ -10,6 +10,7 @@
 #include "../store/store.h"
 #include "../play/player.h"
 #include "../play/loops.h"
+#include "../play/rec.h"
 
 void ui_edit_init(void) { store_edit_session(0); }
 uint32_t ui_edit_used(void) { return store_edit_used(); }
@@ -80,11 +81,29 @@ int ui_edit_reserve(uint32_t n)
     return -1;
 }
 
+/* REVERT's one exception (specs/ui/saving.md#revert): a sample instrument a REVERT brings back (slot, or -1 every slot
+ * of the cartridge) naming a sample whose deletion waits for SAVE takes that deletion back with it, so no REVERT leaves
+ * an instrument naming a sample about to go. The instruments deleted with it elsewhere stay so till their own REVERT */
+static void samples_back(uint8_t cart, int slot)
+{
+    rec_cart_t c;
+    rec_sinst_t si;
+    uint8_t back[32] = {0};                             /* (the numbers first: a forget may move what c points at) */
+    if (rec_cart(cart, &c) || c.kind != REC_SAMPLER) return;
+    for (int s = slot < 0 ? 0 : slot; s < (slot < 0 ? c.nslots : slot + 1); s++) {
+        const uint8_t *x = rec_slot(&c, (uint8_t)s);
+        if (!x) continue;
+        rec_sampler_inst(x, &si);
+        if (store_edit_has(REC_SAMPLE, si.sample, 0) == 2) back[si.sample >> 3] |= (uint8_t)(1u << (si.sample & 7));
+    }
+    for (int n = 0; n < 256; n++) if (back[n >> 3] >> (n & 7) & 1) store_edit_forget(REC_SAMPLE, (uint8_t)n, 0);
+}
 /* REVERT (specs/ui/saving.md#revert): the thing back as the flash has it; what plays hears it at once. Whoever
  * keeps the thing in RAM of its own (DJ's stand, the settings) reads it again. */
 int ui_edit_revert(uint8_t kind, uint8_t num, uint8_t sub)
 {
     int r = store_edit_forget(kind, num, sub);
+    if (kind >= REC_DX7 && kind <= REC_CART_LAST && r == STORE_OK) samples_back(num, -1);
     if (kind == REC_SETTINGS) ui_settings_reload();
     if (kind == REC_SONG) {                             /* (the song the effects hold: its FX setup as saved, heard) */
         player_state_t st;
@@ -115,15 +134,16 @@ int ui_edit_revert_slot(uint8_t cart, uint8_t slot)
     int r = STORE_OK;
     for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++)
         if (store_edit_obj(k, cart)) r = store_edit_forget_piece(k, cart, slot);
+    if (r == STORE_OK) samples_back(cart, slot);
     ui_unsaved_refresh();
     ui_dirty();
     return result(r);
 }
 int ui_edit_unsaved(uint8_t kind, uint8_t num, uint8_t sub)
 {
-    if (kind >= REC_DX7 && kind <= REC_CART_LAST) {        /* a cartridge: any kind at its number, its samples' deletes */
+    if (kind >= REC_DX7 && kind <= REC_CART_LAST) {        /* a cartridge: any kind at its number (a sample's number is
+                                                         * apart) */
         for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) if (store_edit_has(k, num, 0)) return 1;
-        for (int s = 0; s < 64; s++) if (store_edit_has(REC_AUDIO, num, (uint8_t)s)) return 1;
         return 0;
     }
     return store_edit_has(kind, num, sub) != 0;

@@ -215,52 +215,15 @@ static int fm1_cpu1_post(void (*fn)(uint32_t), uint32_t arg)
     FM1_C1_SYNC();
     return 1;
 }
-#ifdef PTFM_DEBUG
-/* the debug build's PROVE 4-6 (specs/debug.md, Proving the layout): what core 2 is handed instead of a block's job.
- * fm1_c1_prove_job(0) faults core 2 by its own stack limit: the jobs' stack's window (its EMU bank, which only it
- * uses) shut above where its stack pointer stands, then a push. A fault of its own EMU bank is taken on core 2
- * itself (measured on the FM-1: its record kept, parked); a bus error (a load nothing answers) would be flagged in
- * the debug unit both cores share and taken on core 1, its crash screen and a restart. The exceptions' stack keeps
- * its window, so the fault's own frames fit. (1), or a push the chip let through, never ends: then it ends as STUCK
- * at the next half, never on core 1. fm1_cpu1_post_bad hands fn(arg) over with a wrong check word: core 2 refuses it
- * (a misread) */
-void fm1_c1_prove_job(uint32_t stuck);
-void __attribute__((section(".c2_text"), noinline, used)) fm1_c1_prove_job(uint32_t stuck)
-{
-    if (!stuck) {
-        FM1_C1_EMU_USP_L = FM1_C1_EMU_USP_H;    /* (the window [top, top]: its stack pointer below it) */
-        FM1_C1_SYNC();
-        __asm__ volatile("[--sp] = {rets}\n\t{rets} = [sp++]" ::: "memory");   /* (a push, and back) */
-    }
-    for (;;)
-        FM1_C1_SYNC();
-}
-static int fm1_cpu1_post_bad(void (*fn)(uint32_t), uint32_t arg)
-{
-    uint32_t n;
-    if (fm1_c1.state != FM1_C1_RUNS)
-        return 0;
-    n = fm1_c1_q.posted + 1u;
-    FM1_C1_SYNC();
-    if (n - fm1_c1_q.done > FM1_C1_ENTRIES)
-        return 0;
-    fm1_c1_q.e[n & 3u].fn = fn;
-    fm1_c1_q.e[n & 3u].arg = arg;
-    fm1_c1_q.e[n & 3u].check = ~FM1_C1_CHECK(fn, arg, n);
-    FM1_C1_SYNC();
-    fm1_c1_q.posted = n;
-    FM1_C1_SYNC();
-    return 1;
-}
-#endif
 /* it has run every entry handed over */
 static int fm1_cpu1_idle(void)
 {
     FM1_C1_SYNC();
     return fm1_c1_q.done == fm1_c1_q.posted;
 }
-/* it faulted since its start (its record: fm1_c1_fault) */
-static int fm1_cpu1_faulted(void)
+/* it faulted since its start (its record: fm1_c1_fault); inlined everywhere (no copy of its own: the debug build's
+ * figures, in its debug part, ask too) */
+FM1_INLINE int fm1_cpu1_faulted(void)
 {
     FM1_C1_SYNC();
     return fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC && fm1_c1_fault.count != fm1_c1.faults;
@@ -297,8 +260,12 @@ static uint32_t fm1_cpu1_half_us(void)
     FM1_C1_SYNC();
     return t / FM1_TICKS_PER_US;
 }
-/* how deep its jobs' stack went since its start, bytes (from the marks the start laid), and its size */
-static uint32_t fm1_cpu1_stack_used(void)
+/* how deep its jobs' stack went since its start, bytes (from the marks the start laid), and its size (the debug build's
+ * figures alone ask: in its debug part, PLAT_DBG, which the build defines; else nothing) */
+#ifndef PLAT_DBG
+#define PLAT_DBG
+#endif
+static PLAT_DBG uint32_t fm1_cpu1_stack_used(void)
 {
     const uint32_t *s = _c2_ustack_lo;
     while (s < _c2_ustack_top && *s == FM1_C1_MARK)

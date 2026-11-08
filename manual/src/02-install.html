@@ -27,12 +27,31 @@ MIDI from a web page.</li>
 <li>Open install.html and connect the FM-1.</li>
 <li>Press <b>INSTALL FIRMWARE</b>. The page shows its progress, the kilobytes written of the firmware's; the FM-1
 restarts by itself.</li>
-<li>When the page says it is done, the FM-1 starts PT/FM on its STATUS screen.</li>
+<li>When the page says it is done, the FM-1 starts PT/FM on its STATUS screen. <b>Keep it connected until the page
+says Done</b>: after an install over an older PT/FM there may be samplers to convert first (below).</li>
 </ol>
-<p><b>Over PT/FM</b> (an update), your songs, patterns, instruments, samples and settings stay where they are: the
-install writes nothing into PT/FM's own memory, the <i>user area</i>. <b>Over another firmware</b>, keep a copy of
-your work first: other firmwares erase that memory when they are installed. The EDITOR page saves the FM-1's whole
-library to a file (<a href="#editor-page">chapter 17</a>).</p>
+<p><b>Over PT/FM</b> (an update), your songs, patterns, instruments, samples and settings stay where they are in
+PT/FM's own memory, the <i>user area</i>; the install itself writes nothing there. <b>Over another firmware</b>, keep
+a copy of your work first: other firmwares erase that memory when they are installed. The EDITOR page saves the FM-1's
+whole library to a file (<a href="#editor-page">chapter 17</a>).</p>
+<p><b>Converting an older PT/FM's samplers.</b> Before this version, a sampler cartridge held its samples inside it;
+now samples are things of their own (<a href="#instruments-sampler">chapter 8</a>). When the FM-1 held samplers of the
+older kind, the page converts them itself right after the install, by talking to PT/FM, and says how far it is:
+<i>Converting the samplers to the new form: 2 of 5. Keep the FM-1 connected.</i> It converts whole samplers one save at
+a time, in number order, into free room only, and touches nothing else. When it is done the line says how many
+samplers and samples were converted. Notes:</p>
+<ul>
+<li>An install or a conversion cut short (a cable pulled, the power lost) loses nothing: press INSTALL FIRMWARE again
+and the conversion goes on from where it stopped, numbering the samples as one run would.</li>
+<li>A sampler that does not fit the free room stops it, and the line says how much room it needs and two ways out:
+delete something on the FM-1 and press INSTALL FIRMWARE again, or on the EDITOR page READ, then WRITE (the page writes
+the user area anew, after a backup).</li>
+<li>The FM-1 holds 256 samples at most. A sampler whose samples find no free number stays in the older form: the EDITOR
+page lists it as <b>OLDER FORM</b> and says how many numbers it needs; deleting it, or other samples, frees numbers.</li>
+<li>With edits not saved on the FM-1 the conversion waits: SAVE them (or REVERT), then press INSTALL FIRMWARE again.</li>
+<li>CLEAN INSTALL does not convert: it erases the user area.</li>
+<li>A disk of the older kind, uploaded with UPLOAD CUSTOM DISK, is converted as it loads.</li>
+</ul>
 <p><b>Updates:</b> a new version comes as a new install page, on PT/FM's home. Install it as above; STATUS shows the
 version the FM-1 runs.</p>
 </section>
@@ -79,17 +98,17 @@ disk: upload again.</p>
 </section>
 
 <section class="topic" id="install-rescue">
-<h3>USB RESCUE</h3>
+<h3>UPDATE MODE</h3>
 <p>If the FM-1 does not start, or does not answer the install page:</p>
 <ol class="steps">
 <li>Switch the FM-1 off.</li>
-<li>Hold <kbd>OCT-</kbd> and switch it on. The screen says <b>USB RESCUE</b>.</li>
+<li>Hold <kbd>OCT-</kbd> and switch it on. The screen says <b>UPDATE MODE</b>.</li>
 <li>Press INSTALL FIRMWARE on the install page.</li>
 </ol>
-<p>The FM-1 also starts in USB RESCUE by itself after two failed starts in a row.</p>
-<aside class="note">An install cut short (a cable pulled, the power lost) is not resumed by itself. Press INSTALL
-FIRMWARE again. If the FM-1 no longer answers the page, switch it off and start it in USB RESCUE (<kbd>OCT-</kbd>
-held at power-on), then install from there.</aside>
+<p>The FM-1 also starts in UPDATE MODE by itself after two failed starts in a row, and whenever the firmware is not
+whole. While it installs, the screen shows <b>INSTALLING</b>, a bar and DON'T SWITCH OFF.</p>
+<aside class="note">An install cut short (a cable pulled, the power lost) goes on from UPDATE MODE: switch the FM-1 on,
+it starts there by itself, and press INSTALL FIRMWARE again.</aside>
 </section>
 
 <section class="topic" id="install-trouble">
@@ -97,8 +116,15 @@ held at power-on), then install from there.</aside>
 <ul>
 <li><b>No FM-1 found:</b> close what else uses its MIDI port (a music program, another installer, another browser
 tab), then try again.</li>
+<li><b>A conversion of samplers cut short</b> (the page said it, or the cable was pulled): press INSTALL FIRMWARE again;
+it goes on from there and nothing is lost.</li>
+<li><b>Back to an older PT/FM:</b> an older PT/FM does not read the new samples: it would count the longer ones as
+damaged and leave them out. So first, with the FM-1 running this PT/FM, on the EDITOR page press READ, then DOWNLOAD
+DISK: that copy is a must. Install the older PT/FM, then on the EDITOR page WRITE: it writes the samplers in the older
+form, each holding copies of the samples its instruments play, and lists in <b>NOT KEPT</b> what the older form cannot
+hold (<a href="#editor-page-fm1">chapter 17</a>).</li>
 <li><b>Back to another firmware:</b> PT/FM keeps the FM-1's update path, so another FM-1 firmware's installer replaces
-it, from USB RESCUE if need be.</li>
+it, from UPDATE MODE if need be.</li>
 </ul>
 </section>
 </section>

@@ -9,7 +9,7 @@
  * played by mouse, touch, the computer's keys or a MIDI keyboard picked from the computer's inputs. */
 (function (ED) {
 "use strict";
-const M = ED.model, R = ED.rec, K = R.KIND, U = ED.ui, T = ED.tabs, D = ED.defs, h = U.h, H2 = M.H2;
+const M = ED.model, R = ED.rec, K = R.KIND, U = ED.ui, T = ED.tabs, D = ED.defs, S = ED.slotops, h = U.h, H2 = M.H2;
 const SLOT_MAX = { [K.DX7]: 32, [K.JUNO]: 128, [K.TB303]: 128, [K.FUSION]: 64, [K.CHIP]: 128, [K.SAMPLER]: 64 };
 
 function decode(d) { return d.kind === K.SAMPLER ? R.unpackSampler(d.recs[0].payload) : R.unpackCart(d.kind, d.recs[0].payload); }
@@ -58,23 +58,39 @@ T.kinds.cart = function (t, api) {
         const r = slots.querySelector(".slotrow.on");
         if (r && r.offsetTop + r.offsetHeight > slots.clientHeight) slots.scrollTop = r.offsetTop - slots.clientHeight / 2;
     });
-    const n = Math.min(SLOT_MAX[kind], Math.max(list.length + 1, 1));
+    /* ---- many at once (specs/editor.md, The tabs: Many instruments at once): every slot to the cartridge's size;
+     * the selection t.sel, the slot shown t.slot (the last picked); COPY, CUT, PASTE, REPLACE, DELETE; rearranging,
+     * the references following the places at SAVE (the draft's map of places, d.moved) ---- */
+    const n = SLOT_MAX[kind];
+    if (!t.sel || ![...t.sel].every(i => i < n)) t.sel = new Set([t.slot]);
+    const ops = slotOps(t, api, kind, n);
     for (let i = 0; i < n; i++) {
         const s = list[i];
-        slots.append(h("div", { class: "slotrow" + (i === t.slot ? " on" : "") + (s ? "" : " empty"), onclick: () => { t.slot = i; api.refresh(); } },
+        const row = h("div", { class: "slotrow" + (t.sel.has(i) ? " on" : "") + (s ? "" : " empty") + (t.floating ? " float" : ""), draggable: !!s,
+            onclick: e => ops.click(i, e) },
             h("span", { class: "mono" }, H2(i)), s ? s.name : "EMPTY",
-            s && ED.player.canPlay(api.draft) ? h("button", { class: "act", title: "PLAY ITS ARPEGGIO", onclick: e => { e.stopPropagation(); ED.player.play(api.draft, { st: api.stWith(), slot: i }); } }, "▶") : h("span")));
+            s && ED.player.canPlay(api.draft) ? h("button", { class: "act", title: "PLAY ITS ARPEGGIO", onclick: e => { e.stopPropagation(); ED.player.play(api.draft, { st: api.stWith(), slot: i }); } }, "▶") : h("span"));
+        row.addEventListener("dragstart", e => { t.dragFrom = t.sel.has(i) ? [...t.sel].sort((a, b) => a - b) : [i]; e.dataTransfer.setData("text/plain", String(i)); });
+        row.addEventListener("dragover", e => e.preventDefault());
+        row.addEventListener("drop", e => { e.preventDefault(); if (t.dragFrom) ops.moveTo(t.dragFrom, i); t.dragFrom = null; });
+        slots.append(row);
     }
+    slots.tabIndex = 0;
+    slots.addEventListener("keydown", ops.key);
     const top = T.card("THE CARTRIDGE", h("div", { class: "namerow" }, T.text("NAME", () => c.name, v => set(x => { x.name = v; }, "NAME " + v), 12),
-        h("button", { class: "btn small", onclick: () => ED.player.toggle(api.draft, { st: api.stWith() }) }, "▶ PLAY EVERY INSTRUMENT")));
+        h("button", { class: "btn small", onclick: () => ED.player.toggle(api.draft, { st: api.stWith() }) }, "▶ PLAY EVERY INSTRUMENT")),
+        ops.bar());
 
     /* ---- an instrument's page ---- */
     const s = list[t.slot];
     const page = h("div", { class: "slotpage" });
     if (!s) {
+        const have = kind === K.SAMPLER ? S.samplesOn(api.st[side], api.draft.pending).length : 0;
         page.append(T.card("INSTRUMENT " + H2(t.slot), h("p", null, "AN EMPTY PLACE."),
-            kind === K.FUSION || kind === K.SAMPLER && !c.samples.some(Boolean) ? null :
-            h("button", { class: "btn primary", onclick: () => set(x => { const l = x[slotsKey(x)]; while (l.length < t.slot) l.push(null); l[t.slot] = D.newSlot(kind, "NEW " + (M.ENGINE[kind] || "")); }, "INSTRUMENT " + H2(t.slot) + " MADE") }, "NEW INSTRUMENT HERE")));
+            kind === K.FUSION ? null : kind === K.SAMPLER
+                /* (an instrument needs a sample: CREATE picks one of any on the panel, a new instrument playing it whole) */
+                ? h("button", { class: "btn primary", disabled: !have, title: have ? "PICK A SAMPLE: A NEW INSTRUMENT PLAYS IT WHOLE" : "NO SAMPLES ON THIS PANEL", onclick: () => pickSample(t, api, "CREATE", null) }, "CREATE")
+                : h("button", { class: "btn primary", onclick: () => set(x => { const l = x[slotsKey(x)]; while (l.length < t.slot) l.push(null); l[t.slot] = D.newSlot(kind, "NEW " + (M.ENGINE[kind] || "")); }, "INSTRUMENT " + H2(t.slot) + " MADE") }, "NEW INSTRUMENT HERE")));
     } else {
         const mutSlot = (x, f, v) => { x[slotsKey(x)][t.slot] = Object.assign({}, x[slotsKey(x)][t.slot], { [f]: v }); };
         const upd = (f, v, what) => set(x => mutSlot(x, f, v), what);
@@ -156,31 +172,271 @@ function params(t, api, kind, s, c, o) {
         return [T.picSection("THE FUSION SLOT", [pic("EDIT", W.EDIT).el, details()], T.field("PATTERN", sel))];
     }
     if (kind === K.SAMPLER) {
-        const e = c.samples[s.sample];
+        /* the sample the instrument names, as the draft's link has it (none: the number names nothing) */
+        const items = api.st[t.side], named = S.sampleNamed(api.draft, items, s.sample);
+        const e = named ? M.sampleEntry(named, items) : null;
         const max = e ? e.length : 1 << 20;
         const pts = [["start", "START"], ["end", "END"], ["loop_start", "LOOP START"], ["loop_end", "LOOP END"]].map(([f, n]) =>
             T.slider(n, { min: 0, max, def: f === "end" || f === "loop_end" ? max : 0, get: () => Math.min(max, s[f]), fmt: v => e && e.rate ? (v / e.rate).toFixed(3) + " S" : String(v), acc: col, set: v => upd(f, v, n),
                 live: v => live(x => mutSlot(x, f, v)) }));
-        const smp = h("select", { onchange: ev => upd("sample", +ev.target.value, "SAMPLE " + H2(+ev.target.value)) },
-            c.samples.map((x, i) => x ? h("option", { value: i, selected: i === s.sample }, H2(i) + " " + x.name) : null));
+        /* SAMPLE: any sample on the panel (the other values stay); REPLACE SAMPLE: the same pick, every value back to a new
+         * instrument's */
+        const all = S.samplesOn(items, api.draft.pending);
+        const smp = h("select", { "aria-label": "Sample", onchange: ev => {
+            const pick = all.find(x => x.item.id === ev.target.value);
+            if (!pick) return;
+            const q = decode(api.draft).instruments[t.slot];
+            api.set(S.pointTo(api.draft, t.side, t.slot, q, pick.item), "SAMPLE " + sampleText(pick.item, items));
+            api.refresh();
+        } }, named ? null : h("option", { value: "", selected: true }, "THE SAMPLE IS MISSING: " + H2(s.sample)),
+            all.map(x => h("option", { value: x.item.id, selected: x.item.id === (named && named.id) }, sampleText(x.item, items))));
+        const replaceBtn = h("button", { class: "btn small", disabled: !all.length, title: "PICK A SAMPLE: THE INSTRUMENT PLAYS IT AS A NEW ONE WOULD", onclick: () => pickSample(t, api, "REPLACE SAMPLE", t.slot) }, "REPLACE SAMPLE");
         const mutEnv = (x, f, val) => { const q = x.instruments[t.slot]; x.instruments[t.slot] = Object.assign({}, q, { env: Object.assign({}, q.env, { [f]: val }) }); };
-        return [T.picSection("THE SAMPLE INSTRUMENT", [pic("EDIT", W.EDIT).el, details()], T.field("SAMPLE", smp), ...pts, ...sl(mutSlot, D.SAMPLER_INST),
+        return [T.picSection("THE SAMPLE INSTRUMENT", [pic("EDIT", W.EDIT).el, details()], T.field("SAMPLE", smp), h("div", { class: "rowbtns", style: "margin-bottom:6px" }, replaceBtn), ...pts, ...sl(mutSlot, D.SAMPLER_INST),
             h("h5", null, "THE ENVELOPE"), ...sl(mutEnv, D.ENV, s.env, "", nd.env))];
     }
     return [];
 }
-/* a sampler's samples, each with NEW INSTRUMENT FOR IT */
+/* ---- many instruments at once (specs/editor.md, The tabs: Many instruments at once) ---- */
+/* the page's clipboard of contents, while it is open: what the instruments are, not where they were, with what they
+ * need (a sample instrument's sample, a FUSION slot's pattern) */
+let clip = null;
+function slotOps(t, api, kind, n) {
+    const side = t.side, range = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+    const items = () => api.st[side], cartItem = () => items().find(i => i.id === t.itemId) || t.base;
+    const cur = () => decode(api.draft), listOf = c => { const l = c[slotsKey(c)]; while (l.length < n) l.push(null); return l; };
+    const sorted = () => [...t.sel].sort((a, b) => a - b);
+    const places = () => api.draft.moved || range(0, n - 1);   /* P[o]: where what the references name o is now */
+    const origOf = p => { const o = places().indexOf(p); return o < 0 ? p : o; };
+    const usesAt = ps => ED.slotops.uses(items(), side, cartItem(), new Set(ps.map(origOf)));
+    const say = (m, err) => U.status(m, err ? { err: true } : { ok: true });
+    const put = (c2, what, more) => { api.set(Object.assign(encode(api.draft, c2), more || {}), what); api.refresh(); };
+    const pruneTail = c2 => { const l = c2[slotsKey(c2)]; while (l.length && !l[l.length - 1]) l.pop(); return c2; };
+    /* the sample a sampler's instrument plays, as its item on this panel */
+    const sampleItem = (s) => kind === K.SAMPLER && s ? S.sampleNamed(api.draft, items(), s.sample) : null;
+    function copy(cut) {
+        const c = cur(), l = listOf(c), picked = sorted().filter(i => l[i]);
+        if (!picked.length) { say("NOTHING TO COPY: PICK AN INSTRUMENT", true); return; }
+        clip = { kind, side, from: t.itemId, slots: picked.map(i => Object.assign({}, l[i])),
+            samples: picked.map(i => sampleItem(l[i])),
+            patterns: picked.map(i => kind === K.FUSION ? api.draft.link[M.lk("p", l[i].pattern)] || null : null),
+            patNums: picked.map(i => kind === K.FUSION ? l[i].pattern : null) };
+        if (cut) del(true); else say("COPIED " + picked.length);
+    }
+    /* PASTE adds into empty slots (those no reference names first); REPLACE puts them from the first slot picked on */
+    function paste(replace) {
+        if (!clip || !clip.slots.length) { say("NOTHING COPIED", true); return; }
+        if (clip.kind !== kind) { say("COPIED FROM " + (M.ENGINE[clip.kind] || "?") + ": NOT HERE", true); return; }
+        const c2 = cur(), l = listOf(c2), k = clip.slots.length;
+        let targets;
+        if (replace) {
+            const from = sorted()[0];
+            if (from + k > n) { say(k + " COPIED, " + (n - from) + " SLOTS FROM HERE: NOTHING REPLACED", true); return; }
+            targets = range(from, from + k - 1);
+        } else {
+            const empty = range(0, n - 1).filter(i => !l[i]), free = empty.filter(i => usesAt([i]) === 0), named = empty.filter(i => usesAt([i]) > 0);
+            if (empty.length < k) { say(k + " COPIED, " + empty.length + " EMPTY SLOTS: NOTHING PASTED", true); return; }
+            targets = free.concat(named).slice(0, k).sort((a, b) => a - b);
+        }
+        /* what comes along: a sample (the same sound already there, else at the first free sample, added at SAVE); a
+         * FUSION slot's pattern (on this panel) */
+        const pending = (api.draft.pending || []).slice(), link = Object.assign({}, api.draft.link);
+        /* (the samples: the same one already on this panel (its whole record equal) is named; else it comes along as an item
+         * of its own, on the FM-1 panel at a free number, passing over the numbers references name; none free, or no room
+         * for them there: nothing pasted) */
+        let bring = null;                           /* clip sample id -> the item the pasted instruments name */
+        if (kind === K.SAMPLER) {
+            const r = S.bringSamples(items(), api.draft, side, clip.samples, ED.app.st.fm1 && ED.app.st.fm1.layout);
+            if (!r.ok) { say(r.msg, true); return; }
+            bring = r.bring;
+            for (const it of r.fresh) pending.push({ from: it.id, item: it });
+        }
+        for (let j = 0; j < k; j++) {
+            const s = Object.assign({}, clip.slots[j]);
+            if (kind === K.SAMPLER) {
+                const src = clip.samples[j], got = src && bring.get(src.id);
+                if (got) {
+                    const num = side === "R" ? got.num : M.numberFor(Object.assign({}, api.draft, { link }), "m", got.id, "L", null, got.orig);
+                    s.sample = num; link[M.lk("m", num)] = got.id;
+                } else s.sample = S.numberForMissing(items(), Object.assign({}, api.draft, { pending, link }), side, s.sample);   /* (its sample is gone: it names nothing, as before) */
+            } else if (kind === K.FUSION && clip.patterns[j] != null && clip.patNums[j] !== 0xFF) {
+                const pid = clip.patterns[j], p = items().find(i => i.id === pid);
+                if (!p) { say("ITS PATTERN IS NOT ON THIS PANEL: MOVE THE FUSION CARTRIDGE OVER FIRST", true); return; }
+                const num = side === "R" ? p.num : M.numberFor(Object.assign({}, api.draft, { link }), "p", pid, side, null, null);
+                link[M.lk("p", num)] = pid;
+                s.pattern = num;
+            }
+            l[targets[j]] = s;
+        }
+        const usedOver = replace ? targets.filter(i => listOf(cur())[i]) : [], count = usesAt(usedOver), grey = replace ? 0 : usesAt(targets);
+        const go = () => {
+            put(pruneTail(c2), (replace ? "REPLACED " : "PASTED ") + k, { link, pending });
+            t.sel = new Set(targets); t.slot = targets[0];
+            say((replace ? "REPLACED " : "PASTED ") + k + (grey ? " · " + grey + " GREY REFERENCES PLAY AGAIN" : ""));
+        };
+        if (count) U.dialog({ title: "REPLACE " + usedOver.length + " USED INSTRUMENT" + (usedOver.length > 1 ? "S" : "") + "? USED " + count + " TIMES",
+            body: h("p", null, "WHAT PLAYS THEM PLAYS THE NEW ONES."), buttons: [{ label: "REPLACE", cls: "primary danger", onClick: go }, { label: "KEEP" }] });
+        else go();
+    }
+    /* DELETE empties the slots picked; what named them keeps naming those places (grey) */
+    function del(quiet) {
+        const c2 = cur(), l = listOf(c2), picked = sorted().filter(i => l[i]);
+        if (!picked.length) return;
+        const count = usesAt(picked);
+        const go = () => { for (const i of picked) l[i] = null; put(pruneTail(c2), "DELETED " + picked.length); say((quiet ? "CUT " : "DELETED ") + picked.length); };
+        if (count) U.dialog({ title: picked.length + " INSTRUMENT" + (picked.length > 1 ? "S ARE" : " IS") + " USED " + count + " TIMES",
+            body: h("p", null, "DELETE ANYWAY? WHAT PLAYS THEM KEEPS NAMING THOSE PLACES, GREY AND SILENT."),
+            buttons: [{ label: "DELETE", cls: "primary danger", onClick: go }, { label: "KEEP" }] });
+        else go();
+    }
+    /* places swapped: the instruments and the map of places (a move onto an empty slot is a swap with it) */
+    function swapIn(c2, P, a, b) {
+        const l = listOf(c2), x = l[a]; l[a] = l[b]; l[b] = x;
+        const oa = P.indexOf(a), ob = P.indexOf(b);
+        if (oa >= 0) P[oa] = b;
+        if (ob >= 0) P[ob] = a;
+    }
+    function moveTo(from, to) {
+        const c2 = cur(), l = listOf(c2), P = places().slice(), delta = to - from[0], set = new Set(from);
+        if (!delta) return;
+        if (from.length === 1) swapIn(c2, P, from[0], to);
+        else {
+            const tg = from.map(f => f + delta);
+            if (tg.some(x => x < 0 || x >= n || (l[x] && !set.has(x)))) { say("NOTHING MOVED: THE SLOTS THERE ARE NOT EMPTY", true); return; }
+            for (const f of delta > 0 ? from.slice().reverse() : from) swapIn(c2, P, f, f + delta);
+        }
+        t.sel = new Set(from.map(f => f + delta)); t.slot = to;
+        put(pruneTail(c2), "MOVED TO " + H2(to), { moved: P });
+    }
+    function step(dir) {
+        const c2 = cur(), P = places().slice(), sel = sorted();
+        if ((dir < 0 && sel[0] === 0) || (dir > 0 && sel[sel.length - 1] === n - 1)) return;
+        for (const i of dir < 0 ? sel : sel.slice().reverse()) swapIn(c2, P, i, i + dir);
+        t.sel = new Set(sel.map(i => i + dir)); t.slot += dir;
+        put(pruneTail(c2), dir < 0 ? "MOVED UP" : "MOVED DOWN", { moved: P });
+    }
+    function click(i, e) {
+        if (t.floating) { t.floating = false; moveTo(sorted(), i); return; }
+        if (e.shiftKey) t.sel = new Set(range(Math.min(t.slot, i), Math.max(t.slot, i)));
+        else if (e.ctrlKey || e.metaKey || e.pointerType === "touch") { if (t.sel.has(i) && t.sel.size > 1) t.sel.delete(i); else t.sel.add(i); }
+        else t.sel = new Set([i]);
+        t.slot = i;
+        api.refresh();
+    }
+    function key(e) {
+        const ctl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+        let done = true;
+        if (e.altKey && (k === "arrowup" || k === "arrowdown")) step(k === "arrowup" ? -1 : 1);
+        else if (k === "arrowup" || k === "arrowdown") {
+            const i = Math.max(0, Math.min(n - 1, t.slot + (k === "arrowup" ? -1 : 1)));
+            if (e.shiftKey) t.sel.add(i); else t.sel = new Set([i]);
+            t.slot = i; api.refresh();
+        } else if (ctl && k === "a") { const l = listOf(cur()); t.sel = new Set(range(0, n - 1).filter(i => l[i])); if (!t.sel.size) t.sel.add(t.slot); api.refresh(); }
+        else if (k === "escape") { t.sel = new Set([t.slot]); t.floating = false; api.refresh(); }
+        else if (ctl && k === "c") copy(false);
+        else if (ctl && k === "x") copy(true);
+        else if (ctl && k === "v") paste(e.shiftKey);
+        else if (k === "delete" || k === "backspace") del(false);
+        else done = false;
+        if (done) { e.preventDefault(); e.stopPropagation(); }
+    }
+    /* SAVE: the references follow the places (cells, the loops, the favourites, the settings' current instrument), the
+     * samples that came along added; refused while a tab with changes is open on an item it would rewrite */
+    t.onSave = st => {
+        let list = st[side];
+        const what = [], P = api.draft.moved;
+        if (P && P.some((p, o) => p !== o)) {
+            const cart = list.find(i => i.id === t.itemId) || cartItem();
+            const r = ED.slotops.remap(list, side, cart, new Map(P.map((p, o) => [o, p]).filter(([o, p]) => o !== p)));
+            const busy = r.ids.map(id => ED.tabs.find(side, id)).find(x => x && x !== t && x.dirty);
+            if (busy) return { refuse: "SAVE OR CLOSE " + ED.files.label(busy.base, list) + "'S TAB FIRST" };
+            list = r.items;
+            const kinds = r.ids.map(id => list.find(i => i.id === id).kind);
+            const np = kinds.filter(x => x === K.PATTERN).length, nf = kinds.filter(x => x === K.FAVORITES).length;
+            const parts = [np ? np + " PATTERN" + (np > 1 ? "S" : "") : "", kinds.includes(K.LOOPS) ? "THE LOOPS" : "", nf ? nf + " FAVORITES CARTRIDGE" + (nf > 1 ? "S" : "") : "",
+                kinds.includes(K.SETTINGS) ? "THE CURRENT INSTRUMENT" : ""].filter(Boolean);
+            if (parts.length) what.push(parts.join(", ") + " FOLLOW");
+            const dim = list.filter(i => i.dim && [K.PATTERN, K.SONG, K.LOOPS, K.FAVORITES].includes(i.kind)).length;
+            if (dim) what.push(dim + " RECORD" + (dim > 1 ? "S" : "") + " THE PAGE CANNOT READ DO" + (dim > 1 ? "" : "ES") + " NOT FOLLOW");
+        }
+        /* the samples a paste brought, still named by the saved sampler: items of their own now (the sampler's link already
+         * names them by id); on the FM-1 panel at the number the paste gave them, which must still be free */
+        const saved = list.find(i => i.id === t.itemId), named = new Set(saved ? Object.values(saved.link) : []);
+        const bringing = (api.draft.pending || []).map(p => p.item).filter(it => named.has(it.id));
+        if (side === "R") {
+            const tk = M.taken(list);
+            const clash = bringing.find(it => tk.m.has(it.num));
+            if (clash) return { refuse: "SAMPLE " + H2(clash.num) + " IS TAKEN ON THE FM-1 PANEL NOW: PASTE THE INSTRUMENTS AGAIN" };
+            /* (nor may another sampler name that number as nothing now: it would play the new sample; and the room) */
+            const nothing = M.namedNothing(list.filter(i => i.id !== t.itemId));
+            const ghost = bringing.find(it => nothing.has(it.num));
+            if (ghost) return { refuse: "SAMPLE " + H2(ghost.num) + " IS NAMED BY AN INSTRUMENT WITH NO SAMPLE NOW: PASTE THE INSTRUMENTS AGAIN" };
+            if (bringing.length) {
+                const sp = M.space(list.concat(bringing), ED.app.st.fm1 && ED.app.st.fm1.layout);
+                if (!sp.fits) return { refuse: "DOESN'T FIT: THE SAMPLES NEED " + sp.missing * 4 + " KB MORE ON THE FM-1. NOTHING SAVED." };
+            }
+        }
+        if (bringing.length) list = list.concat(bringing);
+        if (bringing.length) what.push(bringing.length + " SAMPLE" + (bringing.length > 1 ? "S" : "") + " ADDED");
+        return { st: Object.assign({}, st, { [side]: list }), what: what.join(" · ") };
+    };
+    const btn = (label, fn, title) => h("button", { class: "btn small", title, onclick: fn }, label);
+    return { click, key, moveTo, bar: () => h("div", { class: "rowbtns", style: "margin-top:8px" },
+        h("span", { class: "hint" }, t.sel.size + " PICKED"),
+        btn("SELECT ALL", () => key({ key: "a", ctrlKey: true, preventDefault() {}, stopPropagation() {} }), "CTRL+A"),
+        btn("SELECT NONE", () => key({ key: "Escape", preventDefault() {}, stopPropagation() {} }), "ESC"),
+        btn("COPY", () => copy(false), "CTRL+C"), btn("CUT", () => copy(true), "CTRL+X"),
+        btn("PASTE", () => paste(false), "CTRL+V: INTO EMPTY SLOTS"), btn("REPLACE", () => paste(true), "CTRL+SHIFT+V: FROM THE FIRST SLOT PICKED ON"),
+        btn("DELETE", () => del(false), "DELETE"),
+        btn(t.floating ? "MOVE TO: TAP A SLOT" : "MOVE TO", () => { t.floating = !t.floating; api.refresh(); }, "THE SELECTION FLOATS: A TAP ON A SLOT PUTS IT THERE"),
+        btn("↑", () => step(-1), "ALT+↑"), btn("↓", () => step(1), "ALT+↓")) };
+}
+
+/* a sample in a list: its number and name on the FM-1 panel (23 KICK), its name on the TABLE */
+function sampleText(it, items) {
+    const e = M.sampleEntry(it, items);
+    return (it.num != null ? H2(it.num) + " " : "") + (e ? e.name : "?");
+}
+/* CREATE (at null: the tab's empty slot) and REPLACE SAMPLE (at: the instrument's slot): a pick of any sample on the
+ * panel; a new instrument there plays it whole, named after it, REPLACE SAMPLE's every value a new one's, the name
+ * following when it was the old sample's */
+function pickSample(t, api, what, at) {
+    const items = api.st[t.side], all = S.samplesOn(items, api.draft.pending);
+    if (!all.length) { U.status("NO SAMPLES ON THIS PANEL: DROP OR MOVE SOME ON FIRST", { err: true }); return; }
+    const d = api.draft, c = R.unpackSampler(d.recs[0].payload), slot = at == null ? t.slot : at;
+    const cur = at != null && c.instruments[slot] ? S.sampleNamed(d, items, c.instruments[slot].sample) : null;
+    const sel = h("select", { "aria-label": "Sample" }, all.map(x => h("option", { value: x.item.id, selected: cur ? x.item.id === cur.id : false }, sampleText(x.item, items))));
+    const go = () => {
+        const pick = all.find(x => x.item.id === sel.value);
+        if (!pick) return;
+        const next = at == null ? S.pointTo(api.draft, t.side, slot, S.newInstrument(pick.item, 0), pick.item) : S.replaceSample(api.draft, t.side, slot, pick.item, items);
+        api.set(next, what + " " + H2(slot) + ": " + sampleText(pick.item, items));
+        t.sel = new Set([slot]); t.slot = slot;
+        api.refresh();
+    };
+    U.dialog({ title: what + ": PICK A SAMPLE", body: h("div", null, sel,
+            h("p", { class: "hint" }, at == null ? "A NEW INSTRUMENT PLAYS IT WHOLE, NAMED AFTER IT." : "THE INSTRUMENT PLAYS IT AS A NEW ONE WOULD: EVERY VALUE BACK TO A NEW INSTRUMENT'S.")),
+        buttons: [{ label: what, cls: "primary", onClick: go }, { label: "CANCEL" }] });
+}
+/* THE SAMPLES IT USES: each sample the sampler's instruments name, with NEW INSTRUMENT FOR IT at the first empty slot */
 function samplesCard(t, api, c, set) {
-    const rows = c.samples.map((e, i) => e ? h("div", { class: "orow" }, h("span", { class: "mono", style: "width:28px" }, H2(i)), h("span", { class: "grow" }, e.name),
-        h("span", { class: "dim mono" }, (e.rate / 1000).toFixed(1) + " KHZ · " + (e.rate ? (e.length / e.rate).toFixed(2) : "?") + " S"),
-        h("button", { class: "btn small", onclick: () => set(x => {
-            let k = x.instruments.findIndex(z => !z);
-            if (k < 0) k = x.instruments.length;
-            if (k >= 64) return;
-            x.instruments[k] = Object.assign(D.newSlot(K.SAMPLER, e.name), { sample: i, start: 0, end: e.length, loop_start: 0, loop_end: e.length });
-            t.slot = k;
-        }, "NEW INSTRUMENT FOR " + e.name) }, "NEW INSTRUMENT FOR IT")) : null);
-    return T.card("ITS SAMPLES", rows.some(Boolean) ? rows : h("p", { class: "hint" }, "NO SAMPLES: MOVE SOUNDS ONTO THIS SAMPLER IN FILES."));
+    const items = api.st[t.side], used = S.usedSamples(api.draft, items);
+    const rows = used.map(u => {
+        const e = u.item && M.sampleEntry(u.item, items);
+        if (!e) return h("div", { class: "orow" }, h("span", { class: "mono", style: "width:28px" }, H2(u.num)), h("span", { class: "grow bad" }, "THE SAMPLE IS MISSING"),
+            h("span", { class: "dim mono" }, u.slots.length + (u.slots.length > 1 ? " INSTRUMENTS" : " INSTRUMENT")));
+        return h("div", { class: "orow" }, h("span", { class: "mono", style: "width:28px" }, u.item.num != null ? H2(u.item.num) : "--"), h("span", { class: "grow" }, e.name),
+            h("span", { class: "dim mono" }, (e.rate / 1000).toFixed(1) + " KHZ · " + (e.rate ? (e.length / e.rate).toFixed(2) : "?") + " S"),
+            h("button", { class: "btn small", onclick: () => {
+                const k = c.instruments.findIndex(z => !z);
+                const at = k < 0 ? c.instruments.length : k;
+                if (at >= 64) { U.status("THE SAMPLER IS FULL: 64 INSTRUMENTS", { err: true }); return; }
+                api.set(S.pointTo(api.draft, t.side, at, S.newInstrument(u.item, 0), u.item), "NEW INSTRUMENT FOR " + e.name);
+                t.sel = new Set([at]); t.slot = at;
+                api.refresh();
+            } }, "NEW INSTRUMENT FOR IT"));
+    });
+    return T.card("THE SAMPLES IT USES", rows.length ? rows : h("p", { class: "hint" }, "NO SAMPLES YET: CREATE AN INSTRUMENT ON AN EMPTY SLOT, OR MOVE A SAMPLER OVER IN FILES."));
 }
 /* AUTO LEVEL: the firmware's own measure on the page's instance, the cartridge (and its samples) loaded there */
 async function autoLevel(t, api, upd) {

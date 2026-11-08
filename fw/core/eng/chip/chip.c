@@ -515,7 +515,7 @@ void chip_skip(chip_voice_t *v)
     }
 }
 
-int chip_active(const chip_voice_t *v)
+PLAT_COLD int chip_active(const chip_voice_t *v)
 {
     if (!v->dead || v->last)
         return 1;

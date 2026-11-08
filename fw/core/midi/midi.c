@@ -737,31 +737,26 @@ static void pedal_set(int down)
         }
 }
 
-static void program(int p)              /* the cartridge's p-th used slot, as PRESETS turns to it */
+static void program(int p)              /* the cartridge's p-th used slot, as PRESETS turns to it (a FAVORITES cartridge's
+                                         * p-th favourite, a missing one counted: it keeps the instrument) */
 {
-    uint8_t c = (uint8_t)(ui_cur.inst >> 8);
+    uint8_t c = (uint8_t)(ui_cur.place >> 8);
     int s, n = ui_cart_slots(c), k = 0;
-    char nm[12];
     for (s = 0; s < n; s++)
-        if (ui_inst_name((uint16_t)(c << 8 | s), nm) && k++ == p) {
+        if (ui_slot_has((uint16_t)(c << 8 | s), 0) && k++ == p) {
             ui_set_inst((uint16_t)(c << 8 | s));
             return;
         }
 }
 
-static void bank(int b)                 /* the b-th cartridge, at its first used slot */
+static void bank(int b)                 /* the b-th cartridge in the lists' order (FAVORITES first), at its first used
+                                         * slot; in INSTRUMENTS' edit mode only one of the edit's own sort (as SEL +
+                                         * PRESETS there: a favourite's a FAVORITES cartridge, an instrument's another) */
 {
     uint8_t nums[256];
-    int n = ui_carts(nums, 256), s, slots;
-    char nm[12];
-    if (b >= n)
-        return;
-    slots = ui_cart_slots(nums[b]);
-    for (s = 0; s < slots; s++)
-        if (ui_inst_name((uint16_t)(nums[b] << 8 | s), nm)) {
-            ui_set_inst((uint16_t)(nums[b] << 8 | s));
-            return;
-        }
+    int n = ui_carts(nums, 256), e = scr_instr_edit();
+    if (b < n && (!e || (ui_cart_kind(nums[b]) == ENG_FAV) == (e == 2)))
+        ui_set_inst((uint16_t)(nums[b] << 8 | ui_cart_first(nums[b])));
 }
 
 /* ------------------------------------------------------------------ the pass --- */

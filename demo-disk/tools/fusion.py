@@ -22,7 +22,7 @@ from pathlib import Path
 from common import DISK, OWN_LICENSE, fmt, read_json, write_json
 from compose import Pattern, Pool, midi
 
-FIRST = FUSION_FIRST                     # the cartridge's patterns: E0 and up (the disk's, apart from the songs')
+FIRST = FUSION_FIRST                     # the cartridge's patterns: the disk's, above the songs'
 ROWS = range(0x0C, 0x80)                 # the rows a key plays (00-0B and 80-FF never do)
 
 # A layer: (cartridge, instrument, volume 0-127, zones[, extra]). A zone: (lowest key, highest key, offsets

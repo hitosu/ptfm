@@ -32,7 +32,7 @@ const KN = { SELECT: 0, ALG: 1, K1: 2, K2: 3, K3: 4, K4: 5, PRESETS: 6 };
 const OP3 = 5;                                          /* the black key A#3: INSTRUMENTS */
 const K = { DX7: 1, JUNO: 2, TB303: 3, SAMPLER: 4, FUSION: 5, CHIP: 6, AUDIO: 0x10, SONG: 0x21 };
 const SLOT_SIZE = { 1: 112, 2: 28, 3: 24, 4: 40, 5: 16, 6: 28 };
-const NAME_BIT = { 1: 784, 2: 123, 3: 42, 4: 174, 5: 8, 6: 121 };
+const NAME_BIT = { 1: 784, 2: 123, 3: 42, 4: 176, 5: 8, 6: 121 };   /* (a sampler's in version 2: specs/files/instruments.md) */
 const NAME_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-?|/\\*#$@%";
 const PIC = { DETAILS: 0, EDIT: 1, CHIP_ROW: 2, WAVE: 3, SAMPLES: 4 };
 const FX_NAMES = ["GATE", "FILTER", "DRIVE", "LO-FI", "CHORUS", "DELAY", "REVERB", "LIMITER", "DUCK", "METRONOME", "SENDS"];
@@ -70,10 +70,11 @@ function png(file, px) {
  * from the user area's start, none crossing a block; audio after them, from a block of its own, packed ---- */
 const disk = S.parseData(new Uint8Array(fs.readFileSync(path.join(ROOT, "dist", "firmware", "demo.ptfmdsk"))));
 if (disk.problems.length) throw new Error("the demo disk: " + disk.problems.join("; "));
+const isAudio = k => (k & 0xFE) === 0x10;               /* (audio: the samples, 0x11, and the old form's, 0x10) */
 function layFlash(fl, files) {
     let at = 0x93000, last = -1;
     const put = f => {
-        const size = 16 + f.payload.length, audio = f.kind === K.AUDIO;
+        const size = 16 + f.payload.length, audio = isAudio(f.kind);
         if (!audio && (at & 4095) + size > 4096) at = (at + 4095) & ~4095;
         fl[at] = f.kind; fl[at + 1] = f.num; fl[at + 2] = f.sub; fl[at + 3] = f.ver;
         fl[at + 4] = f.payload.length & 255; fl[at + 5] = f.payload.length >> 8 & 255; fl[at + 6] = f.payload.length >> 16 & 255;
@@ -90,9 +91,9 @@ function layFlash(fl, files) {
         fl[a + 12] = c & 255; fl[a + 13] = c >>> 8 & 255; fl[a + 14] = c >>> 16 & 255; fl[a + 15] = c >>> 24;
     };
     const heads = [];
-    for (const f of files) if (f.kind !== K.AUDIO) { put(f); heads.push(last); }
+    for (const f of files) if (!isAudio(f.kind)) { put(f); heads.push(last); }
     at = (at + 4095) & ~4095;
-    for (const f of files) if (f.kind === K.AUDIO) { put(f); heads.push(last); }
+    for (const f of files) if (isAudio(f.kind)) { put(f); heads.push(last); }
     fl[last + 7] |= 1;                                  /* the save's last record */
     for (const a of heads) crc(a);
 }
@@ -129,7 +130,7 @@ function cartridges(ex) {
     for (const f of disk.files) if (f.kind >= K.DX7 && f.kind <= K.CHIP) carts.set(f.num, { kind: f.kind, payload: f.payload });
     for (const c of carts.values()) {
         c.n = c.payload[9];
-        c.head = c.kind === K.SAMPLER ? 11 : 10;
+        c.head = 10;                                    /* (every kind's, a sampler of version 2's too) */
         c.slot = i => c.payload.slice(c.head + SLOT_SIZE[c.kind] * i, c.head + SLOT_SIZE[c.kind] * (i + 1));
         c.first = 0;
         while (c.first < c.n - 1 && !used(c.kind, c.slot(c.first))) c.first++;
@@ -324,17 +325,17 @@ let samplerLoops = 0;
 for (const num of order.filter(n => n < 0xF0 && carts.get(n).kind === K.SAMPLER).slice(0, 3)) {
     toCart(num);
     const c = carts.get(num);
-    const loop = (() => { for (let s = 0; s < c.n; s++) if (used(K.SAMPLER, c.slot(s)) && bits(c.slot(s), 86, 2)) return s; return -1; })();
+    const loop = (() => { for (let s = 0; s < c.n; s++) if (used(K.SAMPLER, c.slot(s)) && bits(c.slot(s), 88, 2)) return s; return -1; })();
     for (const s of [c.first, loop].filter((s, i, a) => s >= 0 && a.indexOf(s) === i)) {
         toSlot(s);
         same(PIC.DETAILS, 0, 0);
         fm.tap(B.EDIT); fm.run(150);
         same(PIC.EDIT, 0, 0);
         same(PIC.WAVE, 0, 0);
-        {   /* the bytes are the page's: START moved (bits 6-25) moves its marker in the waveform */
-            const b = c.slot(s).slice(), screen = fm.screen(), len = bits(b, 26, 20) || 1000;
+        {   /* the bytes are the page's: START moved (bits 8-27; END from bit 28) moves its marker in the waveform */
+            const b = c.slot(s).slice(), screen = fm.screen(), len = bits(b, 28, 20) || 1000;
             const start = Math.floor(len / 3);
-            for (let i = 0; i < 20; i++) { const p = 6 + i; b[p >> 3] = b[p >> 3] & ~(1 << (p & 7)) | (start >> i & 1) << (p & 7); }
+            for (let i = 0; i < 20; i++) { const p = 8 + i; b[p >> 3] = b[p >> 3] & ~(1 << (p & 7)) | (start >> i & 1) << (p & 7); }
             check(!compare(fm, picture(PIC.WAVE, 0, 0, b), screen, "", null, true), `${label()} WAVE: drawn from the bytes given (START moved shows)`);
         }
         fm.turn(KN.SELECT, 2); fm.run(100);

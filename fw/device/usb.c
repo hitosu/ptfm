@@ -60,7 +60,8 @@ static struct {
     uint8_t sysex[16];
     uint8_t sx_len, sx_on;
     volatile uint8_t uboot_req;
-    volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (FW_OTA) */
+    volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (FW_OTA); 7C for 7F: 2, the host
+                                  * answers the update loader's hash reads too */
     uint8_t rx_pend;             /* EP1 OUT packet seen, not yet taken (the MIDI ring was too full) */
     uint32_t rx_held, rx_bad;    /* packets held back (NAK) for room, malformed events ignored */
 } usb;
@@ -545,8 +546,8 @@ static void sysex_byte(uint8_t b)
             usb.uboot_req = 1;
 #if FW_OTA
         else if (usb.sx_len == 6u && usb.sysex[1] == 0x22 && usb.sysex[2] == 0x24 && usb.sysex[3] == 0x35 &&
-                 usb.sysex[4] == 0x7F)
-            usb.ota_req = 1;
+                 (usb.sysex[4] == 0x7F || usb.sysex[4] == 0x7C))
+            usb.ota_req = usb.sysex[4] == 0x7C ? 2 : 1;   /* (7C: the host answers hash reads, PT/FM's pages) */
         else if (sx_collect && sx_pos) {
             sx_frame_len = sx_pos;
             RING_PUBLISH();

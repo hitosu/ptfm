@@ -13,17 +13,17 @@
  *                                               records: the page records it (io.record: its sound made in RUN's
  *                                               click), secs: about how long it takes on the FM-1 (the run's
  *                                               counter); tsecs: its test alone, from its first measured
- *                                               stretch (or the bench) to its end (the scenario's counter)
+ *                                               stretch to its end (the scenario's counter)
  *   PTFM_autotest.run(io, list, opts)        -> a run: {lines(), results}; io below; opts.scale shortens the
  *                                               times measured (the tests' 0.05), opts.version the page's;
  *                                               opts.recordAudio: the page records the FM-1's USB audio all run
  *                                               (the report says so), opts.audioRefused: it was not allowed to
  *   PTFM_autotest.decodeState(message)       -> the state, or null (not a 41 STATE)
- *   PTFM_autotest.hello(on), btn(id, down), key(k, down), knob(id, clicks), ASK, TONE(on), SECOND(on): the messages
+ *   PTFM_autotest.hello(on), btn(id, down), key(k, down), knob(id, clicks), ASK, TONE(on): the messages
  *
  * The io: send(bytes) a MIDI message or SysEx to the FM-1; sleep(ms) the time passing; ask() -> Promise of the
  * state (null: no answer); measure(name) starts a measured stretch, measured() ends it -> its FIGURES windows;
- * bench() -> Promise of the bench's records (32 BENCH, its 33s, until END); prompt(text) -> Promise, CONTINUE;
+ * prompt(text) -> Promise, CONTINUE;
  * log(text) what is under way; stopped() STOP was pressed; usbIn(on) -> Promise of {ok, why, name, check}: the FM-1's
  * USB audio input taken (so the FM-1 sends it) or let go, at every scenario's start but an input one's (optional:
  * without it a scenario needing it is skipped); record(on) -> Promise of {ok, why, check, secs}: the page records the
@@ -62,7 +62,6 @@ const key = (k, down) => (down ? [0x90 | CH, 53 + k, 127] : [0x80 | CH, 53 + k, 
 const knob = (id, clicks) => [0xB0 | CH, 20 + id, clicks < 0 ? 128 + clicks : clicks];
 const ASK = [0xF0, 0x7D, 0x50, 0x54, 0x40, 0xF7];
 const TONE = (on) => [0xF0, 0x7D, 0x50, 0x54, 0x34, on ? 1 : 0, 0xF7];
-const SECOND = (on) => [0xF0, 0x7D, 0x50, 0x54, 0x38, on ? 1 : 0, 0xF7];   /* 38 SECOND CORE: 0 off, 1 as SETTINGS says */
 const OVERLAY = ["NONE", "MENU", "QUESTION", "PROPERTIES", "TEXT", "PROGRESS", "HELP", "HOME", "LIST", "BOX"];
 
 /* ---- the state's bytes (specs/connections.md#the-state) ---- */
@@ -83,12 +82,16 @@ function decodeState(m) {
     const lfo = (o) => ({ on: !!(rec[o] & 1), rev: !!(rec[o] & 2), shape: rec[o + 1], range: rec[o + 2], speed: rec[o + 3] });
     return {
         debug: !!(b[1] & 1), mirror: !!(b[1] & 2), arp: !!(b[1] & 4), latch: !!(b[1] & 8), playing: !!(b[1] & 16),
-        tone: !!(b[1] & 32), mirrorCh: b[2], what: b[3], song: b[4], pos: b[5], row: b[6], bpm10: u16(7), fx: u16(9),
+        tone: !!(b[1] & 32), part: !!(b[1] & 64), mirrorCh: b[2], what: b[3], song: b[4], pos: b[5], row: b[6], bpm10: u16(7), fx: u16(9),
         voiceCount: b[11], voices: b[12], unsaved: u16(13), holdDelay: u16(15), grace: u16(17), cart: b[19], slot: b[20],
         octave: s8(21), sync: b[22], countIn: b[23], usbGain: s8(24), num: b[25], screen: str(26, 16), overlay: b[42], overlays: b[43],
         words: str(44, 24), cursor: Array.from(b.slice(68, 76)), songName: str(76, 16), version: str(92, 24),
         toast: str(301, 24),
         edits: b.length >= 331 ? { used: u16(325) * 4, top: u16(327) * 4, limit: u16(329) * 4 } : null,   /* (4-byte units; older: 325 B) */
+        /* LOOPS' bytes: the notes the stage starts, the selected loop's SHIFT, ADJUST open, OVERWRITE at work, on, the stage
+         * off (older: 331 B) */
+        loops: b.length >= 335 ? { stage: u16(331), shift: b[333], adjust: !!(b[334] & 1), overwrite: !!(b[334] & 2),
+                                   over: !!(b[334] & 4), off: !!(b[334] & 8) } : null,
         dj: { live: !!(dj[0] & 1), decks: [deck(0), deck(1)], rec: Array.from(rec), xfade: rec[5], sync: !!(rec[6] & 1),
               preview: !!(rec[6] & 2), xlfo: lfo(80), fxlfo: lfo(84) },
     };
@@ -266,9 +269,9 @@ function steps(io, ctx) {
      * answer: a progress bar holds its main loop). A question no scenario asks for (MEMORY FOR EDITS IS FULL) or
      * the edit memory filling past three quarters while it runs ends it, and the scenario fails with the why. Its
      * length by the run's clock (late timers make it no longer). With until: it ends as soon as a look finds
-     * until(state) true, else fails after ms (what: what it waited for). The scenario's first one starts its test:
-     * the counter's time from there (ctx.begin) */
-    const stretch = async (name, ms, until, what) => {
+     * until(state) true, else fails after ms (what: what it waited for; look: how often it looks, for what shows less
+     * than WATCH). The scenario's first one starts its test: the counter's time from there (ctx.begin) */
+    const stretch = async (name, ms, until, what, look = WATCH) => {
         if (ctx.begin) ctx.begin();
         io.log(`${ctx.name}: ${name}${until ? "" : `, ${Math.round(ms * ctx.scale / 1000)} s`}`);
         const s0 = await io.ask();
@@ -276,7 +279,7 @@ function steps(io, ctx) {
         const from = now(), end = from + Math.max(200, ms * ctx.scale);
         try {
             for (let left = end - now(); left > 0; left = end - now()) {
-                await wait(Math.min(left, WATCH));
+                await wait(Math.min(left, look));
                 const s = await io.ask();
                 if (!s) continue;
                 ctx.last = s;
@@ -295,7 +298,7 @@ function steps(io, ctx) {
     t.until = (at) => wait(Math.max(0, at - now()));    /* (a time by the run's clock) */
     t.begin = () => { if (ctx.begin) ctx.begin(); };    /* the test starts here (a scenario whose steps are its test) */
     t.measure = (name, ms) => stretch(name, ms);
-    t.measureUntil = (name, until, ms, what) => stretch(name, ms, until, what);
+    t.measureUntil = (name, until, ms, what, look) => stretch(name, ms, until, what, look);
     t.freeze = (on) => { if (io.freeze) io.freeze(on); };   /* FREEZE THE SCREEN, with the next FIGURES' question */
     t.canFreeze = !!io.freeze;
     /* a SEL menu's action by its name (the state's words: the highlighted item), opened and picked by opener */
@@ -406,7 +409,13 @@ function steps(io, ctx) {
 /* the songs' names by number, as SONGS shows them while SELECT passes over them (read once a run) */
 async function learnSongs(t, ctx) {
     await t.screen("SONGS");
-    let s = await t.seek(K.SELECT, (x) => x.cursor[0], 0, "THE FIRST SONG", 300);
+    let s = await t.ask();
+    for (let i = 0, was = -1; i < 300 && s.cursor[0] !== was; i++) {    /* (the first song, whatever its number) */
+        was = s.cursor[0];
+        t.send(knob(K.SELECT, -1));
+        await t.sleep(SEEK_CLICK);
+        s = await t.ask();
+    }
     for (let i = 0; i < 64; i++) {
         ctx.songNames[s.cursor[0]] = s.songName;
         const was = s.cursor[0];
@@ -429,7 +438,7 @@ const SPREAD = [0, 4, 7, 11, 14, 2, 9, 16, 5, 12, 19, 21, 24, 18, 23, 26];  /* t
  * key, then 4, 8 and 12 voices as loops, tb303Voices; the sampler's instrument loops, so it sounds the whole time it
  * is held) */
 const ENGINES = [["DX7", 0xF4, 0x00, KEYS_N], ["JUNO RESONANT", 0xF8, 0x25, KEYS_N], ["JUNO PLAIN", 0xF8, 0x4A, KEYS_N],
-                 ["TB-303", 0xFA, 0x00, [1]], ["SAMPLER", 0x03, 0x08, KEYS_N]];
+                 ["TB-303", 0xFA, 0x00, [1]], ["SAMPLER", 0xA2, 0x08, KEYS_N]];
 
 const voicesSetting = (t, n) => t.setting(0, SET.VOICES, (s) => s.voiceCount, n, `VOICES ${n}`);
 
@@ -464,22 +473,6 @@ async function keysHeld(t, name, cart, slot, keysN) {
         t.keysUp(ks);
         await t.sleep(1500);                            /* (their release rings out) */
     }
-}
-
-/* ONE CORE's (specs/debug.md: the scenarios): body with core 2 off by 38 SECOND CORE 0 from the scenario's start, back
- * to what SETTINGS says (38 with 1) at its end, whatever happens; every window measured must show it so in its 37 (off
- * by 38, no block handed over), so the figures compare with the same scenario on two cores */
-async function oneCore(t, body) {
-    t.send(SECOND(0));
-    try {
-        await body();
-        const all = t.windows(""), w = all.filter((f) => f.c2), two = w.filter((f) => !f.c2.forced || f.c2.blocks);
-        t.check(!two.length, two.length ? `CORE 2 NOT OFF IN ${two.length} OF ITS ${w.length} WINDOWS (${FG.c2Text(two[0].c2)}, ` +
-                                          `${two[0].c2.blocks} BLOCKS HANDED OVER)` : "");
-        t.check(!all.length || w.length, `NO 37 FIGURES 2 WITH ITS ${all.length} WINDOWS: CORE 2 OFF NOT SEEN`);
-        if (w.length) t.note(`core 2 ${FG.c2Text(w[w.length - 1].c2)} in its ${w.length} windows, no block handed over`);
-        else t.note("no FIGURES window measured: core 2 off not seen");
-    } finally { t.send(SECOND(1)); }
 }
 
 /* DJ's properties (GLO) as a new store has them, whatever stand REVERT brought back: CROSSFADER SMOOTH, FILTER
@@ -636,13 +629,13 @@ async function djPlain(t, s) {
     return t.waitFor((x) => x.screen === "DJ", 2000, "BACK ON DJ");
 }
 
-/* the loop station (specs/ui/screens/loops.md): n loops recorded from the keys, a note held over each one's take, the
- * first half on JUNO-106 sounds, the rest on DX7's, the next sound for each (PRESETS); the first armed by REC, started by
- * its note and closed by REC on its bar line (a bar); each next one REC on + NEW LOOP while the loops play (armed, its
- * take from their next start, one pass) */
+/* the loop station (specs/ui/screens/loops.md): the length 1 BAR, then n loops played from the keys onto the stage and
+ * each sent by REC on + NEW LOOP, a note held over most of a cycle each; the first half on JUNO-106 sounds, the rest on
+ * DX7's, the next sound for each (PRESETS); the first started by its note (REC armed with the stage empty), each next one
+ * overdubbed while the loops play */
 async function loopStation(t, n) {
     const k = loopsKit(t);
-    await k.clear();
+    await k.clear(1);
     let l;
     for (let i = 0; i < n; i++) {
         const key = SPREAD[i % SPREAD.length];
@@ -652,9 +645,8 @@ async function loopStation(t, n) {
             const s0 = await t.ask(), s = await t.clicks(K.PRESETS, 1);   /* (the next sound) */
             t.check(s.slot === s0.slot + 1, `PRESETS: THE NEXT SOUND (${hex2(s0.cart)}:${hex2(s0.slot)} -> ${hex2(s.cart)}:${hex2(s.slot)})`);
         }
-        if (!i) { l = lps(await k.first([[0, [key], 12]])); continue; }
-        l = await k.take([[0, [key], k.lenRows - 4]]);
-        t.check(l.added > 0, `LOOP ${hex2(i)}: NO NOTE TAKEN`);
+        l = i ? await k.overdub([[0, [key], k.lenRows - 4]]) : await k.first([[0, [key], 12]]);
+        t.check(l.staged === 1 && l.added === 1, `LOOP ${hex2(i)}: ITS NOTE (${l.staged} ON THE STAGE, ${l.added} SENT)`);
     }
     t.check(l.n === n, `${n} LOOPS (THERE ARE ${l.n})`);
     return l;
@@ -677,34 +669,42 @@ async function editorOwn(t, item) {
     return s;
 }
 
-/* LOOPS' part of the state (its cursor, specs/connections.md#the-state): the loops, the one selected (the count: + NEW
- * LOOP), the notes it starts; a take armed, recording, the keys in CONTROL mode, the selected loop muted, soloed, a song
- * armed, recording, the pattern recorder open; the length in bars, the row, the notes all the loops start */
+/* LOOPS' part of the state (its cursor and LOOPS' bytes, specs/connections.md#the-state): the loops, the one selected (the
+ * count: + NEW LOOP), the notes it starts; armed, the stage holding notes, the keys in CONTROL mode, the selected loop
+ * muted, soloed, a song armed, recording, the pattern recorder open; the length in bars, the row (stopped: the play
+ * position), the notes all the loops start; the notes the stage starts, the selected loop's SHIFT, ADJUST open,
+ * OVERWRITE at work, OVERWRITE on, the stage off (-1, false from a firmware without LOOPS' bytes) */
 const lps = (s) => ({ n: s.cursor[0], sel: s.cursor[1], notes: s.cursor[2], armed: !!(s.cursor[3] & 1),
-                      take: !!(s.cursor[3] & 2), control: !!(s.cursor[3] & 4), muted: !!(s.cursor[3] & 8),
+                      staged: !!(s.cursor[3] & 2), control: !!(s.cursor[3] & 4), muted: !!(s.cursor[3] & 8),
                       soloed: !!(s.cursor[3] & 16), songArmed: !!(s.cursor[3] & 32), song: !!(s.cursor[3] & 64),
                       recorder: !!(s.cursor[3] & 128), bars: s.cursor[4], row: s.cursor[5],
-                      all: s.cursor[6] | s.cursor[7] << 8 });
+                      all: s.cursor[6] | s.cursor[7] << 8, stage: s.loops ? s.loops.stage : -1,
+                      shift: s.loops ? s.loops.shift : -1, adjust: !!(s.loops && s.loops.adjust),
+                      overwrite: !!(s.loops && s.loops.overwrite), over: !!(s.loops && s.loops.over),
+                      off: !!(s.loops && s.loops.off) });
 /* CONTROL mode's black keys by their print (specs/ui/screens/loops.md#control-mode-mutes-and-solos) */
 const CTL = { ROW: BLACK[3], PIT: BLACK[6], GLO: BLACK[7], MONO: BLACK[8], POLY: BLACK[9] };
-const KIT = [0x06, 0x05];               /* FUSION's DRUM KIT (the demo disk's): a drum a key, the kick on C-4 */
+const KIT = [0xA5, 0x05];               /* FUSION's DRUM KIT (the demo disk's): a drum a key, the kick on C-4 */
 const TB303 = [0xFA, 0x00], EL_PIANO = [0xF0, 0x00];
 const NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"];
 /* the pattern recorder's beat: a drum a row (the kit's KICK C-4, SNARE D-4, HAT F#4, HAT OPEN A#4, as MIDI notes) and
  * its steps, 10 notes */
 const BEAT = [[60, [0, 4, 8, 12]], [62, [4, 12]], [66, [2, 6, 10]], [70, [14]]], BEAT_NOTES = 10;
-/* takes: [row, keys, rows held (0: a tap)], from the loops' start, a row a sixteenth (GRID 1/16); keys from F3 (0) */
+/* what is played onto the stage: [row, keys, rows held (0: a tap)], from the loops' start, a row a sixteenth (GRID 1/16);
+ * keys from F3 (0) */
 const BASS = [[0, [0], 2], [3, [0], 2], [6, [7], 2], [10, [5], 3]];              /* F3 F3 C4 A#3 */
 const BASS_AGAIN = [[0, [5], 3], [4, [7], 2], [8, [0], 2], [12, [12], 2]];       /* A#3 C4 F3 F4 */
 const PAD = [[0, [7, 11, 14, 18], 8]];                                         /* C4 E4 G4 B4, held half a bar */
-/* LOOPS' steps as a hand's (specs/ui/screens/loops.md), each checked through LOOPS' cursor in the state. k.rowMs a row's
- * time (GRID 1/16: four rows a beat), k.lenRows the loops' length in rows and k.barRows a bar's, from k.timing once the
- * loops play. The keys' mode (CONTROL), its white keys' MUTE or SOLO and the pattern recorder's settings stay as they
- * were left, across screens and runs, until power-off: each is set where it matters */
+/* LOOPS' steps as a hand's (specs/ui/screens/loops.md), each checked through LOOPS' cursor and LOOPS' bytes in the state.
+ * k.rowMs a row's time (GRID 1/16: four rows a beat), k.lenRows the loops' length in rows and k.barRows a bar's, from
+ * k.timing once the loops play. The keys' mode (CONTROL), its white keys' MUTE or SOLO, the stage and OVERWRITE on stay
+ * as they were left, across screens and runs, until power-off: each is set where it matters. REC does nothing for
+ * 500 ms after a job (a double tap does one): k.rec waits that out */
 function loopsKit(t) {
     const k = { lenRows: 16, barRows: 16, rowMs: 125 };
     const L = k.L = async () => lps(await t.ask());
-    const passMs = () => k.lenRows * k.rowMs;
+    let recAt = -1e9;                                   /* (REC's last press, by the run's clock) */
+    k.rec = async () => { await t.until(recAt + 550); recAt = t.now(); await t.tap(B.REC); };
     k.keys = async (control) => {                       /* the keys in CONTROL mode or in PLAY mode (SEQ) */
         if ((await L()).control !== control) await t.tap(B.SEQ);
         return t.waitFor((x) => lps(x).control === control, 1000, `THE KEYS IN ${control ? "CONTROL" : "PLAY"} MODE`);
@@ -719,31 +719,62 @@ function loopsKit(t) {
         const s = await t.waitFor((x) => /^SEQ: (MUTE|SOLO)$/.test(x.toast), 1000, "SEQ: MUTE OR SOLO");
         if (s.toast === "SEQ: SOLO") await k.black(CTL.GLO, "SEQ: MUTE");
     };
-    /* how the next loops record, MONO or POLY (CONTROL mode's black keys) */
-    k.mode = async (m) => { await k.keys(true); await k.black(CTL[m], `NEXT LOOPS: ${m}`); await k.keys(false); };
-    k.clearLoops = async () => {                        /* SEL's CLEAR LOOPS, answered CLEAR */
+    /* the keys MONO or POLY, as they play and as REC keeps the stage: SEQ held + MONO or POLY (CONTROL mode's key once) */
+    k.mode = async (m) => {
+        await t.combo(B.SEQ, () => t.keyTap(CTL[m]));
+        return t.waitFor((x) => x.toast === `KEYS: ${m}` && !lps(x).control, 1000, `KEYS: ${m}`);
+    };
+    k.clearLoops = async () => {                        /* SEL's CLEAR LOOPS, answered CLEAR (the stage with them) */
         await t.menuPick(B.SEL, "CLEAR LOOPS");
         await t.yes(/^CLEAR ALL \d+ LOOPS?\?$/, "CLEAR LOOPS' QUESTION");
-        return t.waitFor((x) => !x.overlay && !lps(x).n, 2000, "THE LOOPS CLEARED");
+        return t.waitFor((x) => !x.overlay && !lps(x).n && !lps(x).staged, 2000, "THE LOOPS CLEARED");
     };
-    /* LOOPS with no loops (the saved ones come back with the next REVERT), nothing playing; GRID 1/16 (LOOPS PROPERTIES'
-     * fourth item, K1 to its first), QUANTIZE ROW, the next loops POLY, the white keys MUTE, the keys in PLAY mode */
-    k.clear = async () => {
+    /* the stage emptied: EDIT held 2 s (STAGE CLEARED; outside REC's 500 ms) */
+    k.clearStage = async () => {
+        await t.hold(B.EDIT, 2300);
+        const s = await t.waitFor((x) => !lps(x).staged, 1000, "THE STAGE CLEARED");
+        t.check(lps(s).stage === 0, `EDIT HELD: ${lps(s).stage} NOTES LEFT ON THE STAGE`);
+        return s;
+    };
+    /* LOOPS with no loops (the saved ones come back with the next REVERT) and the stage empty (it is never saved: what an
+     * earlier run left on it stays), nothing playing, the play position at the start, OVERDUB; GRID 1/16 and
+     * the length `bars` (LOOPS PROPERTIES' fourth item and third: GRID K1 to its first; LENGTH K1 down to 1 BAR, then up,
+     * a shorter length cut as GLO closes); QUANTIZE ROW, the white keys MUTE, the keys in PLAY mode, POLY */
+    k.clear = async (bars = 1) => {
         let s = await t.screen("LOOPS");
         if (lps(s).n) s = await k.clearLoops();
-        if (s.playing) { await t.tap(B.PLAY); await t.waitFor((x) => !x.playing, 2000, "NOTHING PLAYING"); }
+        if (s.playing) { await t.tap(B.PLAY); s = await t.waitFor((x) => !x.playing, 2000, "NOTHING PLAYING"); }
+        if (lps(s).off) {                               /* (the stage switched off: ARP's tap, on again) */
+            await t.tap(B.ARP);
+            s = await t.waitFor((x) => !lps(x).off, 1000, "THE STAGE ON");
+        }
+        if (lps(s).over) {                              /* (LFO's tap: OVERDUB; it does nothing with the stage off) */
+            await t.tap(B.LFO);
+            s = await t.waitFor((x) => !lps(x).over, 1000, "OVERDUB");
+        }
+        if (lps(s).staged) s = await k.clearStage();
         await t.tap(B.GLO);
         await t.waitFor((x) => x.overlay === 3, 1000, "LOOPS PROPERTIES");
-        await t.clicks(K.SELECT, -7);
+        await t.clicks(K.SELECT, -12);
         await t.clicks(K.SELECT, 3);
         await t.clicks(K.K1, -2);
+        await t.clicks(K.SELECT, -1);
+        await t.clicks(K.K1, -8);
+        if (bars > 1) await t.clicks(K.K1, bars - 1);
         await t.tap(B.GLO);
-        await t.waitFor((x) => !x.overlay, 1000, "LOOPS PROPERTIES CLOSED");
+        s = await t.waitFor((x) => !x.overlay && lps(x).bars === bars, 1000, `LOOPS PROPERTIES CLOSED, THE LENGTH ${bars} BAR` +
+                            (bars === 1 ? "" : "S"));
+        if (lps(s).row) s = await t.seek(K.ALG, (x) => lps(x).row, 0, "THE PLAY POSITION AT THE START", 140);
         await k.keys(true);
         await k.black(CTL.ROW, "QUANTIZE: ROW");
-        await k.black(CTL.POLY, "NEXT LOOPS: POLY");
         await k.muteMode();
-        return k.keys(false);
+        await k.keys(false);
+        await k.mode("POLY");
+        s = await t.ask();
+        const l = lps(s);
+        t.check(!l.n && !l.staged && !l.armed && !l.over && !l.row && !s.playing, `LOOPS NOT CLEAR (${l.n} LOOPS, THE STAGE ` +
+                `${l.stage} NOTES, ${l.armed ? "" : "NOT "}ARMED, OVERWRITE ${l.over ? "ON" : "OFF"}, AT ROW ${l.row})`);
+        return s;
     };
     /* the selection: loop i, or + NEW LOOP (-1: at the bottom, clockwise going down) */
     k.select = async (i, what) => {
@@ -783,7 +814,8 @@ function loopsKit(t) {
         }
         throw new Failed("THE LOOPS DO NOT GO ROUND");
     };
-    /* a take's steps from t1 (its start), in order: [row, keys, rows held (0: a tap)], keys down together, up together */
+    /* steps played onto the stage from t1 (the row 0 they count from), in order: [row, keys, rows held (0: a tap)], keys
+     * down together, up together */
     k.press = async (steps, t1) => {
         for (const [r, keys, len] of steps) {
             await t.until(t1 + r * k.rowMs - 10);
@@ -792,64 +824,77 @@ function loopsKit(t) {
             t.keysUp(keys);
         }
     };
-    /* the first loop from the keys (no loops yet): REC arms it, nothing playing, so its first key starts the loops and the
-     * take at once; REC before the bar line closes it there, a bar, the loops playing on */
+    /* REC with notes on the stage: sent where the selection is, a new loop on + NEW LOOP (at -1: STAGE AS LOOP xx, the
+     * selection on + NEW LOOP again), into loop at (STAGE INTO LOOP xx: its notes the stage's, its SHIFT 0); the stage
+     * empty then. LOOPS' state after, with the notes the stage held (staged) and those the loops gained (added) */
+    k.send = async (at = -1) => {
+        const l0 = await L();
+        t.check(l0.staged && l0.stage > 0, `REC: NOTHING ON THE STAGE (${l0.stage} NOTES)`);
+        const want = `STAGE ${at < 0 ? "AS" : "INTO"} LOOP ${hex2(at < 0 ? l0.n : at)}`;
+        await k.rec();
+        const l = lps(await t.waitFor((x) => x.toast === want, 1500, want));
+        t.check(!l.staged && !l.stage && l.n === l0.n + (at < 0 ? 1 : 0) && l.sel === (at < 0 ? l.n : at) &&
+                (at < 0 || (l.notes === l0.stage && !l.shift)), `${want}: ${l.n} LOOPS (${l0.n} BEFORE), THE SELECTION ` +
+                `${hex2(l.sel)}, THE STAGE ${l.stage} NOTES (${l0.stage} BEFORE)` + (at < 0 ? "" : `, ITS ${l.notes} NOTES, SHIFT ${l.shift}`));
+        t.check(l.off, `${want}: THE STAGE NOT LEFT OFF`);
+        await k.rec();                                  /* (REC again: the stage on, nothing sent) */
+        const on = lps(await t.waitFor((x) => !lps(x).off, 1000, "REC: THE STAGE ON"));
+        t.check(on.n === l.n && !on.armed, `REC, THE STAGE OFF: ${on.n} LOOPS (${l.n} BEFORE)`);
+        return { ...l, staged: l0.stage, added: l.all - l0.all };
+    };
+    /* the first loop from the keys (no loops yet, nothing playing): REC arms the loops (the stage empty), so the first key
+     * starts them from the play position (the start) at once, its note the stage's first; the steps played on from there,
+     * then REC sends the stage as loop 00, the loops playing on (k.send's state) */
     k.first = async (steps) => {
         k.rowMs = 150000 / (await t.ask()).bpm10;
-        await t.tap(B.REC);
-        await t.waitFor((x) => lps(x).armed, 1000, "THE FIRST LOOP ARMED");
-        const t1 = t.now() + 10;
-        await k.press(steps, t1);
-        await t.until(t1 + 15.5 * k.rowMs);
-        await t.tap(B.REC);
-        const s = await t.waitFor((x) => !lps(x).take && x.playing && x.what === 3, 3000, "THE FIRST LOOP CLOSED, PLAYING");
-        const l = lps(s);
-        t.check(l.n === 1 && l.bars === 1 && l.all > 0 && s.toast === "LOOP 00: 1 BAR",
-                `THE FIRST LOOP: A BAR (${l.n} LOOPS, ${l.bars} BARS, ${l.all} NOTES; "${s.toast}")`);
+        await k.rec();
+        await t.waitFor((x) => lps(x).armed && !lps(x).staged && !x.playing, 1000, "ARMED (THE STAGE EMPTY, NOTHING PLAYING)");
+        await k.press(steps, t.now() + 10);
+        const s = await t.waitFor((x) => x.playing && x.what === 3 && lps(x).staged && !lps(x).armed, 2000,
+                                  "THE LOOPS STARTED BY THE FIRST KEY, ITS NOTES ON THE STAGE");
+        const l = await k.send();
+        t.check(l.n === 1 && l.all === l.staged && s.playing, `THE FIRST LOOP: ${l.n} LOOPS, ${l.all} NOTES (${l.staged} ON THE STAGE)`);
         await k.timing();
-        return s;
+        return l;
     };
-    /* a take armed while the loops play: REC on + NEW LOOP (at -1: a new loop), or EDIT on loop at (a re-record, its
-     * notes gone at once), not in the last half bar before the loops' next start (else after it), so it is armed in
-     * time; its take starts there, its steps played from then on; it is over by itself after its pass. The state after,
-     * and the notes it added */
-    k.take = async (steps, at = -1) => {
-        const l0 = await k.select(at, at < 0 ? "+ NEW LOOP" : `LOOP ${hex2(at)}`);
-        if (l0.row >= k.lenRows - 8) await k.nextPass();
-        await t.tap(at < 0 ? B.REC : B.EDIT);
-        const s = await t.ask();
-        t.check(lps(s).armed && !lps(s).take, "THE TAKE NOT ARMED FOR THE LOOPS' NEXT START");
-        if (at >= 0) t.check(!lps(s).notes && s.toast === `LOOP ${hex2(at)} RE-RECORDING`,
-                             `EDIT: LOOP ${hex2(at)}'S NOTES GONE AT ONCE (${lps(s).notes} LEFT; "${s.toast}")`);
+    /* steps played onto the stage while the loops play, from the start of their next pass, the selection at (-1: + NEW
+     * LOOP) moved there first (the stage stays); then REC sends it there (k.send's state) */
+    k.overdub = async (steps, at = -1) => {
+        await k.select(at, at < 0 ? "+ NEW LOOP" : `LOOP ${hex2(at)}`);
         await k.press(steps, await k.nextPass());
-        const l = lps(await t.waitFor((x) => !lps(x).armed && !lps(x).take, passMs() + 2000, "THE TAKE'S END"));
-        t.check(l.n === l0.n + (at < 0 ? 1 : 0) && l.sel === (at < 0 ? l.n : at), `AFTER THE TAKE: ${l.n} LOOPS (${l0.n} ` +
-                `BEFORE), ${at < 0 ? "+ NEW LOOP" : `LOOP ${hex2(at)}`} SELECTED (THE SELECTION ${hex2(l.sel)})`);
-        return { ...l, added: l.all - l0.all };
+        return k.send(at);
+    };
+    /* EDIT: loop i onto the stage as it is heard (LOOP xx ON THE STAGE), in place of what it held, the loop silent while
+     * the stage stands for it (played once over the length, its notes as many) */
+    k.edit = async (i) => {
+        const l0 = await k.select(i, `LOOP ${hex2(i)}`);
+        await t.tap(B.EDIT);
+        const want = `LOOP ${hex2(i)} ON THE STAGE`;
+        const l = lps(await t.waitFor((x) => x.toast === want, 1000, want));
+        t.check(l.staged && l.stage === l0.notes && l.sel === i && l.n === l0.n, `EDIT: LOOP ${hex2(i)}'S ${l0.notes} NOTES ` +
+                `ONTO THE STAGE (IT HOLDS ${l.stage})`);
+        return l;
     };
 
-    /* the pattern recorder (ARP). Its row selected is kept as it closes (recRow); REC writes and closes it, or with no
-     * step on is refused (NO STEPS ON), the box staying open */
+    /* the pattern recorder (ARP held + REC: it opens at REC's release), clean every time: no steps, the first row, 16 steps,
+     * NOTE LENGTH 1/16 (a row, at GRID 1/16). Its REC puts the pattern onto the stage and closes it (PATTERN ON THE STAGE),
+     * or with no step on is refused (NO STEPS ON), the box staying open */
     let recRow = 0;
-    k.recOpen = async () => { await t.tap(B.ARP); return t.waitFor((x) => lps(x).recorder, 1000, "THE PATTERN RECORDER"); };
-    k.recRow = async (r) => { await t.clicks(K.SELECT, r - recRow); recRow = r; };
-    k.recRec = async () => { await t.tap(B.REC); return t.ask(); };
-    const noSteps = (s) => lps(s).recorder && s.toast === "NO STEPS ON";
-    /* as a first loop takes it: 16 steps (K2, 4 a click), STEP SIZE 1/16 then size clicks up (K1: 1/16, 1/8, 1/4), TIMES
-     * X1 (K4), row 0, the notes ringing to the next (GLO switches it, its toast saying which) */
-    k.recSetup = async (size) => {
-        await t.clicks(K.K2, 3);
-        await t.clicks(K.K1, -3);
-        await t.clicks(K.K1, size);
-        await t.clicks(K.K4, -7);
-        await t.clicks(K.SELECT, -3);
+    k.recOpen = async () => {
+        await t.combo(B.ARP, () => t.tap(B.REC));
+        const s = await t.waitFor((x) => lps(x).recorder, 1000, "THE PATTERN RECORDER");
         recRow = 0;
-        await t.tap(B.GLO);
-        const s = await t.waitFor((x) => /^NOTES (A STEP LONG|RING TO THE NEXT)$/.test(x.toast), 1000, "THE NOTES' LENGTH");
-        if (s.toast !== "NOTES RING TO THE NEXT") {
-            await t.tap(B.GLO);
-            await t.waitFor((x) => x.toast === "NOTES RING TO THE NEXT", 1000, "NOTES RING TO THE NEXT");
-        }
+        return s;
+    };
+    k.recRow = async (r) => { await t.clicks(K.SELECT, r - recRow); recRow = r; };
+    const noSteps = (s) => lps(s).recorder && s.toast === "NO STEPS ON";
+    const onStage = (s) => !lps(s).recorder && s.toast === "PATTERN ON THE STAGE";
+    /* (a look at the state first: the FM-1 answers after taking its input, so the last step key's release, which switches
+     * it, is taken before REC's press; in one pass the presses come first, and REC would close the box before it) */
+    k.recRec = async () => {
+        await t.ask();
+        await k.rec();
+        return t.waitFor((x) => noSteps(x) || onStage(x), 2000, "THE PATTERN RECORDER'S REC");
     };
     /* the selected row's note (MIDI): SEL held + its key at the keyboard's octave; with look, OCT+ then OCT- show it
      * (`NOTE C-4`), and the keyboard's octave (not in the state) is moved by OCT until the note is right */
@@ -867,56 +912,24 @@ function loopsKit(t) {
             s = await t.waitFor((x) => /^NOTE /.test(x.toast) && x.toast !== was, 1000, "THE KEYBOARD'S OCTAVE");
         }
     };
-    /* steps left on from before, which the probe wrote as loop 00: one at a time switched and written into loop 00 again,
-     * its notes telling whether it was on (one fewer) or off (one more: switched back with the next), till REC is refused
-     * (NO STEPS ON); then the loops cleared again */
-    k.wipe = async () => {
-        let on = (await k.select(0, "LOOP 00")).notes, back = null;
-        t.note(`the pattern recorder had ${on} steps on from before: switched off one by one`);
-        for (let r = 0, i = 0; ;) {
-            if (!(await L()).recorder) await k.recOpen();
-            if (back) { await k.recRow(back[0]); await t.keyTap(WHITE[back[1]]); on--; back = null; }
-            if (on) {
-                t.check(r < 4, `COULD NOT SWITCH THE PATTERN RECORDER'S STEPS OFF (${on} LEFT)`);
-                await k.recRow(r);
-                await t.keyTap(WHITE[i]);
-            }
-            const s = await k.recRec();
-            if (noSteps(s)) break;
-            const m = lps(s).notes;
-            t.check(on && !lps(s).recorder && Math.abs(m - on) === 1, `SWITCHING THE PATTERN RECORDER'S STEPS OFF: ${m} ` +
-                    `NOTES WRITTEN, ${on} STEPS ON BEFORE`);
-            if (m > on) back = [r, i];
-            on = m;
-            if (++i === 16) { i = 0; r++; }
-        }
-        await t.tap(B.HOME);
-        await t.waitFor((x) => !lps(x).recorder, 1000, "THE PATTERN RECORDER CLOSED");
-        await k.clearLoops();
-    };
-    /* the first loop from the pattern recorder (+ NEW LOOP, no loops): opened, its steps found all off (REC refused, NO
-     * STEPS ON; else k.wipe), set up (k.recSetup); rows [note (0: as it is), steps] a row each; then before() (the box
-     * open, its preview playing), and REC writes it: the state then. After, its steps are switched off again, so the next
-     * use finds none (REC refused, HOME closing the box) */
-    k.recorder = async (rows, size, before) => {
-        for (let go = 0; ; go++) {
-            await k.recOpen();
-            await k.recSetup(size);
-            if (noSteps(await k.recRec())) break;
-            t.check(!go, "THE PATTERN RECORDER'S STEPS ARE STILL ON");
-            await k.wipe();
-        }
+    /* the pattern recorder, opened on the selection (+ NEW LOOP: the keys' sound): its steps found all off (REC refused,
+     * NO STEPS ON); rows [note (0: as it is), steps] a row each; then before() (the box open, its preview playing), and its
+     * REC puts the pattern onto the stage (PATTERN ON THE STAGE), closing the box (the loops starting from its preview
+     * where it played alone): the state then. After, it opens clean again (REC refused, HOME closing the box); the stage
+     * keeps the pattern */
+    k.recorder = async (rows, before) => {
+        await k.recOpen();
+        t.check(noSteps(await k.recRec()), "THE PATTERN RECORDER DID NOT OPEN CLEAN");
         for (const [r, [note, on]] of rows.entries()) {
             await k.recRow(r);
             if (note) await k.recNote(note, r === 0);
             for (const i of on) await t.keyTap(WHITE[i]);
         }
         if (before) await before();
-        await t.tap(B.REC);
-        const s = await t.waitFor((x) => !lps(x).recorder, 2000, "THE PATTERN WRITTEN");
+        const s = await k.recRec();
+        t.check(onStage(s), `THE PATTERN RECORDER'S REC: "${s.toast}", NOT PATTERN ON THE STAGE`);
         await k.recOpen();
-        for (const [r, [, on]] of rows.entries()) { await k.recRow(r); for (const i of on) await t.keyTap(WHITE[i]); }
-        t.check(noSteps(await k.recRec()), "THE PATTERN RECORDER'S STEPS NOT ALL OFF AGAIN");
+        t.check(noSteps(await k.recRec()), "THE PATTERN RECORDER KEPT ITS STEPS");
         await t.tap(B.HOME);
         await t.waitFor((x) => !lps(x).recorder, 1000, "THE PATTERN RECORDER CLOSED");
         return s;
@@ -927,17 +940,19 @@ const noteName = (m) => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
 const midiOf = (name) => { const m = /^(..)(-?\d)$/.exec(name), i = m ? NOTE_NAMES.indexOf(m[1]) : -1; return i < 0 ? -1 : 12 * (+m[2] + 1) + i; };
 
 /* the TB-303 at 4, 8 and 12 voices. The keys play it as one voice (legato, as the one 303 it is), so these are loops on
- * LOOPS, a voice a lane: the loops cleared (QUANTIZE ROW, the next loops POLY), then POLY loops of 4 lanes, one for each
- * four voices, a chord of four tapped on every row of a bar, as a 303 line in sixteenths (on a lane a 303's gate closes
- * half a row after its note, so a voice sounds only while notes come); the first take starting the loops, the others
- * armed on + NEW LOOP while they play. Each count measured 5 s */
+ * LOOPS, a voice a lane: the loops cleared, the length 1 BAR (QUANTIZE ROW, the keys POLY), then POLY loops of 4 lanes,
+ * one for each four voices, each a cycle of chords of four tapped onto the stage on every row of the bar, as a 303 line
+ * in sixteenths (on a lane a 303's gate closes half a row after its note, so a voice sounds only while notes come), and
+ * sent by REC on + NEW LOOP: the first started by its first chord (REC armed with the stage empty), the others overdubbed
+ * while the loops play. Each count measured 5 s */
 const TB_CHORD = [0, 4, 7, 11];         /* F3, A3, C4, E4 */
 const TB_LINE = Array.from({ length: 16 }, (_, r) => [r, TB_CHORD, 0]);
 async function tb303Voices(t, cart, slot) {
     const k = loopsKit(t);
-    await k.clear();
+    await k.clear(1);
     await k.sound(cart, slot);
-    let s = await k.first(TB_LINE);
+    let l = await k.first(TB_LINE), s;
+    t.check(l.staged === 64, `THE FIRST 303 LOOP: 16 CHORDS OF 4 ON THE STAGE, 64 NOTES (${l.staged})`);
     await t.fx("DELAY", true);                          /* LOOPS' own effects (FX edits what plays'): DELAY and REVERB, */
     await t.fx("REVERB", true);                         /* as the keys had them */
     s = await t.screen("LOOPS");
@@ -955,9 +970,9 @@ async function tb303Voices(t, cart, slot) {
         s = back;
     }
     for (let n = 4; ; n += 4) {
-        const l = lps(s);
-        t.note(`X${n}: ${l.n} loop${l.n === 1 ? "" : "s"} of 4 lanes, ${l.all} notes, a bar of ${k.barRows} rows`);
-        t.check(l.n === n / 4, `${n / 4} TB-303 LOOPS (THERE ARE ${l.n})`);
+        const ls = lps(s);
+        t.note(`X${n}: ${ls.n} loop${ls.n === 1 ? "" : "s"} of 4 lanes, ${ls.all} notes, a bar of ${k.barRows} rows`);
+        t.check(ls.n === n / 4, `${n / 4} TB-303 LOOPS (THERE ARE ${ls.n})`);
         await t.sleep(300);
         await t.measure(`TB-303 X${n}`, 5000);
         /* the most voices at once: the debug build's figures count them every half; without figures, looks at the
@@ -970,46 +985,58 @@ async function tb303Voices(t, cart, slot) {
         if (n === 12) break;
         await k.select(-1, "+ NEW LOOP");
         await k.sound(cart, slot);
-        await k.take(TB_LINE);
+        l = await k.overdub(TB_LINE);
+        t.check(l.staged === 64 && l.added === 64, `THE NEXT 303 LOOP: 64 NOTES (${l.staged} ON THE STAGE, ${l.added} SENT)`);
         s = await t.ask();
     }
     t.note(`${lps(s).n} loops, ${lps(s).all} notes (a 303's gate closes half a row in: each voice half a row)`);
 }
 
-/* a beat on LOOPS (specs/ui/screens/loops.md), built as a hand would, every step checked through LOOPS' cursor: the
- * loops cleared; the first loop from the pattern recorder (the kit, a drum a row, 16 steps of 1/16, TIMES X1: a bar, the
- * loops starting); a TB-303 bass line taken on + NEW LOOP (MONO, armed while the loops play); a chord of four on EL PIANO
- * (POLY, its 4 lanes); 20 s measured; a re-record (EDIT on the bass's loop: its notes gone at once, a new line taken); a
- * peel (LFO on + NEW LOOP: the last loop, the chord's, goes); CONTROL mode: white key 1 tapped (loop 00 muted at once),
- * white key 2 held (loop 01's mute waiting for the bar line, then muted), GLO's black key to SOLO, white key 1 (loop 00
- * soloed), PIT (all back on); 10 s measured, the loops playing on */
+/* a beat on LOOPS (specs/ui/screens/loops.md), built as a hand would, every step checked through LOOPS' cursor and LOOPS'
+ * bytes: the loops cleared, the length 1 BAR; the first loop from the pattern recorder (the kit, a drum a row, 16 steps
+ * of a row: a bar; its REC puts it onto the stage, the loops starting from its preview; REC sends it, STAGE AS LOOP 00);
+ * a TB-303 bass line overdubbed on + NEW LOOP (MONO), REC; a chord of four on EL PIANO (POLY, its 4 lanes), REC; 20 s
+ * measured; EDIT on the bass's loop (LOOP 01 ON THE STAGE, the loop silent), a bar overdubbed, REC back into it (STAGE
+ * INTO LOOP 01); SEL's DELETE LOOP on the last loop, the chord's (LOOP 02 DELETED); CONTROL mode: white key 1 tapped
+ * (loop 00 muted at once), white key 2 held (loop 01's mute waiting for the bar line, then muted), GLO's black key to
+ * SOLO, white key 1 (loop 00 soloed), PIT (all back on); 10 s measured, the loops playing on */
 async function loopBeat(t) {
     const k = loopsKit(t), { L, select } = k;
-    await k.clear();
+    await k.clear(1);
     t.begin();
     await k.sound(...KIT);
-    let s = await k.recorder(BEAT, 0), l = lps(s);
-    t.check(s.toast === "PATTERN: LOOP 00, 1 BAR" && l.n === 1 && l.bars === 1 && l.all === BEAT_NOTES && s.playing &&
-            s.what === 3, `THE PATTERN RECORDER'S KIT: A BAR OF ${BEAT_NOTES} NOTES, PLAYING (${l.n} LOOPS, ${l.bars} BARS, ` +
-            `${l.all} NOTES, ${s.playing ? "" : "NOT "}PLAYING; "${s.toast}")`);
+    await k.recorder(BEAT);
+    let s = await t.ask(), l = lps(s);
+    t.check(l.staged && l.stage === BEAT_NOTES && !l.n && s.playing && s.what === 3, `THE PATTERN RECORDER'S KIT ON THE STAGE: ` +
+            `A BAR OF ${BEAT_NOTES} NOTES, THE LOOPS PLAYING FROM ITS PREVIEW (${l.stage} NOTES, ${l.n} LOOPS, ` +
+            `${s.playing ? "" : "NOT "}PLAYING)`);
+    l = await k.send();
+    t.check(l.n === 1 && l.bars === 1 && l.all === BEAT_NOTES, `REC: LOOP 00, A BAR OF ${BEAT_NOTES} NOTES (${l.n} LOOPS, ` +
+            `${l.bars} BARS, ${l.all} NOTES)`);
     await k.timing();
     await k.mode("MONO");                               /* a TB-303 bass line, MONO */
     await k.sound(...TB303);
-    l = await k.take(BASS);
-    t.check(l.n === 2 && l.added === BASS.length, `THE BASS: LOOP 01, ${BASS.length} NOTES (${l.added})`);
+    l = await k.overdub(BASS);
+    t.check(l.n === 2 && l.staged === BASS.length && l.added === BASS.length, `THE BASS: LOOP 01, ${BASS.length} NOTES ` +
+            `(${l.staged} ON THE STAGE, ${l.added} SENT)`);
     await k.mode("POLY");                               /* a chord of four on EL PIANO, POLY */
     await k.sound(...EL_PIANO);
-    l = await k.take(PAD);
-    t.check(l.n === 3 && l.added === 4, `THE CHORD: LOOP 02, 4 NOTES ON ITS 4 LANES (${l.added})`);
+    l = await k.overdub(PAD);
+    t.check(l.n === 3 && l.staged === 4 && l.added === 4, `THE CHORD: LOOP 02, 4 NOTES ON ITS 4 LANES (${l.staged} ON THE ` +
+            `STAGE, ${l.added} SENT)`);
     t.note(`a beat of ${l.n} loops, ${l.all} notes, a bar of ${k.barRows} rows`);
     await t.measure("LOOPS: A BEAT", 20000);
-    l = await k.take(BASS_AGAIN, 1);                    /* a re-record of the bass (EDIT) */
-    t.check(l.n === 3 && l.notes === BASS_AGAIN.length, `THE BASS RE-RECORDED: ${BASS_AGAIN.length} NOTES (${l.notes})`);
-    await select(-1, "+ NEW LOOP");                     /* a peel: LFO on + NEW LOOP, the last loop goes */
-    await t.tap(B.LFO);
-    s = await t.waitFor((x) => lps(x).n === 2, 1000, "LOOP 02 PEELED");
-    t.check(s.toast === "LOOP 02 PEELED" && lps(s).all === BEAT_NOTES + BASS_AGAIN.length,
-            `THE PEEL: THE CHORD'S LOOP GONE (${lps(s).all} NOTES LEFT; "${s.toast}")`);
+    /* EDIT on the bass's loop: onto the stage (its sound and MONO the keys'), a bar overdubbed, REC back into it */
+    const bass = (await k.edit(1)).stage;
+    l = await k.overdub(BASS_AGAIN, 1);
+    t.check(l.n === 3 && l.staged >= BASS_AGAIN.length && l.notes === l.staged, `THE BASS OVERDUBBED: ${l.staged} NOTES ON THE ` +
+            `STAGE (${bass} BROUGHT, ${BASS_AGAIN.length} PLAYED OVER THEM), LOOP 01 ${l.notes}`);
+    /* SEL's DELETE LOOP on the chord's loop */
+    await select(2, "LOOP 02");
+    await t.menuPick(B.SEL, "DELETE LOOP");
+    s = await t.waitFor((x) => x.toast === "LOOP 02 DELETED", 1000, "LOOP 02 DELETED");
+    t.check(lps(s).n === 2 && lps(s).all === BEAT_NOTES + l.notes && !lps(s).staged,
+            `DELETE LOOP: THE CHORD'S LOOP GONE (${lps(s).n} LOOPS, ${lps(s).all} NOTES LEFT)`);
     /* CONTROL mode: mutes at once and at the bar line, a solo, all back on */
     await k.keys(true);
     await k.muteMode();
@@ -1042,23 +1069,25 @@ async function loopBeat(t) {
     t.note(`at the end ${lps(s).n} loops, ${lps(s).all} notes, ${s.voices} voices sounding`);
 }
 
-/* LOOPS TO A PATTERN AND BACK's and RECORD LIVE's three loops, 2 bars (so a pass leaves room for RECORD LIVE's steps):
- * the pattern recorder's drums (the beat in eighths, TIMES X1), a MONO bass (the TB-303) and a POLY pad (EL PIANO's
- * chord); playing */
+/* LOOPS TO A PATTERN AND BACK's and RECORD LIVE's three loops, the length 2 BARS (so a pass leaves room for RECORD LIVE's
+ * steps): the pattern recorder's drums (the beat, 16 steps of a row: twice over the length) onto the stage and sent, a
+ * MONO bass (the TB-303) and a POLY pad (EL PIANO's chord) overdubbed and sent; playing */
 async function threeLoops(t, k) {
-    await k.clear();
+    await k.clear(2);
     await k.sound(...KIT);
-    const s = await k.recorder(BEAT, 1);                /* (STEP SIZE 1/8) */
-    t.check(/^PATTERN: LOOP 00, 2 BAR/.test(s.toast) && lps(s).bars === 2 && s.playing, `THE DRUMS: 2 BARS, PLAYING ` +
-            `(${lps(s).bars} BARS; "${s.toast}")`);
+    await k.recorder(BEAT);
+    let l = lps(await t.ask());
+    t.check(l.stage === 2 * BEAT_NOTES, `THE DRUMS ON THE STAGE: TWICE ${BEAT_NOTES} NOTES OVER 2 BARS (${l.stage})`);
+    l = await k.send();
+    t.check(l.n === 1 && l.bars === 2 && l.all === 2 * BEAT_NOTES, `THE DRUMS: LOOP 00, 2 BARS (${l.bars} BARS, ${l.all} NOTES)`);
     await k.timing();
     await k.mode("MONO");
     await k.sound(...TB303);
-    let l = await k.take(BASS);
+    l = await k.overdub(BASS);
     t.check(l.added === BASS.length, `THE BASS: ${BASS.length} NOTES (${l.added})`);
     await k.mode("POLY");
     await k.sound(...EL_PIANO);
-    l = await k.take(PAD);
+    l = await k.overdub(PAD);
     t.check(l.n === 3 && l.added === 4, `THE PAD: 4 NOTES (${l.n} LOOPS, ${l.added} NOTES)`);
     return l;
 }
@@ -1076,8 +1105,8 @@ async function firstFreePattern(t) {
     return parseInt(s.toast.slice(18), 16);
 }
 
-/* (secs: the times of `autotest_test.js WASM FLASH 1`, the browser's firmware at full length; THE CHIP's and AUTO
- * LEVEL ALL's: the FM-1's, ~5 s and ~6 s) */
+/* (secs: the times of `autotest_test.js WASM FLASH 1`, the browser's firmware at full length; AUTO LEVEL ALL's: the
+ * FM-1's, ~6 s) */
 const SCENARIOS = [
     { group: "SONGS", name: "IDLE", secs: 20, tsecs: 10, what: "nothing plays (WORLD LOOP played a moment, paused, all sound off), 10 s",
       run: async (t) => {
@@ -1122,9 +1151,9 @@ const SCENARIOS = [
         t.note(`from position ${hex2(t.pos)}`);
         await t.measure(name, 20000);
     } })),
-    ...ENGINES.map(([name, cart, slot, keysN]) => ({ group: "KEYS", name, secs: keysN.length > 1 ? 45 : 47, tsecs: keysN.length > 1 ? 32 : 39,
+    ...ENGINES.map(([name, cart, slot, keysN]) => ({ group: "KEYS", name, secs: keysN.length > 1 ? 45 : 48, tsecs: keysN.length > 1 ? 32 : 40,
       what: name === "TB-303" ? "1 key held 5 s (the keys play it as one voice), then 4, 8 and 12 as POLY loops of 4 lanes on " +
-      "LOOPS, 5 s each" :
+      "LOOPS (chords onto the stage, REC), 5 s each" :
       `${keysN.join(", ")} keys held (past 10 on core 2), 5 s each`, run: async (t) => {
         await voicesSetting(t, 16);                     /* (16: 10 on core 1, 6 on core 2) */
         await keysHeld(t, name, cart, slot, keysN);
@@ -1218,8 +1247,8 @@ const SCENARIOS = [
         const s = await t.ask();
         t.check(s.dj.decks[0].playing && s.dj.decks[1].playing, "BOTH DECKS STILL PLAYING");
     } },
-    { group: "LOOPS", name: "THE LOOP STATION", secs: 85, tsecs: 20, what: "12 loops recorded from the keys, a take each (JUNO-106 " +
-      "sounds, then DX7's), all playing, 20 s", run: async (t) => {
+    { group: "LOOPS", name: "THE LOOP STATION", secs: 67, tsecs: 20, what: "12 loops played from the keys onto the stage, each sent " +
+      "by REC (JUNO-106 sounds, then DX7's), all playing, 20 s", run: async (t) => {
         await voicesSetting(t, 12);
         const l = await loopStation(t, 12);
         t.note(`${l.n} loops of ${l.bars} bar${l.bars === 1 ? "" : "s"}, ${l.all} notes`);
@@ -1228,39 +1257,11 @@ const SCENARIOS = [
         t.check(s.playing && s.what === 3, "THE LOOPS PLAY ON");
         t.note(`${s.voices} voices sounding at the end`);
     } },
-    { group: "LOOPS", name: "A BEAT", secs: 68, tsecs: 61, what: "a beat as a hand builds one: the pattern recorder's kit, a MONO " +
-      "bass, a POLY chord; a re-record, a peel, mutes and a solo in CONTROL mode; 20 s and 10 s measured", run: async (t) => {
+    { group: "LOOPS", name: "A BEAT", secs: 70, tsecs: 61, what: "a beat as a hand builds one on the stage: the pattern recorder's " +
+      "kit, a MONO bass, a POLY chord, each sent by REC; EDIT, an overdub and REC back, DELETE LOOP, mutes and a solo in CONTROL " +
+      "mode; 20 s and 10 s measured", run: async (t) => {
         await voicesSetting(t, 12);
         await loopBeat(t);
-    } },
-    /* the same with core 2 off (38 SECOND CORE), to compare with the scenarios above on two cores */
-    { group: "ONE CORE", name: "IDLE, ONE CORE", debug: true, secs: 20, tsecs: 10, what: "IDLE with core 2 off, 10 s",
-      run: (t) => oneCore(t, async () => {
-        await keysStart(t);
-        await t.screen("SONGS");
-        await t.sleep(2000 * t.scale);
-        await t.measure("IDLE, ONE CORE", 10000);
-    }) },
-    { group: "ONE CORE", name: "DJ HEAVY, ONE CORE", debug: true, secs: 42, tsecs: 30, what: "DJ HEAVY with core 2 off, 30 s",
-      run: (t) => oneCore(t, async () => {
-        await djHeavy(t, "PUNCH IN", "MIDNIGHT RUN");
-        await t.measure("DJ HEAVY, ONE CORE", 30000);
-        const s = await t.ask();
-        t.check(s.dj.decks[0].playing && s.dj.decks[1].playing, "BOTH DECKS STILL PLAYING");
-    }) },
-    { group: "ONE CORE", name: "KEYS AT 12, ONE CORE", debug: true, secs: 46, tsecs: 36,
-      what: "12 keys held on the DX7, a Juno-106 resonant and one plain, core 2 off, 5 s each", run: (t) => oneCore(t, async () => {
-        await voicesSetting(t, 12);
-        for (const [name, cart, slot] of ENGINES.slice(0, 3)) await keysHeld(t, name, cart, slot, [12]);
-    }) },
-    { group: "CHIP", name: "THE CHIP", debug: true, secs: 6, tsecs: 1, what: "the firmware's own: THE CORE and ALONE", run: async (t) => {
-        await t.playSong("PUNCH IN", 0).catch(() => {}); /* (a song started ends DJ, which the bench refuses) */
-        await t.tap(B.PLAY);
-        await t.allSoundOff();                          /* (its tails cut: the bench starts from silence) */
-        const B2 = await t.bench();
-        await t.sleep(0);                               /* (STOP ends the bench: stopped, not failed) */
-        t.check(B2.end && B2.end.status === 0, `THE BENCH ENDED ${B2.end ? B2.end.name : "WITHOUT AN END"}`);
-        t.chip(B2);
     } },
     { group: "TOOLS", name: "AUTO LEVEL ALL", secs: 6, tsecs: 2, what: "SETTINGS' tool over every instrument", run: async (t) => {
         await t.screen("SETTINGS");
@@ -1284,23 +1285,33 @@ const SCENARIOS = [
             await t.seek(K.SELECT, (s) => s.cursor[1], SET.TOOLS, "THE LINE TOOLS");
             await t.seek(K.K1, (s) => s.cursor[2], tool, `THE TOOL ${name}`, 10);
             await t.tap(B.EDIT);
-            const s = await t.measureUntil(name, (x) => x.overlay !== 5, 60000, `${name}'S END`);
+            /* (its toast lasts 2 s, a fast tool's over before a look every WATCH comes: looked for as it goes, the stretch
+             * as long as ever) */
+            const t0 = t.now();
+            let said = "";
+            const s = await t.measureUntil(name, (x) => {
+                said = x.toast || said;
+                return x.overlay !== 5 && t.now() - t0 >= 2000 * t.scale;
+            }, 60000, `${name}'S END`, 250);
             const list = s.overlay === 8;
             if (list) await t.tap(B.HOME);
             if (list && tool === TOOL.CHECK_REFERENCES) t.note("some references are missing (the list closed)");
-            else t.check(!list && s.toast === good, list ? "CHECK STORAGE FOUND PROBLEMS" : `THE FM-1 SAID ${s.toast || "NOTHING"}, NOT ${good}`);
+            else t.check(!list && said === good, list ? "CHECK STORAGE FOUND PROBLEMS" : `THE FM-1 SAID ${said || "NOTHING"}, NOT ${good}`);
         } })),
-    { group: "TOOLS", name: "RECORD PATTERN", secs: 15, tsecs: 6, what: "in LOOPS with no loops, the pattern recorder: four steps, " +
-      "its preview measured, written as the first loop", run: async (t) => {
+    { group: "TOOLS", name: "RECORD PATTERN", secs: 18, tsecs: 7, what: "in LOOPS with no loops, the pattern recorder: four steps, " +
+      "its preview measured, its REC onto the stage, REC on the screen: the first loop", run: async (t) => {
         const k = loopsKit(t);
-        await k.clear();
-        const s = await k.recorder([[0, [0, 3, 6, 10]]], 0, async () => {   /* (its preview plays from the moment it opens) */
+        await k.clear(1);
+        await k.recorder([[0, [0, 3, 6, 10]]], async () => {   /* (its preview plays from the moment it opens) */
             await t.measure("RECORD PATTERN: ITS PREVIEW", 5000);
             await t.waitFor((x) => lps(x).recorder && x.voices > 0, 2000, "ITS PREVIEW SOUNDING");
         });
-        const l = lps(s);
-        t.check(s.toast === "PATTERN: LOOP 00, 1 BAR" && l.n === 1 && l.all === 4 && s.unsaved > 0,
-                `REC: THE FIRST LOOP, A BAR OF 4 NOTES (${l.n} LOOPS, ${l.bars} BARS, ${l.all} NOTES; "${s.toast}")`);
+        let l = lps(await t.ask());
+        t.check(l.staged && l.stage === 4 && !l.n, `ITS REC: A BAR OF 4 NOTES ON THE STAGE (${l.stage} NOTES, ${l.n} LOOPS)`);
+        l = await k.send();
+        const s = await t.ask();
+        t.check(l.n === 1 && l.all === 4 && s.unsaved > 0, `REC: THE FIRST LOOP, 4 NOTES (${l.n} LOOPS, ${l.all} NOTES, ` +
+                `${s.unsaved} UNSAVED)`);
     } },
     /* the UI (specs/debug.md: The scenarios, UI): edits only, dropped by REVERT after */
     { group: "UI", name: "THE EDITOR'S OWN PATTERN", secs: 45, tsecs: 40, what: "NEW PATTERN, notes by REC and the keys, its loop " +
@@ -1375,7 +1386,7 @@ const SCENARIOS = [
         s = await t.ask();
         t.check(!s.unsaved && s.songName !== "NEW SONG", `REVERT DID NOT DROP THE NEW SONG (${s.unsaved} UNSAVED, "${s.songName}")`);
     } },
-    { group: "UI", name: "THE KEYS ON LOOPS", secs: 14, tsecs: 4, what: "the loops cleared, LOOPS' DELAY on, nothing playing: " +
+    { group: "UI", name: "THE KEYS ON LOOPS", secs: 15, tsecs: 3, what: "the loops cleared, LOOPS' DELAY on, nothing playing: " +
       "a key held on LOOPS sounds through LOOPS' effects at LOOPS' tempo, on SONGS not", run: async (t) => {
         const held = async () => { await t.keyDown(WHITE[4]); await t.sleep(400); const s = await t.ask(); await t.keyUp(WHITE[4]); return s; };
         await keysStart(t);                             /* (a song what played last, not the loops a scenario before
@@ -1406,8 +1417,9 @@ const SCENARIOS = [
         t.check(!fxOn(s, "DELAY"), "A KEY HELD ON SONGS: LOOPS' DELAY AT WORK");
         t.note(`LOOPS' tempo ${b0 / 10} BPM, the song's ${song.bpm10 / 10}`);
     } },
-    { group: "UI", name: "LOOPS TO A PATTERN AND BACK", secs: 60, tsecs: 53, what: "three loops (the pattern recorder's drums, a MONO " +
-      "bass, a POLY pad) saved to a NEW pattern, cleared, loaded from it again: the same; REVERT drops it all", run: async (t) => {
+    { group: "UI", name: "LOOPS TO A PATTERN AND BACK", secs: 55, tsecs: 48, what: "three loops (the pattern recorder's drums, a MONO " +
+      "bass, a POLY pad, each from the stage) saved to a NEW pattern, cleared, loaded from it again: the same; REVERT drops it " +
+      "all", run: async (t) => {
         const F = await firstFreePattern(t);            /* (the number NEW takes) */
         const k = loopsKit(t);
         t.begin();
@@ -1433,9 +1445,9 @@ const SCENARIOS = [
         t.note(`pattern ${hex2(F)}: ${m.n} loops of ${m.bars} bars, ${m.all} notes, as stored`);
         await t.revert();
     } },
-    { group: "UI", name: "RECORD LIVE", secs: 50, tsecs: 49, what: "three loops playing, RECORD LIVE's panel, REC: it starts at once; " +
-      "EDIT refused; a mute, a punch-in, PLAY silencing the loops and PLAY again (the song going on), REC: a song of 1 " +
-      "pattern at LOOPS' tempo, named LOOPS ##; REVERT drops it", run: async (t) => {
+    { group: "UI", name: "RECORD LIVE", secs: 39, tsecs: 38, what: "three loops playing, RECORD LIVE's panel, REC: it starts at once; " +
+      "EDIT: loop 00 on the stage, the song going on; a mute, a punch-in, PLAY silencing the loops and PLAY again (the song " +
+      "going on), HOME: a song of 1 pattern at LOOPS' tempo, named LOOPS ##; REVERT drops it", run: async (t) => {
         const k = loopsKit(t);
         t.begin();
         await threeLoops(t, k);
@@ -1443,13 +1455,14 @@ const SCENARIOS = [
         const bpm10 = s.bpm10;
         await t.menuPick(B.SEL, "RECORD LIVE");
         s = await t.waitFor((x) => x.overlay, 2000, "RECORD LIVE'S PANEL");
-        await t.tap(B.REC);                             /* (ARM: the panel closes) */
+        await k.rec();                                  /* (ARM: the panel closes; REC's 500 ms wait from here) */
         s = await t.waitFor((x) => !x.overlay && lps(x).songArmed, 2000, "RECORD LIVE ARMED");
-        await t.tap(B.REC);                             /* (the loops playing: it starts at once) */
+        await k.rec();                                  /* (the loops playing: it starts at once) */
         s = await t.waitFor((x) => lps(x).song, 2000, "THE SONG RECORDING");
-        await t.tap(B.EDIT);                            /* no change of the loops while it records */
-        s = await t.waitFor((x) => x.toast === "RECORDING A SONG", 1000, "EDIT REFUSED: RECORDING A SONG");
-        t.check(!lps(s).armed && lps(s).song, "EDIT DURING THE SONG: A TAKE ARMED, OR THE SONG ENDED");
+        await k.select(0, "LOOP 00");
+        await t.tap(B.EDIT);                            /* LOOPS works as ever while it records */
+        s = await t.waitFor((x) => x.toast === "LOOP 00 ON THE STAGE", 1000, "EDIT: LOOP 00 ON THE STAGE");
+        t.check(lps(s).staged && lps(s).song, "EDIT DURING THE SONG: NO LOOP ON THE STAGE, OR THE SONG ENDED");
         await k.keys(true);
         await k.muteMode();
         await t.keyTap(WHITE[0]);
@@ -1462,7 +1475,7 @@ const SCENARIOS = [
         t.check(lps(s).song && s.playing, "PLAY: THE SONG ENDED, OR ITS TIME STOPPED");
         await t.tap(B.PLAY);                            /* the loops on again */
         await t.sleep(4 * k.rowMs + 300);
-        await t.tap(B.REC);                             /* it ends at once */
+        await t.tap(B.HOME);                            /* it ends, at the row it was pressed in */
         s = await t.waitFor((x) => !lps(x).song && /^SONG [0-9A-F]{2} /.test(x.toast), 2000, "THE SONG'S END");
         t.check(/^SONG [0-9A-F]{2} RECORDED: \d+:\d\d/.test(s.toast), `THE SONG'S END: "${s.toast}"`);   /* (cut at 23 characters) */
         const n = parseInt(s.toast.slice(5, 7), 16);
@@ -1560,7 +1573,6 @@ const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 async function finish(io, ctx0, R) {
     try {
         io.send(TONE(0));
-        io.send(SECOND(1));                             /* (core 2 back to what SETTINGS says, as the ONE CORE ones end) */
         for (let b = 0; b < 14; b++) io.send(btn(b, 0));
         for (let k = 0; k < 27; k++) io.send(key(k, 0));
     } catch (e) { /* */ }
@@ -1623,14 +1635,12 @@ function run(io, list, opts) {
             const ctx = { ...ctx0, checks: 0, notes: [], stretches: [], name: sc.name, last: null };
             const r = { group: sc.group, name: sc.name, what: sc.what, status: "PASSED", why: "", t0: clock(), t1: 0 };
             R.current = { key: `${sc.group}: ${sc.name}`, t0: r.t0, t1: 0 };
-            /* its test starts with its first measured stretch (or the bench): what comes before sets the FM-1 up */
+            /* its test starts with its first measured stretch: what comes before sets the FM-1 up */
             ctx.begin = () => { if (!r.t1) R.current.t1 = r.t1 = clock(); };
             const t = steps(io, ctx);
             t.scale = ctx.scale;
             t.debug = !!s.debug;                        /* (a scenario's part only the debug build has) */
             t.songNames = ctx0.songNames;
-            t.bench = () => { ctx.begin(); return io.bench(); };
-            t.chip = (b) => { ctx.chip = b; };
             io.log(`${sc.group}: ${sc.name}`);
             try {
                 if (sc.debug && !s.debug) throw new Skipped("THE DEBUG BUILD'S ONLY");
@@ -1646,7 +1656,6 @@ function run(io, list, opts) {
                 if (!(e instanceof Skipped)) {
                     try {
                         io.send(TONE(0));
-                        if (sc.group === "ONE CORE") io.send(SECOND(1));   /* (its own finally sends it too) */
                         for (let b = 0; b < 14; b++) io.send(btn(b, 0));
                         for (let k = 0; k < 27; k++) io.send(key(k, 0));
                     } catch (x) { /* */ }
@@ -1673,7 +1682,6 @@ function run(io, list, opts) {
             r.checks = ctx.checks;
             r.notes = ctx.notes;
             r.stretches = ctx.stretches;
-            r.chip = ctx.chip;
             r.at = ctx.last ? `${ctx.last.screen}${ctx.last.overlay ? " + " + (OVERLAY[ctx.last.overlay] || ctx.last.overlay) : ""}` : "";
             R.results.push(r);
             if (r.status === "STOPPED") break;
@@ -1715,7 +1723,6 @@ function reportLines(R) {
             if (s) L.push(...FG.sectionLines(st.name, s));
             else L.push(`-- ${st.name}: no figures (not the debug build)`);
         }
-        if (r.chip) L.push(...r.chip.lines());
     }
     return wrapLines(L);
 }
@@ -1734,7 +1741,7 @@ function wrapLines(L) {
     return out;
 }
 
-const A = { SCENARIOS, run, decodeState, hello, btn, key, knob, ASK, TONE, SECOND, B, K, WHITE, BLACK, CH, wrapLines };
+const A = { SCENARIOS, run, decodeState, hello, btn, key, knob, ASK, TONE, B, K, WHITE, BLACK, CH, wrapLines };
 if (typeof module !== "undefined" && module.exports) module.exports = A;
 else root.PTFM_autotest = A;
 })(typeof window !== "undefined" ? window : globalThis);

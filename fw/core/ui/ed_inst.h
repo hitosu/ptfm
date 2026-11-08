@@ -43,21 +43,21 @@ extern const uint8_t CHIP_TAB_N[5];                   /* and how many */
 extern const txt_t CHIP_WAVE_NAMES[16];
 int ins_get(const uint8_t *slot, const ins_prm_t *p);   /* its value as shown */
 void ins_set(uint8_t *slot, const ins_prm_t *p, int v);
-void ins_text(const uint8_t *slot, const ins_prm_t *p, uint8_t cart, char *out, int max);   /* its value in words */
+void ins_text(const uint8_t *slot, const ins_prm_t *p, char *out, int max);   /* its value in words */
 int ins_name_pos(int kind);             /* where a slot's name and LEVEL lie (bits) */
 int ins_level_pos(int kind);
 void ins_name_set(uint8_t *p, int bit, int chars, const char *name);    /* a name into 6-bit codes */
 void ins_init(int kind, uint8_t *slot); /* INIT: the engine's defaults, named INIT */
 int ins_slot_bytes(uint8_t cart, int slot, uint8_t *out);       /* the slot's bytes: 1 used, 0 empty */
 /* the cartridge's record as it stands (the flash's with its edits) into dst (UI_SCRATCH at most), c read: 0 done; a
- * slot then at rec_slot_at, a sampler's samples' table after the slots */
+ * slot then at rec_slot_at */
 int ins_cart_copy(uint8_t cart, rec_cart_t *c, uint8_t *dst, uint32_t *len, uint8_t *ver);
 int ins_put_slot(uint8_t cart, int slot, const uint8_t *bytes); /* bytes NULL: emptied. 0 done */
 int ins_new_cart(uint8_t num, int kind, const char *name);
 int ins_copy_cart(uint8_t from, uint8_t to, const char *name);
 int ins_delete_cart(uint8_t num);
 int ins_rename_cart(uint8_t num, const char *name);
-int ins_free_cart(void);                /* after the last of the user's (00-EF), else the first free; -1 none */
+int ins_free_cart(void);                /* the smallest free of the user's (00-EF); -1 none */
 int ins_builtin(uint8_t cart);          /* 1 built in (F0-FF) as the firmware has it; 0 the user area's or edited (all
                                          * editable) */
 int ins_kind(uint8_t cart);             /* REC_DX7 .. REC_CART_LAST, 0 none */

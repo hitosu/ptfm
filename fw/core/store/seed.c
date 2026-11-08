@@ -28,11 +28,12 @@
 enum { C_HELLO = 0x01, C_LAYOUT = 0x02, C_READ = 0x03, C_DATA = 0x04, C_BEGIN = 0x10, C_CHUNK = 0x11,
        C_BLOCK = 0x12, C_END = 0x13, C_ABORT = 0x1F, C_ACK = 0x20 };
 
-/* the (kind, version) pairs this firmware reads (specs/files/store.md#a-record) */
+/* the (kind, version) pairs this firmware reads (specs/files/store.md#a-record): the new form only, samplers of
+ * instruments and samples of their own; not the old form (a sampler of version 1, kind 0x10's audio) */
 static const uint8_t ACCEPTS[][2] = {
-    { REC_DX7, 1 }, { REC_JUNO, 1 }, { REC_TB303, 1 }, { REC_SAMPLER, 1 }, { REC_FUSION, 1 }, { REC_CHIP, 1 },
-    { REC_AUDIO, 1 }, { REC_PATTERN, 1 }, { REC_SONG, 1 }, { REC_LOOPS, 4 }, { REC_DJ, 1 },
-    { REC_SETTINGS, 1 }, { REC_MIDIMAP, 1 }
+    { REC_DX7, 1 }, { REC_JUNO, 1 }, { REC_TB303, 1 }, { REC_SAMPLER, REC_SAMPLER_VER }, { REC_FUSION, 1 }, { REC_CHIP, 1 },
+    { REC_SAMPLE, 1 }, { REC_PATTERN, 1 }, { REC_SONG, 1 }, { REC_LOOPS, 4 }, { REC_DJ, 1 },
+    { REC_SETTINGS, 1 }, { REC_MIDIMAP, 1 }, { REC_FAV, 1 }
 };
 #define NACCEPT ((int)(sizeof ACCEPTS / sizeof ACCEPTS[0]))
 
@@ -128,15 +129,23 @@ static void Ereg(uint32_t s, uint32_t e, int area, int in_place) { E32(s); E32(e
 static uint32_t layout(uint8_t *dst, uint32_t lo, uint32_t hi)
 {
     ly_dst = dst; ly_pos = 0; ly_lo = lo; ly_hi = hi;
+#ifdef PTFM_DEBUG
+    int nreg = 3;                                       /* the user area's, and the debug part's (area 2: never planned) */
+#else
     int nreg = 2;                                       /* the user area's (FWS is never written) */
+#endif
     int nrec = store_count();
-    E8('P'); E8('T'); E8('L'); E8('Y'); E8(LAYOUT_VER); E8(PROTOCOL); E16(0);
+    E8('P'); E8('T'); E8('L'); E8('Y'); E8(LAYOUT_VER); E8(PROTOCOL); E16(STORE_MAP_MAX);   /* (the records the store
+                                                         * can list: a plan keeps within it) */
     E32(0); E32(plat_fw_end()); E16(MSG_DATA); E16(STORE_RESERVE);
     E8((uint32_t)nreg); E8(NACCEPT); E16((uint32_t)store_builtin_count());
     E32(store_last_save()); E32((uint32_t)nrec);
     E8(store_edit_count() || (unsaved && unsaved()) ? 1 : 0); E8(0); E16(0);
     Ereg(STORE_U1_START, STORE_U1_END, 0, 1);
     Ereg(STORE_U2_START, STORE_U2_END, 0, 1);
+#ifdef PTFM_DEBUG
+    Ereg(STORE_DBG_START, STORE_DBG_END, 2, 1);
+#endif
     for (int i = 0; i < NACCEPT; i++) { E8(ACCEPTS[i][0]); E8(ACCEPTS[i][1]); }
     for (int i = 0; i < store_builtin_count(); i++) {       /* (the firmware's own extras too: the EDITOR's pattern) */
         const builtin_rec_t *b = store_builtin_at(i);
@@ -176,6 +185,9 @@ static void finish(uint8_t cmd)
     uint8_t ex[8];
     store_lock(0);
     store_mount();                                      /* (it uses the scratch: nothing of ours is left there) */
+#ifdef PTFM_DEBUG
+    plat_dbg_part_recheck();                            /* (the debug part may have been written) */
+#endif
     /* the player told before it runs again (the audio is silent while active): nothing it held is valid */
     player_all_sound_off();
     player_store_changed();
@@ -214,7 +226,14 @@ static int in_user(uint32_t a, uint32_t n)      /* within a region the layout re
     return (a >= STORE_U1_START && a + n <= STORE_U1_END && a + n >= a) ||
            (a >= STORE_U2_START && a + n <= STORE_U2_END && a + n >= a);
 }
+#ifdef PTFM_DEBUG                                /* (and the debug part's blocks, which the debug page writes) */
+static int block_ok(uint32_t b)
+{
+    return b <= 0xFF && (in_user(b << 12, STORE_BLOCK) || ((b << 12) >= STORE_DBG_START && (b << 12) < STORE_DBG_END));
+}
+#else
 static int block_ok(uint32_t b) { return b <= 0xFF && in_user(b << 12, STORE_BLOCK); }
+#endif
 
 static int open_block(uint32_t b)               /* a block's first chunk: erased unless it is */
 {
@@ -278,6 +297,9 @@ static void command(uint8_t cmd, const uint8_t *in, uint32_t len)
         if (g32(in) != store_last_save() + 1) { info.result = SEED_CHANGED; ack(cmd, 0, SEED_CHANGED, 0, 0); return; }
         lay_sending = 0;
         player_all_sound_off();                         /* (the audio goes silent with active: its voices let go) */
+#ifdef PTFM_DEBUG
+        plat_dbg_part_stop();                           /* (its blocks may be written: nothing runs it till finish) */
+#endif
         active = 1;
         store_lock(1);
         blocks_total = (uint16_t)g16(in + 4);

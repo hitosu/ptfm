@@ -56,14 +56,13 @@ HOOKS = (
     ("PLAT_FAR: DJ's decks' own effects and their DJ FILTERs, on core 1 with the effects' code in core 2's room",
      ["fx_strip_lr", "fx_djfilter", "fx_djfilter_rest"], ["pl_audio_a", "pl_dj_mix"]),
     ("core 2's queue: the jobs its loop runs, each handed over by fm1_cpu1_post (a block's job or its voice job,"
-     " plat_c2_post's; the debug build's PROVE 4 and 6 in its place)", ["pl_c2_job", "pl_v2_job", "fm1_c1_prove_job"],
-     ["fm1_c1_loop"]),
+     " plat_c2_post's)", ["pl_c2_job", "pl_v2_job"], ["fm1_c1_loop"]),
     ("core 2's park: a fault on core 2 waits there, in its room, out of a call's reach (fm1_irq.h)", ["fm1_c1_park"],
      ["fm1_fault_c"]),
 )
 
 # hook targets only the debug build has: not reported missing from the others
-DEBUG_ONLY = {"fm1_c1_prove_job"}
+DEBUG_ONLY = set()
 
 # the one job core 2's loop runs from the image, not its room (specs/second-core.md, Core 2 and the flash): the voice
 # job, which runs the engines and reads the voices' data from the flash; every flash operation waits for core 2 idle

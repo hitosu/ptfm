@@ -14,14 +14,37 @@ on any PT/FM firmware.
   ([layout.md](layout.md#the-built-files-dist-committed)). Its version is `fw/VERSION`'s number, its own
   build time (month, day, hour, minute) and ` DEBUG`, so each debug build is told apart.
 - **Package identity `FM-1_7102`**, so the FM-1 says which one it runs; on USB it is "FM-1 PT/FM" as
-  the release. Its update loader, rescue, store and seeding are the release's: the release's page installs
-  over it and back, the library staying; the debug page's own install is clean at first ([the
-  page](#the-page)) and leaves an empty user area (UPLOAD DEMO DISK then writes the demo disk).
+  the release. Its start check, update loader, store and seeding are the release's (its user area ends lower: [the
+  debug part](#the-debug-part) lies above it): the release's page installs over it and back, the library staying
+  (what lies above 0x0F7000 too); the debug page's own install is clean at first ([the page](#the-page)), writes
+  the debug part and leaves an empty user area (UPLOAD DEMO DISK then writes the demo disk).
 - **What it holds more:** probes around each stage of the sound (two reads of the microsecond clock each,
   summed in RAM), the main loop's and the screen's times, the stacks painted at power-on to find how deep
-  they went, the answer to the page, [the bench](#the-bench) and [the USB test tone](#the-usb-test-tone).
-  Built with `PTFM_DEBUG` defined; the
-  release compiles none of it. Its RAM: about a kilobyte more; it keeps 7 KB spare, not 8.
+  they went, the answer to the page, [the USB test tone](#the-usb-test-tone) and [the layout's
+  proofs](#proving-the-layout). It reports; it does not measure by itself: what an engine or an effect costs comes
+  from the [autotests](#autotests)' live figures. Built with `PTFM_DEBUG` defined; the release compiles none of it. Its RAM: about a kilobyte more; it keeps 7 KB spare, not 8.
+- **Its slot is the release's and the probes:** the rest of what it holds more is [the debug part](#the-debug-part),
+  out of the slot.
+
+## The debug part
+
+The debug build's cold code (the answers to the page, FIGURES and RECORDS put together, the layout's proofs and
+their screens, FREEZE's and the frames' counting, the stacks painted at the start and the main loop's passes timed)
+is linked apart, at the flash's 0x0F7000 (in place over the user area's window), and written there by the debug page
+as INSTALL DEBUG FIRMWARE's last step, once the firmware's install has ended well: no key of its own (pressed again,
+the install skips the firmware already in and writes the part). The sound's probes
+stay in the slot: they run inside each block.
+
+- **Its room:** 32 KB, 0x0F7000 - 0x0FF000, above the debug build's user area, which ends at 0x0F7000 (380 KB):
+  nothing the store saves or the page uploads goes there. The FM-1 reports it in its layout as a region of its own,
+  which seeding never plans into; the page writes its blocks with seeding's messages.
+- **Its head,** 32 B: `PTDP`, the build it belongs to (the image's CRC-32, as the firmware's mark carries it), its
+  length, its CRC-32. At every start, and after every seeding, the firmware checks all of it; only then does
+  anything call into it. A part missing or of another build: the firmware runs as the release does, it answers
+  no FIGURES, RECORDS or PROVE, and STATE's flags say so (64 off); the page then says to write it.
+- **A crash inside it** (the crash record's address in its range) leaves it off at the next starts, until the page
+  writes it again.
+- **The release** treats those blocks as any free ones of its user area.
 
 ## The figures
 
@@ -100,21 +123,19 @@ VOICES, the effects switched on), the screen, and the firmware's version; USB au
 
 ## Asking: SysEx
 
-PT/FM's messages, `F0 7D 50 54 cmd ... F7` ([files/blob.md](files/blob.md#seeding)), seven commands more:
+PT/FM's messages, `F0 7D 50 54 cmd ... F7` ([files/blob.md](files/blob.md#seeding)), six commands more:
 
 | cmd | Direction | Contents |
 |---|---|---|
 | 30 FIGURES? | page → device | one byte, 7 bits: bit 0 the worst figures start afresh (only the page keeps them: it drops its own), bit 1 FREEZE THE SCREEN on, bit 2 off |
 | 31 FIGURES | device → page | the window, 7-bit packed as seeding's (7 bytes in 8): the bytes below |
 | 37 FIGURES 2 | device → page | core 2's window, sent right after each 31, packed as 31: [its bytes](#core-2s-bytes) |
-| 38 SECOND CORE | page → device | one byte: 0 core 2 off (as SETTINGS' SECOND CORE OFF, the setting itself untouched and nothing saved) until a 38 with 1 or any restart; 1 back to what SETTINGS says |
-| 32 BENCH | page → device | one byte: 1 run the bench, 0 stop it ([the bench](#the-bench)) |
-| 33 BENCH RECORD | device → page | a piece of the bench done, packed as 31: [its bytes](#a-records-bytes) |
 | 34 USB TONE | page → device | one byte: 1 the USB test tone on, 0 off ([below](#the-usb-test-tone)) |
-| 35 PROVE | page → device | one byte: 0 the records, 1 the watchdog test, 2 the main loop's stack's overflow, 3 the interrupts', 4-6 core 2's fault, misread, stuck ([below](#proving-the-layout)) |
+| 35 PROVE | page → device | one byte: 0 the records, 1 the watchdog test, 2 the main loop's stack's overflow, 3 the interrupts' ([below](#proving-the-layout)) |
 | 36 RECORDS | device → page | what was kept across the last restart, packed as 31: [its bytes](#proving-the-layout) |
 
-Only the debug build answers 30, 32, 34, 35 and 38; the release ignores them, as every unknown command. The state
+Only the debug build answers 30, 34 and 35; the release ignores them, as every unknown command, and the debug
+build every other (32, 33 and 38 among them, kept unused). The state
 (40, 41) and MIRROR (43) are every build's ([connections.md](connections.md#mirror-the-panel-from-a-page)).
 
 **FIGURES' bytes** (version 11; little-endian; `u16` and `u32` unsigned; *n* stages, 29; *p* = 18 + 6*n*,
@@ -147,7 +168,7 @@ Only the debug build answers 30, 32, 34, 35 and 38; the release ignores them, as
 | *p* + 46 | u8, u8, u8 | the song; DJ's left deck's, right deck's (`FF` none) |
 | *p* + 49 | u8 | VOICES, the limit in force: 8, 12 or 16 (SETTINGS' 16 is 12 while core 2 does not run) |
 | *p* + 50 | u16 | the tempo now, BPM × 10 |
-| *p* + 52 | u16 | the effects on and working now, a bit each by their numbers ([ui/screens/fx.md](ui/screens/fx.md)) |
+| *p* + 52 | u16 | the effects that worked in the last whole block, a bit each by their numbers ([ui/screens/fx.md](ui/screens/fx.md)) |
 | *p* + 54 | 10 | the screen's name, ASCII, NUL-padded |
 | *p* + 64 | 24 | the firmware's version, ASCII, NUL-padded |
 | *p* + 88 | 8 + 2*n* | [the worst half](#a-worst-halfs-bytes) |
@@ -171,7 +192,7 @@ a page reads only its own version.
 | 1 | u8 | the window's number, as 31's byte 17 |
 | 2 | u8 | core 2's state: 0 not started yet (`STARTING`), 1 running (`ON`), 2 off (`OFF`), 3 stopped |
 | 3 | u8 | why it stopped: 0 not stopped, 1 no answer, 2 a misread, 3 stuck, 4 a fault, 5 after a crash |
-| 4 | u8 | bit 0 SETTINGS' SECOND CORE on; bit 1 off by 38; bit 2 its start needed the clock-divider bit (always 0 now: the start has one try, without it); bit 3 the blocks went to core 2 for the whole window |
+| 4 | u8 | bit 0 SETTINGS' SECOND CORE on; bit 1 spare (0); bit 2 its start needed the clock-divider bit (always 0 now: the start has one try, without it); bit 3 the blocks went to core 2 for the whole window |
 | 5 | u8 | spare |
 | 6 | u16 | its answer at the start, in 10 ns (41: 0.41 µs; 0 not started) |
 | 8 | u32 | its blocks' time summed, µs |
@@ -225,7 +246,7 @@ In every FIGURES, whatever plays (the page uses them when DJ played):
 
 ### A worst half's bytes
 
-In FIGURES and in a bench step's record:
+In FIGURES:
 
 | Offset | Size | What |
 |---|---|---|
@@ -242,60 +263,6 @@ screen's drawing costs the sound, through the code cache the two share. A power 
 starts at once; the thaw after the answer to the request that asks for it, so a window is frozen or not
 from its start to its end (the first window of a freeze counts as not frozen).
 
-## The bench
-
-On the page's 32 BENCH the FM-1 measures by itself for well under a minute, a piece at a time in the main
-loop, and sends each piece's result as a record (33). It measures only what needs the firmware's insides:
-what the chip itself costs, and what each engine and effect costs alone and whether the code cache slows
-it. The sound running (songs, the keys' voices, effects, DJ) is the [autotests](#autotests)' to measure,
-through the panel; the bench's steps that did it are gone (since 2026-10-13). The page runs it as the
-autotests' CHIP scenario.
-
-**Before:** what plays stops, the keys and every voice are let go, every effect is off (so the effects'
-state is the bench's alone). It refuses while ARP is on, while the flash is written, or while DJ is on,
-saying so in its END. **After** (done, or STOP): the sound off, the effects as they were; what played does
-not start again. The screen shows each piece in its header; nothing must be touched meanwhile.
-
-**The pieces, in order:**
-
-1. **THE CORE:** the platform's own, each run 1 + 8 times with the interrupts off, timed by the 24 MHz
-   timer (on the FM-1: an empty loop; eight adds in a loop; a 32-bit multiply; the engines' 64-bit multiply
-   and shift; a 64-bit multiply-accumulate with its code in the flash, the same code in RAM, and with its
-   code's cache lines dropped first; a 32-bit divide; RAM loads and stores; memset and memcpy, and memcpy of 48
-   bytes with its two ends aligned alike (a word at a time) and not (a byte at a time: MEMCPY 48 B, ODD); flash words
-   through the code cache warm, after their lines were dropped, and 32 and 64 bytes apart (a cache line
-   each); USB audio's resampler: an output frame as the stream makes it and as a loop of four
-   multiply-accumulates a tap, the whole 64-frame block at 44.1 kHz (warm, and with its code's cache lines
-   dropped) and at 48 kHz, set up for the measurement and the stream put back as it was; the
-   [USB test tone](#the-usb-test-tone)'s 64 frames; the whole cache emptied).
-2. **ALONE:** a voice of each engine, outside the pool (three DX7 voices of different algorithms, a
-   Juno-106 patch for each of its render's paths, the TB-303, the first looped instrument of any sampler
-   (else the one with the longest sample) at its base note and an octave up), the Juno-106's noise generator
-   (one block for all its voices: JUNO NOISE), then each effect (REVERB, DELAY, CHORUS, FILTER, DRIVE, LO-FI, GATE,
-   LIMITER, the punch-ins' buffer, a DJ FILTER on two channels and on one), and the settings a block keeps for
-   its effects, taken and put back as [a half's blocks](#a-halfs-blocks) have them (SETTINGS, GET + PUT), a 64-frame block at a time
-   with the interrupts off: three blocks not timed (a note's attack, a filter's first glide), one with the
-   code cache emptied first (**cold**), then eight (**warm**).
-
-### A record's bytes
-
-Version 5 (version 1: no worst half; version 2: 22 stages; version 3: 24; version 4: 25); little-endian. Every
-record starts so:
-
-| Offset | Size | What |
-|---|---|---|
-| 0 | u8 | the version: 5 |
-| 1 | u8 | its kind: 0 START, 1 CORE, 2 ALONE, 4 END (3 STEP and 5 NEXT were the steps', gone) |
-| 2 | u16 | the piece's number, from 1 (START 0; END the number of pieces) |
-| 4 | u16 | the pieces in all |
-| 6 | 20 | its name, ASCII, NUL-padded |
-
-| Kind | Offset | What |
-|---|---|---|
-| START | 26 | the firmware's version, 24 B; 50: u8 VOICES before; 52: u32 time since power-on, ms (56 B) |
-| CORE, ALONE | 26 | u8 what an op is: 0 a turn or an op (cycles), 1 a byte, 2 a call, 3 a 64-frame block; 27: u8 the runs after the first; 28: u32 ops a run; 32: u32 the first run, ticks (ALONE: the cold one); 36, 40, 44: u32 the runs after it, least, most, summed (48 B; ticks of the 24 MHz timer). An ALONE with no runs had no sound (its audio not there) |
-| END | 26 | u8 why: 0 done, 1 stopped, 2 refused: ARP on, 3 refused: the flash busy, 4 refused: DJ on; 28: u32 its time, ms (32 B) |
-
 ## The USB test tone
 
 **34 USB TONE** with 1: USB audio carries a test tone instead of the mix, a sine of 997 Hz on the left and
@@ -310,31 +277,21 @@ sine lookups a frame), so with it on USB AUDIO reads that much over the stream's
 
 The RAM's layout ([files/ram.md](files/ram.md#the-layout)) is proved on the FM-1 by the debug build before it is
 trusted: its guards are tried on purpose, and what each restart kept is read back. **35 PROVE** asks, the page's
-**RESTARTS** keys (one press: its key counts down 3 s, `RESTART IN 3: PRESS TO CALL OFF` or `STOP CORE 2 IN 3`, then
-the test goes; a press during it calls it off: each restarts the FM-1 or stops core 2):
+**RESTARTS** keys (one press: its key counts down 3 s, `RESTART IN 3: PRESS TO CALL OFF`, then the test goes; a
+press during it calls it off: each restarts the FM-1):
 
 | Key | PROVE | What it does |
 |---|---|---|
 | RECORDS | 0 | answers 36 RECORDS (the page asks by itself at every CONNECT, so after a restart CONNECT is enough) |
-| WATCHDOG | 1 | the main loop stops feeding the watchdog. First a crash record of the test's own is written and the boot guard set as for a start not yet healthy, so each restart counts as a failed start. About 8 s later the watchdog restarts the FM-1; that start shows what it found (the crash record kept or lost, the boot guard's count, 1 expected, the watchdog as the reason, the band) for 5 s, then stops feeding again: the second restart must end in **USB RESCUE**. Install again from there (or switch off and on); RECORDS then lists the first restart's findings |
-| MAIN STACK | 2 | the main loop calls deeper and deeper until its stack runs past its bottom: the crash screen must say `STACK: MAIN LOOP`; after the restart, RECORDS shows the crash record saying so |
+| WATCHDOG | 1 | the main loop stops feeding the watchdog. First a crash record of the test's own is written and the boot guard set as for a start not yet healthy, so each restart counts as a failed start. About 8 s later the watchdog restarts the FM-1; that start shows what it found (the crash record kept or lost, the boot guard's count, 1 expected, the watchdog as the reason, the band) for 5 s, then stops feeding again: the second restart must end in **update mode** (the boot guard asks the start check, which starts the update loader kept: `UPDATE MODE`, `PT/FM DID NOT START`). Install again from there (or switch off and on); RECORDS then lists the first restart's findings |
+| MAIN STACK | 2 | the main loop calls deeper and deeper until its stack runs past its bottom: the crash screen must say `STACK: MAIN LOOP` (it stays until a button is pressed: [hardware.md](hardware.md#updates-and-rescue)); after the restart, RECORDS shows the crash record saying so |
 | INTERRUPTS' STACK | 3 | the same in the audio interrupt: `STACK: INTERRUPTS` |
-| CORE 2 FAULT | 4 | core 2's next block faults on purpose (its own stack limit tripped: a fault of core 2's own EMU bank, which the chip takes on core 2, as the FM-1 showed; a bus error would be flagged in the debug unit both cores share and taken on core 1): core 2 keeps its fault record and parks, core 1 falls back at the next half (`STOPPED: FAULT`), the sound goes on; no restart. 37's last bytes show the record |
-| CORE 2 MISREAD | 5 | the next block's entry is handed over with a wrong check word: core 2 refuses it, core 1 falls back (`STOPPED: MISREAD`); no restart |
-| CORE 2 STUCK | 6 | core 2's next block never ends (it spins): core 1 falls back at the next half, 1 ms into its wait (`STOPPED: STUCK`); no restart |
 
-PROVE 4-6 take the next job handed over: with more than 10 notes sounding at VOICES 16 that is a block's voice job,
-handed over before the block's effects, so held keys past 10 try the fallback during a voice job (that block's
-core-2 voices unheard, then parked, or let go if core 2 had started on them, the sound going on:
-[second-core.md](second-core.md#the-voices-on-core-2)).
-
-PROVE 4-6 need core 2 running and the next half handing it blocks (else they do nothing, and the page says so: at
-once when 37 shows core 2 not running, or when a CUT, SECOND CORE off or a 38 kept the half on core 1); after one,
-core 2 stays off until the next
-start ([second-core.md](second-core.md#start-switch-fallback)). **PROVE 2-3 with core 2 running** end in a crash
-that core 2 was running at, so the starts after it keep core 2 off (`STOPPED: AFTER A CRASH`) until the power goes
-off, by design: run PROVE 4-6 first, or switch off and on after 2-3. PROVE 1's watchdog restarts are the test's own
-and leave core 2 free to start.
+Core 2's fallbacks (a fault, a misread, stuck: [second-core.md](second-core.md#start-switch-fallback)) were each tried
+on the FM-1 on purpose and held; the debug build no longer carries those tests. **PROVE 2-3 with core 2 running** end
+in a crash that core 2 was running at, so the starts after it keep core 2 off (`STOPPED: AFTER A CRASH`) until the
+power goes off, by design: switch off and on after 2-3. PROVE 1's watchdog restarts are the test's own and leave
+core 2 free to start.
 
 - **The band:** the 256 B at 0x01C07F00 hold the effects' lines, so they cannot be patterned while PT/FM runs.
   Before every restart the debug build makes itself (a crash's, the watchdog test's), with the sound stopped, it
@@ -343,11 +300,11 @@ and leave core 2 free to start.
 - **What to see in a full AUTOTEST:** no crash, no false alarm of the stack check; RECORDS' stack windows "one for
   each stack".
 
-**36 RECORDS' bytes** (version 3; device → page, packed as 31; little-endian):
+**36 RECORDS' bytes** (version 4; device → page, packed as 31; little-endian):
 
 | Offset | Size | What |
 |---|---|---|
-| 0 | u8 | the version: 3 |
+| 0 | u8 | the version: 4 |
 | 1 | u8 | the stack windows armed: 2 one for each stack, 1 one over both (the pointers were not where the start put them) |
 | 2 | u8 | PROVE's test last under way: 0 none, 1 the watchdog's first restart, 2 its second, 3 the main loop's stack, 4 the interrupts' |
 | 3 | u8 | 1: the band was checked at this start (patterned before the restart) |
@@ -362,9 +319,19 @@ and leave core 2 free to start.
 | 20 | 72 | the crash record as kept: 18 words (its mark, the crashes counted, the vector, PC, RETS, EMU, DBG, SP, PSR, ICFG, the time up in ms, four branches traced, the crashes early in a row, the stack overflowed: 0 none, 1 the main loop's, 2 the interrupts'; core 2 running at the crash: 1, else 0) |
 | 92 | 4 × u32 | the stacks' ends: the main loop's bottom and top, the interrupts' |
 | 108 | 3 × u32 | the stack pointers the start's check read when it armed the windows (byte 1): `usp`, `ssp`, and `sp` (the one in use then); RECORDS says which of the two `sp` was |
-| 120 | | the end |
+| 120 | u8 | the start check's last decision ([hardware.md](hardware.md#updates-and-rescue)): 1 the firmware, 2 the update loader, 3 the chip's own USB mode |
+| 121 | u8 | its reasons: bit 0 OCT- held, 1 the firmware asked, 2 no mark, 3 the firmware not its mark's, 4 no update loader kept, 5 the loader started once already |
+| 122 | u8 | the update loader's starts since the firmware last started from the start check |
+| 123 | u8 | the debug part in (1) |
+| 124 | u32 | the start check's CRC-32 of the firmware, µs (0: not read) |
+| 128 | u16 | the starts since the power-on |
+| 130 | u8 | the chip's reset reasons as the start check read them (as byte 6) |
+| 131 | u8 | 0 |
+| 132 | u8 | the staging at this start: 1 PT/FM's loader kept, 0 none (anything else erased), 255 not read |
+| 133 | 3 | 0 |
+| 136 | | the end |
 
-Version 1 had a crash record of 17 words (no core 2) and ended at 104; version 2 ended at 108.
+Version 1 had a crash record of 17 words (no core 2) and ended at 104; version 2 ended at 108; version 3 at 120.
 
 ## The page
 
@@ -411,7 +378,11 @@ Its parts:
    counts down 3 s on the key (`CLEARING IN 3`, the key blinking as a question; its line says a press calls it
    off), a press in them calls it off, as does pressing another key or switching CLEAN INSTALL; an autotest's run
    holds it. With edits not saved the FM-1 refuses (REVERT them or SAVE first) and nothing is erased; a SAVE on
-   the FM-1 between its layout and the erasing plans again. **The key pressed tells what it does:** while it
+   the FM-1 between its layout and the erasing plans again. **INSTALL DEBUG FIRMWARE** ends by writing [the debug
+   part](#the-debug-part) built with the page's firmware, once the install has ended well, on its own key
+   (`INSTALLING 40%`, `Installing the debug part: block 3 of 8.`, then `Done: the FM-1 runs PT/FM's debug build, its
+   debug part in: ...`); when it fails, its words say why and to press INSTALL DEBUG FIRMWARE again, which skips the
+   firmware already in and writes the part. **The key pressed tells what it does:** while it
    works its name becomes `INSTALLING 42%` (or `UPLOADING`, `CLEARING`), the share as a green fill, and its second
    line the install's words, the last of them staying until another key is pressed or CLEAN INSTALL switched: red
    when it failed; green when done, and then gone after 10 s (the key's own line back, the footer's line and bar
@@ -502,7 +473,7 @@ real sound, scenario after scenario, unattended. These are **stress tests**; UI 
 
 - **On any PT/FM firmware with MIRROR:** CONNECT is all they need. On a firmware other than the debug build
   they run the same, checking the state at every step; FIGURES are left out of the report, and the
-  scenarios that need the debug build (CHIP, FILES' USB TONE) are skipped and say so, and AUDIO OUT's
+  scenarios that need the debug build (IDLE, THE SCREEN STILL; FILES' USB TONE) are skipped and say so, and AUDIO OUT's
   debug part (the tone, the check of USB audio in the figures) is left out. A firmware that does not
   answer the state gets no autotest (the page says so).
 - **MIRROR is the page's while it runs:** the hello at RUN, and again whenever the state says MIRROR is off
@@ -538,8 +509,8 @@ real sound, scenario after scenario, unattended. These are **stress tests**; UI 
   SAVE alone). Under RUN, small and dim: `AUTOTESTS DROP UNSAVED CHANGES: SAVE YOUR WORK FIRST`, and
   `HANDS OFF THE FM-1 WHILE IT RUNS` (its own panel stays live); no question.
 - **They never save:** SAVE never tapped, SAVE + OCT+ never pressed, a question's yes only to REVERT's. Nor do
-  they run what writes the flash outside the edits (a sampler's CLONE or MOVE, seeding), which REVERT
-  could not take back. Everything else
+  they run what writes the flash outside the edits (a reference update, seeding), which REVERT could not take
+  back. Everything else
   is theirs, as a hand's: screens, the transport, the keys, FX knobs, DJ's stand, the tools that only change
   edits.
 
@@ -554,8 +525,8 @@ real sound, scenario after scenario, unattended. These are **stress tests**; UI 
   **RUN** runs the ticked ones in
   order, those taking the FM-1's input first (AUDIO OUT, FILES'): the browser's prompt for the input comes at
   once, while the hand that pressed RUN is still at the page (a browser keeps a once-only answer only minutes
-  while the page is out of sight and not using the input), **STOP** stops at once: every wait looks at it at least every 0.2 s, a measured stretch, a prompt
-  and the bench included.
+  while the page is out of sight and not using the input), **STOP** stops at once: every wait looks at it at least every 0.2 s, a measured stretch and a prompt
+  included.
 - **A run holds LISTEN,** its switch locked from RUN to the run's end: off and the FM-1's input let go at
   RUN and at every scenario's start (the FM-1 then sends no USB audio, which costs it, while they are
   measured), on for the scenarios that take the input (AUDIO OUT, FILES': heard on the computer while they
@@ -574,8 +545,8 @@ real sound, scenario after scenario, unattended. These are **stress tests**; UI 
   compressed): its report (`report.txt`) and the WAVs recorded, numbered in the run's order
   (`01-songs-idle.wav`); a run without audio gives the report alone.
 - **While it runs:** the scenario and its step, the checks so far, and two counters. On the running
-  scenario, its test: `SETTING UP` while the FM-1 is set up for it, then from its first measured stretch (or
-  the bench) `00:42/02:00`, the test's time so far and what it takes. In the AUTOTEST column's head the run's,
+  scenario, its test: `SETTING UP` while the FM-1 is set up for it, then from its first measured stretch
+  `00:42/02:00`, the test's time so far and what it takes. In the AUTOTEST column's head the run's,
   whole scenarios (what is left counted as it is expected to take). What a scenario or its test takes is its
   time in the last run on this browser it passed in, else its own estimate; a kept time goes when the
   scenario's own estimate has changed since (a scenario made shorter or longer). **A prompt** (a scenario asking
@@ -598,7 +569,7 @@ A list of steps, with checks between them.
   REC), REVERT; then the screen of its own choosing.
 - **A song is started from silence:** all sound off right before its PLAY, so what played before (released
   notes, the effects' tails) never rings into it, nor into what is measured (the twelve loops one after
-  another, the DJ stand then MIDNIGHT RUN). The bench starts from silence too.
+  another, the DJ stand then MIDNIGHT RUN).
 - **Input:** a tap (held 60 ms), a hold (for a time, or past the state's HOLD DELAY), a combination (one
   control held while others go: the held one first and 60 ms between each press and release, as a hand's,
   since what arrives within one main loop pass is seen at once), keys held and let go, knob clicks (50 ms
@@ -636,7 +607,7 @@ A list of steps, with checks between them.
 
 ### The scenarios
 
-Times are what each measures; those ticked at first take about 20 minutes.
+Times are what each measures; those ticked at first take about 25 minutes.
 
 | Group | Scenario | What |
 |---|---|---|
@@ -645,7 +616,7 @@ Times are what each measures; those ticked at first take about 20 minutes.
 | | IDLE AFTER A SONG | PUNCH IN from position 02 for 10 s, paused, 5 s on, then 10 s measured: its DELAY and REVERB at rest ([ui/screens/fx.md](ui/screens/fx.md#effects-at-rest)), so the CPU is IDLE's |
 | | each demo song | PUNCH IN, SPICE ROAD, MIDNIGHT RUN, CITY LIGHTS, ACID TEST, ADVENTURE, each from its heaviest stretch (*(proposed)* for now position 02 for PUNCH IN, 03 for the others), 20 s (a pattern change: 8 bars take 13-20 s at their tempos) |
 | | each DJ loop | the twelve, a scenario each: from its last position (ALGORITHM turned up till it moves no more), usually a loop's heaviest, 20 s (a pass of an 8-bar pattern at 96 BPM or more) |
-| KEYS | each engine | one start for every engine, whatever the scenario before left: WORLD LOOP played a moment from its start, paused and all sound off, so the keys sound through its effects, DELAY and REVERB (checked at work with the first keys down), as the KEYS runs measured before; VOICES 16; 1, 4, 8, 12 and 16 keys held (past 10 on core 2) on a DX7, a Juno-106 resonant and one plain, and a sampler whose instrument loops (03:08, so it sounds all the time it is held; the user area's, skipped if it is not there); the TB-303 one key on the keys (they play it as one voice, legato: more keys add nothing), then 4, 8 and 12 TB-303 voices as loops on LOOPS (a voice a lane): the loops cleared (SEL's CLEAR LOOPS), then POLY loops of 4 lanes recorded on `+ NEW LOOP`, one for each four voices, chords of four tapped on every row of a bar (a 303 line in sixteenths, QUANTIZE `ROW`), the first take starting the loops (then LOOPS' DELAY and REVERB switched on, as the keys had them, and checked at work back on LOOPS: not at first, noted with what played, the screen and the effects at work, and how long they took; not within a second, the scenario fails with the same), the others armed while the loops play; on a lane a 303's gate closes half a row after its note, so each voice sounds about half of every row and a row's start has them all; 5 s each |
+| KEYS | each engine | one start for every engine, whatever the scenario before left: WORLD LOOP played a moment from its start, paused and all sound off, so the keys sound through its effects, DELAY and REVERB (checked at work with the first keys down), as the KEYS runs measured before; VOICES 16; 1, 4, 8, 12 and 16 keys held (past 10 on core 2) on a DX7, a Juno-106 resonant and one plain, and a sampler whose instrument loops (03:08, so it sounds all the time it is held; the user area's, skipped if it is not there); the TB-303 one key on the keys (they play it as one voice, legato: more keys add nothing), then 4, 8 and 12 TB-303 voices as loops on LOOPS (a voice a lane): the loops cleared (SEL's CLEAR LOOPS), the length 1 BAR (GLO's LENGTH), the keys POLY (SEQ held + POLY), then POLY loops of 4 lanes, one for each four voices, each a cycle of chords of four tapped onto the stage on every row of the bar (a 303 line in sixteenths, QUANTIZE `ROW`) and sent by REC on `+ NEW LOOP`, the first started by its first chord (REC armed with the stage empty; then LOOPS' DELAY and REVERB switched on, as the keys had them, and checked at work back on LOOPS: not at first, noted with what played, the screen and the effects at work, and how long they took; not within a second, the scenario fails with the same), the others overdubbed while the loops play; on a lane a 303's gate closes half a row after its note, so each voice sounds about half of every row and a row's start has them all; 5 s each |
 | EFFECTS | a song with effects | a heavy song with CHORUS, DELAY and REVERB on, their knobs swept on FX LIVE (three times), 30 s |
 | | the punch-ins | punch-ins held one after another over it |
 | | METRONOME and COUNT-IN | a song with the METRONOME on, started through a COUNT-IN |
@@ -654,21 +625,17 @@ Times are what each measures; those ticked at first take about 20 minutes.
 | | DJ effects and punch-ins | the stand with DJ's CHORUS on too (DELAY and REVERB already), each white key's punch-in held 2 s over it, 32 s |
 | | DJ two tempos | TRANCE LOOP and DISCO LOOP, SYNC off, the crossfader in the middle, no DJ FILTER and no LFO, DJ's DELAY and REVERB on (its CHORUS off), each deck's tempo turned on its own (K1 the left's, K4 the right's, up and down by turns), so the decks are never in step, 30 s; both still playing at the end, each at its own tempo |
 | | DJ heavy | two demo songs mixed, the heaviest pair: PUNCH IN on the left, MIDNIGHT RUN on the right, SYNC on, the crossfader in the middle, no DJ FILTER and no LFO, DJ's DELAY and REVERB on (its CHORUS off), VOICES 16 (the notes past 10 on core 2), 30 s; both still playing at the end |
-| LOOPS | the loop station | VOICES 12; the loops cleared (SEL's CLEAR LOOPS), then twelve loops recorded from the keys: the first armed by REC on `+ NEW LOOP`, started by a note and closed by REC on its bar line (a bar), each next one REC on `+ NEW LOOP` while the loops play (armed, its take from the loops' start), a note held over its pass; JUNO-106 sounds for the first six, DX7's for the rest (each the next with PRESETS); all twelve playing, 20 s |
-| | a beat | VOICES 12; the loops cleared, then a beat as a hand builds one, every step checked through LOOPS' cursor in the state: the first loop from the pattern recorder (ARP; a kit, a drum a row: KICK, SNARE, HAT, HAT OPEN; TIMES ×1; REC writes it, a bar, the loops starting); a TB-303 bass line taken on `+ NEW LOOP` (MONO, REC armed while the loops play); a chord of four on EL PIANO (POLY, 4 lanes); 20 s measured; a re-record (EDIT on the bass's loop: its notes gone at once, a new line taken); a peel (LFO on `+ NEW LOOP`: the last loop, the pad's, goes); CONTROL mode (SEQ): white key 1 tapped (loop 00 muted at once), white key 2 held (loop 01's mute waiting for the bar line, then muted), GLO's black key to SOLO, white key 1 (loop 00 soloed), PIT (all back on); 10 s measured, the loops playing on |
-| ONE CORE | IDLE, ONE CORE | IDLE with core 2 off (38 SECOND CORE 0 before, 1 after; the debug build's only, as 38 is), 10 s: the two figures to compare; every window's 37 must say core 2 off by 38, no block handed over |
-| | DJ HEAVY, ONE CORE | DJ heavy the same way, 30 s |
-| | KEYS AT 12, ONE CORE | the KEYS engines' 12-key steps (DX7, Juno-106 resonant and plain), core 2 off, 5 s each |
-| CHIP | the chip | [the bench](#the-bench): THE CORE and ALONE (on core 1, no block handed to core 2 meanwhile) |
+| LOOPS | the loop station | VOICES 12; the loops cleared (SEL's CLEAR LOOPS), the length 1 BAR (GLO's LENGTH), then twelve loops played from the keys onto the stage and each sent by REC on `+ NEW LOOP`: the first started by its note (REC armed with the stage empty), each next one overdubbed while the loops play, a note held over most of a cycle; JUNO-106 sounds for the first six, DX7's for the rest (each the next with PRESETS); all twelve playing, 20 s |
+| | a beat | VOICES 12; the loops cleared and the length 1 BAR, then a beat as a hand builds one, every step checked through LOOPS' cursor and LOOPS' bytes in the state: the first loop from the pattern recorder (ARP held + REC; a kit, a drum a row: KICK, SNARE, HAT, HAT OPEN; its REC puts it onto the stage, the loops starting from its preview; REC sends it, `STAGE AS LOOP 00`); a TB-303 bass line overdubbed in MONO (SEQ held + MONO) on `+ NEW LOOP`, REC; a chord of four on EL PIANO in POLY (SEQ held + POLY, 4 lanes), REC; 20 s measured; EDIT on the bass's loop (`LOOP 01 ON THE STAGE`, the loop silent), a bar overdubbed, REC back into it (`STAGE INTO LOOP 01`); SEL's DELETE LOOP on the last loop, the pad's (`LOOP 02 DELETED`); CONTROL mode (SEQ): white key 1 tapped (loop 00 muted at once), white key 2 held (loop 01's mute waiting for the bar line, then muted), GLO's black key to SOLO, white key 1 (loop 00 soloed), PIT (all back on); 10 s measured, the loops playing on |
 | TOOLS | AUTO LEVEL ALL | SETTINGS' tool over every instrument (its question answered LEVEL), measured while it runs (the main loop's stack) and ended by its end (the state answered again, its progress bar gone; at most 10 min), which is checked |
 | | CHECK REFERENCES | SETTINGS' tool (it writes nothing), measured till its progress bar is gone: `NO MISSING REFERENCES`, or the list of what is missing (noted, not a failure: a user's own songs may point at things deleted), closed by HOME |
 | | CHECK STORAGE | SETTINGS' tool (it writes nothing), measured till its progress bar is gone: `STORAGE OK` is checked; a list of problems fails the scenario and is closed by HOME |
-| | RECORD PATTERN | in LOOPS with no loops, ARP's pattern recorder: four steps on the white keys, its preview measured (ARP), REC writes them as the first loop (`PATTERN: LOOP 00, 1 BAR`) |
+| | RECORD PATTERN | in LOOPS with no loops, the pattern recorder (ARP held + REC): four steps on the white keys, its preview measured (ARP), its REC puts them onto the stage (`PATTERN ON THE STAGE`), REC on the screen sends them as the first loop (`STAGE AS LOOP 00`) |
 | UI | THE EDITOR'S OWN PATTERN | the EDITOR, SEL's NEW PATTERN (the cursor's pattern `FE`, empty); REC on, four keys tapped (it holds notes), REC off; PLAY 4 s and again; ENV, another pattern picked: the warning (`EDITOR CHANGES WILL BE LOST`) answered NO (still `FE`, its notes kept), then again YES (on the one picked, `FE` empty); SEL's LOAD A PATTERN, PUNCH IN's first pattern (`FE` holds notes, `PATTERN xx LOADED`); SEL's STORE IN A PATTERN, `+ NEW PATTERN` (a new number, `STORED IN PATTERN xx`); each step checked through the EDITOR's cursor in the state; REVERT ALL drops it all after |
 | | NEW SONG | SONGS, SEL's NEW: the list `NEW SONG STARTS WITH`, `+ NEW PATTERN`: a new song is current and there are unsaved changes; REVERT ALL drops them (no unsaved change left, the song gone) |
 | | THE KEYS ON LOOPS | LOOPS with no loops (SEL's CLEAR LOOPS), LOOPS' DELAY switched on (an edit), nothing playing: a key held, the state shows the DELAY at work and LOOPS' tempo; on SONGS, a key held: LOOPS' DELAY not at work |
 | | LOOPS TO A PATTERN AND BACK | LOOPS with three loops (the pattern recorder's drums, a MONO bass, a POLY pad); SEL's SAVE TO PATTERN, `NEW` (`LOOPS STORED IN PATTERN xx`); SEL's CLEAR LOOPS, answered CLEAR (`LOOPS CLEARED`); SEL's LOAD FROM PATTERN, that pattern (`PATTERN xx IN LOOPS: 3 LOOPS`): the same length, three loops and the notes all the loops start as before, checked through LOOPS' cursor in the state; REVERT ALL drops it all after |
-| | RECORD LIVE | LOOPS with those three loops playing; SEL's RECORD LIVE (its panel), REC (ARM), REC: it starts at once; EDIT refused (`RECORDING A SONG`); loop 00 muted (CONTROL mode), a punch-in held (FX + a white key); PLAY: the loops silent, the song going on; PLAY: on again; REC: it ends at once (`SONG xx RECORDED: 0:05, 1 PATTERN`); the new song checked on SONGS (its one position, LOOPS' tempo, named `LOOPS ##`); REVERT ALL drops it after |
+| | RECORD LIVE | LOOPS with those three loops playing; SEL's RECORD LIVE (its panel), REC (ARM), REC: it starts at once; EDIT: loop 00 on the stage, the song going on; loop 00 muted (CONTROL mode), a punch-in held (FX + a white key); PLAY: the loops silent, the song going on; PLAY: on again; HOME: it ends at once (`SONG xx RECORDED: 0:05, 1 PATTERN`); the new song checked on SONGS (its one position, LOOPS' tempo, named `LOOPS ##`); REVERT ALL drops it after |
 | USB | AUDIO OUT | the page takes the FM-1's USB audio input itself (the FM-1 then sends it) and LISTEN plays it; the browser asks for the input then (it keeps no answer for a page opened from a file), its prompt waited for 2 minutes, then the scenario is skipped (a run left alone goes on); the stand 30 s and a heavy song 20 s measured, the test tone 5 s; the debug build: [the USB test tone](#the-usb-test-tone) switched on and off, and the figures must show USB audio in at least half the windows (else: pick the FM-1's input in the browser); the input let go after; no file (skipped when the browser is not allowed the input) |
 | FILES (unticked at first) | USB RECORDING | the page takes the FM-1's input (LISTEN plays it) and records the stand 60 s and a heavy song 30 s into a WAV in the run's ZIP; the recording must not be empty (skipped when the browser is not allowed the input) |
 | | USB TONE | [the USB test tone](#the-usb-test-tone) recorded so, 30 s |
@@ -677,9 +644,8 @@ Times are what each measures; those ticked at first take about 20 minutes.
 Plain ASCII, lines under 100 characters (a longer one goes on in the next, indented: nothing is cut): the
 firmware and its build, the time, the scenarios ticked, RECORD
 AUDIO when it was on (or refused the input); then each scenario: PASSED, FAILED and why, or SKIPPED and why, its
-time (`00:19 setting up + 02:00` once its test started), its checks, its notes, its measured
-stretches laid out as RUNS' reports, and CHIP's tables (THE CORE in cycles at 360 MHz, or MB/s, or µs; ALONE
-in µs a block, warm best, mean, worst, cold, and its share of the block's 1,451 µs).
+time (`00:19 setting up + 02:00` once its test started), its checks, its notes, and its measured
+stretches laid out as RUNS' reports.
 
 ### Tested first on the computer
 

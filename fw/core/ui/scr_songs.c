@@ -150,27 +150,26 @@ static void deleted(int a, ui_check_t *rows)
     ui_song_own(num, own, del_note, &sh);               /* (as asked: nothing changed meanwhile) */
     player_state_t st;
     ui_player_state(&st);
-    if (st.what == PL_SONG && st.playing) player_pause();
-    for (int i = k; i < nsongs - 1; i++) copy_song(nums[i], nums[i + 1]);      /* the ones after move up */
-    ui_edit_del(REC_SONG, nums[nsongs - 1], 0);
+    if (st.what == PL_SONG && st.playing && st.song == num) player_pause();
+    ui_edit_del(REC_SONG, num, 0);                      /* (its number free: the others keep theirs) */
     int np = 0;
     if (rows[0].on) for (int p = 0; p < 0xF0; p++)
         if (own[p >> 3] >> (p & 7) & 1) { ui_edit_del(REC_PATTERN, (uint8_t)p, 0); np++; }
     refresh();
     ui_cur.song = nsongs ? nums[ui_clamp(k, 0, nsongs - 1)] : 0;
     picked = 0;
-    for (int i = 0; i < nsongs; i++) player_song_changed(nums[i]);
+    player_song_changed(num);
     if (np == 1) ui_toast(ui_txt_v(T("SONG # DELETED, 1 PATTERN TOO"), ui_hex2(num)));
     else if (np) ui_toast(ui_txt_v(ui_txt_v(T("SONG # DELETED, # PATTERNS TOO"), ui_hex2(num)), ui_dec(np)));
 }
-/* NEW's pattern list picked (specs/ui/screens/songs.md): the song made at the end of the list, its one position the
+/* NEW's pattern list picked (specs/ui/screens/songs.md): the song made at the smallest number free, its one position the
  * pattern picked, or a new empty one (8 tracks x 64 rows at the first free number) */
 static void new_song_with(int pat)
 {
-    int n = nsongs ? nums[nsongs - 1] + 1 : 0;          /* at the end: nothing shifts */
-    if (n > UI_SONG_LAST) { ui_toast(T("NO FREE SONG NUMBER")); return; }   /* (FE: the keys' song) */
+    int n = ui_free_song();
+    if (n < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }   /* (FE: the keys' song) */
     if (pat == ED_PICK_NEW) {
-        int f = ui_free_pattern();
+        int f = rec_free_pattern();
         uint8_t p[5] = {8, 63, 1, 0, 0};
         if (f < 0) { ui_toast(T("NO FREE PATTERN")); return; }
         if (ui_edit_put(REC_PATTERN, (uint8_t)f, 0, 1, p, sizeof p)) return;
@@ -192,15 +191,13 @@ static void list_pick(int id)
     int k = index_of(ui_cur.song);
     switch (id) {
     case M_NEW:                                         /* (first its pattern: NEW SONG STARTS WITH) */
-        if ((nsongs ? nums[nsongs - 1] + 1 : 0) > UI_SONG_LAST) { ui_toast(T("NO FREE SONG NUMBER")); return; }
+        if (ui_free_song() < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }
         ed_pattern_list_new(T("NEW SONG STARTS WITH"), ui_cur.pattern, new_song_with, B_SEL);
         return;
     case M_CLONE: {
         if (k < 0) return;
-        int last = nums[nsongs - 1];
-        if (last >= UI_SONG_LAST) { ui_toast(T("NO FREE SONG NUMBER")); return; }
-        copy_song((uint8_t)(last + 1), (uint8_t)last);              /* the ones after the song move down a number */
-        for (int i = nsongs - 1; i > k + 1; i--) copy_song(nums[i], nums[i - 1]);
+        int n = ui_free_song();                         /* (the smallest number free, as everything made) */
+        if (n < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }
         if (load(nums[k])) {
             ui_song_t s;
             char nm[20];
@@ -211,10 +208,9 @@ static void list_pick(int id)
             while (e && nm[e - 1] == ' ') nm[--e] = 0;
             ui_fmt(nm + e, (int)sizeof nm - e, " 2");
             ui_put_name6(rec, 0, 16, nm);
-            put(k + 1 < nsongs ? nums[k + 1] : (uint8_t)(last + 1));
+            if (!put((uint8_t)n)) ui_cur.song = (uint8_t)n;
         }
         refresh();
-        if (k + 1 < nsongs) ui_cur.song = nums[k + 1];
         pos = 0; picked = 0;
         return;
     }
@@ -331,7 +327,7 @@ static void o_after(uint8_t *o, int *n)                 /* arg_pat in after the 
 }
 static int new_pattern(int like)
 {
-    int f = ui_free_pattern();
+    int f = rec_free_pattern();
     if (f < 0) { ui_toast(T("NO FREE PATTERN")); return -1; }
     int tr = like >= 0 ? ui_pattern_tracks((uint8_t)like) : 0, rows = like >= 0 ? ui_pattern_rows((uint8_t)like) : 0;
     uint8_t p[5] = {(uint8_t)(tr ? tr : 8), (uint8_t)((rows ? rows : 64) - 1), 1, 0, 0};
@@ -341,7 +337,7 @@ static int new_pattern(int like)
 }
 static int clone_pattern(int src)
 {
-    int f = ui_free_pattern();
+    int f = rec_free_pattern();
     if (f < 0) { ui_toast(T("NO FREE PATTERN")); return -1; }
     if (ed_copy_pattern((uint8_t)src, (uint8_t)f)) return -1;
     if (sess_nmade < 16) sess_made[sess_nmade++] = (uint8_t)f;
@@ -593,6 +589,7 @@ static void draw(void)
     int y0 = BODY_Y;
     player_state_t st;
     ui_player_state(&st);
+    refresh();                                          /* (REVERT ALL, an upload: the songs change under the list) */
     int ci = mv_from >= 0 ? mv_at : index_of(ui_cur.song);
     if (ci < 0) ci = 0;
     int top = ci - (LIST >> 1) < nsongs - LIST ? ci - (LIST >> 1) : nsongs - LIST;

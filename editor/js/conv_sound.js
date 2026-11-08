@@ -183,7 +183,9 @@ ED.conv.drawWave = function (cv, snd, start, end) {
     g.fillStyle = "#F87C74"; g.fillRect(Math.round(end / n * W) - 2, 0, 2, H);
 };
 let actx = null, asrc = null;
-ED.conv.audition = function (snd, start, end) {
+/* a sound as it is: the page's own player when the page has one (the footer shows it), else at once */
+ED.conv.audition = function (snd, start, end, label) {
+    if (ED.player && ED.player.playOwn) { ED.player.playOwn(snd, start, end, label); return; }
     if (!actx) actx = new AudioContext();
     if (asrc) try { asrc.stop(); } catch (e) { /* */ }
     const buf = actx.createBuffer(snd.channels, Math.max(1, end - start), snd.rate);
@@ -233,15 +235,24 @@ function soften(x, frac) {
     }
     return x;
 }
+/* a sample's length is 20 bits (specs/files/instruments.md): 2^20 − 1 frames at most; the frames a part of n frames
+ * makes at another rate, as resample makes them; the error a part too long throws (e.tooLong: its frames) */
+ED.conv.MAX_FRAMES = (1 << 20) - 1;
+ED.conv.framesAt = (n, from, to) => from === to ? n : Math.max(1, Math.floor(n * to / from));
+function tooLong(frames) {
+    return Object.assign(new Error("A SAMPLE OF 2^20 SAMPLES OR MORE: KEEP A SHORTER PART, OR A LOWER RATE"), { tooLong: frames });
+}
 /* the part of a sound picked into a sample: its audio in PTR and its entry (specs/files/instruments.md). s: start,
  * end (the sound's frames), chan, rate, bits; soften (a low-pass at that fraction of the rate) and gain (dB, 0 or
  * less: a lower level codes in fewer bits; its instruments' LEVEL makes it up) when OPTIMIZE asks */
 ED.conv.soundToSample = function (snd, s) {
+    const frames = ED.conv.framesAt(s.end - s.start, snd.rate, s.rate);
+    if (frames > ED.conv.MAX_FRAMES) throw tooLong(frames);     /* (known before the work: a long sound is not converted) */
     let x = resample(mono(snd, s.chan, s.start, s.end), snd.rate, s.rate);
     if (s.soften) x = soften(Float32Array.from(x), s.soften);     /* (a copy: x may be the sound's own channel) */
     if (s.gain) { const g = Math.pow(10, s.gain / 20); x = x.map(v => v * g); }
     const q = ED.conv.quantize(x, s.bits);
-    if (q.length >= 1 << 20) throw new Error("A SAMPLE OF 2^20 SAMPLES OR MORE: KEEP A SHORTER PART, OR A LOWER RATE");
+    if (q.length > ED.conv.MAX_FRAMES) throw tooLong(q.length);
     const audio = R.ptrEncode(q, s.bits);
     return { audio, entry: { length: q.length, rate: s.rate, coding: s.bits === 16 ? 2 : 1, name: R.cleanName(s.name, 10) || "SAMPLE" } };
 };

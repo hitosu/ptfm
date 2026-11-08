@@ -55,7 +55,7 @@ module.exports = async t => {
     await t.turn("SELECT", 2); await t.tap("SEL"); t.shot("20bb_fusion_menu"); await t.tap("HOME");
     await t.turn("SELECT", -2); await t.tap("SEL"); await t.sleep(50); t.shot("20c_fusion_editor");
     await t.tap("HOME"); await t.tap("HOME");
-    U.setInst(0x0100); U.setInst(first("FUSION") | t.M.cart(first("FUSION") >> 8).slots.findIndex(s => !s));
+    U.setInst(0xA000); U.setInst(first("FUSION") | t.M.cart(first("FUSION") >> 8).slots.findIndex(s => !s));
     await t.tap("EDIT"); t.shot("20d_fusion_fill"); await t.tap("HOME");
     await t.tap("ENV"); t.shot("21_cartridges"); await t.tap("HOME");
     await t.homeKey(8); t.shot("22_playback");
@@ -80,35 +80,75 @@ module.exports = async t => {
     await t.tap("HOME"); t.M.state.midi.length = 0; await t.turn("SELECT", -9); await t.tap("SEQ");
     U.setInst(first("JUNO"));                           /* a sound for the loops (not FUSION's empty slot) */
     await t.homeKey(22); t.shot("27_loops_empty");
-    /* LOOPS (specs/ui/screens/loops.md): the first loop recording (REC, PLAY, a chord and notes); closed by REC in its
-     * first bar; a second loop, a MONO line, recorded over it as the loops play; paused: the pattern recorder (its
-     * preview stopped), armed on + NEW LOOP, CONTROL mode with a solo, GLO, SEL, HOME's combination; 16 loops */
-    const P = t.P, LS = () => t.M.state.loops, sc = () => U.screen.state();
+    /* LOOPS (specs/ui/screens/loops.md): armed, PLAY, a chord and notes on the stage; REC keeps it as loop 00; a MONO
+     * line on the stage over it as the loops play, then REC: loop 01; paused: the pattern recorder (its preview
+     * stopped), armed, CONTROL mode with a solo, GLO, SEL, HOME's combination; EDIT (a loop on the stage, STAGED), LFO's
+     * press (OVERWRITE); 16 loops */
+    const P = t.P, LS = () => t.M.state.loops;
     await t.tap("REC"); t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(100);
     t.keyDown(0); t.keyDown(4); t.keyDown(7); await t.sleep(500); t.keyUp(0); t.keyUp(4); t.keyUp(7); await t.sleep(60);
     for (const k of [11, 9]) { t.keyDown(k); await t.sleep(220); t.keyUp(k); await t.sleep(30); }
     t.shot("28_loops_first"); await t.tap("REC");
-    await t.tap("SEQ"); await t.key(20); await t.tap("SEQ");      /* (CONTROL's MONO: the next loop a line) */
-    await t.tap("REC");
-    for (let n = 0; n < 200 && !P.lpRecording(); n++) await t.sleep(20);
+    await t.sleep(600); await t.tap("REC");                       /* (REC again: the stage on, as REC left it off) */
+    await t.tap("SEQ"); await t.key(20); await t.tap("SEQ");      /* (CONTROL's MONO: the keys a line) */
     for (const k of [14, 16, 18, 21]) { t.keyDown(k); await t.sleep(280); t.keyUp(k); await t.sleep(60); }
-    for (let n = 0; n < 200 && sc().take; n++) await t.sleep(20);
-    await t.sleep(500); t.shot("28b_loops_two");
+    await t.sleep(300); t.shot("28b_loops_two"); await t.tap("REC");
     P.pause(); await t.sleep(100);
+    P.kept.loops.row = 0; await t.sleep(2100);                    /* (the play position at the start: the window on bars
+                                                                   * 1-2, fw/tests/ui3_test.c the same) */
     await t.tap("HOME"); t.shot("31c_home_loops");
     await t.key(U.WHITE[0]); t.shot("31d_home_loops_muted");    /* a white key acted: only its line left */
     await t.key(U.WHITE[0]); await t.tap("HOME");
-    /* the pattern recorder: ARP (its preview stopped by ARP again), steps on two rows */
-    await t.tap("ARP"); await t.tap("ARP");
+    /* the pattern recorder: ARP held + REC (its preview stopped by ARP), steps on two rows */
+    await t.combo("ARP", "REC"); await t.tap("ARP");
     for (const k of [0, 4, 8, 12]) await t.key(U.WHITE[k]);
     await t.turn("SELECT", 1); await t.turn("K3", 7);
     for (const k of [2, 6, 10, 14, 15]) await t.key(U.WHITE[k]);
-    t.shot("28c_loops_pattern"); await t.tap("HOME");
-    await t.tap("REC"); t.shot("28d_loops_armed"); await t.tap("REC");   /* (on + NEW LOOP, paused: a note or PLAY starts it) */
+    t.shot("28c_loops_pattern");
+    /* the help over it (HOME held + LFO, at any depth: specs/ui/help.md), from LOOPS' first page; HOME closes the help,
+     * the recorder still open (fw/tests/ui3_test.c the same) */
+    const helpAt = at => t.top() === "help" && U.top().pageText() === at;
+    await t.combo("HOME", "LFO"); t.shot("28q_loops_help_recorder");
+    t.ok(helpAt("1/10") && U.overlays.some(o => o.kind === "recorder"),
+         "LOOPS: HOME held + LFO in the pattern recorder: LOOPS' help over it, from its first page (1/10)");
+    await t.tap("HOME");
+    t.ok(t.top() === "recorder", "LOOPS: HOME closes that help: the pattern recorder again");
+    await t.tap("HOME");                                          /* (the shots' own HOME, as before the help: it closes the
+                                                                   * pattern recorder) */
+    if (U.screen.stage().off) await t.tap("ARP");
+    await t.sleep(500);
+    await t.tap("REC"); t.shot("28d_loops_armed"); await t.sleep(500); await t.tap("REC");   /* (paused, the stage empty: a note or
+                                                                  * PLAY starts; REC again past its 500 ms: disarmed) */
     await t.tap("SEQ"); await t.key(17); await t.key(U.WHITE[1]); await t.sleep(2100); t.shot("28e_loops_control");
+    /* the help from CONTROL mode (HOME tapped, then LFO): LOOPS' help from its first page; HOME closes it, CONTROL mode
+     * still on */
+    await t.tap("HOME"); await t.tap("LFO"); t.shot("28r_loops_help_control");
+    t.ok(helpAt("1/10") && U.screen.state().control, "LOOPS: HOME, LFO in CONTROL mode: LOOPS' help from its first page (1/10)");
+    await t.tap("HOME");
+    t.ok(!t.top() && U.screen.state().control, "LOOPS: HOME closes that help: CONTROL mode still on");
     await t.key(U.WHITE[1]); await t.key(17); await t.tap("SEQ"); await t.sleep(2100);
     await t.tap("GLO"); t.shot("28f_loops_glo"); await t.tap("GLO");
     await t.turn("SELECT", -1); await t.tap("SEL"); t.shot("28g_loops_sel"); await t.tap("HOME");
+    /* the help (HOME + LFO): LOOPS' four pages of its own, then the shared ones (10 in all); the KNOBS page (9) with LFO's
+     * reading added, LOOPS' pages not having named it (specs/ui/help.md#readings) */
+    await t.combo("HOME", "LFO");
+    t.ok(helpAt("1/10"), "LOOPS: HOME + LFO: the help, LOOPS' first page of 10 (4 of its own, 6 shared)");
+    for (let k = 0; k < 4; k++) { t.shot("28" + "lmno"[k] + "_loops_help" + (k + 1)); await t.turn("SELECT", 1); }
+    await t.turn("SELECT", 4);
+    t.ok(helpAt("9/10"), "LOOPS: the help's ninth page, KNOBS");
+    t.shot("28p_loops_help_knobs"); await t.tap("HOME");
+    t.ok(!t.top(), "LOOPS: HOME closes the help");
+    await t.tap("EDIT"); P.kept.loops.row = 0; await t.tap("PLAY"); await t.sleep(600);
+    t.shot("28j_loops_staged");                                   /* (EDIT: loop 01 on the stage, the loop STAGED) */
+    t.down("LFO"); t.up("LFO"); await t.sleep(300); t.shot("28k_loops_overwrite");
+    t.down("LFO"); t.up("LFO"); await t.sleep(60);
+    await t.tap("ARP"); await t.sleep(300); t.shot("28s_loops_stage_off");   /* (ARP: the stage off, dimmed; the loop heard) */
+    t.ok(U.screen.stage().off, "LOOPS: ARP's tap: the stage off");
+    await t.tap("ARP");
+    t.down("ARP"); await t.sleep(U.set("HOLD DELAY") + 100); t.shot("28t_loops_arp_layer"); t.up("ARP"); await t.sleep(200);
+    t.ok(!U.screen.stage().off && !t.top(), "LOOPS: ARP held past the hold delay: its layer; let go, nothing");
+    P.pause(); await t.sleep(100);
+    t.down("EDIT"); await t.sleep(U.LONG_HOLD + 100); t.up("EDIT"); await t.sleep(60);   /* (EDIT held: the stage emptied) */
     {                                                             /* 16 loops: the two, again and again, colour by colour */
         const was = structuredClone(LS());
         t.M.state.loops.list = Array.from({ length: 16 }, (_, i) => Object.assign(structuredClone(was.list[i % 2]), { col: i % 12, muted: i === 5 }));
@@ -118,13 +158,13 @@ module.exports = async t => {
     }
     {                                                             /* RECORD LIVE recording, the loops' second pass (the song dropped after):
                                                                    * SEL's RECORD LIVE, its panel's REC, PLAY */
-        const songs = t.M.state.songs.length, pats = t.M.state.patterns.slice();
+        const songs = t.M.state.songs.slice(), pats = t.M.state.patterns.slice();
         await t.tap("SEL"); const m = U.top(); m.sel = m.items.indexOf("RECORD LIVE"); await t.tap("SEL");
         await t.tap("REC"); await t.tap("PLAY");
         for (let n = 0; n < 300 && U.screen.liveRow() < LS().rows; n++) await t.sleep(20);
         await t.sleep(300); t.shot("28h_loops_song");
         P.pause(); await t.sleep(100);
-        t.M.state.songs.length = songs; t.M.state.patterns = pats; t.M.settle(); t.M.version++;
+        t.M.state.songs = songs; t.M.state.patterns = pats; t.M.settle(); t.M.version++;
     }
     {                                                             /* the RECORD LIVE panel over two loops, as fw/tests/ui3_test.c's
                                                                    * test_loops_live makes them (F0:00 and F0:01, the second X4) */
@@ -164,7 +204,7 @@ module.exports = async t => {
     t.M.state.settings["COUNT-IN"] = "1 BAR";
     /* DJ: empty; two loops on the decks, synced, a LOOP on the left, the right filtered; HOME's combination;
      * its properties; FX on DJ's own setup; the LFO pads; PLAY's pads held (CUE + PLAY, MOVE, BRAKE); the help */
-    const song = name => t.M.state.songs.findIndex(s => s.name === name);
+    const song = name => t.M.state.songs.findIndex(s => s && s.name === name);
     await t.homeKey(10); t.shot("33_dj_empty");
     /* (the black keys: OP4 / OP5 LOAD, OP1 / OP6 PLAY, OP3 the left's FILTER, the blank key the pads' mode; SYNC on
      * and the filters on at OFF at first). fw/tests/ui3_test.c's dj_as_playground does the same, for ui_shots.js */

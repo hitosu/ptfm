@@ -6,7 +6,8 @@
  * DJ HEAVY's pair on two decks (first: mode 4's fallback lands in it), DJ's stops on the shared DELAY and REVERB with
  * a DJ FILTER and its LFO, 20 s of every song of the disk from its start, PUNCH IN with the punch-ins pressed and let
  * go at odd blocks, a song with the METRONOME on through a COUNT-IN, CUT pressed and let go at odd halves, the keys
- * DRY with notes, SYNC PULSE and SETTINGS' SECOND CORE switched at odd halves. A case's files: .lr every half as player_audio leaves it, read
+ * DRY with notes, SYNC PULSE, LOOPS with the stage over a muted loop and SETTINGS' SECOND CORE switched at odd halves
+ * (the 16 voices' session: LOOPS with the stage too). A case's files: .lr every half as player_audio leaves it, read
  * once the next half is made (as the codec reads it: core 2 may still be on a half's last blocks when player_audio
  * returns), .usb USB audio's tap and .out player_out's blocks as they come, a hash a block (each counted to the case
  * that made it). Each case must be heard, every block must reach the taps once, and the blocks go to core 2 as the
@@ -164,7 +165,7 @@ static int key_voices(void)
 }
 static void keys(int on, int base)       /* a chord on each engine's built-in instrument (and a sampler's) */
 {
-    static const pl_inst_t IN[5] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xFA, 0x00}, {0xF0, 0x10}, {0x03, 0x08}};
+    static const pl_inst_t IN[5] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xFA, 0x00}, {0xF0, 0x10}, {0xA2, 0x08}};
     int e;
     for (e = 0; e < 5; e++)
         if (on)
@@ -173,11 +174,156 @@ static void keys(int on, int base)       /* a chord on each engine's built-in in
             player_key_off((uint8_t)(base + 3 * e));
 }
 
+/* ---- LOOPS with the stage (specs/ui/screens/loops.md#the-stage): three loops of four-note chords (DX7, JUNO-106,
+ * DX7) over 16 rows, loop 00 muted and selected, the stage (a DX7 chord pattern) in its place on its track: the stage's
+ * voices pass the mute by; then MONO, the lanes held, the keys on the stage, a jump, a solo, + NEW LOOP's track. The
+ * loops' record and the stage put into the test's store by hand (disk_put, disk_stage), the source the test's own ---- */
+void disk_put(uint8_t kind, uint8_t num, uint8_t sub, const uint8_t *p, uint32_t len);
+void disk_stage(const uint8_t *p, uint32_t len);
+static const uint8_t LOOP_IN[3][2] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xF0, 0x10}};
+static uint8_t lp_rec[512], lp_stage[256];
+static rec_song_t lp_song0;
+static int lp_src_song(rec_song_t *s)
+{
+    static const uint8_t ORDER0 = 0;
+    memset(s, 0, sizeof *s);
+    s->tempo = 150;
+    s->ticks = 6;
+    s->rpb = 4;
+    s->swing = 50;
+    s->gvol = 64;
+    s->len = 1;
+    s->order = &ORDER0;
+    for (int t = 0; t < 16; t++) {
+        s->mix[t][RM_LEVEL] = 0x7F;
+        s->mix[t][RM_PAN] = (uint8_t)(0x40 + 0x20 * (t % 3));
+        s->mix[t][RM_REVERB] = (uint8_t)(t == 0 ? 0x30 : 0x10);
+        s->mix[t][RM_DUCK] = (uint8_t)(t == 1 ? 0x40 : 0);
+    }
+    s->fx = lp_song0.fx;                 /* (CITY LIGHTS' FX setup) */
+    return 0;
+}
+static int lp_src_pattern(uint8_t num, rec_pat_t *pt)
+{
+    if (num)
+        return -1;
+    memset(pt, 0, sizeof *pt);
+    pt->ntrk = 16;
+    pt->rows = 16;
+    pt->step = 1;
+    return 0;
+}
+static int lp_src_inst(int track, pl_inst_t *in)
+{
+    if (track < 0 || track >= 3)
+        return 0;
+    in->cart = LOOP_IN[track][0];
+    in->slot = LOOP_IN[track][1];
+    return 1;
+}
+static const pl_source_t LP_SRC = {lp_src_song, lp_src_pattern, lp_src_inst, 1};
+/* a stream: notes at (row, lane, note), in order, each with its volume, the stream's 0x00 after them */
+static uint32_t lp_enc(uint8_t *o, const int (*c)[3], int n, int vol)
+{
+    uint32_t k = 0;
+    int prev = -1;
+    for (int i = 0; i < n; i++) {
+        int s = 4 * c[i][0] + c[i][1], skip = s - prev - 1;
+        o[k++] = (uint8_t)(0x80 | (c[i][2] ? 0x10 : 0) | (skip >= 7 ? 7 : skip));
+        o[k++] = (uint8_t)(c[i][2] ? c[i][2] : REC_NOTE_OFF);
+        if (c[i][2])
+            o[k++] = (uint8_t)vol;
+        if (skip >= 7)
+            o[k++] = (uint8_t)skip;
+        prev = s;
+    }
+    o[k++] = 0;
+    return k;
+}
+static void loops_put(void)              /* the loops' record (version 4) and the stage */
+{
+    static const int CH[3][8][3] = {
+        {{0, 0, 48}, {0, 1, 55}, {0, 2, 60}, {0, 3, 64}, {8, 0, 50}, {8, 1, 57}, {8, 2, 62}, {8, 3, 65}},
+        {{0, 0, 36}, {0, 1, 43}, {0, 2, 48}, {0, 3, 52}, {8, 0, 38}, {8, 1, 45}, {8, 2, 50}, {8, 3, 53}},
+        {{4, 0, 72}, {4, 1, 76}, {4, 2, 79}, {4, 3, 83}, {12, 0, 74}, {12, 1, 77}, {12, 2, 81}, {12, 3, 84}}};
+    static const int ST[10][3] = {{0, 0, 67}, {0, 1, 71}, {0, 2, 74}, {2, 3, 79}, {6, 0, 0}, {8, 0, 69}, {8, 1, 72},
+                                  {8, 2, 76}, {12, 1, 0}, {14, 3, 81}};
+    uint32_t at, n;
+    rec_song(0xA3, &lp_song0);
+    memset(lp_rec, 0, sizeof lp_rec);
+    lp_rec[0] = 150;                     /* TEMPO 150, 6 ticks, SWING 50, 1/16 */
+    lp_rec[2] = 6;
+    lp_rec[3] = 50;
+    lp_rec[5] = 3;
+    lp_rec[7] = 16;
+    for (int i = 0; i < 3; i++) {
+        uint8_t *e = lp_rec + REC_LOOPS_TABLE + REC_LOOPS_ENTRY * i;
+        e[0] = LOOP_IN[i][0];
+        e[1] = LOOP_IN[i][1];
+        e[2] = (uint8_t)i;               /* (its colour; POLY, not muted: the mutes are the player's) */
+        e[3] = 3;                        /* (4 lanes, SHIFT 0) */
+        e[4] = 15;                       /* (its base 16 rows, once) */
+        e[5] = 1;
+        e[6] = 0x7F;
+        e[7] = 0x80;
+    }
+    at = REC_LOOPS_TABLE + REC_LOOPS_ENTRY * 3;
+    lp_rec[at] = 3;                      /* (the streams' payload: the loops, the rows - 1, 0, every loop's stream here) */
+    lp_rec[at + 1] = 15;
+    lp_rec[at + 3] = 7;
+    n = at + 5;
+    for (int i = 0; i < 3; i++)
+        n += lp_enc(lp_rec + n, CH[i], 8, 0x60);
+    disk_put(REC_LOOPS, 0, 0, lp_rec, n);
+    disk_stage(lp_stage, lp_enc(lp_stage, ST, 10, 0x70));
+    player_store_watch(STORE_STAGE, 0, 0);
+}
+static void lp_stage_set(int mono, int track, int silent)
+{
+    pl_lp_stage_t s = {{0xF0, 0x03}, (uint8_t)mono, (uint8_t)track, (uint8_t)silent, 0};
+    player_lp_stage(&s);
+}
+static void loops_case(const char *name)
+{
+    begin(name);
+    loops_put();
+    lp_stage_set(0, 0, 0);               /* (loop 00 selected: silent, the stage in its place on its track) */
+    player_lp_mutes(1, 0);               /* (loop 00 muted: the stage's voices pass it by) */
+    player_play_source(PL_LOOPS, &LP_SRC, 0, 0);
+    run(4.0);
+    check("LOOPS with the stage: the loops playing", st().what == PL_LOOPS && st().playing);
+    lp_stage_set(1, 0, 0);               /* MONO */
+    halves(171);
+    lp_stage_set(0, 0, 0);
+    player_lp_hold(15, st().lp_pass, st().row);   /* (OVERWRITE from the line) */
+    halves(97);
+    player_lp_note(PL_LP_STAGE_KEYS, 0, 62, 0x7F, -1, 0, 0);
+    player_lp_note(PL_LP_STAGE_KEYS, 1, 65, 0x7F, (st().row + 2) % 16, 0, 0);
+    halves(53);
+    player_lp_hold(15, 0, -1);
+    player_lp_off(PL_LP_STAGE_KEYS, 0, -1);
+    player_lp_off(PL_LP_STAGE_KEYS, 1, -1);
+    halves(41);
+    player_lp_jump(-5);
+    halves(83);
+    player_lp_mutes(1, 4);               /* (loop 02 soloed: the stage still heard) */
+    halves(131);
+    lp_stage_set(0, 3, 0xFF);            /* (+ NEW LOOP: the next loop's track, loop 00 heard again but muted) */
+    halves(137);
+    player_lp_mutes(0, 0);
+    halves(61);
+    player_stop();
+    player_all_sound_off();
+    disk_stage(0, 0);
+    player_store_watch(STORE_STAGE, 0, 0);
+    run(1.0);
+}
+
 /* ---- 16 voices (C2_V16; specs/second-core.md#the-voices-on-core-2): VOICES 16, core 2's places (PL_C2_FROM on) on
  * core 2 through the voice job. Built with PL_ONE_CORE_16 and run in mode 0, one core renders all 16 in place: the
  * reference modes 1-3 and 6 must equal, but v16_switch (SECOND CORE off counts 16 as 12): the modes among themselves
  * there. Mode 4's fallback (at a half's start) and mode 5's (a voice job lost) only run on, the limit 12 after ---- */
-static const pl_inst_t V16_IN[4] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xF0, 0x10}, {0x03, 0x08}};   /* DX7, JUNO-106, DX7,
+static const pl_inst_t V16_IN[4] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xF0, 0x10}, {0xA2, 0x08}};   /* DX7, JUNO-106, DX7,
                                                                                             * a sampler's (03:08) */
 static void v16_keys(int on, int from, int to, int gap)   /* keys from..to on (DX7, Juno-106, DX7, sampler in turn) */
 {
@@ -220,7 +366,7 @@ static void v16_session(void)
     run(2.0);
 
     begin("v16_over");                   /* SPICE ROAD with 8 keys held over it */
-    player_play_song(0x01, 0, 0);
+    player_play_song(0xA1, 0, 0);
     run(1.0);
     v16_keys(1, 0, 7, 11);
     run(6.0);
@@ -233,7 +379,7 @@ static void v16_session(void)
                                           * tracks muted and heard again at odd halves: core 2's places whose mute
                                           * fades, rendered and mixed by core 1 that block */
     v16_keys(1, 0, PL_C2_FROM - 1, 1);
-    player_play_song(0x01, 0, 0);
+    player_play_song(0xA1, 0, 0);
     run(2.0);
     for (k = 0, n = 0; k < 24; k++) {
         pl_voice_info_t v[PL_VOICES];
@@ -274,8 +420,8 @@ static void v16_session(void)
         mix.lfo[i].len = 6;
     }
     player_dj_set(&mix);
-    player_deck_load(0, 0x00);
-    player_deck_load(1, 0x02);
+    player_deck_load(0, 0xA0);
+    player_deck_load(1, 0xA2);
     player_deck_play(0, 1, 1, 0);
     run(1.0);
     player_deck_tempo(1, 65536, st().deck[0].bpm10);
@@ -288,7 +434,7 @@ static void v16_session(void)
     run(1.0);
 
     begin("v16_cut");                    /* 16 keys held over TECHNO LOOP, CUT pressed and let go at odd halves */
-    player_play_song(0x08, 1, 0);
+    player_play_song(0xA8, 1, 0);
     run(1.0);
     v16_keys(1, 0, 15, 1);
     for (k = 0; k < 5; k++) {
@@ -306,6 +452,8 @@ static void v16_session(void)
     player_stop();
     player_all_sound_off();
     run(1.0);
+
+    loops_case("v16_loops");             /* (LOOPS with the stage: its voices in core 2's places too) */
 
     begin("v16_switch");                 /* 16 keys held, SECOND CORE off and on at odd halves: 16 counted as 12 */
     v16_keys(1, 0, 15, 1);
@@ -359,8 +507,8 @@ int main(int argc, char **argv)
         mix.lfo[i].len = 6;
     }
     player_dj_set(&mix);
-    player_deck_load(0, 0x00);           /* PUNCH IN */
-    player_deck_load(1, 0x02);           /* MIDNIGHT RUN */
+    player_deck_load(0, 0xA0);           /* PUNCH IN */
+    player_deck_load(1, 0xA2);           /* MIDNIGHT RUN */
     player_deck_play(0, 1, 1, 0);
     run(1.0);
     player_deck_tempo(1, 65536, st().deck[0].bpm10);
@@ -406,7 +554,7 @@ int main(int argc, char **argv)
 
     /* ---- PUNCH IN (its own punch-ins too) with the 16 punch-ins pressed and let go at odd blocks ---- */
     begin("punch");
-    player_play_song(0x00, 0, 0);
+    player_play_song(0xA0, 0, 0);
     blocks(301);
     for (k = 0; k < 16; k++) {
         player_punch(k, 1);
@@ -417,7 +565,7 @@ int main(int argc, char **argv)
 
     /* ---- CITY LIGHTS with the METRONOME on; paused, a COUNT-IN of 2 bars, its pattern looping after it ---- */
     begin("metronome");
-    player_play_song(0x03, 0, 0);
+    player_play_song(0xA3, 0, 0);
     player_fx_cmd(0xAE, FX_METRONOME);   /* (FX ON: the METRONOME, the song's own BEEP at 60 %) */
     run(4.0);
     player_pause();
@@ -436,7 +584,7 @@ int main(int argc, char **argv)
     /* ---- TECHNO LOOP's loop (a note every beat, DELAY and REVERB), CUT pressed and let go at odd halves: let go in
      * its fade, just after it, held long, pressed again at once; then at odd blocks ---- */
     begin("cut");
-    player_play_song(0x08, 1, 0);
+    player_play_song(0xA8, 1, 0);
     run(2.0);
     for (k = 0; k < (int)(sizeof CUTS / sizeof CUTS[0]); k++) {
         player_hush(1);
@@ -456,7 +604,7 @@ int main(int argc, char **argv)
     /* ---- the keys DRY: chords on each engine over SPICE ROAD, DRY switched while they ring; then over silence, a
      * FUSION instrument's layers and a Juno-106's chorus on lines of their own ---- */
     begin("keys_dry");
-    player_play_song(0x01, 0, 0);
+    player_play_song(0xA1, 0, 0);
     run(1.0);
     player_keys_dry(1);
     keys(1, 55);
@@ -477,7 +625,7 @@ int main(int argc, char **argv)
     player_stop();
     player_all_sound_off();
     run(1.0);
-    player_key_on(57, (pl_inst_t){0x06, 0}, 127);   /* (the disk's FUSION's first: SPACE PAD) */
+    player_key_on(57, (pl_inst_t){0xA5, 0}, 127);   /* (the disk's FUSION's first: SPACE PAD) */
     player_key_on(64, (pl_inst_t){0xF8, 0x03}, 100);
     halves(201);
     check("the keys DRY over silence: FUSION's layers and a Juno-106 sound", key_voices() >= 3);
@@ -488,7 +636,7 @@ int main(int argc, char **argv)
 
     /* ---- SYNC PULSE switched at odd halves over ACID TEST: on the left, on the right, off; then at odd blocks ---- */
     begin("sync_pulse");
-    player_play_song(0x04, 0, 0);
+    player_play_song(0xA4, 0, 0);
     run(1.0);
     for (k = 0; k < (int)(sizeof PULSE / sizeof PULSE[0]); k++) {
         player_sync_pulse(PULSE[k][0]);
@@ -500,9 +648,11 @@ int main(int argc, char **argv)
     player_sync_pulse(0);
     run(1.0);
 
+    loops_case("loops_stage");           /* ---- LOOPS with the stage (above) ---- */
+
     /* ---- SETTINGS' SECOND CORE switched off and on at odd halves over MIDNIGHT RUN (each from the next half) ---- */
     begin("c2_switch");
-    player_play_song(0x02, 0, 0);
+    player_play_song(0xA2, 0, 0);
     run(1.0);
     for (k = 0; k < 6; k++) {
         plat_c2_enable(0);

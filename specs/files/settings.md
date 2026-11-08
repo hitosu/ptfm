@@ -41,7 +41,12 @@ defaults; so is QUANTIZE (byte 109's bits 4-2, which a record from before it hol
   ([../ui/screens/instruments.md](../ui/screens/instruments.md)) is the current one again at power-on; F0:00
   at first, and if it is gone, the first cartridge's first instrument. Picking another is no change of its
   own (REVERT leaves it, the SAVE LED stays as it was); SAVE writes the record when it differs from the
-  one held, even with nothing else to save.
+  one held, even with nothing else to save. It is always an instrument's own number, never a favourite's: with a
+  FAVORITES cartridge current it is the favourite's source (after a start the keys play it, its own cartridge
+  current); a number that names a FAVORITES cartridge counts as gone, and the first instrument there is skips
+  FAVORITES cartridges ([instruments.md](instruments.md#favorites)) and deleted built-ins
+  ([instruments.md](instruments.md#deleting-a-built-in-cartridge)); with no instrument left at all, the keys play
+  nothing.
 - **The EDITOR's pattern at the last SAVE:** the pattern the EDITOR edits
   ([../ui/screens/editor.md](../ui/screens/editor.md#the-editors-own-pattern)) is the EDITOR's again at
   power-on: its own pattern at first, and when the numbered one is gone. Moving to another is no change of its

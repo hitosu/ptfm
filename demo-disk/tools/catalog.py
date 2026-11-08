@@ -25,16 +25,22 @@ def chip_table(kind, name):
     """a CHIP table's values and its loop (-1: none), by its kind (vol, arp, pitch, duty, noise) and name"""
     return CHIP_GEN.parse(dict(CHIP_GEN.TABLES[kind])[name])
 
+# Where the disk's numbers start, in every kind (cartridges, patterns, songs, samples; specs/files/disk.md, The demo
+# disk): each counts up from here, so the user's own things take the low numbers from 00, and what the disk gains later
+# renumbers nothing. None goes past DISK_LAST: E0-EF stay free, the room the built-in instruments can grow into.
+DISK_FIRST = 0xA0
+DISK_LAST = 0xDF
+
 # number, type, path (from demo-disk/), the cartridge's name (12 characters), in numbers' order. The sampler
-# cartridges and FUSION are the uploaded disk's, from 01; the synth cartridges are the firmware's built-in
+# cartridges and FUSION are the uploaded disk's, from DISK_FIRST; the synth cartridges are the firmware's built-in
 # instruments, in the numbers F0-FF kept for them (specs/files/instruments.md, Built-in instruments)
 CARTRIDGES = [
-    (0x01, "sampler", "samples/drum-kit/samples.json", "DRUM KIT"),
-    (0x02, "sampler", "samples/percussion/samples.json", "PERCUSSION"),
-    (0x03, "sampler", "samples/band-orch/samples.json", "BAND/ORCH"),
-    (0x04, "sampler", "samples/voices/samples.json", "VOICES"),
-    (0x05, "sampler", "samples/bass/samples.json", "BASS"),
-    (0x06, "fusion", "fusion/fusion/fusion.json", "FUSION"),
+    (DISK_FIRST + 0, "sampler", "samples/drum-kit/samples.json", "DRUM KIT"),
+    (DISK_FIRST + 1, "sampler", "samples/percussion/samples.json", "PERCUSSION"),
+    (DISK_FIRST + 2, "sampler", "samples/band-orch/samples.json", "BAND/ORCH"),
+    (DISK_FIRST + 3, "sampler", "samples/voices/samples.json", "VOICES"),
+    (DISK_FIRST + 4, "sampler", "samples/bass/samples.json", "BASS"),
+    (DISK_FIRST + 5, "fusion", "fusion/fusion/fusion.json", "FUSION"),
     (0xF0, "dx7", "patches/dx7/keys-organs.json", "KEYS/ORGANS"),
     (0xF1, "dx7", "patches/dx7/bells-plucks.json", "BELLS/PLUCKS"),
     (0xF2, "dx7", "patches/dx7/guitar-strings.json", "GUITAR/STRGS"),
@@ -48,11 +54,12 @@ CARTRIDGES = [
     (0xFA, "tb303", "patches/tb303/tb-303.json", "TB-303"),
 ]
 BUILT_IN = 0xF0                          # cartridges and patterns from here up are the firmware's
-FUSION_CART = 0x06
-FUSION_FIRST = 0xE0                      # FUSION's patterns: E0 and up (the top of the user's numbers; songs' from 00)
+FUSION_CART = DISK_FIRST + 5
+FUSION_FIRST = DISK_FIRST                # FUSION's six patterns first
+PATTERN_FIRST = FUSION_FIRST + 6         # then the songs', which can grow
 FUSION_PATH = "fusion/fusion/fusion.json"
 
-# the songs, in their numbers' order (from 00): (folder in songs/, name); songs.py writes them. The demo songs,
+# the songs, in their numbers' order (from DISK_FIRST): (folder in songs/, name); songs.py writes them. The demo songs,
 # then the DJ loops (DJ_LOOPS: one or two patterns that loop, after an intro in six of them, at most 4 voices,
 # so two of them on DJ's decks never take each other's voices; a track an instrument, for LOOPS)
 SONGS = [("punch-in", "PUNCH IN"), ("spice-road", "SPICE ROAD"), ("midnight-run", "MIDNIGHT RUN"),

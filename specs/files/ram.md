@@ -1,8 +1,9 @@
 # Editing, saving and RAM
 
-Status: **settled** (2026-10-09), revised 2026-10-15 and 2026-10-24. The records: [the files
+Status: **settled** (2026-10-09), revised 2026-10-15, 2026-10-24 and 2026-11-03. The records: [the files
 proposal](../proposals/202610080050-fs.md), section 11; [the edits proposal](../proposals/202610151809-edits.md);
-[the loop station proposal](../proposals/202610240236-loops-station.md), section 12 (LOOPS in the edit memory).
+[the loop station proposal](../proposals/202610240236-loops-station.md), section 12 (LOOPS in the edit memory);
+[the stage proposal](../proposals/202611030330-loops-redesign.md), section 17 (LOOPS' stage in the edit memory).
 
 How edits wait in RAM until SAVE, where the FM-1's 512 KB of RAM go, and what writing to the flash
 costs.
@@ -15,9 +16,9 @@ costs.
   | Record | Its pieces |
   |---|---|
   | a pattern, and the loops | each track's stream, and each loop's stream; the pattern's head (tracks, rows, EDIT STEP) |
-  | a cartridge | each slot; the cartridge's head (its name, its slots' count); a sampler's samples' table |
+  | a cartridge | each slot; the cartridge's head (its name, its slots' count) |
   | a song, the settings, DJ's setup, the MIDI map, LOOPS' head (the setup and the loop table) | the record whole (they are small) |
-  | sample audio | not edited in RAM: what writes it writes the flash ([store.md](store.md)) |
+  | a sample | never edited on the FM-1: only its deletion is kept, a piece with no bytes ([store.md](store.md#audio)) |
 
 - **Reading never builds a record.** A pattern is read as each track's stream, from wherever it lies: the
   flash's tracks in place, the changed ones from the edit memory. A cartridge's slot is read the same way: the
@@ -30,7 +31,8 @@ costs.
   it: a song, the EDITOR's loop, LOOPS, either DJ deck. The edit itself, with the sound held off for those few
   microseconds, rewrites the piece and sets the player's place on that track: it walks the new stream from its
   start to the row the player is on and puts the player there. A piece that outgrows its room moves in the same
-  step, its old room free at once, so no copy is ever kept for the player's sake.
+  step, its old room free at once, so no copy is ever kept for the player's sake; the pieces' top piece grows where
+  it lies (LOOPS' stage grows a note at a time, so it moves only when another piece lies above it).
   - **The player's steps cost nothing more:** each row is read from where the player stands on each track. The
     walk is the edit's, and only for a track the player is reading then. No index of the rows is kept: a cell
     whose length changes moves every row after it, so an index would be rewritten at every edit (and take up to
@@ -40,7 +42,11 @@ costs.
 - **The list of pieces** lives in the edit memory itself, growing down from its top as the pieces grow up from
   its bottom, 8 B a piece: it takes only what the pieces in it need, no table of a fixed size.
 - **Full:** when the pieces and their list meet, `MEMORY FOR EDITS IS FULL` ([../ui/saving.md](../ui/saving.md)).
-  Only real changes fill it.
+  Only real changes fill it, and the two things kept beside them (below).
+- **Besides the edits,** the edit memory holds the edit modes' copies ([../ui/controls.md](../ui/controls.md#buttons-tap-hold-and-layers):
+  what an edit mode edits, as it was at EDIT, for HOME to drop back to) and LOOPS' stage
+  ([below](#the-stage-in-the-edit-memory)), neither of them saved nor counted as a change: the copies go at a save's
+  end and at REVERT ALL, the stage stays through both.
 - **SAVE** waits for a pause, then builds each changed record from its flash bytes and its pieces, one record at
   a time in the store's 4 KB scratch, and writes them as one save ([store.md](store.md#saving)), compacting first
   when free blocks run short ([store.md](store.md#garbage-and-compaction)); then the edit memory is empty.
@@ -53,20 +59,52 @@ costs.
   against a track's 100), and made readable again before it is read (the EDITOR opening the pattern, or the
   player about to reach it, prepared ahead by the main loop). Built only if the edit memory proves short in use.
 
+### The stage in the edit memory
+
+LOOPS' stage ([../ui/screens/loops.md](../ui/screens/loops.md#the-stage)), the loop the keys overdub, keeps its notes as
+the edit modes' copies are kept: in the edit memory, under a key of its own that no record has.
+- **The copies:** an edit mode keeps each entry it changes as it was, under its kind with bit 7 set. Those keys sort
+  after every edit's, so the count of unsaved changes stops at them, a SAVE's building never reaches them, a thing's
+  own entries (its pieces, its REVERT) are other keys, and the player is never told of them. They take room as any
+  piece, the squeezes move them, and a full edit memory refuses them. A SAVE's end and REVERT ALL drop every entry,
+  the copies with them; an edit mode's start or end drops the copies alone.
+- **The stage the same way:** one piece under a kind of its own in that range (bit 7 set, its low bits no record
+  kind's: 0xFF), encoded as a loop's stream ([loops.md](loops.md#a-loops-stream)) with its played cells marked
+  (below), at most 3,800 B and its list entry's 8; only while the stage holds notes. So it is no edit: not counted, not
+  saved, not LOOPS' (LOOPS' REVERT and LOOPS' own pieces leave it). Three differences from the copies:
+  - an edit mode's start or end leaves it (only the copies' keys, those under 0xFF, are dropped);
+  - the player is told when it changes, as of a loop's stream, so its stage reads it again;
+  - **a save's end and REVERT ALL keep it,** and so does a SAVE with nothing to write. Its key is the highest there
+    is, so its entry is the list's last; dropping the entries stops before it, so the entry stays where it lies, and
+    its bytes too: the pieces' top becomes its end and the room in use its own, the room under it free between
+    pieces, which the next squeeze joins by moving it down as any piece. Nothing is copied, and the player is told of
+    no change.
+- **The mark:** a cell played onto the stage has its head's instrument bits 01, no bytes more (a loop's stream never
+  has them), so REC's write knows it from EDIT's ([loops.md](loops.md#recording-on-the-grid)), and leaves it out.
+  EDIT's copy and DOUBLE's second time carry none.
+- **Its changes** are a piece's: refused when the edit memory is full (`MEMORY FOR EDITS IS FULL`), past 3,800 B (`THE
+  STAGE IS FULL`), and while a save is written or seeding runs (`STAGE NOT WRITTEN: STORAGE BUSY`); each refuses the
+  note ([../ui/screens/loops.md](../ui/screens/loops.md#the-stage)). A note that makes it longer takes only what it adds
+  while the stage is the pieces' top, but its whole new room once another piece lies above it, so near a full edit
+  memory such a note can be refused as full a little earlier than the playground, which counts only what it adds.
+- **No undo copy:** EDIT replaces the stage and REC writes a loop with no copy kept; REVERT is the way back to what
+  was saved.
+
 ## The edit memory and the spare zone
 
 Two zones, neither borrowing from the other: the edit memory, 67 KB (68,608 B), sure of its room; the spare zone,
 the rest of the data region, lent to what borrows from it.
 
 - **The edit memory is all the edits':** the pieces and their list ([above](#editing-and-saving)), LOOPS
-  included, which lives there as any edit, with no RAM of its own ([loops.md](loops.md#the-record)). Nothing
-  borrows from it, and the build refuses a size that leaves the spare zone under its minimum.
+  included, which lives there as any edit, with no RAM of its own ([loops.md](loops.md#the-record)), its stage too
+  ([above](#the-stage-in-the-edit-memory)). Nothing borrows from it, and the build refuses a size that leaves the
+  spare zone under its minimum.
 - **Its offsets are 16-bit and count 4-byte units:** every piece starts on a multiple of 4 (its room rounded up to
   4), so the list keeps each offset ÷ 4 in 16 bits, which reaches 256 KB with no RAM more. The state's figures of
   the edit memory count 4-byte units too ([../connections.md](../connections.md#the-state)).
 - **The spare zone is the data region's last part,** from the end of the variables up to the main loop's stack's
-  guard band: whatever the region leaves, so no RAM lies idle. About 32 KB with today's code (33,440 B; 32,624 B in the
-  debug build), 672 B over its minimum (880 B in the debug build), since core 2's room took 40 KB of the
+  guard band: whatever the region leaves, so no RAM lies idle. About 32 KB with today's code (33,248 B; 32,576 B in the
+  debug build), 480 B over its minimum (832 B in the debug build), since core 2's room took 40 KB of the
   region and its voices 9 KB more (the pool's 20 places, their block buffers and core 2's mixes:
   [the second core](../second-core.md#ram)). The build refuses a zone under its own part, 24 KB (24,576 B: DJ's
   borrow with the 3,840 B more planned, and USB audio's buffers in reserve), and the spare (8 KB; 7 KB in the debug
@@ -82,6 +120,10 @@ the rest of the data region, lent to what borrows from it.
     ([../ui/screens/dj.md](../ui/screens/dj.md#playing-and-pausing)): no third arena.
   - **Leaving DJ,** what plays next starts on the pool's own arena, and the borrow goes back once the second deck
     has let go of it.
+- **RECORD LIVE borrows from its top from its arm to the song's end** ([../ui/screens/loops.md](../ui/screens/loops.md#record-live)),
+  16,064 B: the pattern being written as a log of 2,000 notes, ends and commands of 8 B each, kept in rows' order
+  (16,000 B), each written out as its pattern's rows are heard, and the FX setup as last seen (64 B). It never meets
+  DJ's: leaving LOOPS ends a song, and a song armed as DJ's borrow still goes back takes its own at the next look.
 - **USB audio's buffers** may be borrowed from the spare zone the same way while a computer takes the FM-1's
   audio (6.5 KB: [in reserve](#in-reserve)).
 
@@ -95,22 +137,22 @@ and screens as built for the FM-1.
 
 | What | Bytes |
 |---|---:|
-| the spare zone, the region's last part: what the rest leaves (at least 32,768: its own 24 KB and the spare the build keeps, 7,168 B of it in the debug build); DJ's borrow and USB audio's buffers taken from its top | 33,440 (32,624 in the debug build) |
-| the edit memory: the edits' pieces and their list, LOOPS' included | 68,608 |
+| the spare zone, the region's last part: what the rest leaves (at least 32,768: its own 24 KB and the spare the build keeps, 7,168 B of it in the debug build); DJ's or RECORD LIVE's borrow and USB audio's buffers taken from its top | 33,248 (32,576 in the debug build) |
+| the edit memory: the edits' pieces and their list, LOOPS' included; the edit modes' copies and LOOPS' stage beside them | 68,608 |
 | the DELAY line: 1 s at 29.4 kHz, so a 1/4 note down to 60 BPM (PING-PONG: 0.5 s) | 58,804 |
 | the screen's strip: half the screen at 16 bits a pixel | 57,600 |
 | the REVERB: its lines at 29.4 kHz (44,516) and PRE-DELAY's, up to 100 ms (5,884) | 50,400 |
 | the punch-in buffer: the last 0.5 s as its middle at 29.4 kHz (29,400) and its sides at 7.35 kHz (7,350) | 36,750 |
 | the DX7's tables: sine, exp2 and tanh of 8 KB each, the frequency table of 4 KB, built at power-on | 28,676 |
-| the screens' state (with the texts' 12 line buffers and the panels' kept texts) | 21,919 |
-| USB, the audio out, MIDI: USB audio's resampler table (4 KB, read for every sample sent) and ring of 512 frames (2 KB), the audio's double buffer (4 KB), SysEx and MIDI queues | 15,418 |
+| the screens' state (with the texts' 12 line buffers and the panels' kept texts) | 24,516 |
+| USB, the audio out, MIDI: USB audio's resampler table (4 KB, read for every sample sent; the firmware's image keeps half of it, the rows mirroring the other half, and the start fills in the rest) and ring of 512 frames (2 KB), the audio's double buffer (4 KB), SysEx and MIDI queues | 15,418 |
 | 20 voices' places, their scopes, core 2's voice buffer, the Juno-106's chorus bus, VISUAL's ring | 15,984 |
 | the keys heard dry ([../ui/screens/fx.md](../ui/screens/fx.md#the-keys-dry)): their mix a block's slot each (2,048), their own Juno-106 chorus lines and buses (2,592) | 4,640 |
-| the player's and the effects' state (a block's tracks, sends and mix, the requests); LOOPS' lanes, their requests and the preview's take ~2 KB more ([loops.md](loops.md)) | 11,167 |
+| the player's and the effects' state (a block's tracks, sends and mix, the requests); LOOPS' lanes, their requests and the pattern recorder's preview ~2 KB more ([loops.md](loops.md)), and LOOPS' stage about 200 B (its loop entry and 4 lanes, the keys' 4 lanes on it, the lanes held and their row, the loop told silent, each loop's SHIFT; its switch the screen's, told as the stage's rest), and the keys while the stage is off 288 B (16 lanes of their own, as many as the pool's voices can sound); RECORD LIVE's writer 1,100 B (its tap's ring of 64 events of 10 B, the song's 16 tracks and mixes) | 11,135 |
 | the store: the map of the flash ([store.md](store.md#power-on)), its 4 KB scratch, its variables | 9,917 |
 | the playing song's arena: the song built as the module the player runs | 6,400 |
 | the effects over a whole half: the mix and the sends of a half's four blocks | 4,480 |
-| room for the screens' next additions (their variables' cap: 28 KB) | 4,096 |
+| room for the screens' next additions: their variables, the shared scratch's below with them, are capped at 28 KB (28,672 B; 28,612 B now, as `fw/tests/run_ui.sh` counts them) | 60 |
 | the screens' shared scratch: an editor's copy of a record, the help's text, AUTO LEVEL's voices | 4,096 |
 | the CHORUS's lines, 1 KB a side | 4,096 |
 | the screen's line buffer, lent to the update path, the USB rescue and incoming SysEx | 3,840 |
@@ -118,6 +160,13 @@ and screens as built for the FM-1.
 - **Every large buffer of the sound is used in every audio block,** so none can share its room with another.
   The CPU is the limit, not the RAM.
 - **Where a note value does not fit** (a DELAY TIME, a punch-in loop), the longest one that does is used.
+- **The screens' cap is nearly reached** (60 B left). LOOPS' screen state with the stage is 638 B (the stage's switch
+  and the key each of the stage-off keys' 16 lanes holds, 18 B, among it; the held keys' spans 3 B a key; the cells the
+  keys wrote in the line's pass a bit each, 64 B), and the properties dialog draws its items' names as it draws them (no copies of
+  them); the pattern recorder's state is 40 B (each row's steps and ties a bit each), its step keys' holds CONTROL
+  mode's (never in use at once: the recorder takes the keys while it is open). Should the count pass the cap
+  once built, the cap is raised by the excess, at most 64 B, here and in `fw/tests/run_ui.sh`, the release keeping its
+  8,192 B spare.
 - **The effects run over a whole half on one core,** not block by block: the voices of the half's four blocks first,
   then each effect over the four, so its code and state are fetched once a half. On core 2 they run block by block
   from RAM, each block handed over as its voices are made ([the second core](../second-core.md#when)).
@@ -278,9 +327,8 @@ compaction runs.
 
 - **A save writes whole records,** each built from the flash's bytes and the edit memory's pieces: a cell changed
   writes its whole pattern, a DX7 parameter its whole cartridge.
-- **Only four things write several blocks:** reference updates (asked for, and rare), compaction, CLONE or
-  MOVE of a sampler cartridge with samples ([store.md](store.md#a-record)), and seeding from the PC
-  ([blob.md](blob.md#seeding)).
+- **Only three things write several blocks:** reference updates (asked for, and rare), compaction, and seeding
+  from the PC ([blob.md](blob.md#seeding)).
 - **Wear:** a normal SAVE costs ~0.2 erases, shared by the blocks that hold no audio: the head walks
   every free block in turn ([store.md](store.md#the-head-erases-and-wear)). With audio filling the user
   area down to the reserve, 16 blocks are left turning; a thousand saves a day then give each ~12

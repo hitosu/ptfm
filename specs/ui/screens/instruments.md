@@ -78,7 +78,9 @@ instrument that follows the cursor.
     would go without saying that the sample past END plays. With END at the sample's end there is no
     room, and no ghost.
   - START and END make an instrument from a cut of a sample. Another sample picked (K1 on SAMPLE, or
-    the samples list) is played whole: START at its start, END at its end, LOOP OFF.
+    THE SAMPLES list) is played whole: START at its start, END at its end, LOOP OFF. **K1 on SAMPLE** turns
+    through every sample on the FM-1 by number, passing over those whose deletion waits for SAVE; past the
+    first or the last it does nothing.
   - The loop repeats while the key is held; at release the sound goes on from where it is to END,
     while the envelope releases.
   - **RELEASE** sits on the first page with the loop (K4 of its row): the envelope's R4, the same
@@ -99,10 +101,11 @@ instrument that follows the cursor.
   | K1-K4 | edit the group at the cursor (a DX7 operator's 4 rates) |
   | ALGORITHM (or SEQ) | turns the edit pages (DX7: OPERATORS, ENVELOPES, PITCH / LFO, VOICE); SEQ wraps |
   | PRESETS | still changes the instrument; editing goes on with the new one (HOME drops its changes too) |
+  | SEL + PRESETS | the cartridge as everywhere, passing FAVORITES cartridges by (MIDI's bank select the same: one there does nothing) |
   | LFO | resets the value at the cursor (the last knob turned on the row, else K1's) |
   | SEL on NAME | text entry ([../dialogs.md](../dialogs.md)) at once; on the other rows SEL opens the menu |
   | SEL on PATTERN (FUSION) | the pattern in the EDITOR, locked, at once (the menu also has EDIT PATTERN) |
-  | ENV on SAMPLE / PATTERN | the cartridge's samples / the pattern list |
+  | ENV on SAMPLE / PATTERN | THE SAMPLES list, every sample on the FM-1 ([below](#the-samples)) / the pattern list |
   | EDIT | leaves edit mode, keeping the changes |
   | HOME | leaves edit mode, dropping them ([../controls.md](../controls.md)): every instrument edited since EDIT as it was |
 - **LEVEL:** every instrument has one (dB). SEL → AUTO LEVEL measures and sets it.
@@ -155,10 +158,15 @@ range, signed ones with their sign.
   time, ALGORITHM by 8; MOVE only to empty slots, and not at all in a full cartridge), DELETE: these ask
   about the cells that use the instrument ([../saving.md](../saving.md));
 - INIT, RENAME, AUTO LEVEL;
+- **ADD TO FAVORITES,** right after MARK (first with slots marked), on a slot that holds an instrument, while a
+  FAVORITES cartridge exists ([FAVORITES](#favorites));
+- **NEW CARTRIDGE,** while browsing, after AUTO LEVEL: a group titled `NEW CARTRIDGE` ([../dialogs.md](../dialogs.md#levels)):
+  BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES. The cartridge is made as the cartridge list's NEW
+  makes it, at the smallest free number, and opened (`CARTRIDGE 11 MADE`);
 - **REVERT:** the slot back as saved, after a question (`REVERT SLOT 01:00 TO SAVED?`, OCT+ `REVERT`,
   OCT- `KEEP`; then `REVERTED`), its sound heard so from the next note; listed only while the slot has
   something unsaved ([../saving.md](../saving.md)).
-- **In edit mode** only what changes the instrument itself: EDIT PATTERN (FUSION), COPY, PASTE,
+- **In edit mode** only what changes the instrument itself: EDIT PATTERN (FUSION), ADD TO FAVORITES, COPY, PASTE,
   INIT, RENAME, AUTO LEVEL, REVERT. MOVE, SWAP and DELETE move slots and their references, so they
   wait until edit mode is left.
 - **Every change is heard at once:** a note that starts after it plays the slot as changed, whatever
@@ -176,40 +184,53 @@ range, signed ones with their sign.
 **ENV: the cartridges,** while browsing, on every type. An overlay listing each cartridge's ID, name,
 type (in its colour) and slots used ([../dialogs.md](../dialogs.md)).
 - **ENV again** shows the highlighted cartridge: its first used slot becomes current.
-- **SEL menu:** NEW (a group: pick its type), CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT.
+- **The order,** one in every cartridge list (ENV's, PRESETS' cartridge list, K1's order, LOOPS' list, MIDI's bank
+  select): the built-in FAVORITES first, then the user's FAVORITES cartridges by number, then the other
+  cartridges, the user's then the built-in ones.
+- **SEL menu:** NEW (a group: pick its type, FAVORITES last), CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT.
   - **AUTO LEVEL ALL** asks first (`AUTO LEVEL 32 SOUNDS?`, `EACH ONE'S LEVEL SET AGAIN`, OCT+ `LEVEL`,
     OCT- `KEEP`): it changes every slot's LEVEL at once.
   - **REVERT:** the whole cartridge back as saved, every slot and its name, after a question (`REVERT
     CARTRIDGE 01 TO SAVED?`, OCT+ `REVERT`, OCT- `KEEP`; then `REVERTED`); listed only while the cartridge
     has something unsaved.
-  - NEW and CLONE take the number after the last of the user's cartridges, so the new one is at the
-    end of the user's part of the list, before the built-in ones (once `EF` is taken, the first free number; `F0`-`FF` are the built-in
-    instruments', [../../files/instruments.md](../../files/instruments.md#built-in-instruments)).
+  - NEW and CLONE take the smallest free number, `00` up (`F0`-`FF` are the built-in instruments',
+    [../../files/instruments.md](../../files/instruments.md#built-in-instruments)).
   - MOVE floats it to another free number ([../dialogs.md](../dialogs.md)).
-  - **A sampler cartridge with samples:** CLONE copies its samples' audio too, and MOVE takes it
-    along. Audio cannot wait in the memory for edits, so the copy is written to the flash at once, as one
-    save ([../../files/store.md](../../files/store.md#a-record)): playback pauses, a progress bar
-    (`CLONING ITS SAMPLES`, `MOVING ITS SAMPLES`), then the toast. It is saved already: no REVERT takes
-    it back. The cartridge is copied as it stands, its unsaved changes included; a MOVE is
-    refused while changes to it wait (`SAVE IT FIRST`, as it is put down, before any question), since its
-    old number goes in the same save, and then updates the references as any MOVE does. Either needs room in the user area for a whole copy of
-    its audio, in one run of free blocks, the reserve kept (a MOVE frees the old copy only afterwards):
-    else `NO ROOM IN THE USER AREA`. A power cut leaves it as before or as after, never half done
-    ([../../files/store.md](../../files/store.md#a-record)).
+  - **A sampler cartridge** clones, moves and is deleted as any cartridge: its instruments only. Its samples are
+    records of their own ([../../files/instruments.md](../../files/instruments.md#samples)): a clone's instruments
+    name the same samples, a MOVE leaves them where they are, and a DELETE leaves them for CLEAN UP.
   - **On a built-in cartridge** the menu is NEW, CLONE, RENAME, AUTO LEVEL ALL, and once changed BACK TO
     BUILT-IN (its change deleted, the firmware's own back: `CARTRIDGE F0 BUILT-IN AGAIN`).
 
 **GLO: the cartridge's properties:** its NAME, with its type and the slots used shown beside it.
 
 **Sampler cartridges:**
-- **What they hold:** their samples (audio comes from the PC; the device does not record), and up to
-  64 sample instruments that use them. One sample can serve several instruments.
-- **The samples list:** on the SAMPLE parameter, **ENV** opens the cartridge's samples (name, length,
-  rate, waveform).
-  - The keys play the highlighted sample; ENV picks it.
-  - SEL → DELETE is the only change to a sample. It warns first when instruments use it
-    (`DELETE SAMPLE? 3 INSTRUMENTS USE IT AND ARE DELETED TOO`), and deletes them with it.
-  - Deleting an instrument never deletes its sample; CLEAN UP removes samples no instrument uses.
+- **What they hold:** up to 64 sample instruments, each naming a sample by its number. The samples are records of
+  their own, numbered `00`-`FF` apart from the cartridges, named by any sampler's instruments; they come from the PC
+  (the device does not record) and are listed in [THE SAMPLES list](#the-samples), never among the cartridges.
+- **The SEL menu in a sampler** adds to the slots' menu (the SEL menu, above):
+  - **REPLACE SAMPLE** on an instrument, browsing and in edit mode, after PASTE: THE SAMPLES list opens, the
+    instrument's sample highlighted; ENV picks one, and the instrument plays it as a new one would, every value back
+    to a new instrument's (START, END, LOOP OFF, BASE NOTE, TUNE, VOLUME, LEVEL, the envelope:
+    [../../files/instruments.md](../../files/instruments.md#sample-instruments)), its name following when it was the
+    old sample's; HOME leaves it as it was. It acts on one slot: with slots marked it is not in the menu.
+  - **INIT** on a used slot keeps its sample and sets every other value back to a new instrument's, named after its
+    sample, as REPLACE SAMPLE with its own sample does (the other engines' INIT names it `INIT`). Over marked slots,
+    INIT does so on each used one and leaves the empty ones empty: an instrument needs a sample.
+  - **CREATE** on an empty slot, in place of INIT: THE SAMPLES list opens; ENV picks one, and a new instrument there
+    plays it whole, named after it; HOME makes nothing.
+  - **DELETE** in edit mode's menu too, on a sample instrument: it leaves edit mode keeping the changes, as EDIT
+    does, then deletes as DELETE does, with its question when cells use the instrument; answered so that nothing is
+    deleted (HOME), the instrument stays, browsed, its changes kept unsaved.
+- **EDIT on an empty sampler slot** opens CREATE's pick, in place of its toast `EMPTY SLOT: SEL, INIT`; once a
+  sample is picked, edit mode opens on the new instrument. The empty slot's line reads `EMPTY SLOT: SEL MENU, CREATE
+  OR PASTE` in a sampler.
+- **With no sample on the FM-1,** REPLACE SAMPLE, CREATE, EDIT on an empty sampler slot and ENV on SAMPLE say `NO
+  SAMPLES ON THE FM-1` and open nothing.
+- **Deleting a sample** (THE SAMPLES list, SEL → DELETE) is the only change made to a sample on the FM-1. It warns
+  first when instruments use it, counting them in every sampler (`DELETE SAMPLE? 3 INSTRUMENTS USE IT AND ARE
+  DELETED TOO`), and deletes them with it. Deleting an instrument never deletes its sample; CLEAN UP removes the
+  samples no instrument names.
 
 **FUSION cartridges** (a new type):
 - **What a slot holds:** a reference to a pattern of the shared pool (`00`-`FD`; never `FE`, the
@@ -260,6 +281,160 @@ type (in its colour) and slots used ([../dialogs.md](../dialogs.md)).
 **The LEDs** ([../leds.md](../leds.md)): EDIT lit in edit mode; ARP lit while the arpeggiator is on; SEQ dim in
 edit mode when the instrument has more than one page; SEL lit while slots are marked or an instrument
 floats.
+
+## FAVORITES
+
+A FAVORITES cartridge ([../../files/instruments.md](../../files/instruments.md#favorites)) collects instruments from
+any cartridges as bookmarks: each slot names an instrument, `CARTRIDGE:SLOT`. The built-in one is `FB`, named
+`FAVORITES`, empty at first; the user's own are made with NEW. Settled with
+[the proposal](../../proposals/202610311523-favorites.md).
+
+**The current place and the current instrument:** with a FAVORITES cartridge current, the cursor's place is a
+favourite (`FB:07`) and the current instrument is that favourite's source (`0B:05`). The keys play the source; REC,
+RECORD LIVE, LOOPS, a cell written in the EDITOR and the footer's left all take the source's number. On an empty or
+a missing favourite the current instrument stays the last source picked: the keys go on playing it and REC writes
+it. When the favourite at the cursor changes (EDIT, PASTE, REVERT, a reference rewritten), the current instrument
+follows it, unless it became empty or missing. Nothing ever takes `FB:07` as an instrument.
+
+**Browsing:**
+
+```
+INSTRUMENTS                          1/8
+----------------------------------------
+FB FAVORITES     FAVORITES 7/128
+ 00 0B:05 BRASS        08 ----------
+ 01 F0:03 E.PIANO      09 ----------
+ 02 F8:12 STRINGS 2    0A ----------
+ 03 01:00 KICK         0B ----------
+ 04 0C:07 MISSING      0C ----------
+ 05 F9:21 COIN         0D ----------
+ 06 F4:02 CHOIR        0E ----------
+ 07 ----------         0F ----------
+----------------------------------------
+...      the source instrument, in detail, as its own cartridge shows it
+0B:05 BRASS JUNO            FB FAVORITES
+```
+
+| Element | x, y | Font | Shows |
+|---|---|---|---|
+| the cartridge line | 0, 17 | S | `FB FAVORITES`, the type `FAVORITES`, used / size (`7/128`), as any cartridge's; drawn in T when longer than its 30 characters |
+| slot *k*'s index | x + 2, y (the slots' grid as any cartridge's) | T | `00`-`7F` |
+| its source | x + 20, y | T | `0B:05` |
+| its source's name | x + 56, y | T | the name, 10 characters, whole; `MISSING`; `----------` when empty |
+
+- **Colours:** the index dark grey, the source light grey, the name in the source engine's colour, the cursor's
+  line white; a missing one's source and `MISSING` dark grey; an empty slot as in any cartridge. FAVORITES' own
+  colour is light grey, the colour of no engine ([../colours.md](../colours.md)): its type in the cartridge lists,
+  the cartridge line, the footer's right.
+- **Missing:** a source that is gone (its cartridge deleted, its slot emptied, or its number now a FAVORITES
+  cartridge's) plays nothing; the detail below is empty.
+- **The detail below** shows the source instrument as its own cartridge shows it.
+- **The footer:** its left names the current instrument as on every screen (`0B:05 BRASS JUNO`), its right the
+  cartridge (`FB FAVORITES`). **PRESETS** steps through the favourites, skipping empty and missing ones.
+- **An empty slot:** `EMPTY SLOT: EDIT PICKS AN INSTRUMENT`.
+
+**EDIT edits the favourite,** which instrument the slot names, never the instrument itself (that is edited in its
+own cartridge):
+
+```
+INSTRUMENTS EDIT
+----------------------------------------
+FAVORITE FB:07
+SOURCE 0B:05 BRASS
+K1: CARTRIDGE  PRESETS: INSTRUMENT
+
+...      the picked instrument, in detail, as its own cartridge shows it
+----------------------------------------
+0B:05 BRASS JUNO            FB FAVORITES
+```
+
+- The title `FAVORITE FB:07` cyan at 4, 20 (T), `SOURCE` dark grey and the source as the list shows it at 4, 33,
+  the hint at 4, 46 as INSTRUMENTS' hints are drawn (dark grey); the picked instrument's detail from y 100, as
+  browsing shows it.
+- **The current instrument** while editing is the one picked: the keys play it (ARP too), and the footer names it;
+  EDIT keeps it, HOME drops it and the favourite's source is current again.
+- **K1** turns the source's cartridge over every cartridge with an instrument (FAVORITES cartridges and empty ones
+  left out), wrapping, at its first instrument; from a missing source it starts at the source's number if that
+  cartridge is there, else at the first. While it turns, the cartridge list shows over the screen
+  ([../dialogs.md](../dialogs.md#the-cartridge-list)), titled `CARTRIDGES`, listing the cartridges K1 reaches, the
+  picked one highlighted, closing a second after the last click as PRESETS' instrument list does; it shows always,
+  PRESETS LIST ON or OFF.
+- **PRESETS** and **SELECT** step through that cartridge's instruments, from its first when the source is missing,
+  PRESETS' instrument list showing as they turn while SETTINGS' PRESETS LIST is ON.
+- **ENV** opens the same cartridge list as K1's; ENV again picks the highlighted one.
+- **SEL + PRESETS** turns the FAVORITES cartridges only, editing going on in the one it lands on (MIDI's bank select
+  the same: another cartridge there does nothing).
+- **EDIT** again keeps the change, **HOME** drops it, as in every editor. EDIT on an empty slot starts here, at the
+  current instrument (`EMPTY SLOT: NOTHING TO EDIT` is not shown in a FAVORITES cartridge).
+- ALGORITHM and LFO do nothing here, GLO shows the cartridge's properties as while browsing, and SEL opens no menu.
+
+**ADD TO FAVORITES** (the SEL menu on a slot that holds an instrument, [above](#controls)):
+- Listed only while a FAVORITES cartridge exists.
+- With one FAVORITES cartridge it is an action and adds there at once. With several it is a group of them
+  ([../dialogs.md](../dialogs.md#levels)): titled `ADD TO FAVORITES`, BACK, then `FB FAVORITES` and the user's own in
+  the lists' order, the first six (the menu's room; a later one is filled from its own edit mode), the highlight on the last one used, else on `FB FAVORITES`.
+- It takes the first empty slot; marked slots each take one, in order, empty ones and those already there skipped.
+  Toasts: `ADDED TO FB:07` (the first one added); `ALREADY IN FB:07` (nothing to add: the first one already there);
+  `FAVORITES FULL` (not enough empty slots: nothing added).
+
+**The SEL menu in a FAVORITES cartridge,** `SLOT FB:07` / `SLOTS FB:00-05`: MARK, COPY, PASTE, MOVE, SWAP, REMOVE,
+NEW CARTRIDGE, REVERT (only while the slot has something unsaved).
+- **REMOVE** empties the slot, or every marked one: the favourite goes, its source stays; no question.
+- **COPY** copies references, 4 at most; **PASTE** writes them as they are, into a FAVORITES cartridge only (a
+  favourite pasted twice is allowed). A FAVORITES copy pasted elsewhere, and an instrument's copy pasted into
+  FAVORITES, are refused as PASTE refuses a copy of another type: `COPIED FROM FAVORITES: NOT HERE`, `COPIED FROM
+  DX7: NOT HERE`.
+- **MOVE and SWAP** as in any cartridge ([../dialogs.md](../dialogs.md#move)); nothing refers to a favourite's
+  place, so they ask nothing.
+- No INIT, RENAME or AUTO LEVEL: a favourite has no sound or name of its own.
+
+**The built-in `FB`** is a changed built-in once something is added and saved ([../saving.md](../saving.md#fws)):
+its ID no longer brown; BACK TO BUILT-IN empties it again; emptied by REMOVE, it equals the firmware's own and SAVE
+deletes its record. It never moves; CLONE makes a copy at a user number.
+
+**Reaching it: SEL + GLO,** on every screen ([../controls.md](../controls.md)): SEL held, then GLO pressed, acting
+at GLO's press, switches the current cartridge to the built-in FAVORITES, at the favourite last used there (the
+first one after a start). With the built-in FAVORITES current, however it became current, SEL + GLO goes back to
+the place it held before: the cartridge and the slot, and so the instrument. GLO, away from SEL on the panel, is
+easy to press with it; SEL's hold layer says it (`GLO: FAVORITES AND BACK`, [../dialogs.md](../dialogs.md#hold-layers)).
+- Only SEL held first combines; SEL tapped first and then GLO is SEL's tap, then GLO's own job; GLO alone acts at
+  once, as ever.
+- **Where:** wherever SEL + PRESETS works (not on DJ, nor over a question, a name being typed or an overlay), and
+  not in an editor's edit mode (INSTRUMENTS' EDIT, a favourite's edit): there it is refused, the button blinking.
+  The header names the cartridge as SEL + PRESETS does.
+- With no FAVORITES cartridge at `FB` it goes to the first FAVORITES cartridge in the lists' order. With no
+  favourite in any FAVORITES cartridge it does not switch: `NO FAVORITES YET`.
+
+**A favourite once: GLO + PRESETS,** on every screen but INSTRUMENTS ([../controls.md](../controls.md)): GLO held, then
+PRESETS turned, picks from the FAVORITES cartridge SEL + GLO goes to, without switching to it: the favourite's source
+becomes the current instrument (the keys play it, ARP too, the EDITOR writes it), and the current cartridge and slot
+stay as they were.
+- **A click** steps through that cartridge's favourites, empty and missing ones skipped, wrapping, from the favourite
+  last used there (SEL + GLO's, shared both ways); with none used yet, the first click takes the first one (turned
+  back, the last).
+- **The list:** the favourites it steps through show over the screen while GLO is held, titled `FAVORITES`, laid out
+  as PRESETS' instrument list shows a FAVORITES cartridge ([../dialogs.md](../dialogs.md#presets-instrument-list)),
+  the picked one highlighted; it shows with SETTINGS' PRESETS LIST OFF too, and closes when GLO is let go. The header
+  names the source as PRESETS does (`PRESETS F0:02 BRT PIANO`); the footer's left names it, its right the cartridge as
+  before.
+- **Once:** PRESETS alone, after, goes on from the current cartridge's slot as it stood, so the favourite is gone at
+  its first click; a change of the favourite (EDIT, PASTE, REVERT) leaves the instrument alone.
+- **GLO's tap does not happen** once PRESETS has turned with it held: let go, nothing opens. GLO held alone past the
+  hold delay shows its layer, `PRESETS: A FAVORITE, ONCE` ([../dialogs.md](../dialogs.md#hold-layers)), and its let-go
+  then does nothing, as every layer's; the layer goes while the list shows. GLO tapped still acts at once.
+- **Where:** wherever SEL + GLO works (not on DJ, nor over a question, a name being typed or an overlay), and not on
+  INSTRUMENTS, where the cursor is the current instrument: there it is refused, GLO blinking. With no favourite in that
+  cartridge: `NO FAVORITES YET`, nothing changed. PRESETS turned with GLO held after another control closed GLO's
+  combination (SEL + GLO's GLO included) turns the instruments as ever.
+
+**Elsewhere:**
+- **An empty FAVORITES cartridge picked** from a list has its cursor on its first slot and keeps the current
+  instrument; on LOOPS, as any empty cartridge there: `CARTRIDGE FB IS EMPTY`.
+- **PRESETS on every screen,** with a FAVORITES cartridge current, steps through its favourites; the header names
+  the source, and PRESETS' instrument list shows the favourites it steps through as INSTRUMENTS lists them (`07
+  0B:05 BRASS`; empty and missing ones left out).
+- **The EDITOR's pipette** takes a cell's instrument, the source's number as the cell holds it; a cell naming a
+  FAVORITES cartridge's number names no instrument: `NO INSTRUMENT HERE`.
 
 ## Layout
 
@@ -338,7 +513,7 @@ CHIP       PULSE 50%  CLOCK BRK
                                   NSE --
            SWEEP OFF  REL 0  60 HZ  LEVEL 2.5 DB
 
-SAMPLE     KICK  0.50 S  22050 HZ
+SAMPLE 23 KICK  0.50 S  22050 HZ
            ||||||||||||||||||||||||||||||||||||||||       the waveform
            LOOP OFF  BASE C-4  TUNE 00
 
@@ -362,10 +537,10 @@ FUSION     PATTERN D0  2 TRACKS, 128 ROWS
 | | its steps | 0, 147 | 114 × 62 | | as a line over a dark grey floor: PULSE three periods of its duty (24 steps of the clock's duty pattern), TRIANGLE and WAVE two periods of their 32 steps, BUZZ two rounds of its envelope, NOISE 64 steps of its long register from 1 |
 | | the tables | 124, 145 + 11 × *r* | | T | the rows `VOL`, `ARP`, `PIT`, `VIB`, `DTY`, `NSE`; at x 146 the table drawn small (94 × 10: a bar a step, 8 steps at least, a yellow line where it loops; ARP and PITCH up and down from a dotted middle line), the vibrato its cycle over 48 frames after its delay (a yellow line where the delay ends), or `--` |
 | | the bottom line | 0, 214 | | T | `SWEEP` and its value (`OFF`, `DOWN`, `UP`), `REL` and the RELEASE (hex, one digit), the FRAMES (`60 HZ`), `LEVEL` and the LEVEL (`2.5 DB`, a sign only below 0) |
-| sample instrument | the sample | 0, 133 | | T | its name, then `  0.50 S  22050 HZ`: its length and rate |
+| sample instrument | the sample | 0, 133 | | T | `SAMPLE `, its number, its name, then `  0.50 S  22050 HZ`: its length and rate |
 | | the waveform | 0, 149 | 240 × 59 | | the whole sample, with the markers: START and END, and LOOP START and LOOP END with a loop, and a yellow line where each voice playing the sample is, moving as it plays |
 | | the settings | 0, 212 | | T | `LOOP OFF  BASE C-4  TUNE 00` (LOOP `OFF`, `FORWARD` or `PING-PONG`) |
-| | a deleted sample | 0, 153 | | T | `THE SAMPLE IS DELETED`, in place of the rest |
+| | a missing sample | 0, 153 | | T | `THE SAMPLE IS MISSING`, in place of the rest (the instrument names a number with no sample, [../../files/references.md](../../files/references.md#a-reference-to-nothing)) |
 | FUSION | the pattern | 0, 133 | | T | `PATTERN ` its number, `  2 TRACKS, 128 ROWS` |
 | | the map | 0, 149 | 240 × 63 | | rows `00`-`7F` across, a track a band of *h* = max(2, min(12, floor(47 / tracks))) px |
 | | the keys' rows | x = round(k0 / 128 × 240), 149 | 51 × tracks × *h* | | the rows the keys play at this OCT (k0 = `35` + 12 × OCT), a filled band |
@@ -383,8 +558,8 @@ HPF cyan, the VCF light red, the VCA brown, the envelope yellow; the switches li
 circles dark grey, the pointers in the TB-303's colour. CHIP: the oscillator's and the clock's names white, the
 steps and the tables in CHIP's colour, a loop's line yellow, `--` dark grey; the bottom line's values white. Sample: the name in the sampler's colour, the
 rest light grey; the waveform brown, START and END white, the loop's markers green, each voice playing
-the sample a yellow line where it plays, moving as it plays (several voices, several lines); a deleted sample
-red. FUSION: the keys' band dark blue, each note in its instrument's colour, the C-4 line and label
+the sample a yellow line where it plays, moving as it plays (several voices, several lines); a missing sample's
+text grey, as every reference to nothing ([../colours.md](../colours.md)). FUSION: the keys' band dark blue, each note in its instrument's colour, the C-4 line and label
 white, `00` and `7F` dark grey, the counts light grey. An empty slot's line dark grey.
 
 ### Marking, MOVE and SWAP
@@ -607,11 +782,13 @@ A menu ([../dialogs.md](../dialogs.md)) at the top right of the body, over the s
               | INIT                 |
               | RENAME               |
               | AUTO LEVEL           |
+              | NEW CARTRIDGE        |
               | REVERT               |
               +----------------------+
 ```
 
-Its title is `SLOT 01:00`, or `SLOTS 00-05` with slots marked (then without MARK); in edit mode `SLOT 11:00` with the edit
+ADD TO FAVORITES comes after MARK while a FAVORITES cartridge exists. Its title is
+`SLOT 01:00`, or `SLOTS 00-05` with slots marked (then without MARK); in edit mode `SLOT 11:00` with the edit
 mode's items (EDIT PATTERN first on a FUSION slot that has a pattern). REVERT is listed only while the slot
 has something unsaved (with slots marked, never). The last item used is preselected.
 
@@ -631,11 +808,27 @@ has something unsaved (with slots marked, never). The last item used is preselec
  |  F8 JUNO-106     JUNO-106  128/128   |
  |  F9 CHIPTUNE     CHIP      128/128   |
  | [FA TB-303       TB-303    064/128  ]|
+ |     ALL SAMPLES  184K      023/256   |
  +--------------------------------------+
 ```
 
-With the demo disk uploaded: its sampler cartridges `01`-`05` and FUSION `06` in the user area, then the
-built-in instruments `F0`-`FA` ([../../files/instruments.md](../../files/instruments.md#built-in-instruments)).
+With the demo disk uploaded: the built-in FAVORITES `FB` first, then its sampler cartridges `01`-`05` and FUSION
+`06` in the user area, then the built-in instruments `F0`-`FA`
+([../../files/instruments.md](../../files/instruments.md#built-in-instruments)), then the samples' line; the list
+scrolls, the line `FB FAVORITES    FAVORITES 000/128` above `01`.
+
+**The samples' line,** the list's last (after `EMPTY` too when no cartridge is left), shown while the FM-1 holds a
+sample: ENV on it opens [THE SAMPLES list](#the-samples) to look, listen and delete without an instrument; SEL on it
+opens nothing (it is not a cartridge). In the list's columns:
+
+| Element | x | Font | Shows | Colour |
+|---|---|---|---|---|
+| the ID column | 8 | T | nothing | |
+| the name | 26 | T | `ALL SAMPLES` | yellow, as the samples' names (the cursor's white) |
+| the type column | 110 | T | their size, `184K` (as STATUS writes sizes) | light grey |
+| the slots column | 170 | T | their count of 256, `023/256` | light grey |
+
+The cursor's box is any line's.
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
@@ -653,34 +846,50 @@ box white, yellow while the cartridge floats (MOVE: it is listed under the numbe
 Its SEL menu, `CARTRIDGE 01`: NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT (only while the
 cartridge has something unsaved, here and in the built-in ones' menus). NEW is a group
 ([../dialogs.md](../dialogs.md#levels)), `CARTRIDGE 01 > NEW`: BACK, then the new cartridge's type: DX7,
-JUNO-106, TB-303, CHIP, SAMPLER, FUSION. On a built-in one, NEW, CLONE, RENAME, AUTO LEVEL ALL, and once changed
-BACK TO BUILT-IN.
+JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES (named `MY FAVORITES`). On a built-in one, NEW, CLONE, RENAME,
+AUTO LEVEL ALL, and once changed BACK TO BUILT-IN. On a FAVORITES cartridge AUTO LEVEL ALL is left out, and its MOVE
+and DELETE ask nothing about references (none point at it).
 
-### The samples (ENV on SAMPLE)
+### The samples
+
+THE SAMPLES list holds every sample on the FM-1, by number ([../../files/instruments.md](../../files/instruments.md#samples)).
 
 ```
  +--------------------------------------+
- | SAMPLES OF 01 DRUM KIT               |
+ | SAMPLES (23)                         |
  |[00 KICK        0.50S  22050 ||||||| ]|
  |  01 SNARE       0.38S  22050 ||||||   |
- |  02 HAT         0.12S  11025 |||      |
+ |  07 HAT         0.12S  11025 |||      |
  |  ...                                 |
  +--------------------------------------+
 ```
 
+It opens three ways, titled the same:
+- **ENV on a sample instrument's SAMPLE** (in edit mode): the instrument's sample highlighted (the first one when it
+  names a missing sample); the keys play the highlighted sample through the instrument; ENV picks it (played whole:
+  START at its start, END at its end, LOOP OFF); HOME leaves the instrument as it was.
+- **REPLACE SAMPLE and CREATE** (a sampler's SEL menu, Sampler cartridges above): the keys play the highlighted sample as a
+  new instrument would, since that is what ENV makes of it (whole, BASE NOTE C-4 at its own rate, LOOP OFF, a new
+  instrument's envelope); ENV picks it, HOME makes nothing.
+- **The cartridge list's samples' line** ([The cartridges](#the-cartridges-env)): the keys play the highlighted
+  sample as a new instrument would; ENV or HOME go back to the line.
+
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 2, 19 | 236 × 206 | | a box |
-| the title | 6, 22 | | T | `SAMPLES OF ` the cartridge's ID and name (37 characters at most) |
-| sample *i* | y = 37 + 13 × (*i* - top) | | T | its index at x 8, its name at x 24 (12 characters), its length at x 100 (`0.50S`), its rate in Hz at x 140 (`22050`), its waveform at x 176 (56 × 10) |
+| the title | 6, 22 | | T | `SAMPLES (23)`: how many the FM-1 holds |
+| sample *i* | y = 37 + 13 × (*i* - top) | | T | its number at x 8, its name at x 24 (12 characters), its length at x 100 (`0.50S`), its rate in Hz at x 140 (`22050`); the cursor's row also its waveform at x 176 (56 × 10), unless it is `(DELETED)`; the others none (reading every row's audio at each redraw would take about 80 ms on the FM-1) |
 | | | | | 14 show; top = max(0, min(cursor - 6, samples - 14)) |
 | the cursor | 4, y - 1 | 232 × 13 | | a box |
 
-Colours: the indexes dark grey; the names yellow (the cursor's white), a deleted one red; the lengths
-light grey; the rates dark grey; the waveforms brown, a deleted one's dark grey; the cursor's box white.
+Colours: the numbers dark grey; the names yellow (the cursor's white); the lengths light grey; the rates dark
+grey; the waveform brown; a sample whose deletion waits for SAVE all grey, its name `(DELETED)`; the cursor's box
+white.
 
-Its SEL menu, `SAMPLE 03`: DELETE (not on a deleted one, whose index stays empty: `(DELETED)`; there SEL
-opens nothing).
+Its SEL menu, `SAMPLE 03`: DELETE (not on one whose deletion waits, where SEL opens nothing). DELETE warns when
+instruments use it, counting them in every sampler, and deletes them with it ([../../files/instruments.md](../../files/instruments.md#deleting));
+**in edit mode** it first leaves edit mode keeping the changes, as EDIT does, so HOME never takes a confirmed
+deletion back with the mode's other changes. After SAVE the sample leaves the list.
 
 ### The pattern list (ENV on PATTERN)
 
@@ -762,9 +971,10 @@ header's place for 1.2 s: `LEVEL +1.5 DB`, `RELEASE 33 MS`, `LOOP START 1F40`, `
   `CUTOFF`, `RESO`, `ENVMOD`, `DECAY`, `ACCENT`; the sample's `LOOP`, `BASE`, `TUNE`, `S`, `HZ`;
   FUSION's `PATTERN`, `TRACKS`, `ROWS`, `C-4`, `00`, `7F`; CHIP's oscillators, `CLOCK` and the clocks, `VOL`,
   `ARP`, `PIT`, `VIB`, `DTY`, `NSE`, `SWEEP`, `REL`, `HZ`, `LEVEL`;
-- `EMPTY SLOT: SEL MENU, INIT OR PASTE` (browsing an empty slot);
+- `EMPTY SLOT: SEL MENU, INIT OR PASTE` (browsing an empty slot); in a sampler `EMPTY SLOT: SEL MENU, CREATE OR
+  PASTE`;
 - `EMPTY SLOT: NOTHING TO EDIT` (edit mode on an empty slot);
-- `THE SAMPLE IS DELETED`;
+- `SAMPLE 23` (the sample instrument's page), `THE SAMPLE IS MISSING`;
 - `NO PATTERN: EDIT MAKES ONE`;
 - edit mode: the page names (`OPERATORS`, `ENVELOPES`, `PITCH / LFO`, `VOICE`, `DCO`, `FILTERS`,
   `ENVELOPE`, `KNOBS`, `TONE`, `VOLUME`, `TABLES`, `WAVE`, `SAMPLE`, `FUSION`), `ALGORITHM: PAGES`, the group
@@ -778,18 +988,30 @@ header's place for 1.2 s: `LEVEL +1.5 DB`, `RELEASE 33 MS`, `LOOP START 1F40`, `
   `48 FRAMES`, `WAVE TABLE`, `ONLY THE WAVE OSCILLATOR READS IT`.
 
 **Menus:**
-- the slots, `SLOT 01:00` / `SLOTS 00-05`: MARK (nothing marked), COPY, PASTE, MOVE, SWAP, DELETE,
-  INIT, RENAME, AUTO LEVEL, REVERT (one slot, with something unsaved);
-- in edit mode, `SLOT 01:00`: EDIT PATTERN, COPY, PASTE, INIT, RENAME, AUTO LEVEL, REVERT;
-- the cartridges, `CARTRIDGE 01`: NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL; built in: NEW,
-  CLONE, RENAME, AUTO LEVEL ALL, BACK TO BUILT-IN (once changed); each with REVERT last while the
+- the slots, `SLOT 01:00` / `SLOTS 00-05`: MARK (nothing marked), ADD TO FAVORITES, COPY, PASTE, REPLACE SAMPLE (a
+  sample instrument, one slot), MOVE, SWAP, DELETE, INIT (CREATE on an empty sampler slot), RENAME, AUTO LEVEL, NEW
+  CARTRIDGE, REVERT (one slot, with something unsaved);
+- in edit mode, `SLOT 01:00`: EDIT PATTERN, ADD TO FAVORITES, COPY, PASTE, REPLACE SAMPLE (a sample instrument),
+  INIT, RENAME, AUTO LEVEL, DELETE (a sample instrument), REVERT;
+- in a FAVORITES cartridge, `SLOT FB:07` / `SLOTS FB:00-05`: MARK, COPY, PASTE, MOVE, SWAP, REMOVE, NEW
+  CARTRIDGE, REVERT;
+- ADD TO FAVORITES' group, `ADD TO FAVORITES`: BACK, `FB FAVORITES`, the user's own (`07 MY FAVORITES`);
+- NEW CARTRIDGE's group, `NEW CARTRIDGE`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES;
+- the cartridges, `CARTRIDGE 01`: NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL (not in FAVORITES); built in:
+  NEW, CLONE, RENAME, AUTO LEVEL ALL, BACK TO BUILT-IN (once changed); each with REVERT last while the
   cartridge has something unsaved;
-- NEW's group, `CARTRIDGE 01 > NEW`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION;
+- NEW's group, `CARTRIDGE 01 > NEW`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES;
 - the samples, `SAMPLE 03`: DELETE.
+
+FAVORITES' texts: the type `FAVORITES` (and the built-in's name), a new one's name `MY FAVORITES`, `MISSING`,
+`EMPTY SLOT: EDIT PICKS AN INSTRUMENT`, `FAVORITE FB:07`, `SOURCE`, `K1: CARTRIDGE  PRESETS: INSTRUMENT`; toasts
+`ADDED TO FB:07`, `ALREADY IN FB:07`, `FAVORITES FULL`, `NO FAVORITES YET`, `CARTRIDGE 11 MADE`, `COPIED FROM
+FAVORITES: NOT HERE`, `COPIED FROM DX7: NOT HERE`.
 
 BACK TO BUILT-IN's toast is [../saving.md](../saving.md#texts)'s.
 
-**Lists and panels:** `CARTRIDGES`, `ID NAME         TYPE      SLOTS`; `SAMPLES OF 01 DRUM KIT`;
+**Lists and panels:** `CARTRIDGES`, `ID NAME         TYPE      SLOTS`, the samples' line `ALL SAMPLES`
+(`184K`, `023/256`); `SAMPLES (23)`, `(DELETED)`;
 `PATTERN FOR 11:00`; the properties `CARTRIDGE 01`: `NAME`, `TYPE`, `SLOTS USED` (`32 OF 32`),
 `RENAME WITH` (`EDIT`); text entry `INSTRUMENT 01:00`, `CARTRIDGE 01`.
 
@@ -804,11 +1026,11 @@ BACK TO BUILT-IN's toast is [../saving.md](../saving.md#texts)'s.
 - AUTO LEVEL ALL: `AUTO LEVEL 32 SOUNDS?` (`1 SOUND?`), `EACH ONE'S LEVEL SET AGAIN`; OCT+ `LEVEL`, OCT-
   `KEEP`;
 - deleting a used sample: `DELETE SAMPLE?`, `3 INSTRUMENTS USE IT AND ARE` (one: `1 INSTRUMENT USES
-  IT AND IS`), `DELETED TOO`; OCT+ `DELETE`, OCT- `KEEP`. An unused one goes at once, toast
-  `SAMPLE 03 DELETED`; deleting the edited instrument's own sample leaves edit mode.
+  IT AND IS`), `DELETED TOO` (counted in every sampler); OCT+ `DELETE`, OCT- `KEEP`. An unused one goes at once,
+  toast `SAMPLE 03 DELETED`; in edit mode either first leaves edit mode, keeping the changes.
 
 **Progress:** `MEASURING EL PIANO`, `MEASURING 32 SOUNDS` (`MEASURING 1 SOUND`), `UPDATING 3
-REFERENCES`, `CLONING ITS SAMPLES`, `MOVING ITS SAMPLES`.
+REFERENCES`.
 
 **Toasts:**
 
@@ -825,12 +1047,11 @@ REFERENCES`, `CLONING ITS SAMPLES`, `MOVING ITS SAMPLES`.
 | `LEVELS SET` | AUTO LEVEL ALL done |
 | `CARTRIDGE 11 MADE` | NEW |
 | `01 CLONED TO 11` | CLONE |
-| `SAVE IT FIRST` | MOVE of a sampler cartridge with samples while changes to it wait |
-| `NO ROOM IN THE USER AREA` | CLONE or MOVE of a sampler cartridge with samples without room for a copy of its audio |
-| `CLONE FAILED: FLASH ERROR` | CLONE or MOVE of a sampler cartridge with samples: the flash failed (as it was) |
 | `ALL CARTRIDGE NUMBERS USED` | NEW or CLONE with no number free |
 | `ALL 240 PATTERNS USED` | EDIT on an empty FUSION slot with no pattern number free (`00`-`EF`) |
-| `EMPTY SLOT: SEL, INIT` | EDIT on an empty slot (not FUSION) |
+| `EMPTY SLOT: SEL, INIT` | EDIT on an empty slot (not FUSION, not a sampler: there it opens CREATE's pick) |
+| `NO SAMPLES ON THE FM-1` | REPLACE SAMPLE, CREATE, EDIT on an empty sampler slot or ENV on SAMPLE with no sample on the FM-1 |
+| `SAMPLE 03 DELETED` | DELETE of a sample no instrument uses |
 | `ARP UP` / `ARP OFF` | ARP on (the pattern) / off; the others: [../controls.md](../controls.md) |
 | `REFERENCES UPDATED, SAVED` | YES to the references question, done |
 | `CHANGES DROPPED` | HOME leaves edit mode with changes |
@@ -843,7 +1064,7 @@ NOTE, _ A REST`, `ALGORITHM: THE PATTERN`, `K1: HOW MANY NOTES LATCH`, `LFO: LET
 
 ## Help
 
-HOME + LFO ([../help.md](../help.md)): these six pages, then the shared ones. The help draws the
+HOME + LFO ([../help.md](../help.md)): these seven pages, then the shared ones. The help draws the
 first page's last line, `PRESS HOME TO GET BACK`, itself.
 
 ```
@@ -860,8 +1081,8 @@ BOTTOM: THE SOUND PICKED, IN DETAIL
 {ENV} (EXPLORE NAMED VAULTS): ALL THE
   CARTRIDGES, {ENV} AGAIN OPENS ONE
 {SEL}: MENU FOR THE SLOT (PAGE 6)
-{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO
-  HOLD {ARP}: RHYTHM, ORDER, LATCH
+{ARP} (AUTOMATIC REPEAT PROCEDURE):
+  ARPEGGIO; HELD: RHYTHM, ORDER, LATCH
 ```
 
 ```
@@ -885,19 +1106,21 @@ LEVEL: HOW LOUD THE SOUND IS, IN DB
 
 ```
 SAMPLE SOUNDS
-SAMPLER CARTRIDGE: SAMPLES FROM THE
-  PC, AND SOUNDS THAT PLAY THEM
+SAMPLER CARTRIDGE: SOUNDS THAT PLAY
+  SAMPLES, ANY OF THEM, BY NUMBER
 ON SAMPLE, {ENV}: LIST THE SAMPLES
   {KEYS}: HEAR THE ONE HIGHLIGHTED
   {ENV} AGAIN: USE IT
-  {SEL}, DELETE: REMOVE IT (IT ASKS)
+  {SEL}, DELETE: IT AND THE SOUNDS
+  THAT USE IT GO (IT ASKS)
+ALL SAMPLES: {ENV}'S LAST LINE
+{SEL}, REPLACE SAMPLE: ALL SET ANEW
+{SEL}, CREATE: ON AN EMPTY SLOT
+  {EDIT} THERE DOES THE SAME
 START, END: THE PART THAT PLAYS
-LOOP: OFF, FWD OR PING (PING-PONG)
-  FROM, TO: THE PART THAT REPEATS
-  RELEASE ({K4}): THE FADE AFTER THE
-  KEY IS LET GO
-BASE NOTE: THE NOTE IT PLAYS AS IS
-TUNE: FINER, IN 1/128 OF A SEMITONE
+LOOP: OFF, FWD OR PING; FROM, TO: THE
+  PART THAT REPEATS; RELEASE: THE FADE
+BASE NOTE: AS IS; TUNE: 1/128 SEMITONE
 ENVELOPE: THE SECOND PAGE
 ```
 
@@ -957,4 +1180,21 @@ THE MENUS
   BACK TO BUILT-IN DROPS YOUR CHANGES
 A SOUND SONGS USE, MOVED OR DELETED:
   IT ASKS IF THE SONGS SHOULD FOLLOW
+```
+
+```
+FAVORITES: SOUNDS FROM ANY CARTRIDGE
+  IN ONE LIST, BUILT IN AS FB
+EACH SLOT POINTS AT A SOUND; WHAT YOU
+  RECORD KEEPS THE SOUND'S OWN NUMBER
+{SEL} ON A SOUND: ADD TO FAVORITES
+HOLD {SEL} + {GLO}: TO FAVORITES AND BACK
+{PRESETS}: THE NEXT FAVORITE
+{EDIT} ON ONE: POINT IT ELSEWHERE
+  {K1}: CARTRIDGE, {PRESETS}: SOUND
+  {EDIT}: KEEP; {HOME}: DROP
+{SEL} IN FAVORITES: REMOVE, MOVE,
+  SWAP, COPY, PASTE
+GREY, MISSING: ITS SOUND IS GONE
+NEW CARTRIDGE ({SEL}): ANY TYPE
 ```

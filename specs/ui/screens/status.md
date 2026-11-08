@@ -155,8 +155,8 @@ CPU 2        12%       14%      20%
 WORST HALF  1932 US  LATE         0
 VOICES     06/09/12  STEALS       0
 
-DX7          0 X 5.6%    JUNO     0 X 4.4%
-TB-303       0 X 2.8%    SAMPLE   0 X 1.6%
+DX7          0 X 3.9%    JUNO     0 X 3.4%
+TB-303       0 X 3.3%    SAMPLE   0 X 1.1%
 CHIP         0 X 2.5%    EFFECTS      0.0%
 
 +--------------------------------------+
@@ -175,8 +175,8 @@ CHIP         0 X 2.5%    EFFECTS      0.0%
 | a figure, left | 0, *y* | 116 wide | T | its name; its value right-aligned to x 116 |
 | a figure, right | 124, *y* | 116 wide | T | its name; its value right-aligned to x 240 |
 | rows | *y* = 55, 67 | | | WORST HALF (core 1's longest audio interrupt) and LATE; VOICES (used / most / limit) and STEALS; the voices used as the first page's VOICES, over each tenth of a second |
-| the engines | *y* = 83, 95, 107 | | T | DX7 and JUNO; TB-303 and SAMPLE; CHIP (left): voices × the share of one (`0 X 5.6%`; CHIP's 2.5 %, a triangle at A-4 as measured on the FM-1: a pulse costs less, noise and high wave notes more), counted again every tenth of a second |
-| EFFECTS | 124, 107 | | T | the effects' cost (`0.0%`), on whichever core runs them: measured only while STATUS is open, with one pair of timer reads around the whole effects stage in each audio block |
+| the engines | *y* = 83, 95, 107 | | T | DX7 and JUNO; TB-303 and SAMPLE; CHIP (left): voices × the share of one (`0 X 3.9%`), counted again every tenth of a second. A share is a voice's cost as measured on the FM-1 while it plays live (the debug build's autotests, KEYS: 4 voices held, every block paying its cache misses): DX7 3.9 %, JUNO 3.4 % (a resonant patch 3.9, a plain one 2.9), TB-303 3.3 %, SAMPLE 1.1 %; CHIP 2.5 %, a triangle at A-4 measured alone (a pulse costs less, noise and high wave notes more). Fewer voices cost a little more each, more a little less |
+| EFFECTS | 124, 107 | | T | the effects' cost (`0.0%`), on whichever core runs them, the share of the audio's time over the last tenth of a second: measured only while this page is shown, with one pair of timer reads around the whole effects stage in each audio block (the punch-ins' buffer, which records what is heard always, and DJ's mix of the decks included) |
 | the graph | 0, 125 | 240 × 100 | | a box |
 | – its label | 2, 127 | | T | `CPU, LAST 30 S` |
 | – 50 % and 80 % | 1, 175 and 145 | 238 × 1 | | lines |
@@ -254,7 +254,7 @@ after the other as one, a square a KB in the order the flash holds them.
 What a square shows, KB by KB:
 - **A KB that holds records** takes the colour of the kind with the most bytes in it: SAMPLES (the samples'
   audio), INSTRUMENTS (the cartridges), PATTERNS, SONGS, LOOPS, OTHER (the settings, DJ's stand, the MIDI map,
-  deleted records' headers). A KB of a block in use that holds no live record (an older copy, until
+  the older form's sample audio, deleted records' headers). A KB of a block in use that holds no live record (an older copy, until
   compaction frees its block) takes its block's colour: it is not free yet.
 - **FREE:** a KB of a free block, and the rest of the block being written after its last record.
 - **KEPT FOR SAVING:** the 40 KB kept for compaction and the EDITOR's own pattern
@@ -298,7 +298,8 @@ buffers, the variables, the spare zone, the stacks ([../../files/ram.md](../../f
 The parts:
 - **EFFECTS:** the effects' delay lines and the punch-in buffer.
 - **EDITS:** the edit memory, 67 KB; the part the unsaved changes take bright (`3K OF 67K`), the rest dim. LOOPS has no RAM of its own: what changed in it since the last SAVE is here,
-  as any edit ([loops.md](loops.md#saving)).
+  as any edit ([loops.md](loops.md#saving)); its stage takes room there too, and is no change
+  ([../../files/ram.md](../../files/ram.md#the-stage-in-the-edit-memory)).
 - **SCREEN:** the screen's drawing strip and the platform's buffers that send it to the display.
 - **DX7:** the DX7's tables, made at power-on.
 - **SOUND:** the player's voices, mixes and scopes, the module replay's tables, LOOPS' lanes (~2 KB).

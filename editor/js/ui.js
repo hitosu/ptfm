@@ -42,11 +42,11 @@ const uniq = a => [...new Set(a.filter(x => x != null))];
 const COL = { white: "#F4F4EC", lgrey: "#B4B4AC", dgrey: "#5C5C5C", yellow: "#F0E074", lblue: "#7C8CF8", lgreen: "#84E884",
     lcyan: "#84E8E8", cyan: "#3AA8A8", lred: "#F87C74", lmagenta: "#E884E8", brown: "#C87C34", blueD: "#161B3E" };
 const ENG_COL = { [K.DX7]: COL.lred, [K.JUNO]: COL.lcyan, [K.TB303]: COL.lgreen, [K.CHIP]: COL.lblue, [K.FUSION]: COL.lmagenta,
-    [K.SAMPLER]: COL.yellow };
+    [K.SAMPLER]: COL.yellow, [K.FAVORITES]: COL.lgrey };    /* (FAVORITES mixes every engine: light grey, no engine's) */
 function colourOf(it) {
     if (it.isDefault) return COL.dgrey;
     if (ENG_COL[it.kind]) return ENG_COL[it.kind];
-    if (it.kind === K.AUDIO) return COL.yellow;
+    if (it.kind === K.SAMPLE || it.kind === K.AUDIO) return COL.yellow;
     if (it.kind === K.SONG) return it.side === "R" && it.num === M.FE ? COL.lcyan : COL.white;
     if (it.kind === K.PATTERN) return it.side === "R" && it.num === M.FE ? COL.yellow : COL.lgrey;
     return COL.lcyan;
@@ -54,7 +54,7 @@ function colourOf(it) {
 function icon(it, big) {
     const c = colourOf(it), w = big ? 2 : 1.5;
     const fe = it.side === "R" && it.num === M.FE;
-    const k = it.kind === K.SAMPLER ? "sampler" : M.isCart(it.kind) ? "cart" : it.kind === K.AUDIO ? "sample" :
+    const k = it.kind === K.SAMPLER ? "sampler" : M.isCart(it.kind) ? "cart" : it.kind === K.SAMPLE || it.kind === K.AUDIO ? "sample" :
         it.kind === K.SONG ? (fe ? "keysong" : "song") : it.kind === K.PATTERN ? "pattern" :
         { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.DJ]: "dj" }[it.kind];
     switch (k) {

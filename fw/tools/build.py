@@ -20,6 +20,10 @@ and its install page.
                      LEDs following the panel): for trying the hardware side; never released
   Intermediate files: ../build/fw/ (objects, ptfm.bin, the listing, gen/: the generated sources)
 
+Every build has its code (tools/buildcode.py: its time to the minute and its kind, 8 hex digits), which the crash
+screens show beside the version. SOURCE_DATE_EPOCH (seconds), when set, is the build's time, the debug build's
+stamp included: the same sources then give the same image.
+
 The JieLi toolchain is Linux x86-64 only: JIELI_TOOLCHAIN points at
 it; JIELI_DOCKER=1 (the default) runs each tool in an offline container, 0 runs it natively.
 """
@@ -33,6 +37,7 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -50,21 +55,36 @@ VERSION = SRC / "VERSION"
 SPARE = 8192                                        # RAM kept spare (the debug build: 7 KB)
 DEBUG = False                                       # --debug (main sets it, with the folders above)
 sys.path.insert(0, str(SRC / "tools"))
+import buildcode  # noqa: E402
 import fm1pkg_make  # noqa: E402
 import lz4blk  # noqa: E402
 import make_installer  # noqa: E402
 import stackdepth  # noqa: E402
 
-APP_XIP = 0x02000120                # app.bin offset 0 in the XIP map; the SPL jumps here
+SLOT_XIP = 0x02000120               # app.bin offset 0 in the XIP map; the SPL jumps here: the start check
 APP_SLOT = fm1pkg_make.APP_SLOT
+STUB_LEN = 0xEE0                    # the start check's room (stub/stub_core.h): flash 0x4120 .. 0x5000
+APP_XIP = SLOT_XIP + STUB_LEN       # the firmware's first byte, 0x02001000 (device/app.ld's XIP)
+MARK_LEN = 32                       # the mark: the slot's last 32 B (stub_core.h's stub_mark_t)
+BODY_LEN = APP_SLOT - STUB_LEN - MARK_LEN
+SLOT_CRC16 = 0x5054                 # app.bin's CRC16 in every build (the mark's last 2 B make it so): the slot's first
+                                    # block, its directory's CRCs, the same in every build
+STUB = OUT / "stub"
+STUB_LOCK = SRC / "stub" / "stub.lock"
 LOADER_LOAD = 0x01C0A800
 LOADER_NAME = b"usb_hid_ota.bin"    # the file name the SPL looks for
 DOCKER_IMAGE = os.environ.get("JIELI_DOCKER_IMAGE", "debian:bookworm-slim")
 CFLAGS = ["-Os", "-ffunction-sections", "-fno-builtin", "-Wall", "-Wno-unused-function"]
+# the app's units: each table in a section of its own, so the link drops a table nothing reads as it drops a function
+# (not CFLAGS: the loader's and the start check's bytes are pinned)
+APP_EXTRA = ["-fdata-sections"]
+# sound files whose code is the main loop's but for seldom work (LOOPS' source hooks: a song's or a pattern's start),
+# built -Oz as a whole
+OZ_FILES = ("core/play/live.c", "core/play/dj.c", "core/play/loops.c")
 HOT = ("core/eng/", "core/play/", "core/fx/")       # the sound's code: -O2
 COLD = '-DPLAT_COLD=__attribute__((minsize,noinline))'   # (but what it runs seldom, marked: built for size, never
                                                           # inlined into what runs often; core/plat.h)
-SMALL = ("core/ui/", "core/ctlmode.c", "core/bench.c", "core/dbg.c", "core/remote.c", "core/store/", "core/midi/")
+SMALL = ("core/ui/", "core/ctlmode.c", "core/dbg.c", "core/remote.c", "core/store/", "core/midi/")
 SMALL_NOT = ("gfx.c",)  # the screens', the controller's, the debug build's, the store's and MIDI's code: -Oz, the
                         # smallest (but the drawing's own); the device layer and the rest -Os
 POOL = '-DPLAT_POOL=__attribute__((section(".pool")))'
@@ -73,6 +93,30 @@ SPARE_OWN = 24576                                               # object (spare.
 # core 2's room (core/plat.h, ../specs/second-core.md#ram): the code a block's job reaches and its constant tables,
 # linked into RAM (device/app.ld's C2RAM) and copied there from the image at power-on
 C2_SEC = ['-DPLAT_C2=__attribute__((section(".c2_text")))', '-DPLAT_C2_RO=__attribute__((section(".c2_rodata")))']
+# the debug build's debug part (core/plat.h's PLAT_DBG, ../specs/debug.md#the-debug-part): linked at device/app.ld's
+# DBGX (flash 0xF7000 + its 32-B head), written apart (ptfm-debug-part.bin), out of the slot
+DBG_SEC = '-DPLAT_DBG=__attribute__((section(".dbg_text"),noinline))'
+DBG_PART = 0xF7000
+DBG_ROOM = 0x8000
+# the only functions of the slot that may call into the debug part: each call there waits for plat_dbg_part() /
+# dbg_part_ok (the part checked out). A call from anywhere else (an interrupt's, the flash's reads) would run whatever
+# the flash holds there when the part is missing, or before the plain window is set
+DBG_CALLERS = {"fm1_cstart", "ptfm_main", "sysex_route", "app_poll", "app_sysex", "ui_render"}
+
+
+def dbg_calls(dis, lo, hi):
+    """the calls and gotos into [lo, hi) from code outside it: [(the caller, the address, the target)]"""
+    out, fn = [], ""
+    for ln in dis.splitlines():
+        if re.match(r"^[A-Za-z_][\w.]*:$", ln):
+            fn = ln[:-1]
+            continue
+        m = re.match(r"^\s*([0-9a-f]+):.*\b(?:call|goto)\s+-?\d+\s+<[^:]*:\s*([0-9a-f]+)\s*>", ln)
+        if m:
+            at, to = int(m.group(1), 16), int(m.group(2), 16)
+            if lo <= to < hi and not lo <= at < hi:
+                out.append((fn, at, to))
+    return out
 # Where core 2's room must put things, by what the chip does (measured facts, as DMA_FLOOR): the chip's ROM writes its
 # start stack inside ROM_STACK at every start of core 2 (the room's jobs' stack must cover it, holding nothing then);
 # from TOP_SAFE up neither a restart nor the update loader writes (its loop, park, queue and fault record lie there)
@@ -89,9 +133,10 @@ SDK_SHA256 = {
     "cfg_tool.bin": "276579954f076886a6a7694f65dc71c034a63a2c204b76749065c0ac7b010d1b",
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
-# The update loader, byte for byte the one the installers know ("ota-FM-1_900"); it builds from device/usb.c,
-# ota.c and libc.c.
-LOADER_SHA256 = "ffba642c23c5d6e4ad5a708c4d15d027bdfc6153da34e05e8052c8b4238aa3b5"
+# The update loader ("ota-FM-1_901": loader/, with device/usb.c, ota.c, libc.c, lcd.c and the start check's box),
+# pinned: a change to its bytes is meant, and this number changes with it. The installers know it by what other
+# firmwares check before staging it (its first bytes' mark, its load address, its size) and its USB identity.
+LOADER_SHA256 = "0e742802eed1d2910ec3094d87ea2bd0c9acd71b485bce27db95525906e7622e"   # (both FM-1 flash chips)
 
 PRODUCT = "FM-1_7101"               # the package identity: the installers need FM-1_<digits>
 if not re.fullmatch(r"FM-1_\d+", PRODUCT):
@@ -233,7 +278,11 @@ def ldr_wrap(image):
 def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = SRC / "loader"
-    flags = [*CFLAGS, "-Ihal", "-Idevice"]
+    r = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "gen_fonts.py"), "--loader", str(LDR / "ldr_font.h")],
+                       cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit("build: gen_fonts.py --loader failed\n" + r.stdout + r.stderr)
+    flags = [*CFLAGS, "-Ihal", "-Idevice", "-I" + rel(LDR)]
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
     elf = LDR / "loader.elf"
@@ -253,6 +302,72 @@ def build_loader():
     ota = ldr_wrap(image)
     (LDR / "ota.bin").write_bytes(ota)
     return ota
+
+
+# ---- the start check (stub/): app.bin's first STUB_LEN bytes, the same in every build (stub.lock)
+
+def build_stub():
+    STUB.mkdir(parents=True, exist_ok=True)
+    src = SRC / "stub"
+    flags = [*CFLAGS, "-Ihal", "-Istub"]
+    tc_all(("cc", "-c", src / "crt0_stub.S", "-o", STUB / "crt0_stub.o"),
+           ("cc", *flags, "-c", src / "stub.c", "-o", STUB / "stub.o"))
+    elf = STUB / "stub.elf"
+    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", src / "stub.ld",
+       STUB / "crt0_stub.o", STUB / "stub.o", "-Map", STUB / "stub.map", "-o", elf)
+    for f in ("text.bin", "ramtext.bin"):
+        (STUB / f).unlink(missing_ok=True)
+    *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, STUB / "text.bin"),
+                               ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, STUB / "ramtext.bin"),
+                               ("common/bin/objdump", "-t", elf),
+                               ("common/bin/objdump", "-d", elf),
+                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
+    (STUB / "stub.dis").write_text(dis)
+    code = (STUB / "text.bin").read_bytes()
+    m = re.search(r"^([0-9a-f]+) .*\s_lrt$", syms, re.M)
+    if not m or int(m.group(1), 16) != SLOT_XIP + len(code):
+        raise SystemExit("stub: its RAM routine's load address does not follow its code (stub.ld)")
+    code += (STUB / "ramtext.bin").read_bytes() if (STUB / "ramtext.bin").exists() else b""
+    (STUB / "stub.bin").write_bytes(code)
+    if not code or len(code) > STUB_LEN:
+        raise SystemExit(f"stub: {len(code)} B, its room is {STUB_LEN} B (flash 0x4120 .. 0x5000)")
+    if code[:4] != bytes.fromhex("04818000"):
+        raise SystemExit(f"stub: starts with {code[:4].hex()}, not `goto +4; rts` (the chip's boot expects it)")
+    if any(re.search(r"\bcall\b", ln) for ln in rt.splitlines()):
+        raise SystemExit("stub: its RAM routine calls out (it runs with the flash off)")
+    return code + b"\xff" * (STUB_LEN - len(code)), len(code)
+
+
+def slot_image(stub, img):
+    """app.bin, the slot: the start check, the firmware (the body, its free part 0xFF), the mark (the body's length
+    and CRC-32, then 2 bytes that make app.bin's CRC16 SLOT_CRC16, so the slot's first block is the same in every
+    build)"""
+    if len(img) > BODY_LEN:
+        raise SystemExit(f"build: the firmware is {len(img)} B, its room in the slot {BODY_LEN} B")
+    body = bytes(img) + b"\xff" * (BODY_LEN - len(img))
+    head = struct.pack("<IIIIII", 0x4D465450, BODY_LEN, zlib.crc32(body), zlib.crc32(bytes(img)),
+                       0xFFFFFFFF, 0xFFFFFFFF)
+    pre = stub + body + head + struct.pack("<I", zlib.crc32(head)) + b"\xff\xff"
+    state = fm1pkg_make.crc16(pre)
+    fix = next(x for x in range(65536) if fm1pkg_make.crc16(bytes((x & 0xFF, x >> 8)), state) == SLOT_CRC16)
+    slot = pre + bytes((fix & 0xFF, fix >> 8))
+    if len(slot) != APP_SLOT or fm1pkg_make.crc16(slot) != SLOT_CRC16:
+        raise SystemExit("build: the slot's mark does not add up")
+    return slot
+
+
+def stub_lock(stub_sha, block_sha):
+    """the start check's bytes and the slot's first block as packaged, against stub.lock; --renew-stub writes it
+    (a new start check: the next install writes the slot's first block with nothing to fall back on, ~44 ms)"""
+    want = f"{stub_sha}  the start check (stub.bin, {STUB_LEN} B)\n{block_sha}  the slot's first block, packaged\n"
+    have = STUB_LOCK.read_text() if STUB_LOCK.exists() else ""
+    if have == want:
+        return None
+    if "--renew-stub" in sys.argv[1:] or not have:
+        STUB_LOCK.write_text(want)
+        return f"stub.lock {'written' if not have else 'renewed'}: {stub_sha[:16]}…, the first block {block_sha[:16]}…"
+    return ("the start check or the slot's first block is not the one stub.lock pins (a change to stub/, the HAL it "
+            "includes or the package's head): build with --renew-stub if it is meant")
 
 
 # ---- app
@@ -276,13 +391,15 @@ def packed_copies():
     return RW
 
 
-def build_app(version, bringup):
-    debug = ["-DPTFM_DEBUG"] if DEBUG else []          # (the debug build: specs/debug.md)
-    dflags = [*CFLAGS, "-Ihal", "-Idevice", "-Icore", "-I" + rel(GEN_DEV), f'-DFW_ID="{PRODUCT}"', *C2_SEC,
+def build_app(version, code, bringup):
+    debug = ["-DPTFM_DEBUG", DBG_SEC] if DEBUG else []  # (the debug build: specs/debug.md; its cold code in the debug
+                                                        # part, core/plat.h's PLAT_DBG)
+    dflags = [*CFLAGS, *APP_EXTRA, "-Ihal", "-Idevice", "-Icore", "-I" + rel(GEN_DEV), f'-DFW_ID="{PRODUCT}"', *C2_SEC,
+              f'-DPTFM_VERSION="{version}"', f'-DPTFM_BUILD="{code}"',   # (the crash screens')
               *(["-DPTFM_BRINGUP"] if bringup else []), *debug]
     rw = None if bringup else packed_copies()      # (the app's core compiled from the packed copies)
     core_inc = rel(rw) if rw else "core"
-    cflags = [*CFLAGS, "-I" + core_inc, "-Idevice/include", "-I" + rel(GEN), POOL, SPARE_SEC, *C2_SEC, COLD,
+    cflags = [*CFLAGS, *APP_EXTRA, "-I" + core_inc, "-Idevice/include", "-I" + rel(GEN), POOL, SPARE_SEC, *C2_SEC, COLD,
               f'-DPTFM_VERSION="{version}"', *(["-DUI_TXT_PACKED", "-Werror=int-conversion"] if rw else []), *debug]
     # (packed: a table's text number given where a text is wanted, without T(), is an error, not a warning)
     jobs = [(SRC / "device" / "crt0.S", OBJ / "crt0.o", []),
@@ -295,7 +412,9 @@ def build_app(version, bringup):
         r = rel(s)
         name = r.replace(rel(GEN) + "/", "gen/").replace("/", "_").replace(".c", ".o")
         fl = list(cflags)
-        if r.startswith(HOT):
+        if r in OZ_FILES:                         # (these sound files: -Oz)
+            fl[0] = "-Oz"
+        elif r.startswith(HOT):
             fl[0] = "-O2"
         elif r.startswith(SMALL) and not r.endswith(SMALL_NOT):
             fl[0] = "-Oz"
@@ -311,14 +430,17 @@ def build_app(version, bringup):
     elf = OUT / "ptfm.elf"
     objs = [o for _, o, _ in jobs]
     try:
-        tc("pi32v2/bin/ld", "-T", SRC / "device" / "app.ld", *objs, "-Map", OUT / "ptfm.map", "-o", elf)
+        # (--gc-sections: a function or table nothing reaches is left out, as -ffunction-sections lets it be; the
+        # linker script's KEEPs are the roots: crt0 and core 2's room)
+        tc("pi32v2/bin/ld", "--gc-sections", "-T", SRC / "device" / "app.ld", *objs, "-Map", OUT / "ptfm.map", "-o", elf)
     except SystemExit:
         measure(objs)                             # what does not fit, by object, before failing
         raise
     c2_parts = ("c2text.bin", "c2ro.bin", "c2top.bin")
-    for sect in ("text.bin", "data.bin", "ramtext.bin", "c2.bin", *c2_parts):
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "c2.bin", "dbg.bin", *c2_parts):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
+                               ("common/bin/objcopy", "-O", "binary", "-j", ".dbg_text", elf, OUT / "dbg.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".c2_text", elf, OUT / c2_parts[0]),
@@ -352,6 +474,19 @@ def build_app(version, bringup):
     if c2_run != symv("_c2_end") - symv("_c2_start"):
         raise SystemExit(f"build: core 2's room's run in the image is {c2_run} B, not _c2_start .. _c2_end")
     (OUT / "ptfm.bin").write_bytes(img)
+    # the debug part: its head ("PTDP", the image's CRC-32: the mark's build, its length, its CRC-32), then its code
+    part = (OUT / "dbg.bin").read_bytes() if (OUT / "dbg.bin").exists() else b""
+    (OUT / "ptfm-debug-part.bin").unlink(missing_ok=True)
+    if part and not DEBUG:
+        raise SystemExit("build: PLAT_DBG code in a build that is not the debug build")
+    if DEBUG:
+        lo = 0x02000000 + DBG_PART - 0x4000 + 32
+        if symv("_dbg_start") != lo or symv("_dbg_end") - symv("_dbg_start") != len(part):
+            raise SystemExit(f"build: the debug part is not at {lo:#x} as it was linked (device/app.ld's DBGX)")
+        if not part or 32 + len(part) > DBG_ROOM:
+            raise SystemExit(f"build: the debug part is {len(part)} B, its room {DBG_ROOM - 32}")
+        head = struct.pack("<IIII", 0x50445450, zlib.crc32(bytes(img)), len(part), zlib.crc32(part)) + b"\xff" * 16
+        (OUT / "ptfm-debug-part.bin").write_bytes(head + part)
     return bytes(img), syms, dis, rt
 
 
@@ -486,7 +621,8 @@ def measure(objs):
     script = OUT / "measure.ld"
     script.write_text(ld)
     try:
-        tc("pi32v2/bin/ld", "-T", script, *objs, "-Map", OUT / "measure.map", "-o", OUT / "measure.elf")
+        tc("pi32v2/bin/ld", "--gc-sections", "-T", script, *objs, "-Map", OUT / "measure.map", "-o",
+           OUT / "measure.elf")
     except SystemExit:
         print("build: (the measuring link failed too: undefined symbols?)")
         return
@@ -527,7 +663,7 @@ def report(objs, data_size):
     tot = [sum(v[i] for v in objs.values()) for i in range(3)]
     lines = [f"  RAM by object (bytes)          variables      pool     image",
              f"  {'all':<30} {tot[0]:>9} {tot[1]:>9} {tot[2]:>9}   (RAM {tot[0] + tot[1]} of {data_size}; the spare "
-             f"zone takes the rest: its own {SPARE_OWN} and at least {SPARE} more; image of {APP_SLOT})"]
+             f"zone takes the rest: its own {SPARE_OWN} and at least {SPARE} more; image of {BODY_LEN})"]
     for name, (r, p, t) in rows:
         if r + p >= 256:
             lines.append(f"  {name.removesuffix('.o'):<30} {r:>9} {p:>9} {t:>9}")
@@ -573,8 +709,9 @@ def check(img, syms, dis, rt, ota):
                 continue                # -2^22, the sound's clamp of a 23-bit value, not an address
             if 0xFFC00000 <= val < 0xFFD00000:
                 errors.append(f"reference to ROM address {val:#010x}")
-    if len(img) > APP_SLOT:
-        errors.append(f"image {len(img)} B exceeds the app slot ({APP_SLOT} B)")
+    if len(img) > BODY_LEN:
+        errors.append(f"image {len(img)} B exceeds its room in the slot ({BODY_LEN} B: the slot's {APP_SLOT} less "
+                      f"the start check's {STUB_LEN} and the mark's {MARK_LEN}), {len(img) - BODY_LEN} B over")
 
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
@@ -600,10 +737,9 @@ def check(img, syms, dis, rt, ota):
     pool = s["_pool_end"] - s["_pool_start"]
     own = s["_spare_end"] - s["_spare_lo"]
     zone = top - s["_spare_lo"]
-    fw_end = 0x4000 + 0x120 + len(img)
-    grow = 0x92000 - ((fw_end + 0xFFF) & ~0xFFF)
-    notes.append(f"image {len(img)} B of {APP_SLOT}; FWS's free part, the room to grow, {grow // 1024} KB "
-                 f"(from {(fw_end + 0xFFF) & ~0xFFF:#x})")
+    fw_end = 0x4000 + 0x120 + STUB_LEN + len(img)
+    notes.append(f"image {len(img)} B of {BODY_LEN} ({BODY_LEN - len(img)} B left: FWS's free part, the room to "
+                 f"grow, from {fw_end:#x})")
     notes.append(f"RAM: the data region {lo:#010x}..{top:#010x} ({size} B): the pool {s['_pool_start']:#010x} "
                  f"({pool}, the effects' {s['_pool_fx_end'] - s['_pool_start']} at its bottom), the variables "
                  f"{s['_data_start']:#010x} ({var}), the spare zone {s['_spare_lo']:#010x}: {zone} B ({own} its own, "
@@ -617,6 +753,15 @@ def check(img, syms, dis, rt, ota):
         errors.append("RAM: the data region is not the pool first, then the variables, then the spare zone "
                       "(device/app.ld)")
     errors += room_check(s, sym, dis, notes)
+    dlo, dhi = sym("_dbg_start"), sym("_dbg_end")
+    if dlo is not None and dhi is not None and dhi > dlo:   # the debug part: reached only from the guarded callers
+        calls = dbg_calls(dis, dlo, dhi)
+        bad = sorted({f"{fn} -> {to:#x}" for fn, _, to in calls if fn not in DBG_CALLERS})
+        if bad:
+            errors.append("the debug part called from outside its guarded callers (DBG_CALLERS): " + ", ".join(bad[:8]))
+        else:
+            notes.append(f"the debug part: {dhi - dlo} B, {len(calls)} calls into it, all from "
+                         f"{', '.join(sorted({fn for fn, _, _ in calls}))}")
     notes.append(f"stacks: the main loop's {s['_ustack_lo']:#010x}..{s['_ustack_top']:#010x} "
                  f"({s['_ustack_top'] - s['_ustack_lo']} B), the interrupts' {s['_sstack_lo']:#010x}.."
                  f"{s['_sstack_top']:#010x} ({s['_sstack_top'] - s['_sstack_lo']} B), guard bands at "
@@ -636,9 +781,12 @@ def check(img, syms, dis, rt, ota):
         notes.append(f"DMA buffers ({len(dma)} of {len(DMA_BUFFERS)}) from {min(dma):#010x}, all >= {DMA_FLOOR:#010x}")
     h = hashlib.sha256(ota).hexdigest()
     if h != LOADER_SHA256:
-        errors.append(f"update loader {h[:16]}… is not the one the installers know ({LOADER_SHA256[:16]}…)")
+        errors.append(f"update loader {h} is not the pinned one ({LOADER_SHA256[:16]}…: LOADER_SHA256 changes "
+                      f"with a meant change)")
     else:
-        notes.append(f"update loader: {len(ota)} B, byte for byte the one the installers know")
+        notes.append(f"update loader: {len(ota)} B, the pinned one ({LOADER_SHA256[:16]}…)")
+    if len(ota) > 0x3000:                         # (staged as it is, its outer head rewritten: 12 KB to be kept)
+        notes.append(f"update loader: {len(ota)} B staged, over 12 KB")
     # the interrupts' stack's worst case, core 2's jobs' stack's and its exceptions' apart
     lines, st_err, st_warn, worst, c2_worst, c2_exc = stackdepth.analyse(dis, (s["_c2_start"], s["_c2_end"]))
     print("\n".join(lines))
@@ -742,7 +890,8 @@ def mmio_check():
             break
         regs |= more
     errors = []
-    files = [*(SRC / "device").glob("*.[ch]"), *(SRC / "loader").glob("*.c"), *SRC.glob("core/**/*.[ch]")]
+    files = [*(SRC / "device").glob("*.[ch]"), *(SRC / "loader").glob("*.c"), *(SRC / "stub").glob("*.c"),
+             *SRC.glob("core/**/*.[ch]")]
     for f in sorted(files):
         text = f.read_text(encoding="utf-8", errors="replace")
         core = "core" in f.relative_to(SRC).parts[:1]
@@ -763,14 +912,23 @@ def mmio_check():
     return errors
 
 
-def version(release):
+def build_time():
+    """the build's time, seconds since 1970: SOURCE_DATE_EPOCH's when set (a rebuild of the same image), else now"""
+    t = os.environ.get("SOURCE_DATE_EPOCH")
+    try:
+        return int(t) if t else int(time.time())
+    except ValueError:
+        raise SystemExit(f"build: SOURCE_DATE_EPOCH {t!r} is not a number of seconds")
+
+
+def version(release, t):
     number = VERSION.read_text().strip() if VERSION.exists() else ""
     if not number:
         raise SystemExit("build: no version number in fw/VERSION")
     if release:
         return number
     if DEBUG:                                       # its own time, so each debug build is told apart
-        return number + " " + time.strftime("%m-%d %H:%M") + " DEBUG"
+        return number + " " + time.strftime("%m-%d %H:%M", time.localtime(t)) + " DEBUG"
     return number + " DEV"
 
 
@@ -794,12 +952,18 @@ def main():
         if hashlib.sha256(fm1pkg_make.sdk_file(rel_)).hexdigest() != sha:
             raise SystemExit(f"build: SDK {rel_} differs from AC79NN_SDK_V1.2.1 (SHA-256 mismatch)")
     OUT.mkdir(parents=True, exist_ok=True)
-    ver = version(release)
-    with ThreadPoolExecutor(2) as ex:
-        gen, ldr = ex.submit(generate, bringup), ex.submit(build_loader)
+    t_built = build_time()
+    ver = version(release, t_built)
+    try:
+        code = buildcode.encode(t_built, 3 if bringup else 0 if release else 1 if debug else 2)
+    except ValueError as e:
+        raise SystemExit(f"build: {e} (the code holds 2026 to 2057)")
+    with ThreadPoolExecutor(3) as ex:
+        gen, ldr, stb = ex.submit(generate, bringup), ex.submit(build_loader), ex.submit(build_stub)
         gen.result()
         ota = ldr.result()
-    img, syms, dis, rt = build_app(ver, bringup)
+        stub, stub_used = stb.result()
+    img, syms, dis, rt = build_app(ver, code, bringup)
     map_text = (OUT / "ptfm.map").read_text(errors="replace")
     lo, top = (re.search(r"^([0-9a-f]+) .*\s" + n + r"$", syms, re.M) for n in ("_data_lo", "_data_top"))
     print(report(by_object(map_text), int(top.group(1), 16) - int(lo.group(1), 16) if lo and top else 0))
@@ -813,12 +977,26 @@ def main():
     hal_err = mmio_check()
     errors += hal_err
     if not hal_err:
-        notes.append("register access: hal/ only (device/, loader/, core/ clean); core/ sees plat.h only")
+        notes.append("register access: hal/ only (device/, loader/, stub/, core/ clean); core/ sees plat.h only")
     big = sizes(syms)
     for sect in (".text", ".c2_text", ".bss", ".pool"):
         top = ", ".join(f"{n} {s}" for s, n in big.get(sect, [])[:6])
         if top:
             notes.append(f"largest in {sect}: {top}")
+    if fm1pkg_make.APP_SLOT != APP_SLOT or BODY_LEN != 0x8D0BC:
+        errors.append("the slot's layout differs from stub/stub_core.h's (STUB_SLOT_LEN, STUB_LEN, the mark)")
+    if len(img) <= BODY_LEN:
+        slot = slot_image(stub, img)
+        (OUT / "app.bin").write_bytes(slot)
+        flash = fm1pkg_make.flash_image(slot, fm1pkg_make.KEY)
+        said = stub_lock(hashlib.sha256(stub).hexdigest(), hashlib.sha256(flash[0x4000:0x5000]).hexdigest())
+        if said and said.startswith("stub.lock"):
+            notes.append(said)
+        elif said:
+            errors.append(said)
+        notes.append(f"the start check: {stub_used} of {STUB_LEN} B, pinned by stub.lock; the slot's first block "
+                     f"the same in every build (app.bin's CRC16 {SLOT_CRC16:#06x}); the mark at "
+                     f"{0x4120 + APP_SLOT - MARK_LEN:#x}")
     for n in notes:
         print("  ok   ", n)
     for e in errors:
@@ -828,12 +1006,14 @@ def main():
     dest = DIST if release else DIST_DEBUG if debug else OUT
     dest.mkdir(parents=True, exist_ok=True)
     name = "ptfm-bringup" if bringup else "ptfm-debug" if debug else "ptfm"
-    pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
+    pkg = fm1pkg_make.ufw(flash, ota, PRODUCT)
     (dest / f"{name}.fwsc").write_bytes(pkg)
     demo = DIST / "demo.ptfmdsk"
+    part = (OUT / "ptfm-debug-part.bin").read_bytes() if debug else None
     page = make_installer.make(pkg, PRODUCT, dest / (f"{name}-install.html" if bringup else "install.html"),
-                               version=ver, disk=demo if demo.exists() else None, debug=debug)
-    print(f"version  {ver}  (built {time.strftime('%Y-%m-%d %H:%M')})")
+                               version=ver, disk=demo if demo.exists() else None, debug=debug, part=part)
+    print(f"version  {ver}  build {code}  (built {time.strftime('%Y-%m-%d %H:%M', time.localtime(t_built))}, "
+          f"{time.strftime('%H:%M', time.gmtime(t_built))} UTC)")
     print(f"app      {OUT / 'ptfm.bin'}  {len(img)} B")
     print(f"package  {dest / (name + '.fwsc')}  {len(pkg)} B, identity {PRODUCT}, "
           f"sha256 {hashlib.sha256(pkg).hexdigest()[:16]}…")

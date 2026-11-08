@@ -58,7 +58,10 @@ In short:
   SPACE line ([files/store.md](files/store.md)); a disk that fits only the FM-1 emptied gets REPLACE ALL in WRITE's
   place, its plan below ([files/blob.md](files/blob.md#seeding)).
 - **The emulated flash is kept in the browser's storage,** so the library survives a reload, as on the
-  device.
+  device. A disk of an older form is converted as it loads ([files/disk.md](files/disk.md#versions)); the kept
+  flash is converted at the first load after a firmware that changes a type's version, as the install page converts
+  an FM-1 ([files/blob.md](files/blob.md#converting-after-an-install)): the same converter and partial plan, through
+  the page's own seeding, the status line saying so.
 - **DOWNLOAD DISK** saves what the emulated FM-1 holds in its user area as a disk
   (`ptfm-emulator-YYYY-MM-DD-HHMM.ptfmdsk`, [files/disk.md](files/disk.md)): every live record read from its flash,
   each checked against its header's CRC, as the editor's backup reads a real FM-1's, so UPLOAD CUSTOM DISK, the install page and

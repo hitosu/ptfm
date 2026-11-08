@@ -32,7 +32,8 @@ int fxt_get(fxt_t *t)
         t->what = FT_LOOPS; t->kind = REC_LOOPS;
         strcpy(t->name, T("THE LOOPS"));
         t->plays = st.what == PL_LOOPS;
-    } else if ((st.what == PL_DJ && st.playing) || !strcmp(from_name, "DJ")) {
+    } else if (st.what == PL_DJ || !strcmp(from_name, "DJ")) {   /* (the decks playing, or played and stopped: what
+                                                                  * the keys hear, until something else plays) */
         t->what = FT_DJ; t->kind = REC_DJ;
         strcpy(t->name, T("DJ"));
         t->plays = st.what == PL_DJ;
@@ -148,6 +149,7 @@ static void saved_setup(const fxt_t *t, uint8_t *s64)
     const uint8_t *p = store_get_saved(t->kind, t->num, t->sub, &len, &ver);
     fxd_default(s64);
     if (t->what == FT_LOOPS) {                          /* (as LOOPS reads it: an all-0 or chainless one, mended) */
+        fxd_loops(s64);
         int none = 1, n;
         if (!p || ver != LOOPS_REC_VER || len < 72u) return;
         for (int i = 8; i < 72 && none; i++) none = !p[i];

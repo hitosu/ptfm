@@ -184,9 +184,11 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     <dl class="keys">
       <dt>INSTALL FIRMWARE</dt>
       <dd>Writes PT/FM over whatever firmware the FM-1 runs. Over PT/FM, your songs, patterns, samples and settings stay
-        where they are: the install writes nothing into the user area. Other firmwares erase it when they are installed:
-        keep a copy of your work first (the editor page saves the FM-1's library as a disk). Changes not saved on the
-        FM-1 are lost, as when it is switched off.</dd>
+        where they are: the install writes nothing into the user area, except to convert what an older PT/FM left there
+        and this one no longer reads (its samplers). The page does that by itself after the install, saying so as it
+        goes; one cut short goes on at the next INSTALL FIRMWARE, and nothing is lost. Other firmwares erase the user area
+        when they are installed: keep a copy of your work first (the editor page saves the FM-1's library as a disk).
+        Changes not saved on the FM-1 are lost, as when it is switched off.</dd>
       <dt>CLEAN INSTALL</dt>
       <dd>A fresh start. With the switch on, INSTALL FIRMWARE writes PT/FM, then erases everything
         the FM-1 holds (your work, the settings, damaged records too), leaving an empty user area. UPLOAD DEMO DISK
@@ -197,7 +199,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
         <kbd>SAVE</kbd> on it (or REVERT them), then upload again.</dd>
       <dt>UPLOAD CUSTOM DISK</dt>
       <dd>The same with a disk file you pick (<b>.ptfmdsk</b>: the editor page's DOWNLOAD DISK saves the FM-1's library as
-        one, and so does the emulator's). Afterwards the FM-1 holds exactly that disk.</dd>
+        one, and so does the emulator's). Afterwards the FM-1 holds exactly that disk. A disk an older PT/FM made is
+        converted to the new form as it loads.</dd>
       <dt>REPLACE ALL</dt>
       <dd>Offered when a disk does not fit around what the FM-1 holds but fits it emptied: erases everything the FM-1
         holds, then writes the disk. An upload cut short then leaves part of the disk: upload again.</dd>
@@ -210,6 +213,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
           says USB RESCUE (it starts so by itself after two failed starts); now press INSTALL FIRMWARE.</li>
         <li><b>An install cut short:</b> press INSTALL FIRMWARE again. The FM-1 waits in update mode until an install
           finishes.</li>
+        <li><b>A conversion cut short</b> (after an install, an older PT/FM's samplers): press INSTALL FIRMWARE again. It goes
+          on from where it stopped: the samplers converted so far and the rest are both whole.</li>
         <li><b>An upload cut short:</b> upload again. What was there stays whole until the new files are all in; the FM-1
           says what it found when it starts.</li>
         <li><b>Back to another firmware:</b> PT/FM keeps the FM-1's update path, so another FM-1 firmware's installer
@@ -307,6 +312,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     foreign: "The FM-1 waits in another firmware's update mode: finish that update with its own installer first. ",
   };
   let wrote = 0;                                     /* (the install's progress: the image read up to there, bytes) */
+  let after = null, installedAs = null;              /* what follows the install: "clean" (CLEAN INSTALL's erase) or "convert"
+                                                        (what an older PT/FM left converted); the identity the FM-1 reported */
   function step(k, a, end) {                         /* (write: a the loader's reads so far, end the image read up to there) */
     const bar = $("bar");
     bar.hidden = false;
@@ -321,7 +328,12 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       bar.value = Math.min(100, ((74 + a) / TOTAL) * 100);
     }
     if (k === "reboot") status("Written. Waiting for the FM-1 to start PT/FM…");
-    if (k === "done") { bar.value = 100; status("Done: the FM-1 runs PT/FM (" + (a || meta.product) + ").", "done"); }
+    if (k === "done") {                              /* (with a conversion to follow, Done waits for its end) */
+      bar.value = 100;
+      installedAs = a || meta.product;
+      if (after === "convert") status("Written. Waiting for the FM-1 to start PT/FM…");
+      else status("Done: the FM-1 runs PT/FM (" + installedAs + ").", "done");
+    }
   }
   window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
   $("go").addEventListener("click", async () => {
@@ -329,6 +341,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     wrote = 0;
     offerOff();
     const clean = cleanOn();                         /* (as switched at the press) */
+    after = clean ? "clean" : "convert";
+    installedAs = null;
     lock(true);
     let midi, installed = false;
     try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
@@ -349,18 +363,104 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       console.error(e);
     }
     if (installed && clean) await cleanErase(midi);
+    else if (installed) await convertAfter(midi);
+    after = null;
     lock(false);
   });
 
-  /* the FM-1 back on PT/FM after an install: a seeding session and its layout, or null */
+  /* the FM-1 back on PT/FM after an install: a seeding session and its layout, { s, refused } when PT/FM refused for good
+     (edits not saved, a protocol version it does not take: .code), or null; anything else (busy saving, no answer yet) is
+     asked again */
   async function ptfmBack(midi) {
+    const R = PTFM_seed.RESULT;
     for (let tries = 0; tries < 8; tries++) {
       await new Promise((r) => setTimeout(r, tries ? 1500 : 500));
       let s = null;
       try { s = await ptfmSession(midi); if (s) return { s, L: await s.hello() }; }
-      catch (e) { if (s) s.close(); }
+      catch (e) {
+        if (s && e && (e.code === R.UNSAVED || e.code === R.VERSION)) return { s, refused: e };
+        if (s) s.close();
+      }
     }
     return null;
+  }
+
+  /* after INSTALL FIRMWARE (CLEAN INSTALL off): what an older PT/FM left that this one no longer reads, converted on the FM-1
+     (specs/files/blob.md, Converting after an install: seed.js convertDevice, whole samplers a save in free blocks only, so a
+     cut leaves what was converted and the rest whole, and the next INSTALL FIRMWARE goes on). With nothing of the kind,
+     nothing is shown but the install's Done. */
+  const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+  const hex = (n) => (n < 16 ? "0" : "") + n.toString(16).toUpperCase();
+  const REDO = "on the EDITOR page READ, then WRITE (it writes the user area anew, after its backup).";
+  function convertedLine(res, done) {                 /* the Done line of a conversion that went through -> [text, kind] */
+    let t = done + "; ", kind = "done";
+    const st = res.stopped;
+    if (st) {
+      kind = "warn";
+      t += `${res.converted.length} of ${res.total} samplers converted. Sampler ${hex(st.num)} needs ` + (st.kb && st.noDelete
+        ? `${st.kb} KB more room, and the FM-1 has too little left to save even a delete: ${REDO}`
+        : st.kb ? `${st.kb} KB more room: delete something on the FM-1 and press INSTALL FIRMWARE again, or ${REDO}`
+        : st.piece ? `${st.piece} KB in one piece, and the free room on the FM-1 lies in smaller pieces: ${REDO}`
+        : `room for ${plural(st.records, "more record")} in the FM-1's list of records (it lists ${st.mapRoom} at most): ${REDO}`);
+    } else t += `${plural(res.converted.length, "sampler")} converted to the new form, ${plural(res.samples, "sample")}.`;
+    if (res.older.length) {
+      const one = res.older.length === 1;
+      kind = "warn";
+      t += ` ${plural(res.older.length, "sampler")} stay${one ? "s" : ""} in the older form: ${one ? "its" : "their"} ` +
+        `${plural(res.olderSamples, "sample")} find${res.olderSamples === 1 ? "s" : ""} no free sample number (256 at most). The ` +
+        `EDITOR page lists ${one ? "it" : "them"} as OLDER FORM; deleting ${one ? "it" : "them"}, or other samples, frees numbers.`;
+    }
+    if (res.bad.length) {
+      const one = res.bad.length === 1;
+      kind = "warn";
+      t += ` ${one ? "Sampler" : "Samplers"} ${res.bad.map(hex).join(", ")} of the older form could not be read and ` +
+        `${one ? "stays as it is" : "stay as they are"}.`;
+    }
+    if (res.dropped) t += ` Deleted: ${res.dropped === 1 ? "1 piece" : res.dropped + " pieces"} of old audio with no sample ` +
+      `entry (nothing could play ${res.dropped === 1 ? "it" : "them"}).`;
+    if (res.low) { kind = "warn"; t += ` But ${res.low}.`; }
+    return [t + oldBad({ bad: res.damaged }), kind];
+  }
+  async function convertAfter(midi) {
+    const done = "Done: the FM-1 runs PT/FM (" + (installedAs || meta.product) + ")";
+    const back = await ptfmBack(midi);
+    if (!back) {
+      status(done + ". It did not answer afterwards, so it was not checked for what an older PT/FM left on it to convert: " +
+        "if it holds an older PT/FM's samplers, press INSTALL FIRMWARE again.", "warn");
+      return;
+    }
+    if (back.refused) {
+      status(back.refused.code === PTFM_seed.RESULT.UNSAVED
+        ? done + ". It has edits not saved, so what an older PT/FM left on it was not converted: SAVE them (or REVERT) on " +
+          "the FM-1, then press INSTALL FIRMWARE again."
+        : done + ". It did not say what it holds (" + back.refused.message + "): press INSTALL FIRMWARE again.", "warn");
+      back.s.close();
+      return;
+    }
+    const bar = $("bar");
+    try {
+      const res = await PTFM_seed.convertDevice(back.s, { layout: back.L, onStep: (p) => {
+        status(`Converting the samplers to the new form: ${p.done} of ${p.total}. Keep the FM-1 connected.`);
+        bar.hidden = false;
+        bar.value = p.total ? 100 * (p.from + (p.done - p.from) * (p.blocks ? p.block / p.blocks : 0)) / p.total : 0;
+      } });
+      if (res.nothing) status(done + ".", "done");
+      else { bar.value = 100; const [t, kind] = convertedLine(res, done); status(t, kind); }
+    } catch (e) {
+      const r = e && e.result, head = `${done}; ${r ? r.converted.length : 0} of ${r ? r.total : 0} samplers converted`;
+      if (e && e.code === PTFM_seed.RESULT.UNSAVED)
+        status(head + ". The FM-1 has edits not saved: SAVE them (or REVERT) on the FM-1, then press INSTALL FIRMWARE again.", "err");
+      else {
+        status(head + (e && e.timeout
+          ? ", then the FM-1 stopped answering. Switch it off and on, then press INSTALL FIRMWARE again: the conversion goes on " +
+            "from there, and nothing is lost."
+          : ", then the conversion stopped: " + (e && e.message) + ". Press INSTALL FIRMWARE again: it goes on from there, and " +
+            "nothing is lost."), "err");
+        try { await back.s.abort(); } catch (_) { /* the FM-1 mounts by itself after 10 s */ }
+      }
+      console.error(e);
+    }
+    back.s.close();
   }
 
   /* a clean install's second half (CLEAN INSTALL switched on): every block of the user area erased, no record left
@@ -368,7 +468,8 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
   async function cleanErase(midi) {
     status("Installed. Waiting for PT/FM to erase the FM-1…");
     const back = await ptfmBack(midi);
-    if (!back) {
+    if (!back || back.refused) {
+      if (back) back.s.close();
       status("Installed, but the FM-1 did not answer as PT/FM, so nothing was erased: switch it off and on, then press INSTALL FIRMWARE again.", "err");
       return;
     }
@@ -402,27 +503,30 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
     };
     return { input: pick(midi.inputs), output: pick(midi.outputs) };
   }
-  /* (every block written is read back and checked: records the FM-1 still counts as damaged are older ones the
-     plan did not need, left where they were) */
-  const oldBad = (r) => r.bad ? ` The FM-1 also found ${r.bad} damaged record${r.bad === 1 ? "" : "s"} from before, which ` +
-    `this did not need (SETTINGS > TOOLS > CHECK STORAGE names them).` : "";
+  /* (every block written is read back and checked by the FM-1, so a record it counts as damaged is none of those; it counts
+     what CHECK STORAGE names) */
+  const oldBad = (r) => !r.bad ? "" : r.bad === 1
+    ? " The FM-1 counts 1 damaged record, not one written now (SETTINGS > TOOLS > CHECK STORAGE names it)."
+    : ` The FM-1 counts ${r.bad} damaged records, none of them written now (SETTINGS > TOOLS > CHECK STORAGE names them).`;
 
   /* a disk (data, else the demo disk) planned on the layout L by planFn and written at once, the progress in the status line;
-     planned again if the FM-1 saved meanwhile (CHANGED). -> { r } written, { upToDate }, { problem }; throws
-     what writing threw (the caller aborts) */
+     planned again if the FM-1 saved meanwhile (CHANGED). A disk an older PT/FM made is converted as it loads when the FM-1
+     takes the new form only (seed.js upgradeFor). -> { r, converted } written, { upToDate }, { problem }, each with data,
+     the disk as planned; throws what writing threw (the caller aborts) */
   async function writeDisk(s, L, planFn, what, data) {
     const bar = $("bar");
     for (let tries = 0; ; tries++) {
-      const plan = planFn(L, data || disk);
-      if (!plan.ok) return { problem: plan.problems[0] || "it cannot be written" };
-      if (plan.upToDate) return { upToDate: true };
+      const d = PTFM_seed.upgradeFor(L, data || disk), plan = planFn(L, d);
+      if (!plan.ok) return { problem: plan.problems[0] || "it cannot be written", data: d };
+      if (plan.upToDate) return { upToDate: true, data: d };
       bar.hidden = false;
       bar.value = 0;
       status(`${what}. Keep the FM-1 connected.`);
       try {
         const r = await s.write(plan, (p) => { bar.value = (p.done / p.total) * 100; status(`${what}: block ${p.done} of ${p.total}. Keep the FM-1 connected.`); });
         bar.value = 100;
-        return { r, low: plan.low };                 /* (low: fewer free blocks than advised, what that costs) */
+        return { r, low: plan.low, converted: d.converted, data: d, differ: plan.differ || [] };   /* (low: fewer free blocks than
+                                                        advised, what that costs; differ: samples the FM-1 reads as missing) */
       } catch (e) {
         if (!(e && e.code === PTFM_seed.RESULT.CHANGED) || tries >= 2) throw e;
         L = await s.hello();                         /* (saved or moved on the FM-1 since its layout was read) */
@@ -449,7 +553,10 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       const L = await s.hello();
       asked = true;
       const w = await writeDisk(s, L, clean ? PTFM_seed.planClean : PTFM_seed.plan, (clean ? "Erasing the FM-1 and writing " : "Writing ") + what, data);
-      if (w.problem && !clean && PTFM_seed.planClean(L, data).ok) {
+      const c = w.converted, conv = !c ? "" : c.samplers ? ` The disk's samplers were converted to the new form as it loaded: ` +
+        `${plural(c.samplers, "sampler")}, ${plural(c.samples, "sample")}.` : c.dropped ? ` Left out: ${c.dropped === 1 ? "1 piece" :
+        c.dropped + " pieces"} of old audio with no sample entry (nothing could play ${c.dropped === 1 ? "it" : "them"}).` : "";
+      if (w.problem && !clean && PTFM_seed.planClean(L, w.data).ok) {
         replacing = { data, what, key };
         $("replace").hidden = false;
         status(`${What} does not fit around what the FM-1 holds, but it fits the FM-1 emptied: REPLACE ALL erases ` +
@@ -457,7 +564,12 @@ footer { margin-top: 18px; color: var(--dgrey); font: 12px/1.5 var(--mono); over
       }
       else if (w.problem) status(What + " cannot be written: " + w.problem + ".", "err");
       else if (w.upToDate) status(`The FM-1 already holds ${what}, exactly.`, "done");
-      else status(`Done: the FM-1 holds ${w.r.records} files.` + (w.low ? ` But ${w.low}.` : "") + oldBad(w.r), w.low ? "warn" : "done");
+      else {
+        const dif = w.differ.length ? ` ${w.differ.length === 1 ? "1 sample" : w.differ.length + " samples"} on it the FM-1 reads as ` +
+          `missing (${w.differ.length === 1 ? "its entry and audio differ" : "their entries and audio differ"}): ${w.differ.join(", ")}.` : "";
+        status(`Done: the FM-1 holds ${w.r.records} files.` + conv + dif + (w.low ? ` But ${w.low}.` : "") + oldBad(w.r),
+          w.low || dif ? "warn" : "done");
+      }
     } catch (e) {
       if (!asked) {
         const unsaved = e && e.code === PTFM_seed.RESULT.UNSAVED;

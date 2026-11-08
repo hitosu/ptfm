@@ -51,7 +51,7 @@ const R = ED.rec, K = R.KIND;
     check(made.entry.rate === 11025 && made.entry.length === n / 2 && made.entry.coding === 1 && made.entry.name === "SINE", "a sample: " + JSON.stringify(made.entry));
     const dropped = await ED.drops.convert("a440.wav", wav);
     const ds = dropped.items[0];
-    check(dropped.items.length === 1 && ds.kind === K.AUDIO && !ds.owner && ds.sound && ds.sound.rate === rate && ED.model.sampleEntry(ds, dropped.items).rate === 8000,
+    check(dropped.items.length === 1 && ds.kind === K.SAMPLE && !ds.owner && ds.sound && ds.sound.rate === rate && ED.model.sampleEntry(ds, dropped.items).rate === 8000,
         "a sound dropped on the TABLE: a sample alone at the rate proposed, its own audio kept beside it (" + dropped.what + ")");
     const au = R.ptrDecode(made.audio);
     let peak = 0;
@@ -92,7 +92,7 @@ const R = ED.rec, K = R.KIND;
         const carts = L0.filter(i => i.kind === K.SAMPLER), ids = carts.map(c => c.id);
         const n = O.samplesOf(L0, ids).length;
         const t0 = Date.now(), plans = O.LEVELS.map(l => O.plan(L0, ids, l)), ms = Date.now() - t0;
-        check(n === L0.filter(i => i.kind === K.AUDIO).length && plans.every(p => p.picked === n && p.failed === 0 && p.after <= p.before),
+        check(n === L0.filter(i => i.kind === K.SAMPLE).length && plans.every(p => p.picked === n && p.failed === 0 && p.after <= p.before),
             "OPTIMIZE SAMPLES: the samplers picked, their " + n + " samples at each level, none failed (" + ms + " ms for all three): " +
             plans.map(p => p.level + " " + p.results.length + " smaller, " + p.before + " -> " + p.after + " B").join("; "));
         check(plans[2].after < plans[1].after && plans[1].after <= plans[0].after && plans[2].results.length > 0, "each level saves more than the one before");
@@ -100,15 +100,20 @@ const R = ED.rec, K = R.KIND;
         const byId = items => new Map(items.map(i => [i.id, i]));
         const m0 = byId(st0.L), m1 = byId(st1.L);
         const same = p.results.every(r => M.size(m1.get(r.id)) === M.size(r.item) && M.size(r.item) < M.size(m0.get(r.id)) && !m1.get(r.id).entry);
-        check(same && st0.L === L0 && L0.every(i => m0.get(i.id) === i), "applied: each picked sample smaller, its entry in its sampler; the state before untouched");
+        check(same && st0.L === L0 && L0.every(i => m0.get(i.id) === i), "applied: each picked sample smaller, its entry in its record; the state before untouched");
         /* one sample, against what its tab makes: the same audio, the same entry, the instruments' LEVEL up 6 dB */
         const r0 = p.results.find(r => r.cut.gain === -6) || p.results[0], s0 = m0.get(r0.id);
         const ctx = O.context(s0, L0), tab = O.remake(s0, ctx, ED.conv.optimize(ctx.snd, ctx.cut0, ctx.used, ctx.players.length > 0).smallest);
         const e1 = M.sampleEntry(m1.get(r0.id), st1.L), eT = M.sampleEntry(tab, L0);
-        const a = R.unpackSampler(m0.get(s0.owner).recs[0].payload).instruments, b = R.unpackSampler(m1.get(s0.owner).recs[0].payload).instruments;
-        const ups = a.map((x, k) => x && x.sample === s0.idx ? b[k].level - x.level : null).filter(v => v != null);
-        check(R.ptrDecode(m1.get(r0.id).recs[0].payload).samples.join() === R.ptrDecode(tab.recs[0].payload).samples.join() && e1.length === eT.length && e1.rate === eT.rate &&
-            e1.name === eT.name && (r0.cut.gain !== -6 || ups.every(v => v === Math.min(12, 127 - a.find(x => x && x.sample === s0.idx).level) || v === 12)),
+        /* (the instruments of every sampler naming it, whichever the sampler) */
+        const ups = [], was = [];
+        for (const o of L0.filter(i => i.kind === K.SAMPLER)) {
+            const a = R.unpackSampler(m0.get(o.id).recs[0].payload).instruments, b = R.unpackSampler(m1.get(o.id).recs[0].payload).instruments;
+            M.refs(o).filter(f => o.link[M.lk("m", f.num)] === s0.id).forEach(f => { const k = (f.at - 10) / R.SAMPLER_SLOT; ups.push(b[k].level - a[k].level); was.push(a[k].level); });
+        }
+        const audioOf = it => R.ptrDecode(R.unpackSample(it.recs[0].payload).audio).samples.join();
+        check(audioOf(m1.get(r0.id)) === audioOf(tab) && e1.length === eT.length && e1.rate === eT.rate &&
+            e1.name === eT.name && (r0.cut.gain !== -6 || ups.every((v, i) => v === Math.min(12, 127 - was[i]) || v === 12)),
             "a sample as its tab's SMALLEST makes it (" + e1.name + ", " + e1.length + " at " + e1.rate + " Hz), its instruments' LEVEL up " + ups.join(", "));
         check(O.samplesOf(st1.L, [r0.id]).length === 1 && O.samplesOf(st1.L, []).length === 0, "a sample picked alone: just it; nothing picked: none");
     }
@@ -181,6 +186,37 @@ const R = ED.rec, K = R.KIND;
         check(r.warnings.some(w => /^PATTERN 1: 200 ROWS, SPLIT IN TWO/.test(w)), "the warning: " + r.warnings.join(" / "));
     }
 
+    /* ---- a module becomes samples of their own and samplers of up to 64 instruments naming them (specs/editor.md, Tracker
+     * modules); moved to the FM-1 panel with too few free sample numbers it is refused, saying how many it needs ---- */
+    {
+        const mk = i => ({ data: Int8Array.from({ length: 40 }, (_, k) => ((k * (i + 3)) % 33) * 3 - 48), name: "S" + i, relNote: 0, loopStart: 0, loopLength: 0,
+                           pingPong: false, fineTune: 0, volume: 64, bits: 8, panning: 0 });
+        const data = new Uint8Array(70 * 5);
+        for (let i = 0; i < 70; i++) data.set([49, i + 1, 0, 0, 0], i * 5);
+        const m = { kind: "XM", name: "BIG", warnings: [], channels: 1, c2Rate: 8363, gain: 64, tempo: 125, speed: 6, linear: true, fastVol: false,
+                    restart: 0, gvol: 64, panning: [128],
+                    instruments: [{ name: "", samples: [] }].concat(Array.from({ length: 70 }, (_, i) => ({ name: "I" + i, samples: [mk(i)], keyToSample: [] }))),
+                    patterns: [{ rows: 70, channels: 1, data }], sequence: [0] };
+        const M = ED.model, r = ED.conv.fromModule(m, "big.xm");
+        const smp =r.recs.filter(x => x.kind === K.SAMPLE), spl = r.recs.filter(x => x.kind === K.SAMPLER);
+        check(smp.length === 70 && smp.every((x, i) => x.num === i && x.ver === 1 && R.unpackSample(x.payload).entry.name === "I" + i) && !r.recs.some(x => x.kind === K.AUDIO),
+            "a module: 70 samples of their own, numbered 00.., no old audio");
+        const u = spl.map(x => R.unpackSampler(x.payload));
+        check(spl.length === 2 && spl.every(x => x.ver === 2) && u[0].instruments.length === 64 && u[1].instruments.length === 6
+            && u[1].instruments.every((x, i) => x.sample === 64 + i) && u[0].instruments[63].sample === 63, "a module: samplers of up to 64 instruments naming them (64 + 6)");
+        const t = M.fromRecords(r.recs, { side: "L", src: "BIG.XM" });
+        const names = t.items.filter(i => i.kind === K.SAMPLER).every(s => R.unpackSampler(s.recs[0].payload).instruments.every((x, i) => ED.slotops.sampleNamed(s, t.items, x.sample)));
+        check(t.items.filter(i => i.kind === K.SAMPLE).length === 70 && names, "dropped on the TABLE: 70 sample items, every instrument linked to its sample");
+        // an FM-1 panel with 12 free sample numbers
+        const filler = Array.from({ length: 244 }, (_, n) => ({ id: M.newId(), side: "R", kind: K.SAMPLE, num: n, orig: n, link: {}, recs: [{ sub: 0, ver: 1,
+            payload: R.packSample({ length: 1, rate: 8000, coding: 1, name: "F" + n }, R.ptrEncode(Int8Array.from([n & 127]), 8)) }] }));
+        const song = t.items.find(i => i.kind === K.SONG);
+        const refused = M.transfer({ L: t.items, R: filler, base: [] }, "L", [song.id], {});
+        check(!refused.ok && refused.msg === "NOT ENOUGH SAMPLE NUMBERS: 70 NEEDED, 12 FREE", "moved with 12 free sample numbers: refused, saying how many: " + refused.msg);
+        const ok = M.transfer({ L: t.items, R: [], base: [] }, "L", [song.id], {});
+        check(ok.ok && ok.st.R.filter(i => i.kind === K.SAMPLE).length === 70, "moved to an empty FM-1 panel: 70 samples numbered, " + (ok.msg || "").slice(0, 80));
+    }
+
     /* ---- modules given as arguments ---- */
     const files = process.argv.slice(2);
     const module = files.length ? await WebAssembly.compile(fs.readFileSync(path.join(ROOT, "build", "editor", "wasm", "ptfm.wasm"))) : null;
@@ -205,7 +241,7 @@ const R = ED.rec, K = R.KIND;
         const tb = { recs: new Map(r.recs.map((x, i) => [i, x])), totalBytes: () => r.recs.reduce((s, x) => s + x.payload.length, 0) };
         songs[0].num = r.recs.find(x => x.kind === K.SONG).num;
         let decoded = 0, badDec = 0;
-        for (const x of tb.recs.values()) if (x.kind === K.AUDIO) { try { R.ptrDecode(x.payload); decoded++; } catch (e) { badDec++; } }
+        for (const x of tb.recs.values()) if (x.kind === K.SAMPLE) { try { R.ptrDecode(R.unpackSample(x.payload).audio); decoded++; } catch (e) { badDec++; } }
         check(badDec === 0 && decoded > 0, `${name}: ${decoded} samples' audio decodes`);
         for (const w of r.warnings) console.log("  (" + name + ") " + w);
         /* played by the firmware */

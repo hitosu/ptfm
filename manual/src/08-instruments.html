@@ -23,7 +23,7 @@ and tables, a sample's waveform, a FUSION's pattern as a little map.</li>
 <li><kbd>ENV</kbd> lists all the cartridges (CARTRIDGES: ID, name, type, slots used); <kbd>ENV</kbd> again opens the
 highlighted one.</li>
 </ul>
-<figure data-shot="instruments-carts"><figcaption>The cartridge list (ENV): the demo disk's 01-06, then the built-in
+<figure data-shot="instruments-carts"><figcaption>The cartridge list (ENV): the demo disk's A0-A5, then the built-in
 F0-FA, each type in its colour.</figcaption></figure>
 </section>
 
@@ -281,9 +281,13 @@ and DEPTH (below).</dd>
 
 <section class="topic" id="instruments-sampler">
 <h3>Sampler</h3>
-<p>A sampler cartridge holds samples (recorded sounds, uploaded from the computer: the FM-1 does not record audio)
-and up to 64 instruments that play them. One sample can serve several instruments: a drum loop cut into hits, say.
-To bring your own sounds and make instruments for them, see <a href="#editor-page-sounds">chapter 17</a>.</p>
+<p>A sampler cartridge holds up to 64 instruments, each playing a <i>sample</i>: a recorded sound, uploaded from the
+computer (the FM-1 does not record audio). The samples are not in the cartridges: each is a thing of its own, numbered
+00 to FF apart from the cartridges' numbers (sample 05 and cartridge 05 have nothing to do with each other), and an
+instrument in any sampler can play any sample. One sample can serve several instruments: a drum loop cut into hits,
+say, or the same kick in two kits. The FM-1 holds 256 samples at most, and shows them all in THE SAMPLES list
+(<a href="#instruments-samples">below</a>), never among the cartridges. To bring your own sounds and make
+instruments for them, see <a href="#editor-page-sounds">chapter 17</a>.</p>
 <figure data-shot="instruments-sampler-browse"><figcaption>01 DRUM KIT browsed: the sound's waveform, its loop and
 base note below.</figcaption></figure>
 <figure data-shot="instruments-edit-sampler"><figcaption>Editing a sampler instrument: the settings above, the
@@ -292,8 +296,13 @@ envelope as heard.</figcaption></figure>
 <dl class="params">
 <dt>SAMPLE</dt><dd>The first page. Its first row is named SAMPLE too:
 <dl class="params">
-<dt>SAMPLE</dt><dd>K1: which of the cartridge's samples it plays. <kbd>ENV</kbd> on it lists the samples (name,
-length, rate, waveform): the keys play the one highlighted, and <kbd>ENV</kbd> again picks it.</dd>
+<dt>SAMPLE</dt><dd>K1: which sample it plays, turning through every sample on the FM-1 by number (the page shows
+<b>SAMPLE 23</b>, its number and name; past the first or the last K1 does nothing; samples deleted and waiting for
+SAVE are passed over). The sample picked plays whole: START at its start, END at its end, LOOP OFF.
+<kbd>ENV</kbd> on it lists the samples (<a href="#instruments-samples">below</a>): the keys play the one highlighted,
+and <kbd>ENV</kbd> again picks it. An instrument that names a number where there is no sample (a partial upload, a
+sample deleted by a save that was cut short) plays nothing, and its page says <samp class="msg">THE SAMPLE IS
+MISSING</samp> where the waveform would be: pick another sample, or SEL, REPLACE SAMPLE.</dd>
 <dt>START, END</dt><dd>K2 and K3: the part of the sample that plays, a click moving 1/200 of the sample (SEL held: 10
 clicks).</dd>
 <dt>LOOP</dt><dd>The loop's row. Its first knob, LOOP, sets how the part from FROM to TO repeats while the key is
@@ -317,11 +326,53 @@ to L2, then L3, where it stays while the key is held; let go, it moves to L4. Ea
 L, 99 the fastest. <span class="range">0-99</span></dd>
 </dl></dd>
 </dl>
-<p>In the samples list, <kbd>SEL</kbd>, DELETE removes a sample. When instruments use it, it warns first
+<p><kbd>SEL</kbd> on a sampler instrument adds to the slot menu (<a href="#instruments-menus">below</a>):</p>
+<dl class="params">
+<dt>REPLACE SAMPLE</dt><dd>Opens THE SAMPLES list with the instrument's sample highlighted; <kbd>ENV</kbd> picks one, and
+the instrument plays it as a new instrument would, every value back to a new instrument's (START, END, LOOP OFF, BASE
+NOTE, TUNE, VOLUME, LEVEL, the envelope). Its name follows when it was the old sample's. <kbd>HOME</kbd> leaves it as
+it was. It works on one slot: with slots marked it is not in the menu. In edit mode and when browsing.</dd>
+<dt>INIT</dt><dd>Keeps the instrument's sample and sets every other value back to a new instrument's, naming it after
+its sample. Over marked slots it does so on each used one and leaves the empty ones empty: an instrument needs a
+sample.</dd>
+<dt>CREATE</dt><dd>On an empty slot, in place of INIT: THE SAMPLES list opens; <kbd>ENV</kbd> picks one, and a new
+instrument there plays it whole, named after it; <kbd>HOME</kbd> makes nothing. <kbd>EDIT</kbd> on an empty sampler slot
+does the same and opens edit mode on the new instrument. The empty slot's line reads <samp class="msg">EMPTY SLOT: SEL MENU,
+CREATE OR PASTE</samp>.</dd>
+<dt>DELETE</dt><dd>As for any slot, and in edit mode too: it leaves edit mode keeping the changes, then deletes the
+instrument. Its sample stays.</dd>
+</dl>
+<p>With no sample on the FM-1, REPLACE SAMPLE, CREATE, EDIT on an empty sampler slot and <kbd>ENV</kbd> on SAMPLE say
+<samp class="msg">NO SAMPLES ON THE FM-1</samp> and open nothing: upload some first (<a
+href="#editor-page-sounds">chapter 17</a>).</p>
+</section>
+
+<section class="topic" id="instruments-samples">
+<h3>THE SAMPLES list</h3>
+<p>It holds every sample on the FM-1, by number, one row each: its number, name, length, rate and, on the highlighted
+row, its waveform. Its title counts them (<samp class="msg" data-t="SAMPLES (#)">SAMPLES (23)</samp>). It opens three
+ways, and the keys play the highlighted sample in each:</p>
+<figure data-shot="instruments-samples-list"><figcaption>THE SAMPLES list, opened from a sampler instrument's SAMPLE row:
+its sample highlighted, the waveform on that row.</figcaption></figure>
+<ul>
+<li><kbd>ENV</kbd> on a sampler instrument's SAMPLE, in edit mode: the instrument's sample is highlighted;
+<kbd>ENV</kbd> picks one; <kbd>HOME</kbd> leaves the instrument as it was.</li>
+<li>SEL, REPLACE SAMPLE or CREATE, as above: the keys play the sample as a new instrument would play it.</li>
+<li>The last line of the cartridge list, <b>ALL SAMPLES</b> (with their size and count of 256), shown while the FM-1
+holds a sample: <kbd>ENV</kbd> on it opens the list to look, to listen and to delete, without an instrument;
+<kbd>ENV</kbd> or <kbd>HOME</kbd> go back to the line. It is not a cartridge, so SEL on it opens nothing.</li>
+</ul>
+<p>In the list, <kbd>SEL</kbd>, DELETE removes a sample. When instruments use it, in any sampler, it warns first
 (<samp class="msg">DELETE SAMPLE?</samp>, <samp class="msg" data-t="# INSTRUMENTS USE IT AND ARE">3 INSTRUMENTS USE IT
 AND ARE</samp> <samp class="msg">DELETED TOO</samp>), and they go with it; an unused one goes at once
-(<samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 03 DELETED</samp>). Deleting an instrument never deletes its
-sample: SETTINGS' CLEAN UP removes samples nothing uses.</p>
+(<samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 03 DELETED</samp>). Like every change, the deletion waits for
+SAVE: the row turns grey and reads <b>(DELETED)</b>. A REVERT of an instrument that used it (its slot, or its sampler
+cartridge) brings the sample back with that instrument; the instruments deleted with it in other samplers stay deleted
+until their own REVERT, and REVERT ALL brings everything back. In edit mode the
+deletion leaves edit mode first, keeping the changes, so HOME never takes a confirmed deletion back with them. Deleting an
+instrument never deletes its sample: SETTINGS' CLEAN UP removes samples nothing uses. A sampler cartridge cloned,
+moved or deleted is only its instruments: a clone's instruments play the same samples, a move leaves the samples
+where they are, a delete leaves them for CLEAN UP.</p>
 </section>
 
 <section class="topic" id="instruments-fusion">
@@ -363,7 +414,8 @@ DELETE act on all of them. SEL held + SELECT marks too.</dd>
 <samp class="msg">NO EMPTY SLOT: SWAP INSTEAD</samp>); SWAP trades places. SELECT carries, SEL puts down, HOME takes
 back. Songs using it are asked about (<a href="#basics-references">references</a>).</dd>
 <dt>DELETE</dt><dd>Empties the slot.</dd>
-<dt>INIT</dt><dd>A plain starting sound in the slot.</dd>
+<dt>INIT</dt><dd>A plain starting sound in the slot. In a sampler, an instrument's INIT keeps its sample (and an empty
+slot offers CREATE instead, <a href="#instruments-sampler">above</a>).</dd>
 <dt>RENAME</dt><dd>Type its name.</dd>
 <dt>AUTO LEVEL</dt><dd>As loud as the others.</dd>
 <dt>REVERT</dt><dd>The sound as last saved (REVERT SLOT 01:00 TO SAVED?).</dd>
@@ -373,11 +425,9 @@ back. Songs using it are asked about (<a href="#basics-references">references</a
 <dt>NEW</dt><dd>A new cartridge: pick its type (DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION). It goes at the end of
 your cartridges (<samp class="msg" data-t="CARTRIDGE %02X MADE">CARTRIDGE 11 MADE</samp>); all numbers used:
 <samp class="msg">ALL CARTRIDGE NUMBERS USED</samp>.</dd>
-<dt>CLONE</dt><dd>A copy (<samp class="msg" data-t="%02X CLONED TO %02X">01 CLONED TO 11</samp>). A sampler
-cartridge's samples are copied too, written at once (CLONING ITS SAMPLES); without room for them,
-<samp class="msg">NO ROOM IN THE USER AREA</samp>.</dd>
-<dt>MOVE</dt><dd>To another free number; a sampler cartridge with unsaved changes must be saved first
-(<samp class="msg">SAVE IT FIRST</samp>).</dd>
+<dt>CLONE</dt><dd>A copy (<samp class="msg" data-t="%02X CLONED TO %02X">01 CLONED TO 11</samp>). A sampler's copy has
+the same instruments, playing the same samples: no audio is copied.</dd>
+<dt>MOVE</dt><dd>To another free number. A sampler's samples stay where they are.</dd>
 <dt>DELETE, RENAME</dt><dd>As for a slot.</dd>
 <dt>AUTO LEVEL ALL</dt><dd>Sets every sound's LEVEL at once, after a question
 (<samp class="msg" data-t="AUTO LEVEL %d SOUNDS?">AUTO LEVEL 32 SOUNDS?</samp>,
@@ -386,6 +436,32 @@ cartridge's samples are copied too, written at once (CLONING ITS SAMPLES); witho
 back.</dd>
 <dt>REVERT</dt><dd>The whole cartridge as last saved.</dd>
 </dl>
+</section>
+
+<section class="topic" id="instruments-favorites">
+<h3>FAVORITES</h3>
+<p>A FAVORITES cartridge collects the sounds you reach for most, from any cartridges, in one list. The built-in one is
+FB, named FAVORITES, empty at first; you can make more of your own with NEW (they are named MY FAVORITES). Each of
+its slots <i>points at</i> a sound of another cartridge (<b>07 0B:05 BRASS</b>): it is a bookmark, not a copy. So
+whatever you play, record or write with a favourite picked keeps the sound's own number (0B:05), and your songs never
+depend on a FAVORITES cartridge.</p>
+<ul>
+<li><kbd>SEL</kbd> on a sound, <b>ADD TO FAVORITES</b>: it goes into the first empty slot (with several FAVORITES
+cartridges, pick which). Marked slots each go in; those already there are skipped.</li>
+<li><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span> on any screen goes to FB at the favourite you used
+there last, and again back to where you were. <kbd>PRESETS</kbd> then steps through your favourites.</li>
+<li><span class="combo"><kbd>GLO</kbd> held + <kbd>PRESETS</kbd></span> on any screen but this one picks a favourite
+just for now: its sound is what the keys play, your cartridge stays, and the list of favourites shows while GLO is
+held. The next PRESETS click goes on in your cartridge from where you were.</li>
+<li><kbd>EDIT</kbd> on a favourite points it at another sound: <kbd>K1</kbd> turns the cartridges (their list shows
+while it turns), <kbd>PRESETS</kbd> the sounds; <kbd>EDIT</kbd> keeps it, <kbd>HOME</kbd> drops it. EDIT on an empty
+slot starts from the sound you are playing.</li>
+<li><kbd>SEL</kbd> in a FAVORITES cartridge: MARK, COPY, PASTE, MOVE, SWAP, <b>REMOVE</b> (the favourite goes, its
+sound stays), NEW CARTRIDGE, REVERT. None of them asks about songs: nothing points at a favourite.</li>
+<li>A favourite whose sound is gone (its cartridge or slot deleted) reads <b>MISSING</b>, grey, plays nothing and is
+skipped by PRESETS; it plays again once a sound is put in that place.</li>
+<li><b>NEW CARTRIDGE</b> in the slots' menu makes a cartridge of any type (FAVORITES too) and opens it.</li>
+</ul>
 </section>
 
 <section class="topic" id="instruments-keys">
@@ -404,8 +480,10 @@ pattern for it first.</td></tr>
 <tr><td><kbd>ENV</kbd></td><td>Lists all the cartridges; ENV again opens the one highlighted.</td></tr>
 <tr><td><kbd>ENV</kbd>, then <kbd>SEL</kbd></td><td>In the cartridge list, SEL opens the cartridge's menu: NEW, CLONE,
 MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT, BACK TO BUILT-IN.</td></tr>
-<tr><td><kbd>SEL</kbd></td><td>Opens the slot's menu: MARK, COPY, PASTE, MOVE, SWAP, DELETE, INIT, RENAME, AUTO LEVEL,
-REVERT.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>Opens the slot's menu: MARK, ADD TO FAVORITES, COPY, PASTE, MOVE, SWAP, DELETE, INIT,
+RENAME, AUTO LEVEL, NEW CARTRIDGE, REVERT.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span></td><td>To the built-in FAVORITES, at the favourite
+used there last; again, back to where you were (<a href="#instruments-favorites">FAVORITES</a>).</td></tr>
 <tr><td><kbd>ARP</kbd></td><td>Switches the arpeggiator on and off: it plays the sound picked while your hands are on
 the knobs.</td></tr>
 <tr><td><kbd>ARP</kbd> held</td><td>With SELECT, ALGORITHM or K1: the arpeggiator's rhythm, order and latch.</td></tr>
@@ -429,13 +507,14 @@ go.</td></tr>
 </tbody>
 <thead><tr><th>Key</th><th>Samples and FUSION</th></tr></thead>
 <tbody>
-<tr><td><kbd>ENV</kbd></td><td>On a sampler's SAMPLE: lists the cartridge's samples. On a FUSION's PATTERN: lists the
-patterns.</td></tr>
+<tr><td><kbd>ENV</kbd></td><td>On a sampler's SAMPLE: lists every sample on the FM-1. On the cartridge list's ALL
+SAMPLES line: the same list. On a FUSION's PATTERN: lists the patterns.</td></tr>
 <tr><td><kbd>KEYS</kbd></td><td>In the samples list, play the sample highlighted. In the pattern list, try each pattern
 as this FUSION would play it. On a FUSION sound, each key plays its own row of the pattern.</td></tr>
 <tr><td><kbd>ENV</kbd></td><td>Again: uses the sample, or the pattern, highlighted.</td></tr>
 <tr><td><kbd>K1</kbd></td><td>On a FUSION's PATTERN: steps to another pattern.</td></tr>
-<tr><td><kbd>SEL</kbd></td><td>In the samples list: DELETE (it asks when sounds use the sample). On a FUSION's
+<tr><td><kbd>SEL</kbd></td><td>In the samples list: DELETE (it asks when sounds use the sample). On a sampler
+instrument: REPLACE SAMPLE; on an empty sampler slot: CREATE. On a FUSION's
 PATTERN: opens the pattern in the EDITOR to write it.</td></tr>
 <tr><td><kbd>REC</kbd></td><td>In the EDITOR opened for a FUSION: with REC off, the keys play the FUSION as you write it;
 with REC on, they write.</td></tr>

@@ -83,8 +83,16 @@ const none = new Uint8Array(72);
 none.set([125, 0, 6, 50, 0, 0, 0, 0x10]);
 none.set(fx, 8);
 const v4none = R.loopsV3([none]);
-check(v4none.length === 1 && v4none[0].length === 80 && v4none[0][7] === 0 && v4none[0][5] === 0 && eq(v4none[0].subarray(8, 72), fx) &&
-    eq(v4none[0].subarray(72, 80), [0x7F, 0x80, 0, 0, 0, 0, 0, 0]), "no loops: the head alone, the length 0 (" + hexs(v4none[0].subarray(0, 8)) + ")");
+/* (fx's byte 11, BEATS A BAR, is 78: read as 16, a bar of 64 rows at 1/16: 2 bars fit) */
+check(v4none.length === 1 && v4none[0].length === 80 && v4none[0][7] === 128 && v4none[0][5] === 0 && eq(v4none[0].subarray(8, 72), fx) &&
+    eq(v4none[0].subarray(72, 80), [0x7F, 0x80, 0, 0, 0, 0, 0, 0]), "no loops: the head alone, the length 4 bars or the most that fit (2 bars of " +
+    "16 beats: " + hexs(v4none[0].subarray(0, 8)) + ")");
+{
+    const n2 = none.slice();
+    n2[8 + 11] = 4;
+    const h = R.loopsV3([n2])[0];
+    check(h[7] === 64 && R.unpackLoops([h]).length === 64, "... at 4 beats a bar: 4 bars, 64 rows");
+}
 
 /* a version 3 pattern in two parts, rows past 128 (made before the rule): one part of 128 rows, a long gap bridged */
 {
@@ -117,6 +125,47 @@ check(v4none.length === 1 && v4none[0].length === 80 && v4none[0][7] === 0 && v4
     check(lg[2] === 6 && lg[4] === 0x40 && R.unpackLoops([lg]).legato === 2 && jp[2] === (6 | 0x80) && jp[4] === 0 &&
           R.unpackLoops([jp]).legato === 1, "MONO LEGATO: LEGATO byte 4's bit 6 (byte 2's bit 7 0), JUMP byte 2's bit 7");
     check(R.loopsV4to3([lg]).lost.join() === "MONO LEGATO LEGATO", "... LEGATO named going down to version 3");
+}
+/* the head's fields since 2026-11-03 (loops.md, "The record"): the length always, VIEW, K1-K4's jobs, each loop's
+ * SHIFT; a record from before read with the defaults */
+{
+    const head = (b7, b78, b79) => { const b = new Uint8Array(80); b.set([125, 0, 6, 50, 0, 0, 0, b7]); b.set(fx, 8); b[8 + 11] = 4; b[78] = b78; b[79] = b79; return b; };
+    const old = R.unpackLoops([head(0, 0, 0)]);
+    check(old.length === 64 && old.view === 2 && old.jobs.join() === "0,1,5,6" && !old.jobsStored,
+        "a head from before, no loops: 4 bars, VIEW 2 BARS, K1-K4 LEVEL, PAN, REVERB SEND, TEMPO (" + old.length + ", " + old.view + ", " + old.jobs + ")");
+    const o2 = head(0, 0, 0);
+    o2[4] = 2; o2[8 + 11] = 5;                                  /* (1/32, 5 beats a bar: 4 bars do not fit) */
+    check(R.unpackLoops([o2]).length === 120, "... at 1/32, 5 beats a bar: 3 bars, 120 rows");
+    const p = R.packLoops(old)[0];
+    check(p.length === 80 && p[7] === 64 && p[78] === 0 && p[79] === 0, "packed with no loops: byte 7 written (64), the jobs left unstored");
+    const z = R.packLoops(Object.assign({}, old, { length: 0 }))[0];
+    check(z[7] === 64, "a length of 0 given: the default written");
+    const set = Object.assign({}, old, { view: 4, jobs: [0, 2, 5, 7], length: 32 });
+    const q = R.packLoops(set)[0], back = R.unpackLoops([q]);
+    check(q[7] === 32 && q[78] === (2 << 6 | 0 | 2 << 3) && q[79] === (5 | 7 << 3 | 0x40) && back.view === 4 && back.jobs.join() === "0,2,5,7" &&
+        back.jobsStored && back.length === 32, "VIEW 4 BARS and K2 DUCK, K4 VIEW: bytes 78-79 (" + hexs(q.subarray(78, 80)) + "), read back");
+    const one = R.unpackLoops([head(0, 1 << 6, 0)]);
+    check(one.view === 1 && R.unpackLoops([head(0, 3 << 6, 0)]).view === 2, "VIEW 1 BAR; 3 (not written) read as 2 BARS");
+    const ns = head(0, 3 << 6 | 0x3F, 0x3F);                     /* (VIEW 3, jobs not stored: their bits whatever) */
+    const nsb = R.packLoops(R.unpackLoops([ns]))[0];
+    check(R.unpackLoops([ns]).jobs.join() === "0,1,5,6" && eq(nsb.subarray(78, 80), ns.subarray(78, 80)),
+        "jobs not stored (byte 79's bit 6 0): the defaults, the bytes kept as they are");
+    /* SHIFT: byte 2's bit 7 its bit 6, byte 3's bits 7-2 its bits 5-0; read modulo the length; a loop's spare bits kept */
+    const L1 = { tempo: 125, ticks: 6, countIn: 0, legato: 0, swing: 50, grid: 0, quantize: 0, nextMono: 0, selected: 0, length: 64, fx,
+        mix: R.MIX_DEFAULT.slice(), loops: [{ cart: 1, slot: 0, colour: 3, mono: 0, muted: true, lanes: 2, base: 64, repeat: 1, shift: 100 % 64,
+        mixer: R.MIX_DEFAULT.slice(), cells: new Map([[R.cellKey(0, 1), cell(60, 0x7F)]]) }] };
+    const s1 = R.packLoops(L1)[0];
+    check((s1[82] & 0x80) === 0 && s1[83] === (36 << 2 | 1) && (s1[82] & 0x2F) === 0x23, "SHIFT 36: byte 3 " + R.hex2(s1[83]) + ", byte 2 " + R.hex2(s1[82]));
+    L1.loops[0].shift = 100;
+    L1.length = 128;
+    const s2 = R.packLoops(L1)[0];
+    check((s2[82] & 0x80) && s2[83] >> 2 === 36 && R.unpackLoops([s2]).loops[0].shift === 100, "SHIFT 100: byte 2's bit 7 too, read back");
+    s2[7] = 64; s2[93] = 63;                                    /* (a shorter length written elsewhere: the head's, the payload's) */
+    const u = R.unpackLoops([s2]);
+    check(u.loops[0].shift === 36 && eq(R.packLoops(u)[0], s2), "a SHIFT not under the length read modulo it (36), packed back byte for byte");
+    let bad = "";
+    try { R.packLoops(Object.assign({}, L1, { loops: [Object.assign({}, L1.loops[0], { shift: 128 })] })); } catch (e) { bad = e.message; }
+    check(/SHIFT/.test(bad), "a SHIFT past 127 refused: " + bad);
 }
 /* the bridge a skip of 255 after the cell before it, whatever lane that row is (loops.md, "A loop's stream") */
 {
@@ -265,15 +314,71 @@ const other = num => ({ kind: K.TB303, num, sub: 0, ver: 1, payload: R.packCart(
     const d2 = R.loopsV4to3(R.packLoops(L4));
     const L3 = R.unpackLoops(R.loopsV3(d2.parts));
     const rows = lp => [...lp.cells.keys()].map(k => +k.split(",")[0]).sort((a, b) => a - b).join(",");
-    check(L3.n === 3 && L3.length === 32 && rows(L3.loops[0]) === "0,8,16" && rows(L3.loops[1]) === "4,12,20" && rows(L3.loops[2]) === "31" &&
-        L3.loops[1].cells.get("12,0").cmds[0][1] === 0xD2 && L3.loops[0].cart === 1 && L3.loops[1].slot === 2 && L3.loops[2].muted &&
-        eq(L3.loops[1].mixer, [0x60, 0x80, 0, 0, 0x10, 0]),
-        "a loop of 2 lanes, a base of 8 rows 3 times over 32: a loop a lane, the notes where they play (" + L3.loops.map(rows).join(" / ") + ")");
+    check(L3.n === 3 && L3.length === 32 && rows(L3.loops[0]) === "0,8,16,24" && rows(L3.loops[1]) === "4,12,20,24" && rows(L3.loops[2]) === "31" &&
+        L3.loops[1].cells.get("12,0").cmds[0][1] === 0xD2 && L3.loops[0].cells.get("24,0").note === R.NOTE_OFF && L3.loops[0].cart === 1 &&
+        L3.loops[1].slot === 2 && L3.loops[2].muted && eq(L3.loops[1].mixer, [0x60, 0x80, 0, 0, 0x10, 0]),
+        "a loop of 2 lanes, a base of 8 rows 3 times over 32: a loop a lane, the notes where they play, a note off where it goes to rest (" +
+        L3.loops.map(rows).join(" / ") + ")");
     check(d2.lost.includes("MONO (PLAYED POLY)") && d2.lost.length === 1, "what version 3 cannot hold, named: " + d2.lost.join("; "));
+    /* each loop written out as it is heard, its SHIFT included: so it plays the same */
+    const one = (loops, extra) => Object.assign(R.unpackLoops(v4), { length: 32, selected: 0, loops }, extra || {});
+    const sh = { cart: 1, slot: 2, colour: 0, mono: 0, muted: false, lanes: 1, base: 16, repeat: 1, shift: 2, mixer: R.MIX_DEFAULT.slice(),
+        cells: new Map([[R.cellKey(12, 0), cell(60, 0x7F)], [R.cellKey(15, 0), cell(R.NOTE_OFF)]]) };
+    const d3 = R.loopsV4to3(R.packLoops(one([sh], { length: 16 })));
+    const L5 = R.unpackLoops(R.loopsV3(d3.parts));
+    check(rows(L5.loops[0]) === "1,14" && L5.loops[0].cells.get("14,0").note === 60 && L5.loops[0].cells.get("1,0").note === R.NOTE_OFF && !d3.lost.length,
+        "SHIFT 2 written out: its note at 12 played at 14, its off at 15 at 1 (" + rows(L5.loops[0]) + "), nothing lost");
+    const cut = { cart: 1, slot: 2, colour: 0, mono: 0, muted: false, lanes: 1, base: 12, repeat: 3, shift: 0, mixer: R.MIX_DEFAULT.slice(),
+        cells: new Map([[R.cellKey(10, 0), cell(60, 0x7F)]]) };
+    const L6 = R.unpackLoops(R.loopsV3(R.loopsV4to3(R.packLoops(one([cut]))).parts));
+    check(rows(L6.loops[0]) === "0,10,22" && L6.loops[0].cells.get("0,0").note === R.NOTE_OFF,
+        "a repeat the length cuts: its note sounding there stopped at the wrap, a note off at row 0 (" + rows(L6.loops[0]) + ")");
+    /* VIEW, K1-K4's jobs, with no loops the length: named when they are not the defaults */
+    const named = extra => R.loopsV4to3(R.packLoops(one([cut], extra))).lost.join(", ");
+    check(named({ view: 4 }) === "VIEW" && named({ jobs: [0, 1, 5, 7] }) === "K1-K4'S JOBS" && named({ view: 2, jobs: [0, 1, 5, 6] }) === "",
+        "VIEW and K1-K4's jobs named when not the defaults: " + named({ view: 4, jobs: [1, 1, 1, 1] }));
+    const empty = extra => R.loopsV4to3(R.packLoops(one([], extra))).lost.join(", ");
+    /* (at 1/16T, 16 beats a bar: a bar of 96 rows, 1 fits) */
+    check(empty({ view: 1, jobs: [6, 1, 5, 6], length: 32 }) === "VIEW, K1-K4'S JOBS, THE LENGTH" && empty({ length: 96 }) === "",
+        "with no loops the length too, when it is not the default (" + empty({ view: 1, jobs: [6, 1, 5, 6], length: 32 }) + "; 96 rows: none)");
     /* the records of an object: down a step at a time; no way down: null */
     const dg = R.downgrade(R.packLoops(L4).map((payload, sub) => ({ kind: K.LOOPS, num: 0, sub, ver: 4, payload })), 3);
     check(dg && dg.recs.every(r => r.ver === 3 && r.kind === K.LOOPS) && dg.lost.length === 1 && R.canDowngrade(K.LOOPS, 4, 3) &&
         !R.canDowngrade(K.LOOPS, 4, 2) && !R.canDowngrade(K.SONG, 1, 0) && R.downgrade([{ kind: K.SONG, num: 0, sub: 0, ver: 2, payload: new Uint8Array(4) }], 1) === null,
         "downgrade: the loops 4 -> 3; no way down elsewhere");
+}
+/* ---- the LOOPS tab's SHIFT (editor.md): shown signed the nearer way round, edited as shown or as stored, the hint ---- */
+{
+    const D = ED.defs;
+    const sg = (n, ...v) => v.map(s => D.shiftText(s, n)).join(" ");
+    check(sg(32, 0, 1, 3, 16, 17, 29, 31) === "0 +1 +3 +16 -15 -3 -1", "SHIFT signed the nearer way round, over 32 rows: " + sg(32, 0, 1, 3, 16, 17, 29, 31));
+    check(sg(48, 24, 25, 45) === "+24 -23 -3" && sg(7, 3, 4, 6) === "+3 -3 -1",
+        "the half way round is +, as the FM-1's screen shows it (48: +24); an odd length has no half (7: +3 -3): " + sg(48, 24, 25, 45) + " / " + sg(7, 3, 4, 6));
+    check(sg(1, 0) === "0" && sg(32, 32, 35, -1) === "0 +3 -1", "length 1; a SHIFT past the length read modulo it: " + sg(1, 0) + " / " + sg(32, 32, 35, -1));
+    check(D.shiftHint(3, 32) === "SHIFT +3: PLAYS 3 ROWS LATER" && D.shiftHint(29, 32) === "SHIFT -3: PLAYS 3 ROWS EARLIER" &&
+        D.shiftHint(1, 32) === "SHIFT +1: PLAYS 1 ROW LATER" && D.shiftHint(31, 32) === "SHIFT -1: PLAYS 1 ROW EARLIER" &&
+        D.shiftHint(0, 32) === "SHIFT 0: PLAYS AS STORED", "the hint, later, earlier, one row, none: " + [3, 29, 0].map(s => D.shiftHint(s, 32)).join(" / "));
+    const pr = (n, ...v) => v.map(s => D.shiftParse(s, n)).join();
+    check(pr(32, "3", "+3", "-3", 0, "31", "-31", "+0") === "3,3,29,0,31,1,0", "the input takes the shown form and the stored one: " + pr(32, "3", "+3", "-3", 0, "31", "-31", "+0"));
+    check(["", "x", "1.5", "32", "-32", "100"].every(s => D.shiftParse(s, 32) === null), "an entry that is not 0 to the length - 1 (either sign) is refused");
+    /* a SHIFT saved: the record's bits (byte 2's bit 7 = bit 6, byte 3's bits 7-2 = bits 5-0), untouched kept byte for byte */
+    const mk = (len, shift) => ({ tempo: 125, ticks: 6, countIn: 0, legato: 0, swing: 50, grid: 0, quantize: 0, nextMono: 0, selected: 0, length: len, fx,
+        mix: R.MIX_DEFAULT.slice(), loops: [{ cart: 1, slot: 0, colour: 3, mono: 0, muted: false, lanes: 1, base: len, repeat: 1, shift,
+        mixer: R.MIX_DEFAULT.slice(), cells: new Map([[R.cellKey(0, 0), cell(60, 0x7F)]]) }] });
+    const pk = (len, shift) => R.packLoops(mk(len, shift))[0];
+    const at = (len, txt) => { const b = pk(len, 0), L = R.unpackLoops([b]); L.loops[0].shift = D.shiftParse(txt, len); return R.packLoops(L)[0]; };
+    const bits = b => (b[82] >> 7) << 6 | b[83] >> 2;
+    check(bits(at(128, "-3")) === 125 && bits(at(128, "-1")) === 127 && bits(at(128, "+3")) === 3 && bits(at(32, "-3")) === 29,
+        "-3 over 128 rows stored as 125 (both bits' bytes), -1 as 127, +3 as 3; over 32, 29");
+    const odd = pk(128, 100); odd[7] = 64; odd[93] = 63;
+    const oddL = R.unpackLoops([odd]);
+    check(D.shiftText(oddL.loops[0].shift, oddL.length) === "-28" && eq(R.packLoops(oddL)[0], odd),
+        "a stored SHIFT past the length shown modulo it (100 over 64: -28), untouched packed byte for byte");
+    /* WRITE down: a loop with SHIFT 3 plays its notes 3 rows later in version 3 */
+    const sh3 = mk(16, 3);
+    sh3.loops[0].cells = new Map([[R.cellKey(0, 0), cell(60, 0x7F)], [R.cellKey(5, 0), cell(R.NOTE_OFF)]]);
+    const v3sh = R.unpackLoops(R.loopsV3(R.loopsV4to3(R.packLoops(sh3)).parts));
+    check(v3sh.loops[0].cells.get("3,0") && v3sh.loops[0].cells.get("3,0").note === 60 && v3sh.loops[0].cells.get("8,0").note === R.NOTE_OFF && v3sh.loops[0].cells.size === 2,
+        "SHIFT 3 written as version 3: the note at row 0 plays at 3, its off at 5 at 8");
 }
 done("loops");

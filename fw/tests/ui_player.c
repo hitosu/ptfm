@@ -92,14 +92,19 @@ void player_lp_note(int loop, int lane, uint8_t note, uint8_t vol, int row, int 
     (void)loop; (void)lane; (void)note; (void)vol; (void)row; (void)delay; (void)glide;
 }
 void player_lp_off(int loop, int lane, int row) { (void)loop; (void)lane; (void)row; }
-void player_lp_keys(int lane, pl_inst_t in, uint8_t note, uint8_t vol, int row, unsigned glide)
-{
-    (void)lane; (void)in; (void)note; (void)vol; (void)row; (void)glide;
-}
-void player_lp_take(int loop) { (void)loop; }
+void player_tap(pl_tap_t *ring, uint32_t n) { (void)ring; (void)n; }
+int player_tap_peek(pl_tap_t *e) { (void)e; return 0; }
+void player_tap_next(void) {}
+uint32_t player_tap_lost(void) { return 0; }
+uint32_t player_tap_held(void) { return 0; }
+void player_lp_stage(const pl_lp_stage_t *s) { (void)s; }
+void player_lp_hold(unsigned lanes, int pass, int row) { (void)lanes; (void)pass; (void)row; }
+void player_lp_jump(int rows) { (void)rows; }
+void player_lp_stage_end(int loop) { (void)loop; }
 void player_lp_preview(const pl_lp_grid_t *g) { (void)g; }
 void player_lp_preview_alone(int on) { (void)on; }
-void player_lp_preview_keep(int loop) { (void)loop; }
+void player_lp_preview_keep(void) {}
+void player_hear(uint8_t note, pl_inst_t inst, uint8_t vol, int track) { (void)note; (void)inst; (void)vol; (void)track; }
 /* AUTO LEVEL's measurement: every instrument as loud (-30 dB, its peak -12 dB) */
 int player_measure(pl_inst_t in, void *mem, uint32_t size, uint32_t (*lock)(void), void (*unlock)(uint32_t),
                    uint32_t *ms, int32_t *peak)
@@ -130,6 +135,7 @@ void player_keys_mix(const uint8_t *mix) { (void)mix; }
 int32_t player_duck_env(void) { return 0; }
 void player_click(int accent) { (void)accent; }
 void player_costs(player_costs_t *c, int reset) { (void)reset; memset(c, 0, sizeof *c); }
+void player_fx_cost(uint32_t *us, uint32_t *halves) { *us = 0; *halves = 0; }   /* (STATUS' EFFECTS: none here) */
 /* the arpeggiator (nothing sounds here) */
 void player_arp(int on, uint8_t rhythm, uint8_t pattern, uint8_t latch) { (void)on; (void)rhythm; (void)pattern; (void)latch; }
 void player_arp_clear(void) {}
@@ -160,9 +166,12 @@ void fx_now(uint8_t *setup) { memset(setup, 0, 64); }
 void fx_gate_steps(int i, uint8_t *steps) { memset(steps, i == 16 ? 1 : 0, 16); }
 uint32_t fx_active(void) { return 0; }
 void fx_watch(int on) { (void)on; }
+void fx_timed(int on) { (void)on; }
+uint32_t fx_spent_us(int e) { (void)e; return 0; }
 int32_t fx_meter_q15(int e) { (void)e; return 0; }
 uint8_t fx_gate_step(void) { return 0; }
 int fx_met_beat(void) { return -1; }
+unsigned fx_met_seen(void) { return 0; }
 /* (FILTER's envelope: at rest; its times by step as fw/tools/gen_fx.py makes them) */
 uint32_t fx_filter_open(void) { return 0; }
 uint32_t fx_filter_hits(void) { return 0; }
@@ -174,6 +183,7 @@ uint32_t fx_env_t10(int decay, int step)
 void player_key_on(uint8_t note, pl_inst_t inst, uint8_t vel) { (void)note; (void)inst; (void)vel; }
 void player_key_off(uint8_t note) { (void)note; }
 void player_keys_off(void) {}
+void player_keys_sample(const uint8_t *slot) { (void)slot; }
 void player_ext_tempo(uint16_t bpm10) { (void)bpm10; }
 void player_ext_clock(uint32_t n, uint32_t at_ms, uint32_t per_us) { (void)n; (void)at_ms; (void)per_us; }
 uint32_t player_block_frame(void) { return 0; }
@@ -207,3 +217,11 @@ void player_deck_loop(int d, int kind, uint8_t pos, uint8_t row, uint16_t rows, 
 void player_deck_roll_end(int d) { (void)d; }
 void player_dj_swap(uint8_t swaps) { (void)swaps; }
 void player_deck_hand(int d, uint8_t pos, uint8_t row, uint32_t ms) { (void)d; (void)pos; (void)row; (void)ms; }
+void player_deck_load_at(int d, uint8_t song, uint32_t share_q16, uint16_t fixed_bpm10)
+{
+    (void)d; (void)song; (void)share_q16; (void)fixed_bpm10;
+}
+void player_deck_jump_at(int d, uint8_t pos, uint8_t row, int move, int bars)
+{
+    (void)d; (void)pos; (void)row; (void)move; (void)bars;
+}

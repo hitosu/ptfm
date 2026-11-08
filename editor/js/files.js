@@ -20,12 +20,15 @@ const P = {};
 let drag = null;
 
 /* ---- the panels' items: the FM-1 panel lists the firmware's built-ins and the system items at their defaults too ---- */
-let viewCache = { st: null, R: null };
+let viewCache = { st: null, R: null, L: null };
+/* (the old audio of a sampler left in the older form is never listed: it goes with its sampler) */
+const listed = i => i.kind !== K.AUDIO;
 function viewItems(side) {
     const st = app.st;
-    if (side === "L") return st.L;
-    if (viewCache.st === st) return viewCache.R;
-    const out = st.R.slice();
+    if (viewCache.st !== st) viewCache = { st, R: null, L: st.L.some(i => !listed(i)) ? st.L.filter(listed) : st.L };
+    if (side === "L") return viewCache.L;
+    if (viewCache.R) return viewCache.R;
+    const out = st.R.filter(listed);
     const at = new Set(st.R.filter(i => i.num != null && M.numSpace(i.kind)).map(i => M.numSpace(i.kind) + i.num));
     const seen = new Set();
     for (const b of M.builtins) {
@@ -38,16 +41,17 @@ function viewItems(side) {
     for (const k of SYS_KINDS) if (!st.R.some(i => i.kind === k)) out.push({ id: "D:" + k, side: "R", kind: k, num: 0, recs: [], link: {}, isDefault: true });
     for (const k of [K.PATTERN, K.SONG]) if (!st.R.some(i => i.kind === k && i.num === M.FE))
         out.push({ id: "D:" + k, side: "R", kind: k, num: M.FE, recs: [], link: {}, isDefault: true });
-    viewCache = { st, R: out };
+    viewCache.R = out;
     return out;
 }
 function item(side, id) { return viewItems(side).find(i => i.id === id) || null; }
 const fixed = it => it.fw || it.isDefault;
+/* (dragged to the other panel: a built-in too, which the TABLE takes as a copy of its own) */
+const movable = it => !it.isDefault && !it.dim;
 
 /* ---- what a row shows ---- */
 function numText(it, items) {
     if (it.side !== "R") return "";
-    if (it.kind === K.AUDIO) { const o = items.find(x => x.id === it.owner); return (o ? H2(o.num) : "--") + ":" + H2(it.idx); }
     if (SYS_KINDS.includes(it.kind)) return "—";
     return H2(it.num);
 }
@@ -68,7 +72,12 @@ function kindText(it, items) {
     if (it.isDefault) return "DEFAULT";
     try { return M.kindText(it, items); } catch (e) { return "CANNOT BE READ"; }
 }
-function sizeText(it) { return it.fw ? "IN FW" : it.isDefault ? "—" : kb(M.size(it)); }
+/* (a sampler left in the older form is listed with its old audio's size too: it holds its samples, as the FM-1 stores them) */
+function sizeOf(it) {
+    if (!it.older) return M.size(it);
+    return M.size(it) + app.st[it.side].reduce((n, x) => n + (x.kind === K.AUDIO && x.owner === it.id ? M.size(x) : 0), 0);
+}
+function sizeText(it) { return it.fw ? "IN FW" : it.isDefault ? "—" : M.isLong(it) ? "TOO LONG" : kb(sizeOf(it)); }
 function label(it, items) {
     if (it.isDefault) return nameText(it, items);
     return M.label(it, items);
@@ -165,6 +174,7 @@ function buildPanel(side) {
             const r = e.currentTarget.getBoundingClientRect();
             U.menu(r.left, r.bottom + 2, NEW_KINDS.map(x => x === "-" ? x : { label: x[1], fn: () => makeNew(x[0]) }));
         } }, "+ NEW ▾"),
+        h("button", { class: "btn", title: "RECORD SOUND FROM AN INPUT (A MICROPHONE, A LINE IN, THE FM-1 OVER USB) INTO A SAMPLE", onclick: () => ED.recorder.open() }, "● RECORD"),
         h("span", { class: "sep" }),
         h("button", { class: "btn danger", title: "EMPTY THE TABLE", onclick: () => deleteAll("L") }, "DELETE ALL"),
     ];
@@ -197,12 +207,11 @@ function render(select) {
 /* ---- the list ---- */
 function sortKey(side, k, items) {
     switch (k) {
-        case "num": return it => SYS_KINDS.includes(it.kind) ? 9e6 + SYS_KINDS.indexOf(it.kind) : it.kind === K.AUDIO
-            ? ((items.find(o => o.id === it.owner) || { num: 999 }).num * 256 + it.idx) : (it.num != null ? it.num : 999) * 256;
-        case "src": return it => (it.src || "") + "\u0001" + (it.orig != null ? H2(it.orig) : "") + (it.kind === K.AUDIO ? H2(it.idx || 0) : "") + nameText(it, items);
+        case "num": return it => SYS_KINDS.includes(it.kind) ? 9e6 + SYS_KINDS.indexOf(it.kind) : (it.num != null ? it.num : 999) * 256;
+        case "src": return it => (it.src || "") + "\u0001" + (it.orig != null ? H2(it.orig) : "") + nameText(it, items);
         case "name": return it => nameText(it, items) || derived(it, items);
         case "kind": return it => kindText(it, items);
-        case "size": return it => it.fw || it.isDefault ? -1 : M.size(it);
+        case "size": return it => it.fw || it.isDefault ? -1 : M.isLong(it) ? 1e15 + it.long : sizeOf(it);
         case "deps": return it => fixed(it) ? -1 : M.sizeWith(items, it.id);
         case "used": return it => (ui.users[side].get(it.id) || []).length;
     }
@@ -258,7 +267,7 @@ function rowEl(side, it, pend, real) {
     const cls = "row" + (sel ? " sel" : "") + (ui.focus[side] === it.id ? " focus" : "") + (it.isDefault || it.dim ? " dim" : "") + (ui.fresh.has(it.id) ? " fresh" : "");
     const nm = nameText(it, real), der = derived(it, real);
     const missing = !fixed(it) && Object.values(it.link).some(t => t === null);
-    return h("div", { class: cls, draggable: !fixed(it) && !it.dim, "data-id": it.id },
+    return h("div", { class: cls, draggable: movable(it), "data-id": it.id },
         h("span", { class: "c-ic", html: U.icon(it) }),
         side === "R" ? h("span", { class: "c-num", style: { color: U.colourOf(it) } }, numText(it, real)) : h("span", { class: "c-src", title: it.src || "" }, it.src || ""),
         h("span", { class: "c-name" }, pend.has(it.id) ? h("span", { class: "pend", title: "NOT WRITTEN TO THE FM-1 YET" }) : null,
@@ -278,23 +287,23 @@ function rowEl(side, it, pend, real) {
 function lrowEl(side, it, real) {
     const sel = ui.sel[side].has(it.id);
     return h("div", { class: "lrow" + (sel ? " sel" : "") + (ui.focus[side] === it.id ? " focus" : "") + (ui.fresh.has(it.id) ? " fresh" : ""), "data-id": it.id,
-        draggable: !fixed(it) && !it.dim, title: label(it, real) },
+        draggable: movable(it), title: label(it, real) },
         h("span", { html: U.icon(it) }), side === "R" ? h("span", { class: "mono", style: { color: U.colourOf(it) } }, numText(it, real)) : null,
         h("span", { class: "nm" }, nameText(it, real) || derived(it, real)));
 }
 function tileEl(side, it, real) {
     const sel = ui.sel[side].has(it.id);
     const thumb = h("div", { class: "thumb" });
-    if (!fixed(it) && !it.dim && (it.kind === K.PATTERN || it.kind === K.AUDIO || it.kind === K.SONG)) {
+    if (!fixed(it) && !it.dim && (it.kind === K.PATTERN || it.kind === K.SAMPLE || it.kind === K.SONG)) {
         const c = h("canvas", { width: 212, height: 112 });
         thumb.append(c);
         requestAnimationFrame(() => drawThumb(c, it, side, real));
     } else thumb.innerHTML = U.icon(it, true);
     const n = numText(it, real);
     return h("div", { class: "tile" + (sel ? " sel" : "") + (ui.focus[side] === it.id ? " focus" : "") + (ui.fresh.has(it.id) ? " fresh" : ""), "data-id": it.id,
-        draggable: !fixed(it) && !it.dim, title: label(it, real) },
+        draggable: movable(it), title: label(it, real) },
         thumb, h("div", { class: "tn" }, side === "R" && n && n !== "—" ? h("span", { class: "mono" }, n + " ") : null, nameText(it, real) || derived(it, real)),
-        h("div", { class: "ts" }, it.fw ? "BUILT-IN" : it.isDefault ? "DEFAULT" : kb(M.size(it))));
+        h("div", { class: "ts" }, it.fw ? "BUILT-IN" : it.isDefault ? "DEFAULT" : sizeText(it)));
 }
 function emptyEl(side, filtered) {
     if (filtered) return h("div", { class: "empty" }, "NOTHING MATCHES THE FILTER.");
@@ -307,10 +316,11 @@ function emptyEl(side, filtered) {
 /* ---- the ICONS view's pictures: a pattern's notes in its engines' colours, a sample's waveform, a song's positions ---- */
 const peaksCache = new WeakMap();
 function peaks(it) {
+    if (M.isLong(it)) return longPeaks(it);
     if (peaksCache.has(it.recs[0])) return peaksCache.get(it.recs[0]);
     let out = null;
     try {
-        const d = R.ptrDecode(it.recs[0].payload), s = d.samples, n = 106, full = d.bits === 16 ? 32768 : 128;
+        const d = R.ptrDecode(R.unpackSample(it.recs[0].payload).audio), s = d.samples, n = 106, full = d.bits === 16 ? 32768 : 128;
         out = new Float32Array(n);
         for (let i = 0; i < n; i++) {
             let m = 0;
@@ -322,6 +332,20 @@ function peaks(it) {
     peaksCache.set(it.recs[0], out);
     return out;
 }
+/* a sample too long (no record): its picture from its original, the part its cut takes, the channels' loudest */
+function longPeaks(it) {
+    const s = it.sound;
+    if (peaksCache.has(s)) return peaksCache.get(s);
+    const c = s.cut, n = 106, out = new Float32Array(n), len = c.end - c.start, step = Math.max(1, Math.floor(len / n / 256));
+    for (let i = 0; i < n; i++) {
+        let m = 0;
+        const a = c.start + Math.floor(i * len / n), b = c.start + Math.floor((i + 1) * len / n);
+        for (const ch of s.ch) for (let j = a; j < b; j += step) { const v = Math.abs(ch[j]); if (v > m) m = v; }
+        out[i] = Math.min(1, m);
+    }
+    peaksCache.set(s, out);
+    return out;
+}
 function engineOf(side, it, num) {
     const t = it.link[M.lk("c", num)];
     if (t === M.BUILTIN || (t == null && num >= 0xF0)) { const b = M.builtinAt("c", num); return b ? b.kind : null; }
@@ -331,7 +355,7 @@ function engineOf(side, it, num) {
 function drawThumb(c, it, side, real) {
     const g = c.getContext("2d"), W = c.width, Hh = c.height;
     g.fillStyle = "#000"; g.fillRect(0, 0, W, Hh);
-    if (it.kind === K.AUDIO) {
+    if (it.kind === K.SAMPLE) {
         const pk = peaks(it), w = W / Math.max(1, pk.length);
         g.fillStyle = COL.yellow;
         for (let i = 0; i < pk.length; i++) { const hh = Math.max(1, pk[i] * (Hh - 8)); g.fillRect(i * w, (Hh - hh) / 2, Math.max(1, w - 0.5), hh); }
@@ -440,6 +464,7 @@ function wireList(p) {
         else if (e.key === " " && it) { e.preventDefault(); play(it); }
         else if ((e.key === "Delete" || e.key === "Backspace") && ui.sel[side].size) { e.preventDefault(); askDelete(side, [...ui.sel[side]]); }
         else if (e.key === "F2" && it) { e.preventDefault(); startRename(side, it.id); }
+        else if (e.key === "F4" && it && side === "R") { e.preventDefault(); askNumber(it.id); }
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") { e.preventDefault(); ui.sel[side] = new Set(o); renderList(side); }
         else if (e.key === "ArrowRight" && side === "L" && e.altKey) { e.preventDefault(); transfer("L", [...ui.sel.L]); }
         else if (e.key === "ArrowLeft" && side === "R" && e.altKey) { e.preventDefault(); transfer("R", [...ui.sel.R]); }
@@ -457,6 +482,12 @@ function wireList(p) {
 function clearDrop() { document.querySelectorAll(".drop, .drophere").forEach(e => e.classList.remove("drop", "drophere")); }
 function wireDrop(p) {
     const side = p.side, el = p.el;
+    /* a sampler's item on the FM-1 panel takes samples dragged from the TABLE (an instrument each) */
+    const sampleTarget = e => {
+        if (side !== "R" || !drag || drag.side !== "L") return null;
+        const row = e.target.closest && e.target.closest("[data-id]"), t = row && item(side, row.dataset.id);
+        return t && t.kind === K.SAMPLER && !t.dim && drag.ids.every(id => (item("L", id) || {}).kind === K.SAMPLE) ? { item: t, row } : null;
+    };
     el.addEventListener("dragover", e => {
         const files = e.dataTransfer && [...e.dataTransfer.types].includes("Files");
         if ((drag && drag.side !== side) || files) {
@@ -464,26 +495,21 @@ function wireDrop(p) {
             e.dataTransfer.dropEffect = "copy";
             el.classList.add("drop");
             document.querySelectorAll(".drophere").forEach(x => x.classList.remove("drophere"));
-            if (drag && side === "R" && drag.ids.some(id => { const x = item(drag.side, id); return x && x.kind === K.AUDIO; })) {
-                const row = e.target.closest("[data-id]"), it = row && item(side, row.dataset.id);
-                if (it && it.kind === K.SAMPLER && !fixed(it)) row.classList.add("drophere");
-            }
+            const t = sampleTarget(e);
+            if (t) t.row.classList.add("drophere");
         }
     });
     el.addEventListener("dragleave", e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); });
     el.addEventListener("drop", e => {
         e.preventDefault();
-        const row = e.target.closest("[data-id]"), it = row && item(side, row.dataset.id);
+        const t = sampleTarget(e);
         clearDrop();
         if (e.dataTransfer.files && e.dataTransfer.files.length) {
             if (side === "L") ED.drops.add([...e.dataTransfer.files]);
             else dropOnFm1([...e.dataTransfer.files]);
             return;
         }
-        if (drag && drag.side !== side) {
-            const target = side === "R" && it && it.kind === K.SAMPLER && !fixed(it) ? it.id : null;
-            transfer(drag.side, drag.ids, { target });
-        }
+        if (drag && drag.side !== side) transfer(drag.side, drag.ids, t ? { target: t.item.id } : undefined);
         drag = null;
     });
 }
@@ -506,7 +532,7 @@ function renderSelbar(side) {
     if (!ids.length) {
         p.selbar.append(h("span", { class: "dim" }, side === "L"
             ? "DROP FILES HERE · DRAG ITEMS TO THE FM-1 OR USE → · DOUBLE-CLICK OPENS A TAB · RIGHT-CLICK FOR MORE"
-            : "PICK TO PLAY, EDIT, DELETE OR COPY TO THE TABLE · DROP SAMPLES ON A SAMPLER TO ADD THEM TO IT · DROP A DISK HERE: UPLOAD DISK"));
+            : "PICK TO PLAY, EDIT, DELETE OR COPY TO THE TABLE · DROP A DISK HERE: UPLOAD DISK"));
         return;
     }
     const items = ids.map(id => item(side, id)), own = items.reduce((s, it) => s + (fixed(it) ? 0 : M.size(it)), 0);
@@ -515,11 +541,13 @@ function renderSelbar(side) {
     for (const id of M.closure(real, ids)) all += M.size(m.get(id));
     const one = items.length === 1 ? items[0] : null;
     p.selbar.append(h("span", { class: "sum" }, one ? label(one, real) : plural(items.length, "ITEM") + " PICKED",
-        h("span", null, " · " + (one && one.fw ? "IN FW" : kb(own)) + (all > own ? " · " + kb(all) + " WITH WHAT " + (one ? "IT USES" : "THEY USE") : ""))));
+        h("span", null, " · " + (one && one.fw ? "IN FW" : one && M.isLong(one) ? M.longText(one) : kb(own)) + (all > own ? " · " + kb(all) + " WITH WHAT " + (one ? "IT USES" : "THEY USE") : ""))));
     p.selbar.append(h("span", { class: "acts" },
         one && canPlay(one) ? h("button", { class: "btn small", onclick: () => play(one) }, isPlaying(one) ? "■ STOP" : "▶ PLAY") : null,
         one && !one.dim ? h("button", { class: "btn small", onclick: () => openTab(one) }, "✎ EDIT") : null,
-        h("button", { class: "btn small danger", onclick: () => askDelete(side, ids) }, "DELETE"), moveBtn));
+        h("button", { class: "btn small danger", onclick: () => askDelete(side, ids) }, "DELETE"),
+        side === "L" ? h("button", { class: "btn small", title: "SAVE WHAT IS PICKED AS A DISK (.PTFMDSK), WITH WHAT IT USES, NUMBERED AS ON AN EMPTY FM-1",
+            onclick: () => ED.fm1.downloadSelection(ids) }, "DOWNLOAD AS DISK") : null, moveBtn));
     if (one) {
         const usesIds = fixed(one) ? [] : U.uniq(Object.values(one.link).filter(t => t && t !== M.BUILTIN));
         const bi = fixed(one) ? [] : U.uniq(M.refs(one).filter(f => one.link[M.lk(f.sp, f.num)] === M.BUILTIN).map(f => f.num));
@@ -548,6 +576,7 @@ function showMenu(x, y, side) {
         { label: one && isPlaying(one) ? "STOP" : "PLAY", fn: () => play(one), off: !one || !canPlay(one), key: "SPACE" },
         { label: "EDIT IN A TAB", fn: () => openTab(one), off: !one || one.dim, key: "ENTER" },
         { label: "RENAME", fn: () => startRename(side, one.id), off: !one || !canRename(one), key: "F2" },
+        side === "R" ? { label: "SET NUMBER…", fn: () => askNumber(one.id), off: !one || !M.canRenumber(one), key: "F4" } : null,
         "-",
         { label: side === "L" ? "COPY TO THE FM-1  →" : "←  COPY TO THE TABLE", fn: () => transfer(side, ids), key: side === "L" ? "ALT+→" : "ALT+←" },
         { label: "SELECT WHAT IT USES", fn: () => selectIds(side, [...M.closure(real, ids)].filter(i => !ids.includes(i))), off: !ids.length },
@@ -576,7 +605,8 @@ function askOptimize(side, ids) {
             return h("label", { class: "sw" }, h("input", { type: "radio", name: "optlv", checked: i === optLevel, disabled: !p.results.length,
                 onchange: () => { optLevel = i; } }),
                 h("span", null, h("b", null, name), " · " + (p.results.length ? kb(p.before) + " → " + kb(p.after) + " (−" + kb(saved) + "), " +
-                    p.results.length + " OF " + p.picked + " SMALLER" : "NOTHING SAVED"), h("br"), h("span", { class: "dim" }, what)));
+                    p.results.length + " OF " + p.picked + " SMALLER" + (p.fits ? " (" + p.fits + " TOO LONG FOR THE FM-1 NOW FIT)" : "") : "NOTHING SAVED"),
+                    h("br"), h("span", { class: "dim" }, what)));
         };
         if (!plans[optLevel].results.length) optLevel = plans.findIndex(p => p.results.length);
         const failed = plans.reduce((a, p) => Math.max(a, p.failed), 0);
@@ -600,7 +630,7 @@ function canRename(it) {
     if (it.kind === K.PATTERN) return it.side === "L";
     return true;
 }
-const NAME_W = it => it.kind === K.SONG ? 16 : M.isCart(it.kind) ? 12 : it.kind === K.AUDIO ? 10 : 16;
+const NAME_W = it => it.kind === K.SONG ? 16 : M.isCart(it.kind) ? 12 : it.kind === K.SAMPLE ? 10 : 16;
 function renamed(it, v, items) {
     if (it.kind === K.PATTERN) return Object.assign({}, it, { name: v });
     if (it.kind === K.SONG || M.isCart(it.kind)) {
@@ -608,12 +638,17 @@ function renamed(it, v, items) {
         b.set(R.packName(v, NAME_W(it)), 0);
         return Object.assign({}, it, { recs: [Object.assign({}, it.recs[0], { payload: b })].concat(it.recs.slice(1)) });
     }
-    if (it.kind === K.AUDIO) {
-        if (!it.owner) {
-            const e = M.sampleEntry(it, items);
-            return Object.assign({}, it, { entry: M.packedEntry(Object.assign({}, e, { name: v })), name: v });
-        }
-        return null;                                /* (its name is its sampler's: renamed there) */
+    if (it.kind === K.SAMPLE) {
+        /* the name is in the sample's entry, the record's first 16 bytes (a sample too long has none: its draft's, kept
+         * in `entry` till it is cut to fit) */
+        const e = M.sampleEntry(it, items);
+        if (!e) return null;
+        const n = Object.assign({}, e, { name: v });
+        if (!it.recs.length) return Object.assign({}, it, { entry: M.packedEntry(n), name: v });
+        const s = R.unpackSample(it.recs[0].payload), keep = it.entry;
+        const out = Object.assign({}, it, { recs: [Object.assign({}, it.recs[0], { payload: R.packSample(Object.assign({}, s.entry, { name: v }), s.audio) })], name: v });
+        if (keep) out.entry = M.packedEntry(n);
+        return out;
     }
     return null;
 }
@@ -634,15 +669,9 @@ function startRename(side, id) {
         done = true;
         const v = R.cleanName(inp.value, max);
         if (ok && v && v !== nameText(it, real)) {
-            let n = renamed(it, v, real), st = app.st;
-            if (!n && it.kind === K.AUDIO && it.owner) {
-                /* an owned sample: its entry in its sampler */
-                const o = real.find(x => x.id === it.owner), b = o.recs[0].payload, s = R.unpackSampler(b);
-                const at = 11 + s.instruments.length * R.SAMPLER_SLOT + it.idx * R.SAMPLE_ENTRY;
-                const nb = b.slice();
-                nb.set(M.packedEntry(Object.assign({}, s.samples[it.idx], { name: v })), at);
-                st = M.replaceItem(st, side, Object.assign({}, o, { recs: [Object.assign({}, o.recs[0], { payload: nb })] }));
-            } else if (n) st = M.replaceItem(st, side, n);
+            const n = renamed(it, v, real);
+            let st = app.st;
+            if (n) st = M.replaceItem(st, side, n);
             app.commit(st, "RENAMED TO " + v);
         } else render();
         P[side].list.focus();
@@ -651,19 +680,55 @@ function startRename(side, id) {
     inp.addEventListener("blur", () => finish(true));
 }
 
+/* ---- a cartridge's number on the FM-1 panel (specs/editor.md, Numbers on the FM-1 panel): the model says what it would do
+ * as it is typed; a tab with changes not saved holds the numbers as they are, so it is saved or closed first ---- */
+function askNumber(id) {
+    const it = item("R", id);
+    if (!it || !M.canRenumber(it)) return;
+    if (ED.tabs.unsavedOn("R")) { U.status("SAVE OR CLOSE THE FM-1 PANEL'S OPEN TABS FIRST: THEY HOLD THE NUMBERS AS THEY ARE NOW", { err: true }); return; }
+    let got = null;
+    const say = h("p", { class: "numsay" });
+    const inp = h("input", { type: "text", class: "num mono", value: H2(it.num), maxLength: 2, spellcheck: false, "aria-label": "THE NUMBER, 00 TO EF" });
+    const paint = () => {
+        const v = inp.value.trim();
+        got = /^[0-9a-f]{2}$/i.test(v) ? M.renumber(app.st, id, parseInt(v, 16)) : { ok: false, msg: "A NUMBER FROM 00 TO EF" };
+        say.textContent = got.ok ? got.plan : got.msg;
+        say.classList.toggle("no", !got.ok);
+        const b = U.$("#dlg .btn.primary");
+        if (b) b.disabled = !got.ok;
+    };
+    const apply = () => {
+        if (!got || !got.ok) return;
+        U.closeDialog();
+        app.commit(got.st, got.msg, { ok: true, select: { side: "R", ids: [id] } });
+        P.R.list.focus();
+    };
+    U.dialog({ title: "A NUMBER FOR " + label(it, app.st.R),
+        body: h("div", null, h("p", null, "TWO HEX DIGITS, 00 TO EF. EVERYTHING THAT NAMES IT FOLLOWS."), inp, say),
+        buttons: [{ label: "SET NUMBER", cls: "primary", keep: true, onClick: apply }, { label: "CANCEL", onClick: () => P.R.list.focus() }],
+        onCancel: () => P.R.list.focus() });
+    inp.addEventListener("input", paint);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); apply(); } });
+    paint();
+    inp.focus(); inp.select();
+}
+
 /* ---- moving ---- */
 function transfer(from, ids, o) {
     o = o || {};
     const to = from === "L" ? "R" : "L";
     const all = ids.map(id => item(from, id)).filter(Boolean);
-    const fixedOnes = all.filter(fixed);
-    ids = all.filter(it => !fixed(it)).map(it => it.id);
+    /* a built-in cartridge picked and moved to the TABLE: a copy there, a cartridge of its own (the firmware's own, or a
+     * changed one); a default has nothing to move */
+    const builtins = to === "L" ? all.filter(it => it.fw || it.builtin) : [];
+    const fixedOnes = all.filter(it => fixed(it) && !builtins.includes(it));
+    ids = all.filter(it => !fixed(it) || builtins.includes(it)).map(it => it.id);
     if (!ids.length) {
         U.status(fixedOnes.length ? (fixedOnes[0].fw ? "BUILT-IN INSTRUMENTS ARE IN EVERY PT/FM'S FIRMWARE: NOTHING TO MOVE" : "A DEFAULT HAS NOTHING IN IT TO MOVE") : "PICK SOMETHING TO MOVE FIRST", { err: !!fixedOnes.length });
         return false;
     }
     const stamp = "FM-1 " + U.nowLabel();
-    const r = M.transfer(app.st, from, ids, { target: o.target, layout: app.st.fm1.layout, stamp });
+    const r = M.transfer(app.st, from, ids, { layout: app.st.fm1.layout, stamp, builtins });
     if (!r.ok) {
         if (r.need) {
             ui.need = { blocks: Math.ceil(r.need / 4096), msg: r.msg.replace(/ NOTHING MOVED\.$/, "."), until: Date.now() + 6000 };
@@ -672,6 +737,19 @@ function transfer(from, ids, o) {
         }
         U.status(r.msg, { err: true });
         return false;
+    }
+    /* samples dropped on a sampler's item (o.target, on the FM-1 panel): an instrument each at its first empty slots, each
+     * playing its sample whole, named after it; 64 at most, else nothing moves */
+    if (o.target && to === "R") {
+        const t = r.st.R.find(x => x.id === o.target), got = r.ids.map(id => r.st.R.find(x => x.id === id)).filter(x => x && x.kind === K.SAMPLE);
+        if (t && t.kind === K.SAMPLER && !t.dim && got.length) {
+            const a = ED.slotops.addInstruments(t, "R", got);
+            if (!a.ok) { U.status(a.msg, { err: true }); return false; }
+            const next = M.replaceItem(r.st, "R", a.item);
+            if (!M.space(next.R, app.st.fm1.layout).fits) { U.status("DOESN'T FIT: THE INSTRUMENTS NEED MORE ROOM ON THE FM-1. NOTHING MOVED.", { err: true }); return false; }
+            r.st = next; r.msg += " · " + got.length + " INSTRUMENT" + (got.length > 1 ? "S" : "") + " IN " + M.nameOf(t, next.R);
+            r.ids = [t.id].concat(r.ids);
+        }
     }
     const go = () => app.commit(r.st, r.msg, { ok: true, select: { side: to, ids: r.ids } });
     const rep = (r.replaced || []).map(id => app.st[to].find(x => x.id === id)).filter(Boolean);
@@ -702,12 +780,20 @@ function askDelete(side, ids) {
     const base = M.remove(app.st, side, ids, false), withExtra = M.remove(app.st, side, ids, true);
     let also = true;
     const sum = h("div", { class: "box" });
+    /* a sample's instruments, in every sampler that names it, go with it: said, counted */
+    const named = M.instrumentsNaming(real, ids, false), namedAlso = M.instrumentsNaming(real, ids, true);
+    const insts = h("p", null);
+    const paintInsts = () => {
+        const n = also ? namedAlso : named;
+        insts.textContent = n.instruments ? plural(n.instruments, "INSTRUMENT") + " IN " + plural(n.samplers.length, "SAMPLER") + " USE" + (n.instruments === 1 ? "S" : "") +
+            " IT AND " + (n.instruments === 1 ? "IS" : "ARE") + " DELETED TOO (THE SAMPLER" + (n.samplers.length === 1 ? " STAYS" : "S STAY") + " WITH EMPTY SLOTS)." : "";
+    };
     const describe = gone => {
         const cnt = {};
         for (const id of gone) { const it = real.find(x => x.id === id); if (!it) continue; const k = M.oneOf(it); cnt[k] = (cnt[k] || 0) + 1; }
         return Object.entries(cnt).map(([k, n]) => plural(n, k)).join(", ");
     };
-    const paint = () => { sum.textContent = also && extra.size ? "ALSO GOES: " + describe(extra) + " · FREES " + kb(withExtra.bytes) : "FREES " + kb(base.bytes); };
+    const paint = () => { sum.textContent = also && extra.size ? "ALSO GOES: " + describe(extra) + " · FREES " + kb(withExtra.bytes) : "FREES " + kb(base.bytes); paintInsts(); };
     paint();
     const items = ids.map(id => item(side, id)), mine = items.slice(0, asked);
     const back = items.filter(it => it.builtin && it.side === "R");
@@ -720,6 +806,7 @@ function askDelete(side, ids) {
             us.pairs.length > 12 ? h("li", null, "AND " + (us.pairs.length - 12) + " MORE") : null) : null,
         sys.length ? h("p", null, sys.map(it => label(it, real)).join(", ") + " GO" + (sys.length === 1 ? "ES" : "") + " BACK TO " + (sys.length === 1 ? "ITS DEFAULT" : "THEIR DEFAULTS") + ".") : null,
         extra.size ? h("label", { class: "sw" }, h("input", { type: "checkbox", checked: true, onchange: e => { also = e.target.checked; paint(); } }), "ALSO WHAT ONLY IT USES") : null,
+        insts,
         sum,
         back.length ? h("p", null, "A CHANGED BUILT-IN GOES BACK TO THE FIRMWARE'S OWN (BACK TO BUILT-IN).") : null,
         side === "R" ? h("p", { class: "dim" }, "NOTHING CHANGES ON THE FM-1 UNTIL WRITE.") : null),
@@ -745,7 +832,7 @@ function deleteAll(side) {
 /* ---- + NEW on the TABLE: an item of each kind as the FM-1 makes a new one, opened in its tab ---- */
 const NEW_KINDS = [[K.SONG, "SONG (WITH AN EMPTY PATTERN)"], [K.PATTERN, "PATTERN"], "-",
     [K.DX7, "DX7 CARTRIDGE"], [K.JUNO, "JUNO-106 CARTRIDGE"], [K.TB303, "TB-303 CARTRIDGE"], [K.CHIP, "CHIP CARTRIDGE"],
-    [K.FUSION, "FUSION CARTRIDGE"], [K.SAMPLER, "SAMPLER (DROP SOUNDS ON IT)"], "-",
+    [K.FUSION, "FUSION CARTRIDGE"], [K.SAMPLER, "SAMPLER (ITS INSTRUMENTS NAME SAMPLES)"], [K.FAVORITES, "FAVORITES (INSTRUMENTS OF ANY CARTRIDGE)"], "-",
     [K.SETTINGS, "SETTINGS"], [K.MIDIMAP, "MIDI MAP"], [K.LOOPS, "LOOPS"], [K.DJ, "DJ SETUP"]];
 async function makeNew(kind) {
     const mk = (k, recs, more) => Object.assign({ id: M.newId(), side: "L", kind: k, num: null, orig: null, link: {}, recs, src: "NEW" }, more);
@@ -758,7 +845,8 @@ async function makeNew(kind) {
             const pat = mk(K.PATTERN, parts.map((payload, sub) => ({ sub, ver: R.VERSION[K.PATTERN], payload })), { name: "NEW PATTERN" });
             made = [pat];
             if (kind === K.SONG) made.unshift(mk(K.SONG, one(K.SONG, R.packSong(R.newSong("NEW SONG"))), { link: { [M.lk("p", 0)]: pat.id } }));
-        } else if (kind === K.SAMPLER) made = [mk(kind, one(kind, M.samplerBytes("NEW SAMPLER", [], [])))];
+        } else if (kind === K.SAMPLER) made = [mk(kind, one(kind, R.packSampler({ name: "NEW SAMPLER", instruments: [] })))];
+        else if (kind === K.FAVORITES) made = [mk(kind, one(kind, R.packCart(kind, { name: "MY FAVORITES", slots: [] })), { name: "MY FAVORITES" })];
         else if (M.isCart(kind)) {
             const name = "NEW " + M.ENGINE[kind];
             made = [mk(kind, one(kind, R.packCart(kind, { name, slots: [ED.defs.newSlot(kind, name)] })))];
@@ -788,6 +876,6 @@ function setPrefs(p) {
 const selected = side => [...ui.sel[side]].map(id => item(side, id)).filter(Boolean);
 const active = () => ui.active;
 
-ED.files = { build, render, renderSpace, prefs, setPrefs, selected, selectIds, transfer, askDelete, makeNew, item, viewItems, active,
+ED.files = { build, render, renderSpace, prefs, setPrefs, selected, selectIds, transfer, askDelete, askNumber, showMenu, makeNew, item, viewItems, active,
     label, nameText, kindText, numText, fixed };
 })(globalThis.ED = globalThis.ED || {});

@@ -10,43 +10,37 @@ extern const uint16_t TXT_BASE;
 extern const char TXT_CHARS[];
 extern const uint8_t TXT_PAIRS[];
 extern const uint8_t TXT_DATA[];
-extern const uint16_t TXT_INDEX[];
+extern const uint8_t TXT_LEN[];
+extern const uint16_t TXT_START[];
+#define TXT_STEP 16                     /* every 16th text's start kept (gen_texts.py's IDX_STEP) */
 
-static unsigned token(uint32_t k)
+/* the n bits (n <= 16) from bit b: TXT_DATA and TXT_PAIRS are bit-packed, low bits first, with 2 spare bytes */
+static unsigned bits_at(const uint8_t *p, uint32_t b, unsigned n)
 {
-    if (TXT_BITS == 8) return TXT_DATA[k];
-    uint32_t b = k * 12u;
-    unsigned v = (unsigned)TXT_DATA[b >> 3] | (unsigned)TXT_DATA[(b >> 3) + 1] << 8;
-    return v >> (b & 7) & 0xFFFu;
-}
-static void halves(unsigned t, unsigned *a, unsigned *b)
-{
-    unsigned i = t - TXT_BASE;
-    if (TXT_BITS == 8) { *a = TXT_PAIRS[2 * i]; *b = TXT_PAIRS[2 * i + 1]; return; }
-    uint32_t v = (uint32_t)TXT_PAIRS[3 * i] | (uint32_t)TXT_PAIRS[3 * i + 1] << 8 | (uint32_t)TXT_PAIRS[3 * i + 2] << 16;
-    *a = v & 0xFFFu;
-    *b = v >> 12 & 0xFFFu;
+    uint32_t v = (uint32_t)p[b >> 3] | (uint32_t)p[(b >> 3) + 1] << 8 | (uint32_t)p[(b >> 3) + 2] << 16;
+    return v >> (b & 7) & ((1u << n) - 1u);
 }
 
 int txt_unpack(int id, char *dst, int max)
 {
     int n = 0;
     if (id < 0 || id >= TXT_COUNT) { dst[0] = 0; return 0; }
-    for (uint32_t k = TXT_INDEX[id]; k < TXT_INDEX[id + 1]; k++) {
+    uint32_t k0 = TXT_START[id / TXT_STEP];
+    for (int j = id - id % TXT_STEP; j < id; j++) k0 += TXT_LEN[j];
+    for (uint32_t k = k0; k < k0 + TXT_LEN[id]; k++) {
         unsigned stack[64];
         int sp = 0;
-        stack[sp++] = token(k);
+        stack[sp++] = bits_at(TXT_DATA, k * TXT_BITS, TXT_BITS);
         while (sp) {
             unsigned t = stack[--sp];
             if (t < TXT_BASE) {
                 if (n < max - 1) dst[n++] = TXT_CHARS[t];
                 continue;
             }
-            unsigned a, b;
-            halves(t, &a, &b);
+            uint32_t h = 2u * (t - TXT_BASE) * TXT_BITS;    /* (its halves a, b) */
             if (sp + 2 > 64) break;                     /* (never: the table's depth is far less) */
-            stack[sp++] = b;
-            stack[sp++] = a;
+            stack[sp++] = bits_at(TXT_PAIRS, h + TXT_BITS, TXT_BITS);
+            stack[sp++] = bits_at(TXT_PAIRS, h, TXT_BITS);
         }
     }
     dst[n] = 0;

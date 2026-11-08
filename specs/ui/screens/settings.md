@@ -25,8 +25,8 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
 | SECOND CORE | ON / OFF: the effects and the output stage worked out on the chip's second core, beside the voices on the first ([../../second-core.md](../../second-core.md)); OFF: one core does it all. Applies from the next audio half, both ways; STATUS shows each core's load and, on DEVICE, why the second stopped if it did | ON |
 | THEME | DEFAULT, EGA, PASTEL, NEON, SUNSET, ICE, CLEAR, GREEN, AMBER, WHITE, DAYLIGHT, PAPER, MANUAL, SILVER, LCD, COMMANDER ([../colours.md](../colours.md)) | DEFAULT |
 | KEYS VOLUME | the volume of notes from the keys (the keys have no velocity): `01`-`7F` | `60` |
-| KEYS GAIN | the level of the keys as heard while playing them, the FM-1's keys and MIDI's notes alike: −24 to +12 dB, in 1 dB steps. Only what is heard: a note recorded (the EDITOR's takes, LOOPS) keeps its volume (KEYS VOLUME, a MIDI note's velocity) and plays back as written, without it; during a LOOPS take the keys sound through the recording loop's mix instead ([loops.md](loops.md#recording)). FX's MIXER shows it too, as the KEYS column's LVL, beside the keys' PAN, DUCK amount and sends ([fx.md](fx.md#mixer)) | 0 dB |
-| KEYS | what the effects do to the keys as heard (the FM-1's, MIDI's notes, the arpeggiator's, the previews): THROUGH FX, through the effects as everything else; DRY, past every effect, the LIMITER and the punch-ins too, joining the mix just before the output stage ([fx.md](fx.md#the-keys-dry)), so the effects work on what plays in the background alone. One setting for every song, the loops and DJ (where the keys play no notes); during a LOOPS take the keys go through the recording loop's mix and LOOPS' effects whatever it says; FX's GLO shows it too | THROUGH FX |
+| KEYS GAIN | the level of the keys as heard while playing them, the FM-1's keys and MIDI's notes alike: −24 to +12 dB, in 1 dB steps. Only what is heard: a note recorded (the EDITOR's takes, LOOPS) keeps its volume (KEYS VOLUME, a MIDI note's velocity) and plays back as written, without it; overdubbing LOOPS' stage while the loops play, the keys sound through the stage's mix instead ([loops.md](loops.md#the-stage)). FX's MIXER shows it too, as the KEYS column's LVL, beside the keys' PAN, DUCK amount and sends ([fx.md](fx.md#mixer)) | 0 dB |
+| KEYS | what the effects do to the keys as heard (the FM-1's, MIDI's notes, the arpeggiator's, the previews): THROUGH FX, through the effects as everything else; DRY, past every effect, the LIMITER and the punch-ins too, joining the mix just before the output stage ([fx.md](fx.md#the-keys-dry)), so the effects work on what plays in the background alone. One setting for every song, the loops and DJ (where the keys play no notes); overdubbing LOOPS' stage the keys go through the stage's mix and LOOPS' effects whatever it says; FX's GLO shows it too | THROUGH FX |
 | KEYS OCTAVE | the default octave: -4 to +4 | 0 |
 | KNOB SPEED | acceleration: OFF, LOW, HIGH | LOW |
 | HOLD DELAY | 300-1500 ms, in steps of 50 (layers, solo) | 500 ms |
@@ -70,24 +70,26 @@ A list. **SELECT** picks an item, **K1** changes it, **LFO** resets it to the de
 - **There is no backlight setting.** The backlight pin must never be switched: the same line enables the
   matrix of the keys and buttons, and switching it freezes the FM-1.
 - **The tools** ([../saving.md](../saving.md)):
-  - **CHECK REFERENCES** lists the missing ones.
+  - **CHECK REFERENCES** lists the missing ones, and then each old-form sampler once
+    ([../../files/references.md](../../files/references.md#a-reference-to-nothing)).
   - **CHECK STORAGE** reads every record in the user area and checks its CRC (~0.5 s, a progress bar;
-    [../../files/store.md](../../files/store.md#power-on)), and lists, as CHECK
+    [../../files/store.md](../../files/store.md#power-on)), and a sample's entry against its audio's head
+    ([../../files/instruments.md](../../files/instruments.md#samples)), and lists, as CHECK
     REFERENCES does, what fails: a thing that fell back to an older version, or one now missing.
     It writes nothing.
   - **CLEAN UP** asks what goes, as a checklist ([../dialogs.md](../dialogs.md#a-question-with-a-checklist)):
     - **UNUSED PATTERNS:** those no song position and no FUSION slot plays;
-    - **UNUSED SAMPLES:** those no instrument of their cartridge uses (the index stays, empty:
-      `(DELETED)`);
-    - **UNUSED INSTRUMENTS:** those no cell plays, nor a loop.
+    - **UNUSED SAMPLES:** those no instrument names, in any sampler (old-form ones left alone);
+    - **UNUSED INSTRUMENTS:** those no cell plays, no loop and no favourite names.
 
-    The built-in instruments, any built-in patterns and the EDITOR's own pattern are never listed.
+    The built-in instruments, any built-in patterns, the EDITOR's own pattern and the FAVORITES cartridges
+    ([instruments.md](instruments.md#favorites)) are never listed.
 
     Each line says how many and what they take; the first line, what the ticked ones free. Patterns
     and samples come ticked, instruments not: most of a bank is unused by any song, a library rather
     than leftovers.
-  - **AUTO LEVEL ALL** measures every sound in the user area and sets its level; the built-in
-    instruments keep theirs (a cartridge's own menu measures one, [../saving.md](../saving.md#fws)). It asks first, since it changes every level at once
+  - **AUTO LEVEL ALL** measures every sound in the user area and sets its level (FAVORITES cartridges left out:
+    their favourites are no sounds of their own); the built-in instruments keep theirs (a cartridge's own menu measures one, [../saving.md](../saving.md#fws)). It asks first, since it changes every level at once
     (`AUTO LEVEL 486 SOUNDS?`, `EACH ONE'S LEVEL SET AGAIN`, OCT+ `LEVEL`, OCT- `KEEP`).
   - **REVERT ALL** drops every unsaved change after a question, as SAVE + OCT- does; its question and
     texts are REVERT TO SAVED's as before ([../saving.md](../saving.md)).
@@ -383,9 +385,14 @@ REVERT opens its question ([../dialogs.md](../dialogs.md)), one line, `REVERT TH
  |  PATTERN 0C ROW 12 TRACK 03: 0B:05   |
  |  SONG 02 POSITION 05: PATTERN 1A     |
  |  FUSION 10:03: PATTERN 1A            |
- |                                      |
+ |  FAVORITE FB:07: 0B:05               |
  +--------------------------------------+
 ```
+
+A favourite whose source is gone is listed as FUSION's are: `FAVORITE FB:07: 0B:05`. A sample instrument naming a
+missing sample: `SAMPLER 01:05: SAMPLE 23`. After the references to nothing, and not counted among them, each
+old-form sampler once ([../../files/instruments.md](../../files/instruments.md#the-old-form)): `CARTRIDGE 03:
+OLDER FORM`; with only those, the title reads `MISSING REFERENCES: 0`.
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
@@ -458,7 +465,7 @@ come first, as every question ([../dialogs.md](../dialogs.md)):
   | Text | When |
   |---|---|
   | `CHECKING` | CHECK REFERENCES runs (a progress bar) |
-  | `MISSING REFERENCES: 3`; `PATTERN 0C ROW 12 TRACK 03: 0B:05`, `SONG 02 POSITION 05: PATTERN 1A`, `FUSION 10:03: PATTERN 1A` | its list |
+  | `MISSING REFERENCES: 3`; `PATTERN 0C ROW 12 TRACK 03: 0B:05`, `SONG 02 POSITION 05: PATTERN 1A`, `FUSION 10:03: PATTERN 1A`, `SAMPLER 01:05: SAMPLE 23`, `CARTRIDGE 03: OLDER FORM` | its list |
   | `NO MISSING REFERENCES` | its toast, with nothing missing |
   | `CLEAN UP: FREES 1.3K`; `UNUSED PATTERNS`, `UNUSED SAMPLES`, `UNUSED INSTRUMENTS`, each with `1  1.3K` or `NONE`; CLEAN UP / KEEP; `SELECT: PICK  K1: TICK  HOME: CANCEL` | CLEAN UP's checklist |
   | `CLEANED UP: 4 DELETED`; `NOTHING TO CLEAN UP` | its toasts |
@@ -466,7 +473,7 @@ come first, as every question ([../dialogs.md](../dialogs.md)):
   | `MEASURING EVERY SOUND` | AUTO LEVEL ALL runs (a progress bar) |
   | `LEVELS SET` | its toast |
   | `CHECKING STORAGE` | CHECK STORAGE runs (a progress bar) |
-  | `STORAGE PROBLEMS: 2`; `PATTERN 1A: AN OLDER VERSION`, `SAMPLE 0C:03: MISSING` | its list |
+  | `STORAGE PROBLEMS: 2`; `PATTERN 1A: AN OLDER VERSION`, `SAMPLE 23: MISSING`, `SAMPLE 23: ENTRY AND AUDIO DIFFER` | its list |
   | `STORAGE OK` | its toast, with nothing wrong |
   | `REVERT TO SAVED?`, `DROP 3 UNSAVED CHANGES`, `AND RELOAD FROM FLASH`; REVERT / KEEP | REVERT ALL's question ([../saving.md](../saving.md)) |
   | `RELOADING`, then `REVERTED TO SAVED` | it runs, then its toast |
@@ -524,7 +531,8 @@ QUANTIZE: WHERE A TAKE'S NOTES LAND,
 
 ```
 ARP, POWER-ON AND TOOLS
-{ARP} (AGAIN, REPEAT, PLEASE): ARPEGGIO
+{ARP} (AUTOMATIC REPEAT PROCEDURE):
+  ARPEGGIO
 ARP RHYTHM: # A NOTE, _ A REST
 ARP PATTERN: THE ORDER IT PLAYS IN
 ARP LATCH: NOTES KEPT AFTER THE {KEYS}

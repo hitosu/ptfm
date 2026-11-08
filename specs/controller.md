@@ -151,7 +151,7 @@ The test vectors of sections 2 and 4, read by both sides' tests: `fw/tests/vecto
   then on.
 - **The flash:** the controller writes nothing. Only an update writes (the FM-1's update path: its staging,
   then the loader), which works from the start screen and the monitor alike; OCT- alone at power-on, or two
-  failed boots in a row, start USB rescue, as always.
+  failed boots in a row, start update mode, as always ([hardware.md](hardware.md#updates-and-rescue)).
 
 ## 6. The screen: a MIDI monitor
 

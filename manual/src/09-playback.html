@@ -17,7 +17,10 @@ header's page the song position of the last one, the footer the play position.</
 row playing (<b>POS 02 ROW 1F</b>).</li>
 <li>While the EDITOR's pattern loop plays, the header says <b>PAT 0C</b> (or EDITOR for its own pattern) and the
 footer <b>PAT 0C ROW 1F</b>.</li>
-<li>While LOOPS' loops play, each loop is a track; the header says LOOPS. EDIT then goes to LOOPS.</li>
+<li>While LOOPS' loops are what plays (or what played last, paused), PLAYBACK acts as if nothing were loaded: the body says
+<b>THE LOOPS PLAY: LOOPS SHOWS THEM</b> (paused: <b>THE LOOPS ARE PAUSED: PLAY GOES ON</b>), the header's page and the
+footer's right side are empty, and <kbd>K1</kbd>, <kbd>K3</kbd>, <kbd>K4</kbd>, <kbd>SELECT</kbd>, <kbd>LFO</kbd> and <kbd>EDIT</kbd>
+change nothing. <kbd>PLAY</kbd> pauses and resumes the loops as everywhere.</li>
 <li>When nothing plays, it shows where playback paused, or the current song's start; with no song at all,
 <b>NOTHING HAS PLAYED: PLAY STARTS THE SONG</b>.</li>
 </ul>
@@ -59,7 +62,7 @@ comes back here.</li>
 follows it; <kbd>ENV</kbd> again closes the list.</li>
 <li><kbd>GLO</kbd> opens the view's options (PLAYBACK VIEW): SCROLL by ROWS (the playing row stays in the middle) or
 by PAGES (the highlight moves, the pages flip; also SETTINGS' PLAYBACK SCROLL), and UNLOAD SONG, listed once
-something has played: everything stops, and the keys get their own effects and tempo back, as at power-on
+while a song or DJ is held (not for the loops): everything stops, and the keys get their own effects and tempo back, as at power-on
 (<a href="#songs-menu">chapter 6</a>).</li>
 </ul>
 <figure data-shot="playback-songs"><figcaption>The song list (ENV): PLAY plays the highlighted song from its start.

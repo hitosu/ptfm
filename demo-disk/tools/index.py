@@ -9,7 +9,7 @@ The credits name every work by its licence and its author: a cartridge's own voi
 under its licence; one carrying a licence of its own under that one, with its name in its source; every
 sample; every song.
 """
-from catalog import CARTRIDGES, SONGS
+from catalog import CARTRIDGES, DISK_FIRST, SONGS
 from common import DISK, fmt, read_json, write_json
 
 LICENSE_NAMES = {"CC0-1.0": "CC0 1.0 Universal (public domain dedication)", "MIT": "MIT License",
@@ -113,9 +113,10 @@ def credits():
 
 def main():
     write_json(DISK / "index.json", {
-        "format": fmt("index"), "version": 2, "name": "DEMO",
+        "format": fmt("index"), "version": 2, "name": "DEMO", "first": DISK_FIRST,
         "cartridges": [{"number": n, "type": kind, "path": path, "name": name} for n, kind, path, name in CARTRIDGES],
-        "songs": [{"number": i, "path": f"songs/{folder}/song.json", "name": name} for i, (folder, name) in enumerate(SONGS)]})
+        "songs": [{"number": DISK_FIRST + i, "path": f"songs/{folder}/song.json", "name": name}
+                  for i, (folder, name) in enumerate(SONGS)]})
     credits()
     print(f"index: {len(CARTRIDGES)} cartridges, {len(SONGS)} songs; CREDITS.md")
 

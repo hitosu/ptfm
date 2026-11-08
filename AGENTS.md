@@ -15,12 +15,13 @@ FM-1").
 - **The firmware is built and runs on the FM-1** (`fw/`, its README first), but its sound costs too much
   there (4 voices at 60-80 % CPU): measuring and optimising it is the work now. One core
   (`fw/core/`: the store and seeding, the player with its engines and effects, MIDI, every screen of the UI)
-  shared by the device (`fw/device/`, `fw/hal/`, `fw/loader/`) and the emulator (`emulator/`); built three
+  shared by the device (`fw/device/`, `fw/hal/`, `fw/stub/`, `fw/loader/`) and the emulator (`emulator/`); built three
   ways (`specs/layout.md`): dev (`build/fw/`), debug (`fw/build.sh --debug`: `dist/debug/`, the figures and
   their page, `specs/debug.md`, whose autotests play any build through MIRROR and the state query,
   `specs/connections.md`) and production (`fw/build.sh --release`: `dist/firmware/ptfm.fwsc`,
-  `dist/firmware/install.html` with INSTALL FIRMWARE (the firmware alone; CLEAN INSTALL also empties the user
-  area, as SETTINGS' FACTORY RESET does on the FM-1 alone), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file); copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
+  `dist/firmware/install.html` with INSTALL FIRMWARE (the firmware, then what the new firmware no longer reads
+  converted, `specs/files/blob.md`; CLEAN INSTALL also empties the user area, as SETTINGS' FACTORY RESET does on the
+  FM-1 alone), UPLOAD DEMO DISK and UPLOAD CUSTOM DISK (a disk file); copies of the library are the editor page's: READ, then DOWNLOAD DISK); `dist/firmware/demo.ptfmdsk` made by `tools/pack.py`. Host tests: `fw/tests/run_tests.sh` (every `run_*.sh`). The RAM
   is one 439 KB data region (with core 2's 40 KB room above it) and nearly full: every part keeps to `specs/files/ram.md`, and the build prints each
   object's share. The playground stays the UI's fast reference, and the firmware follows it.
 - **The emulator is built** (`emulator/`, `dist/emulator/ptfm.wasm.js`): the playground's page and panel, with the
@@ -51,12 +52,22 @@ FM-1").
     player extends IBXM's code, and upstream IBXM is the test of every conversion;
   - the repository's layout (`specs/layout.md`), the emulator (`specs/emulator.md`, settled in
     outline), the controller (`specs/controller.md`).
-- **LOOPS** (a loop station, `specs/proposals/202610240236-loops-station.md`: up to 16 loops of one length, each
-  one instrument recorded in one pass, POLY up to 4 lanes or MONO, its notes once plus a repeat count; takes heard
-  exactly as written by QUANTIZE; CONTROL mode on the keys for mutes, solos and QUANTIZE; a 4-row pattern recorder;
-  RECORD SONG; SAVE TO / LOAD FROM PATTERN): `specs/ui/screens/loops.md` and `specs/files/loops.md` (record version
-  4, kept in the edit memory as pieces, no RAM of its own); built in the playground (`scr-loops.js`) and the
-  firmware; LOOPS is a screen of the round, and the loops play on outside it.
+- **LOOPS** (a loop station, `specs/proposals/202610240236-loops-station.md`, with a stage since
+  `specs/proposals/202611030330-loops-redesign.md`: up to 16 loops of one length, set from the start (4 bars), each
+  one instrument, POLY up to 4 lanes or MONO, its notes once plus a repeat count and a SHIFT; the keys overdub the
+  stage, one loop of the length, while the loops go round (LFO's tap switches to OVERWRITE and back), heard exactly as written by
+  QUANTIZE, and REC keeps it as a new loop or into the selected one, EDIT bringing a loop back onto it; the play
+  position on ALGORITHM; K1-K4's jobs and VIEW in GLO; CONTROL mode on the keys for mutes, solos, QUANTIZE and MONO /
+  POLY; ARP's tap switching the stage off (kept, not heard, the keys heard and written nowhere) and on,
+  `specs/proposals/202611041720-loops-stage-switch.md`; a 4-row pattern recorder with ties onto the stage (ARP held +
+  REC, SEL's RECORD PATTERN); RECORD LIVE; SAVE TO / LOAD FROM PATTERN; no BETA mark):
+  `specs/ui/screens/loops.md` and `specs/files/loops.md` (record version 4, its new fields in spare bits, kept in the
+  edit memory as pieces, no RAM of its own; the stage a piece of its own there, never saved, kept through SAVE and
+  REVERT ALL: `specs/files/ram.md`); built in the playground (`scr-loops.js`, as the specs say, the stage proposal's
+  section 18 included) and in the firmware (`fw/core/ui/scr_loops.c` and `lp_rec.c`, the stage in `play/player.c` and
+  `store/store.c`, the record in `play/loops.c`, RECORD LIVE's song in `play/live.c` from the player's tap, `specs/proposals/` has its
+  proposal; LOOPS' UI tests twins of the playground's checks), not yet tried on
+  the FM-1; LOOPS is a screen of the round, and the loops play on outside it.
 - **DJ** (HOME + OP5; FX has its own button and no black key; for performing only, nothing written into patterns): two songs on two
   decks, the main always on the left (SEQ swaps them), one song list with a LOAD key a deck, tempo as a
   share of the song's and SYNC to the main, a crossfader (ALGORITHM), a DJ FILTER a deck, the pads (PLAY and
@@ -77,7 +88,7 @@ FM-1").
   cartridges (our voices and free banks' voices, each credited in `demo-disk/CREDITS.md`, the Mega Drive and
   Commander X16 patch sets among them, converted from 4 operators), JUNO-106 (128 of our own Juno-106
   patches), CHIPTUNE (128 instruments of the CHIP engine), TB-303 (64), five sampler cartridges (an acoustic kit, percussion, band and
-  orchestra, voices, dubstep and drum and bass basses) and FUSION (6, cartridge `06`, its patterns `E0`-`E5`;
+  orchestra, voices, dubstep and drum and bass basses) and FUSION (6, cartridge `A5`, its patterns `A0`-`A5`;
   DRUM KIT among them: the synth cartridges' drums and the samplers' on the keys); every instrument with its LEVEL,
   every work from elsewhere with its own licence and source. Six songs, each showing a part of PT/FM
   (PUNCH IN the effects, SPICE ROAD the samplers, MIDNIGHT RUN the Juno-106, CITY LIGHTS the DX7, ACID
@@ -134,16 +145,16 @@ The layout in full, with what is committed: `specs/layout.md`.
 |---|---|
 | `AGENTS.md` | this file |
 | `README.md` | for users: what PT/FM is, the folders, the licence |
-| `CHANGELOG.md` | what changes from version to version, an entry a change with its kind first (FEATURE, CHANGE, BUG, REMOVED): the top section, Next version, since the last release |
+| `CHANGELOG.md` | what changes from version to version, an entry a change with its kind first (FEATURE, CHANGE, BUG, REMOVED): the top section, Next version, since the last release (at a release, that release's) |
 | `LICENSE` | GPL-3.0-only |
-| `specs/` | the specifications, one subject per file; `specs/proposals/` the drafts |
-| `fw/` | the firmware, engine only, no data but the built-in instruments (`fw/README.md`): `core/` (`store/`, `play/`, `eng/`, `fx/`, `midi/`, `ui/`, `plat.h`, `app.c`), `device/`, `hal/`, `loader/`, `tools/` (build, packager, install page, generators), `web/` (the install page's template, `seed.js`), `tests/` |
+| `specs/` | the specifications, one subject per file; `specs/proposals/` the drafts; `specs/reports/` a report for each version (`<version>.md`: the work done, why and how, with its commits) |
+| `fw/` | the firmware, engine only, no data but the built-in instruments (`fw/README.md`): `core/` (`store/`, `play/`, `eng/`, `fx/`, `midi/`, `ui/`, `plat.h`, `app.c`), `device/`, `hal/`, `stub/` (the start check), `loader/` (the update loader), `tools/` (build, packager, install page, generators), `web/` (the install page's template, `seed.js`), `tests/` |
 | `emulator/` | the firmware in a browser (`specs/emulator.md`, `emulator/README.md`): the web platform, the worklet, the page, `build.py` |
 | `panel/` | the virtual FM-1, shared by `playground/` and `emulator/`; `page.css` / `page.js` the two pages' frame (sidebar, header, footer, the drawer on phones) |
 | `editor/` | the editor, a page for the computer: EDITOR [beta] (`specs/editor.md`: TABLE and FM-1 side by side, items moved with what they use, READ / WRITE / UPLOAD DISK / DOWNLOAD DISK, an item's tab to edit it, the FM-1's own pictures from `fw/core/ui` built in under `PTFM_EDITOR`); `editor/build.py` makes `dist/editor/editor.html`; tests `tests/editor/run_tests.sh` (Node) and `tests/editor/run_page.sh` (the page in a headless Chrome) |
 | `playground/` | the UI playground: the UI, the transport and the sound in plain JS; no build |
 | `demo-disk/` | the demo disk's sources: patches, samples and songs under free licences (`demo-disk/README.md`, `CREDITS.md`) |
-| `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual and `CHANGELOG.md`'s released sections are the only documents that name a version |
+| `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual, `CHANGELOG.md`'s released sections and `specs/reports/` (a file a version) are the only documents that name a version |
 | `site/` | the web site, hitosu.github.io/ptfm (`specs/site.md`): `index.html` the landing (`@VERSION@` filled in from `fw/VERSION`), `img/` its pictures (the 3D picture, a video's thumbnail), `screens/` real screens (`tools/shots.sh`; `screens/manual/` the manual's, by `tools/build_manual.py`), `fonts/` the FM-1's Terminus as webfonts (`tools/pixfont.py`), `tools/hero.html` + `tools/images.py` the 3D picture (`images.py video` the thumbnail); `site/assemble.sh OUT` puts the landing and the four pages together (nothing built), `.github/workflows/pages.yml` publishes it on every push to `main`. Its texts name no count that changes with the contents |
 | `assets/fonts/` | Terminus (SIL OFL 1.1), from which the tools make the fonts; Iosevka Aile (the pages') and Archivo (the PDF manual's), both SIL OFL 1.1, cut once by `fw/tools/webfont.py` |
 | `tools/` | the data packer (`pack.py`: `dist/firmware/demo.ptfmdsk`, the built-in instruments, `--check` against the playground; `ptfm_records.py`: every record's bytes both ways), `gen_fonts.py` (JS; C with `--c` for the device's own screens, `--fw` for the firmware's UI), `gen_playground.py`, `build_playground.py` (`dist/playground/playground.html`) |
@@ -160,8 +171,14 @@ This folder is its own git repository; the parent is not one.
   <vasily@kazantsev.xyz>, PGP-signed.
 - **Every change a user would notice goes into `CHANGELOG.md`** as it is made: an entry under Next version, its kind
   first (`FEATURE:`, `CHANGE:`, `BUG:`, `REMOVED:`), in plain words. A release turns Next version into that
-  version's section (its number and date) and starts a new Next version above it; `fw/VERSION` and the release's
-  tag change only when the user says.
+  version's section (its number and date), on top with no empty Next version above it; the first change after the
+  release starts a new Next version above it. `fw/VERSION` and the release's tag change only when the user says.
+- **Every version has a report, `specs/reports/<version>.md`** (one file a version; the one being worked on is the
+  next release's), filled in as its tasks are worked on and changed as they change: for each task why it was done
+  and how (the reasoning, the choices made and those set aside, what was measured or tested and how, what is left),
+  and the commits that hold it (short hashes, added once committed). It is not `CHANGELOG.md`, which lists each change
+  in a line for users: the report explains the work. Only the essential part; no code (the code is in the commits),
+  no dates or times, no one's words quoted, nothing personal; the specs' one voice.
 - **Never install anything** (toolchains, packages, images): give the commands to run. Ask before
   anything that needs a download, and before adding compilers.
 - **Change files with Edit / Write only,** never by a shell rewrite, one-word changes included.
@@ -179,7 +196,12 @@ This folder is its own git repository; the parent is not one.
   encryption.
 - **Verify on the PC before handing over** (tests, rendered audio, screenshots looked at), and say
   what was and was not tried on the device.
-- **Every firmware keeps the FM-1's update path and USB rescue mode,** and ships self-contained pages
+- **A UI test undoes only its own changes** (`ui_edit_revert` of each record it changed), never
+  `ui_revert_all()`: the UI tests run in turn on one flash, and later ones rely on edits earlier ones
+  left unsaved.
+- **Every firmware keeps the FM-1's update path and its update mode** (the start check's: `fw/stub`, its bytes
+  pinned by `stub.lock`; a change to them is the one install with nothing to fall back on), and ships
+  self-contained pages
   (Chrome or Edge, Web MIDI) in `dist/`, each in its build's folder: `firmware/install.html` (and
   `seed.html`), `debug/install.html`.
 - **The JieLi toolchain and SDK are not in the repository:** `JIELI_TOOLCHAIN` and `AC79_SDK` point at
@@ -241,8 +263,8 @@ This folder is its own git repository; the parent is not one.
     marked code: its own `c2_memset` / `c2_memcpy`, never a copy the compiler may turn into a `memcpy` call, and an
     inline helper it uses carries the mark too (the device's compiler inlines across sections only `always_inline`).
   - Core 1 reaches marked code only through `PLAT_FAR`; each such call the interrupts can reach needs its hook in
-    `fw/tools/stackdepth.py`. The build refuses a call or a flash address leaving the room. The debug build's room
-    has about 2 KB left.
+    `fw/tools/stackdepth.py`. The build refuses a call or a flash address leaving the room. It has about 1 KB left
+    (the debug build's a little less).
   - What the job reads or writes is handed over with its block or belongs to one core
     (`specs/second-core.md#who-owns-what`); `fw/tests/run_sound.sh`'s c2_test renders every case with the jobs run
     inline, a block late and a half late, and each must equal core 1's alone.

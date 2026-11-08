@@ -9,17 +9,19 @@ module.exports = async api => {
     /* a sample of a sampler on the TABLE that an instrument plays from its start to its end */
     const pick = await evaluate(`(() => {
         const L = ED.app.st.L, R = ED.rec;
+        /* (a sample of its own: the instruments of every sampler naming it, found by the sampler's link) */
         for (const o of L.filter(i => i.kind === 0x04)) {
             const s = R.unpackSampler(o.recs[0].payload);
-            for (const it of L.filter(i => i.owner === o.id)) {
-                const e = s.samples[it.idx], ins = s.instruments.map((x, k) => [x, k]).filter(([x]) => x && x.sample === it.idx);
-                if (e && ins.length && ins.every(([x]) => x.start === 0 && x.end === e.length)) return { id: it.id, owner: o.id, idx: it.idx, length: e.length, rate: e.rate,
+            for (const it of L.filter(i => i.kind === 0x11 && Object.values(o.link).includes(i.id))) {
+                const e = ED.model.sampleEntry(it, L), key = Object.keys(o.link).find(k => o.link[k] === it.id), num = parseInt(key.slice(1), 16);
+                const ins = s.instruments.map((x, k) => [x, k]).filter(([x]) => x && x.sample === num);
+                if (e && ins.length && ins.every(([x]) => x.start === 0 && x.end === e.length)) return { id: it.id, owner: o.id, num, length: e.length, rate: e.rate,
                     ins: ins.map(([x, k]) => ({ k, level: x.level, end: x.end, loop: x.loop })) };
             }
         }
         return null;
     })()`);
-    check(!!pick, "optimize: a sample its instruments play whole: " + JSON.stringify(pick && { idx: pick.idx, length: pick.length, rate: pick.rate, ins: pick.ins.length }));
+    check(!!pick, "optimize: a sample its instruments play whole: " + JSON.stringify(pick && { num: pick.num, length: pick.length, rate: pick.rate, ins: pick.ins.length }));
     if (!pick) return;
     await evaluate(`ED.tabs.open(ED.app.st.L.find(i => i.id === ${JSON.stringify(pick.id)})); 1`);
     await sleep(300);
@@ -35,20 +37,21 @@ module.exports = async api => {
     check(after < before, "optimize: SMALLEST put in the draft: " + before + " -> " + after + " B");
     await shot("02-smallest");
     const saved = await evaluate(`(() => { const t = ED.tabs.current(); t.saveBtn.click(); const R = ED.rec, L = ED.app.st.L;
-        const o = L.find(i => i.id === ${JSON.stringify(pick.owner)}), s = R.unpackSampler(o.recs[0].payload), e = s.samples[${pick.idx}];
+        const o = L.find(i => i.id === ${JSON.stringify(pick.owner)}), s = R.unpackSampler(o.recs[0].payload), e = ED.model.sampleEntry(L.find(i => i.id === ${JSON.stringify(pick.id)}), L);
         return { open: ED.tabs.list.includes(t), length: e.length, rate: e.rate, ins: ${JSON.stringify(pick.ins.map(x => x.k))}.map(k => ({ level: s.instruments[k].level, start: s.instruments[k].start, end: s.instruments[k].end })) }; })()`);
     check(!saved.open && saved.ins.every((x, i) => x.level === Math.min(127, pick.ins[i].level + 12) && x.start === 0 && Math.abs(x.end - saved.length) <= 1),
         "optimize: saved: its instruments' LEVEL up 6 dB, END at the sample's new end (" + JSON.stringify(saved) + ")");
     /* OPTIMIZE SAMPLES from the TABLE's menu: a sampler picked, the dialog's three levels, SMALLER applied, UNDO back */
     const many = await evaluate(`(() => {
-        const L = ED.app.st.L, c = L.filter(i => i.kind === 0x04).find(o => L.filter(s => s.owner === o.id).length > 1);
+        const L = ED.app.st.L, named = o => [...new Set(Object.values(o.link))].filter(id => L.some(s => s.id === id && s.kind === 0x11));
+        const c = L.filter(i => i.kind === 0x04).find(o => named(o).length > 1);
         ED.files.selectIds("L", [c.id]);
         const row = document.querySelector('.panel[data-side=L] [data-id="' + c.id + '"]'), r = row.getBoundingClientRect();
         row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 5 }));
         const b = [...document.querySelectorAll(".menu button")].find(x => /^OPTIMIZE /.test(x.textContent));
         const label = b && b.textContent, off = b && b.disabled;
         if (b) b.click();
-        return { id: c.id, label, off, n: L.filter(s => s.owner === c.id).length };
+        return { id: c.id, label, off, n: named(c).length };
     })()`);
     check(many.label === "OPTIMIZE " + many.n + " SAMPLES…" && !many.off, "optimize: the TABLE's menu offers " + JSON.stringify(many.label));
     await sleep(600);
@@ -58,7 +61,7 @@ module.exports = async api => {
         "optimize: the dialog, each level with what it saves: " + JSON.stringify(dlg && dlg.levels.map(x => x[0].slice(0, 60))));
     await shot("03-many");
     const done1 = await evaluate(`(() => {
-        const size = () => ED.app.st.L.filter(s => s.owner === ${JSON.stringify(many.id)}).reduce((a, s) => a + ED.model.size(s), 0), before = size();
+        const size = () => { const L = ED.app.st.L, o = L.find(i => i.id === ${JSON.stringify(many.id)}); return [...new Set(Object.values(o.link))].map(id => L.find(s => s.id === id)).filter(s => s && s.kind === 0x11).reduce((a, s) => a + ED.model.size(s), 0); }, before = size();
         const lv = [...document.querySelectorAll("#dlg label.sw input")]; lv[2].click(); lv[2].dispatchEvent(new Event("change"));
         [...document.querySelectorAll("#dlg .btn")].find(b => b.textContent === "OPTIMIZE").click();
         const after = size(), msg = document.querySelector("#status").textContent;

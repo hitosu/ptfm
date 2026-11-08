@@ -77,7 +77,8 @@ static int set_level(uint8_t cart, int slot, int8_t lv)
     return ins_put_slot(cart, slot, s);
 }
 
-static int user_cart(uint8_t c) { return ins_kind(c) && !ins_builtin(c); }
+static int user_cart(uint8_t c) { int k = ins_kind(c); return k && k != REC_FAV && !ins_builtin(c); }   /* (FAVORITES:
+                                                         * no sounds of their own) */
 static int next_cart(int c)                             /* the user area's next cartridge after c, -1 none */
 {
     for (int k = c + 1; k < 256; k++) if (user_cart((uint8_t)k)) return k;

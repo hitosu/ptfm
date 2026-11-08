@@ -32,7 +32,8 @@
 enum { SAMP_LOOP_OFF, SAMP_LOOP_FORWARD, SAMP_LOOP_PINGPONG };
 
 typedef struct {                         /* an instrument as it plays */
-    const uint8_t *rec;                  /* its sample's PTR record (in place); NULL: none */
+    const uint8_t *rec;                  /* its sample's PTR audio (in place: the sample's record after its entry,
+                                          * specs/files/instruments.md#samples); NULL: none */
     uint32_t rec_len;
     int32_t length;                      /* the sample's samples */
     uint32_t rate;                       /* Hz at the BASE NOTE */

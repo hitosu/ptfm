@@ -19,10 +19,7 @@
 #ifndef UAC_H
 #define UAC_H
 #include <stdint.h>
-#ifndef UAC_FIR_MEM                      /* the table in RAM (read every output frame: never from the flash, whose */
-#define UAC_FIR_MEM __attribute__((section(".data.uac_fir")))   /* misses cost ~460 cycles; a table never written */
-#endif                                   /* would go there unless its section says) */
-#include "uac_fir.h"
+#include "uac_fir.h"                     /* (its table in RAM, made by uac_fir_fill from half of it in the image) */
 #ifndef RING_PUBLISH
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #endif
@@ -63,7 +60,7 @@ static struct {
     uint32_t primes, underruns, overruns, pkts, frames;   /* figures */
 } ua;
 
-/* (always in place: ua_frame's, in a block's job, and the debug build's bench's own loop take it, never a call) */
+/* (always in place: ua_frame's, in a block's job, takes it, never a call) */
 static inline __attribute__((always_inline)) int32_t ua_s16(int32_t v)
 {
     return v > 32767 ? 32767 : v < -32768 ? -32768 : v;
@@ -122,7 +119,7 @@ static void uac_rs_start(int feed)
  * 2^15 L0 + fr (L1 - L0), L0 and L1 the two phases' own sums, so >> 15 gives L0 + (fr (L1 - L0) >> 15) exactly:
  * the two sums interpolated, as the stream has always had it. A tap costs a multiply and two multiply-accumulates
  * (the two sums of each channel took four), and the window is unrolled (a taken jump costs the device ~6 cycles):
- * an output frame 366 cycles on the FM-1 (the bench's USB FRAME; the loop of four sums 593) */
+ * an output frame 366 cycles, measured on the FM-1 (a loop of four sums: 593) */
 #define UA_TAP(j)                                                                                             \
     {                                                                                                         \
         int32_t a = c[j], k = a * 32768 + (c[UAC_FIR_N + (j)] - a) * fr;  /* (< 2^30: |a| < 2^15, |b - a| < 2^8) */ \

@@ -53,6 +53,8 @@ PTFM.player = (function () {
         const type = M.instType(ref), inst = M.inst(ref);
         t = t == null ? now() : t;
         if (!inst) return null;
+        if (tap && !opts.inFusion && !opts.song && id[0] === "k") tapPut({ t, k: TAP_KEYS, kind: "on", id, note: midi, vol, inst: ref, src: 16 });
+        else if (tap && id === "rv") tapPut({ t, k: TAP_HEAR, kind: "on", id, note: midi, vol, inst: ref, src: P.lpNowLoop ? P.lpNowLoop().track : 0 });
         /* FILTER's envelope (specs/ui/screens/fx.md#filters-envelope): a note not a song's (opts.song: a replay's) is
          * the keys', its start a hit of SOURCE KEYS (a FUSION's once, not each layer); a song's track's hit is its
          * row's (start) */
@@ -63,6 +65,7 @@ PTFM.player = (function () {
         }
         /* an instrument being edited plays as edited: no parameter commands, its track's or its own */
         if (U().editing("inst", ref)) opts = Object.assign({}, opts, { params: null, asEdited: true });
+        if (tap) opts = Object.assign({}, opts, { tap: true });
         A().noteOn(id, t, midi, ref, vol, track, opts);
         return id;
     }
@@ -130,6 +133,7 @@ PTFM.player = (function () {
     P.fusionRowOn = (id, pat, midi, vol) => fusionRow(id, M.pattern(pat), midi, vol, -1, null) && id;
     function noteOff(id, t) {
         t = t == null ? now() : t;
+        if (tap && (id[0] === "k" || id === "rv")) tapPut({ t, k: id === "rv" ? TAP_HEAR : TAP_KEYS, kind: "off", id });
         if (fusionIds[id]) { for (const s of fusionIds[id]) A().noteOff(s, t); delete fusionIds[id]; fusionEnd(id, t); }
         A().noteOff(id, t);
     }
@@ -162,7 +166,8 @@ PTFM.player = (function () {
         const tm = s.timing || timing(kind, s);
         const mix = kind === "loops" ? M.state.loops.mixer : song() ? (kind === "song" ? M.state.songs[s.song] : song()).mixer : null;
         const r = Object.assign({ kind, t: now() + .05, pos: 0, nextRow: 0, breakPos: -1, tick: 1, row: 0, plCount: -1, plChan: -1,
-                                  base: kind === "loops" ? 16 : 0, idp: "s", pass: 0, lastRow: -1, id: ++runs, n: 0 }, s, tm);   /* idp: its notes' ids' first letter */
+                                  base: kind === "loops" ? 16 : 0, idp: "s", pass: 0, lastRow: -1, id: ++runs, n: 0, tn: 0 }, s, tm);   /* idp: its notes' ids' first letter;
+                                                         * tn: its ticks so far (RECORD LIVE's time) */
         r.speed = tm.ticks;
         r.nextRow = s.row || 0;
         r.ch = Array.from({ length: 16 }, (_, k) => newChannel(k, mix && mix[k] ? mix[k].pan : 128));
@@ -271,8 +276,17 @@ PTFM.player = (function () {
             else chRow(ch, c, r);
             for (const x of ch.cmds) globalCmd(r, ch, x);
         }
+        const landed = r.kind === "loops" && r.landing;     /* (the row a jump lands on: LOOPS' ALGORITHM; a switch of the
+                                                             * rest's too) */
+        if (landed) { r.landing = 0; r.land = { row: r.row, pass: r.pass }; if (!r.alone) { lpr.sw++; lpr.swRow = r.row; lpr.swN = r.n; } }
         const h = { t, pos: r.kind === "song" ? r.pos : -1, row: r.row, step: r.row, pat: r.kind === "song" ? M.state.songs[r.song].order[r.pos] : r.kind === "loop" ? r.pat : -1,
-                    dur: r.tick * tickLen(r), rpb: r.rpb, pass: r.pass, n: r.n };
+                    dur: r.tick * tickLen(r), rpb: r.rpb, pass: r.pass, n: r.n, jumps: r.jumps || 0, land: r.land || null, tn: r.tn, speed: r.tick };
+        r.tn += r.tick;
+        if (r.kind === "loops") {                                      /* (its rows a moment back too: what is due settles) */
+            const a = r.tnRows = r.tnRows || [];
+            a.push(h);
+            while (a.length > 2 && a[1].t <= t - .4) a.shift();
+        }
         if (r.alone) r.hist.push(h);                                   /* (the pattern recorder's preview alone: its own) */
         else if (!r.deck) hist.push(h);
         else {                                                         /* a DJ deck's rows; the beats' deck's in hist too */
@@ -283,8 +297,8 @@ PTFM.player = (function () {
         if (r.row % ((r.rpb || 4) * 4) === 0) A().barAt(t, r.deck ? r.deck.i : undefined, r.idp);   /* a bar's start (4 beats): GATE locks to it */
         if (r.kind === "loops") {
             if (lpr.on >= 2 && !r.alone) lprRow(r);
-            if (P.loopsRow && !r.alone) P.loopsRow(r.row, t, r.rowDur, r.pass);   /* LOOPS: a take's start and end, the bar's mutes */
-            lanesRow(r, t);
+            if (P.loopsRow && !r.alone) P.loopsRow(r.row, t, r.rowDur, r.pass);   /* LOOPS: a pass's line, the bar's mutes */
+            lanesRow(r, t, !!landed);
         }
         return true;
     }
@@ -592,7 +606,7 @@ PTFM.player = (function () {
     }
     function releaseAll(r, t) {
         if (!r) return;
-        if (r.kind === "loops") { for (let i = r.alone ? 16 : 0; i <= (r.alone ? 16 : KEYS_LN); i++) lanesEnd(i, t); if (!r.alone) lnReq = []; }
+        if (r.kind === "loops") { for (let i = r.alone ? 16 : 0; i <= (r.alone ? 16 : NOW_LN); i++) lanesEnd(i, t); if (!r.alone) lnReq = []; }
         else for (const ch of r.ch) keyOff(ch, t);
     }
 
@@ -604,86 +618,201 @@ PTFM.player = (function () {
      * cells there: a note (after its EDx ticks) ends its lane's note before it, which rings on; a note off, or a key
      * off at its tick (Kxx), ends it; a TB-303 lane has its gate of half a row and SLD's slide, elsewhere 3xx glides
      * the lane's voice to the note (xx/16 semitone a tick) without a new start. A loop going into its rest, or a
-     * repeat cut by the length's end, ends its notes. Loop 16 is the pattern recorder's preview (P.lpPreview: a loop
-     * as the recorder would write it, its track given); 17 the keys while RECORD LIVE records (no stored notes: each
-     * note asked for, naming its instrument, on the keys' own track). The screen says the rows (P.lpRows), the take's
-     * loop and pass whose stored notes are not played (P.lpTake), and asks for notes heard as written (P.lpNote): at a
-     * row of a pass, or at once, "as close to the line as it can"; RECORD LIVE's keys at a row of the replay's count
-     * (P.lpNoteAt). RECORD LIVE's rest (P.lpRest): the replay runs on while the loops are silent */
-    const KEYS_LN = 17;
-    const newLanes = () => Array.from({ length: 4 }, () => ({ vid: null, ref: null, note: 60, bend: 0, slide: false, pend: null, koff: -1, glide: null }));
-    let LN = Array.from({ length: 18 }, newLanes);
+     * repeat cut by the length's end, ends its notes; a loop with a SHIFT plays its row (row - SHIFT) round the length.
+     * Loop 16 is the pattern recorder's preview (P.lpPreview: a loop as the recorder would write it, its track given); 18
+     * the stage (P.lpStagePlay(pass, row): asked at each row it schedules, the stage as that pass plays it
+     * there; its notes' ids "g", each lane keeping the ids it scheduled, so a key silences only the lanes it replaces,
+     * from its landing row); 19 the keys overdubbing the stage (P.lpNowLoop: its instrument, the track it sounds through;
+     * no stored notes, each asked for). The stage, its keys and the preview sound through a column of their own (STAGE_T),
+     * carrying the mix of the loop REC would put the stage in (told each row: A.stageCol) and never a mute or a solo. The screen
+     * says the rows (P.lpRows) and the loop that is silent (P.lpSilent: the selected one while the stage holds notes),
+     * and asks for notes heard as written (P.lpNote): at a row of a pass, or at once, "as close to the line as it can".
+     * RECORD LIVE's rest (P.lpRest): the replay runs on while the loops are silent */
+    const STAGE_LN = 18, NOW_LN = 19, LN_N = 20, STAGE_T = 32;
+    const newLane = () => ({ vid: null, ref: null, note: 60, bend: 0, slide: false, pend: null, koff: -1, glide: null, ids: [] });
+    const newLanes = () => Array.from({ length: 4 }, newLane);
+    let LN = Array.from({ length: LN_N }, newLanes);
+    /* lane l of loop i; the keys' lanes (NOW_LN) grow as asked: the stage off, the 16 lanes 4 to 19 of the keys played then */
+    const laneOf = (i, l) => { while (LN[i].length <= l) LN[i].push(newLane()); return LN[i][l]; };
     let lnReq = [];                                 /* notes asked for at a row not scheduled yet: {i, l, c, pass, row, key} */
     const cmdOf = (c, code, sub) => { const x = c.cmds.find(y => y.c === code && (sub == null || y.v >> 4 === sub)); return x ? x.v : null; };
-    const lpOf = i => i < 16 ? M.state.loops.list[i] || null : i === 16 && P.lpPreview ? P.lpPreview() : null;
+    let stageCur = null;                            /* (the stage as the row being scheduled plays it) */
+    const lpOf = i => i < 16 ? M.state.loops.list[i] || null : i === 16 && P.lpPreview ? P.lpPreview() : i === STAGE_LN ? stageCur
+                    : i === NOW_LN && P.lpNowLoop ? P.lpNowLoop() : null;
+    const pfxOf = (i, p) => i === STAGE_LN ? "g" : p;
+    const onStage = i => i === 16 || i === STAGE_LN || i === NOW_LN;   /* (the stage, its keys and the pattern recorder's preview) */
+    /* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live), where notes enter the voices: while it runs (P.lpTap),
+     * each note a lane starts and ends, a key's and the pattern recorder's single notes, as events {t: when, tn: the
+     * replay's tick, k: its lane (4 x the loop + its lane; 16 the preview, 18 the stage, 19 its keys, the stage-off keys
+     * from its lane 4), kind: on, off, move, lost or mute ...}; notes are scheduled ahead, so an event waits for its time
+     * (P.lpTapTake: the song is written from what has settled), and what is taken back meanwhile (a lane replaced: cutLane)
+     * goes. The worklet tells of the notes that do not sound, a moment after their time: no voice given, or a voice lost
+     * (A.tapped: P.lpTapped), so what is due waits TAP_SETTLE for its word, each event taken in the order it sounded */
+    const TAP_KEYS = 96, TAP_HEAR = 97, TAP_SETTLE = .03;
+    let tap = null, tapLand = {};
+    /* the replay's tick at time t, as the rows scheduled have it (the loops' last rows: r.tnRows) */
+    function tnOf(t) {
+        const rows = R && R.tnRows ? R.tnRows : hist;
+        let h = null;
+        for (const x of rows) if (x.t <= t + 1e-6) h = x;
+        h = h || rows[0];
+        if (!h || h.tn == null) return R ? R.tn : 0;
+        return h.tn + Math.max(0, Math.min(h.speed - 1, Math.floor((t - h.t) / h.dur * h.speed + 1e-6)));
+    }
+    function tapPut(e) {
+        if (!tap) return;
+        e.tn = tnOf(e.t);
+        if (tapLand[e.k] != null) {                     /* (one left over from a note gone is stale) */
+            if (e.tn - tapLand[e.k] <= 3 * (R ? R.speed : 6)) e.tn = tapLand[e.k];
+            delete tapLand[e.k];
+        }
+        tap.push(e);
+    }
+    P.lpTap = on => { tap = on ? [] : null; tapLand = {}; };
+    P.lpTapOn = () => !!tap;
+    /* what has settled, in the order it sounded; all: what is due (the song ending, or HOME's row asked for) */
+    P.lpTapTake = all => {
+        if (!tap) return [];
+        const n = now() - (all ? 0 : TAP_SETTLE), due = tap.filter(e => e.t <= n).sort((a, b) => a.t - b.t);
+        tap = tap.filter(e => e.t > n);
+        return due;
+    };
+    /* the time up to which P.lpTapTake has taken */
+    P.lpSettled = () => now() - TAP_SETTLE;
+    /* what waits from before tick tn0 goes (a song armed: its row 0 not yet known) */
+    P.lpTapDrop = tn0 => { if (tap) tap = tap.filter(e => e.tn >= tn0); };
+    P.lpTn = tm => tnOf(tm == null ? now() : tm);
+    /* the next event on lane k landed (a key on the stage: as QUANTIZE puts it, heard at once) at tick tn */
+    P.lpLand = (k, tn) => { if (tn == null) delete tapLand[k]; else if (tap) tapLand[k] = tn; };
+    /* the loops silent now, each true (at t, a row's start; else now): a note of theirs from then is not heard */
+    P.lpMutes = (sil, t) => { if (tap) tapPut({ t: t == null ? now() : t - 1e-6, k: 0, kind: "mute", sil }); };
+    const fusSeen = {};                                 /* (a FUSION note's layers the worklet told of, so far) */
+    P.lpTapped = m => {
+        if (!tap) return;
+        let id = m.id;
+        const b = id.indexOf("/");
+        if (b >= 0) {                                   /* (a FUSION note ends once all its layers have) */
+            id = id.slice(0, b);
+            const fs = fusionIds[id], seen = fusSeen[id] = fusSeen[id] || new Set();
+            seen.add(m.id);
+            if (fs && seen.size < fs.length) return;
+            delete fusSeen[id];
+        }
+        const e = tap.find(x => x.kind === "on" && x.id === id);
+        if (m.none) {
+            if (e) e.none = true;                       /* (it never sounds) */
+            else if (P.lpVoice) P.lpVoice(id);
+            return;
+        }
+        const by = m.by == null ? -1 : tap.findIndex(x => x.kind === "on" && x.id === m.by.split("/")[0]);
+        const ev = { t: m.time, tn: by >= 0 ? tap[by].tn : tnOf(m.time), k: 0, kind: "lost", id };
+        if (by >= 0) tap.splice(by, 0, ev);             /* (before the note that took its voice) */
+        else tap.push(ev);
+    };
     /* a lane's voice let go (its next note, a note off, a key off); laneEnd also drops a note waiting for its tick */
-    function laneOff(ln, t) { if (ln.vid) noteOff(ln.vid, t); ln.vid = null; ln.glide = null; ln.slide = false; ln.koff = -1; }
+    function laneOff(ln, t) {
+        if (ln.vid && tap) tapPut({ t, k: ln.k, kind: "off", id: ln.vid });
+        if (ln.vid) noteOff(ln.vid, t);
+        ln.vid = null; ln.glide = null; ln.slide = false; ln.koff = -1;
+    }
     function laneEnd(ln, t) { laneOff(ln, t); ln.pend = null; }
     function lanesEnd(i, t) { for (const ln of LN[i]) laneEnd(ln, t); }
+    /* a stage lane's note scheduled at t: its id kept, with the one sounding before it (those started earlier are over) */
+    function keepId(ln, id, t) {
+        const n = now(), a = ln.ids;
+        let k = 0;
+        for (let x = 0; x < a.length; x++) if (a[x].t <= n) k = x;
+        ln.ids = a.slice(k).concat([{ id, t }]);
+    }
     /* lane l of loop i starts the note of cell c at t (rowDur: a TB-303's gate; pfx its replay's ids' letter; key: the
-     * key it came from, whose light follows it) */
+     * key it came from, whose light follows it). The stage and its keys sound through the stage's column, firing FILTER's
+     * envelope as the loop's track they stand for */
     function laneNote(i, l, c, t, rowDur, pfx, key) {
-        const L = lpOf(i), ln = LN[i][l], ref = i === KEYS_LN ? c.inst : L && L.inst;
+        const L = lpOf(i), ln = laneOf(i, l), ref = L && L.inst;
         if (ref == null || !M.inst(ref)) return;
-        const track = i < 16 ? 16 + i : i === KEYS_LN ? -1 : 16 + L.track, vol = c.vol == null ? 127 : c.vol;
+        const track = i < 16 ? 16 + i : onStage(i) ? STAGE_T : 16 + L.track, vol = c.vol == null ? 127 : c.vol;
         const acc = c.cmds.some(x => x.c === 0xC0 || x.c === 0xC2), sld = c.cmds.some(x => x.c === 0xC1 || x.c === 0xC2), porta = cmdOf(c, 0x03);
-        A().fire(track, t, pfx);                       /* (FILTER's envelope: the track's note) */
+        /* the tap: this note, as its cell says; joined: 1 a 3xx's xx kept in glide, its LEG, its TB-303's slide */
+        const said = o => {
+            ln.k = 4 * i + l;
+            if (tap) tapPut(Object.assign({ t, k: ln.k, kind: "on", id: ln.vid, note: c.note, vol: c.vol, inst: ref, src: i < 16 ? i : L.track, acc, sld }, o));
+        };
+        A().fire(onStage(i) ? 16 + L.track : track, t, pfx);   /* (FILTER's envelope: the track's note) */
         ln.koff = -1;
         if (M.instType(ref) === "TB303") {
-            const id = pfx + track + "." + (i < 16 ? "" : "p") + l + "tb";     /* (the preview's apart from its loop's) */
+            const id = pfx + track + "." + (i < 16 ? "" : "p") + l + "tb" + (i === STAGE_LN ? stageGen : i === 16 ? "r" : "");   /* (the
+                                                         * preview's and the stage's apart from the keys' on the column; the
+                                                         * stage's apart from a loop it went on as) */
+            const slid = !!ln.slid && ln.vid === id;
             if (ln.vid && ln.vid !== id) noteOff(ln.vid, t);
             noteOn(id, c.note, ref, vol, track, t, { song: true, accent: acc, glide: ln.slide && ln.vid === id });
-            Object.assign(ln, { vid: id, ref, note: c.note, bend: 0, slide: sld, glide: null });
+            Object.assign(ln, { vid: id, ref, note: c.note, bend: 0, slide: sld, slid: false, glide: null });
+            if (i === STAGE_LN) keepId(ln, id, t);
             if (!sld) A().noteOff(id, t + rowDur * .5);
+            said({ slid });
             return;
         }
         if (c.cmds.some(x => x.c === 0xD3) && ln.vid && ln.ref === ref && LEGATO_TYPES.includes(M.instType(ref))) {
             const old = ln.vid;                         /* LEG: its voice on at the note (the worklet: if it sounds) */
             ln.vid = pfx + track + "." + l + "." + (idn++ % 1000) + (key != null ? "k" + key : "");
             Object.assign(ln, { note: c.note, bend: 0, glide: null });
+            if (i === STAGE_LN) keepId(ln, ln.vid, t);
             noteOn(ln.vid, c.note, ref, vol, track, t, { song: true, leg: old });
+            said({ leg: old });
             return;
         }
         if (porta != null && ln.vid && ln.ref === ref) {
             ln.glide = { to: c.note - ln.note, step: (porta || 0x20) / 16, vol: vol / 127 };
+            said({ glide: porta || 0x20 });
             return;
         }
         if (ln.vid) noteOff(ln.vid, t);
         ln.vid = pfx + track + "." + l + "." + (idn++ % 1000) + (key != null ? "k" + key : "");
         Object.assign(ln, { ref, note: c.note, bend: 0, slide: false, glide: null });
+        if (i === STAGE_LN) keepId(ln, ln.vid, t);
         noteOn(ln.vid, c.note, ref, vol, track, t, { song: true, accent: acc });
+        said({});
     }
     /* a cell on lane l of loop i at its row's start t: its key off (before a delayed note: the note before it; after it:
      * that note's own end, REAL TIME's key let go in its row), note off, note (r: the replay, for EDx's ticks; none: at
      * once, its delay heard as it was played) */
     function laneCell(i, l, c, t, rowDur, pfx, key, r) {
-        const ln = LN[i][l], note = c.note != null && c.note !== M.OFF;
+        const ln = laneOf(i, l), note = c.note != null && c.note !== M.OFF;
         const ed = note && r ? cmdOf(c, 0x0E, 0xD) : null, d = ed == null ? 0 : ed & 15, k = cmdOf(c, 0x14);
         if (k != null && (!note || k < d)) { if (k === 0 || !r) laneOff(ln, t); else ln.koff = k; }
         if (c.note === M.OFF) laneOff(ln, t);
         if (!note) return;
         const own = k != null && k > d && r ? k : -1;
-        if (d > 0) ln.pend = { c, at: d, key, koff: own };
+        if (d > 0) ln.pend = { c, at: d, key, koff: own, t };
         else { laneNote(i, l, c, t, rowDur, pfx, key); ln.koff = own; }
     }
-    function lanesRow(r, t) {
-        const j = M.state.loops, take = P.lpTake ? P.lpTake() : null, rows = rowsOf(r);
-        for (let i = r.alone ? 16 : 0; i <= 16; i++) {
+    /* a row of the loops: each loop's cells there; landed: the row a jump lands on (a loop landing in its rest falls
+     * silent there) */
+    function lanesRow(r, t, landed) {
+        const rows = rowsOf(r);
+        stageCur = !r.alone && P.lpStagePlay ? P.lpStagePlay(r.pass, r.row) : null;
+        if (A().stageCol && P.lpNowLoop) A().stageCol(16 + P.lpNowLoop().track);   /* (the stage's column, the preview's too: that loop's mix) */
+        for (let i = r.alone ? 16 : 0; i <= (r.alone ? 16 : STAGE_LN); i++) {
             const L = lpOf(i);
-            if (!L || !L.base || (i < 16 && lpr.on === 1)) continue;     /* (RECORD LIVE's rest: the loops silent) */
+            if (i === STAGE_LN && !L) { for (const ln of LN[i]) ln.pend = null; continue; }
+            if (!L || !L.base || (i !== 16 && lpr.on === 1)) continue;   /* (RECORD LIVE's rest: the loops silent) */
             for (const ln of LN[i]) ln.pend = null;               /* (a delay past the row's last tick never plays) */
-            if (i < 16 && take && take.loop === i && take.pass === r.pass && take.run === r.id) continue;   /* the take: its notes come asked for */
-            if (r.row === 0 && r.pass > 0 && rows % L.base && Math.floor((rows - 1) / L.base) < L.repeats) lanesEnd(i, t);   /* cut at the end */
-            const pass = Math.floor(r.row / L.base), br = r.row % L.base;
-            if (pass >= L.repeats) { if (pass === L.repeats && !br) lanesEnd(i, t); continue; }      /* its rest */
-            for (let l = 0; l < 4; l++) { const c = L.cells[br * 4 + l]; if (c) laneCell(i, l, c, t, r.rowDur, r.idp, null, r); }
+            if (i < 16 && P.lpSilent && P.lpSilent(i)) continue; /* (the selected loop, silent while the stage holds notes) */
+            if (i === STAGE_LN && L.mono) for (let l = 1; l < 4; l++) if (LN[i][l].vid) laneEnd(LN[i][l], t);   /* (MONO: one
+                                                         * voice, lane 0's: what its other lanes held ends) */
+            /* a loop's SHIFT: it plays its row (row - SHIFT) round the length; a last repeat the length cuts ends at its
+             * own row 0 (its first repeat's start: with a SHIFT, in the first pass too) */
+            const sh = i < 16 && L.shift ? L.shift : 0, rr = sh && rows ? ((r.row - sh) % rows + rows) % rows : r.row;
+            if (rr === 0 && rows % L.base && Math.floor((rows - 1) / L.base) < L.repeats) lanesEnd(i, t);   /* cut at the end */
+            const pass = Math.floor(rr / L.base), br = rr % L.base;
+            if (pass >= L.repeats) { if ((pass === L.repeats && !br) || landed) lanesEnd(i, t); continue; }   /* its rest */
+            for (let l = 0; l < 4; l++) { const c = L.cells[br * 4 + l]; if (c) laneCell(i, l, c, t, r.rowDur, pfxOf(i, r.idp), null, r); }
         }
         if (r.alone) return;
-        for (const ln of LN[KEYS_LN]) ln.pend = null;
+        for (const ln of LN[NOW_LN]) ln.pend = null;
         if (!lnReq.length) return;
-        const due = lnReq.filter(q => q.n != null ? q.n === r.n : q.pass === r.pass && q.row === r.row);
-        lnReq = lnReq.filter(q => q.n != null ? q.n > r.n : q.pass > r.pass || (q.pass === r.pass && q.row > r.row));   /* (the rest
-                                                         * wait; passed ones go) */
+        const due = lnReq.filter(q => q.pass === r.pass && q.row === r.row);
+        lnReq = lnReq.filter(q => q.pass > r.pass || (q.pass === r.pass && q.row > r.row));   /* (the rest wait; passed ones go) */
         for (const q of due) laneCell(q.i, q.l, q.c, t, r.rowDur, r.idp, q.key, r);
     }
     /* RECORD LIVE's rest (specs/ui/screens/loops.md#record-live): on 1 the loops silent while their replay runs on, their
@@ -728,19 +857,10 @@ PTFM.player = (function () {
     P.lpRestState = () => ({ on: lpr.on, kr: lpr.kr, sw: lpr.sw, swRow: lpr.swRow, swN: lpr.swN });
     /* the rows the loops' replay has played (0: none yet, or not the loops') */
     P.lpPlayed = () => R && R.kind === "loops" ? R.n : 0;
-    /* a note (or a note off) asked for on lane l of loop i (RECORD LIVE's keys: P.LP_KEYS) at the replay's row n (its
-     * count: scheduled already, at that row's time, or at once if it has begun), or at once (n < 0) */
-    P.lpNoteAt = function (i, l, c, n, key) {
-        if (!R || R.kind !== "loops") return;
-        const at = n < 0 ? null : hist.find(x => x.n === n);
-        if (n >= 0 && !at) { lnReq.push({ i, l, c, n, key }); return; }
-        const t = at && at.t > now() ? at.t : now() + .005;
-        laneCell(i, l, c, t, at ? at.dur : P.rowSeconds(), R.idp, key, null);
-    };
     function lanesTick(r) {
         const k = r.speed - r.tick, t = r.t;
-        for (let i = r.alone ? 16 : 0; i <= (r.alone ? 16 : KEYS_LN); i++) LN[i].forEach((ln, l) => {
-            if (ln.pend && ln.pend.at === k) { const p = ln.pend; ln.pend = null; laneNote(i, l, p.c, t, r.rowDur, r.idp, p.key); ln.koff = p.koff; }
+        for (let i = r.alone ? 16 : 0; i <= (r.alone ? 16 : NOW_LN); i++) LN[i].forEach((ln, l) => {
+            if (ln.pend && ln.pend.at === k) { const p = ln.pend; ln.pend = null; laneNote(i, l, p.c, t, r.rowDur, pfxOf(i, r.idp), p.key); ln.koff = p.koff; }
             if (ln.koff === k) laneOff(ln, t);
             if (ln.glide && ln.vid) {
                 const g = ln.glide;
@@ -751,32 +871,98 @@ PTFM.player = (function () {
         });
     }
     /* a note (or a note off, a key off) asked for on lane l of loop i: at row `row` of pass `pass` as the loops play
-     * there (scheduled already: at that row's time, or at once if it has begun), or at once (row < 0) */
+     * there (scheduled already: at that row's time, or at once if it has begun), or at once (row < 0). True: it waits
+     * for its row (not scheduled yet), which it then stands in for */
     P.lpNote = function (i, l, c, pass, row, key) {
-        if (!R || R.kind !== "loops") return;
+        if (!R || R.kind !== "loops") return false;
         const at = row < 0 ? null : hist.find(x => x.pass === pass && x.row === row);
-        if (row >= 0 && !at) { lnReq.push({ i, l, c, pass, row, key }); return; }
+        if (row >= 0 && !at) { lnReq.push({ i, l, c, pass, row, key }); return true; }
         const t = at && at.t > now() ? at.t : now() + .005;
         laneCell(i, l, c, t, at ? at.dur : P.rowSeconds(), R.idp, key, null);
+        return false;
     };
-    /* the loops' replay playing now (its id: a take's pass is counted in it), 0 none */
+    /* the stage's lanes `lanes` silenced from row `row` of pass `pass` (a key or OVERWRITE replacing them from its landing
+     * row; row < 0: at once): what they scheduled from that row's time goes and what sounds then ends there; a row not
+     * scheduled yet: a note off there, once it is (its lanes' notes are not read then). The other lanes and the rows
+     * before play on */
+    function cutLane(ln, T) {
+        const later = ln.ids.filter(x => x.t >= T).map(x => x.id), before = ln.ids.filter(x => x.t < T);
+        if (later.length) A().flushIds(later, T);
+        if (tap) tap = tap.filter(e => !(later.includes(e.id) && e.t >= T));   /* (what never sounds is never written) */
+        if (before.length) { if (tap) tapPut({ t: T, k: ln.k, kind: "off", id: before[before.length - 1].id }); noteOff(before[before.length - 1].id, T); }
+        ln.ids = [];
+        ln.vid = null; ln.glide = null; ln.slide = false; ln.koff = -1;
+        if (ln.pend && ln.pend.t >= T) ln.pend = null;
+    }
+    P.lpStageCut = function (lanes, pass, row) {
+        if (!R || R.kind !== "loops") return;
+        const at = row < 0 ? null : hist.find(x => x.pass === pass && x.row === row);
+        if (row >= 0 && !at) { for (const l of lanes) lnReq.push({ i: STAGE_LN, l, c: M.newCell(M.OFF, null, null), pass, row }); return; }
+        const T = at && at.t > now() ? at.t : now();
+        for (const l of lanes) cutLane(LN[STAGE_LN][l], T);
+    };
+    /* the loops' replay playing now (its id: the stage's passes are counted in it), 0 none */
     P.lpRun = () => R && R.kind === "loops" ? R.id : 0;
-    /* whether the loops' replay has scheduled row `row` of pass `pass` already (it runs a little ahead of what is heard) */
-    P.lpScheduled = (pass, row) => !!R && R.kind === "loops" && hist.some(x => x.pass === pass && x.row === row);
-    /* a TB-303 lane's note now slides into the next (a MONO take's legato: SLD written on the note held) */
-    P.lpSlide = (i, l) => { LN[i][l].slide = true; };
+    /* a TB-303 lane's note now slides into the next (a MONO overdub's legato: SLD written on the note held) */
+    P.lpSlide = (i, l) => { const ln = laneOf(i, l); ln.slide = true; ln.slid = true; };
     P.lpEnd = (i, t) => lanesEnd(i, t == null ? now() : t);
-    P.LP_KEYS = KEYS_LN;                                /* (the keys' lanes while RECORD LIVE records) */
-    /* loop i peeled: its notes end, the lanes of the loops after it move up with them (16, the preview's, stays) */
-    P.lpPeeled = function (i) {
-        lanesEnd(i, now());
-        LN.splice(i, 1);
-        LN.splice(15, 0, newLanes());                   /* (16 and 17 stay) */
-        lnReq = lnReq.filter(q => q.i !== i).map(q => Object.assign(q, { i: q.i > i ? q.i - 1 : q.i }));
+    /* lanes moved (the notes on them going on): the tap's event, each lane's number anew */
+    function lanesMoved(i) {
+        LN[i].forEach((ln, l) => {
+            if (ln.vid && ln.k !== 4 * i + l && tap) tapPut({ t: now(), k: ln.k, kind: "move", to: 4 * i + l, src: i < 16 ? i : lpOf(i) ? lpOf(i).track : 0 });
+            ln.k = 4 * i + l;
+        });
+    }
+    /* loop i deleted (was: the loops before): a place another loop now stands in (another instrument, colour or MONO) stops
+     * what its lanes hold, a place with none left too; the rest stay there */
+    P.lpPeeled = function (i, was) {
+        const L = M.state.loops.list;
+        for (let k = i; k < was.length; k++) {
+            if (!L[k] || L[k].inst !== was[k].inst || L[k].col !== was[k].col || !L[k].mono !== !was[k].mono) lanesEnd(k, now());
+        }
+        lnReq = lnReq.filter(q => q.i !== i).map(q => Object.assign(q, { i: q.i > i && q.i < 16 ? q.i - 1 : q.i }));
     };
     P.lpCleared = () => { for (let i = 0; i < 16; i++) lanesEnd(i, now()); lnReq = []; };
-    /* the preview written as loop i: its lanes go on as that loop's, without a break */
-    P.lpTakeLanes = function (i) { lanesEnd(i, now()); LN[i] = LN[16]; LN[16] = newLanes(); };
+    /* the stage's lanes (P.LP_STAGE: its notes; P.LP_NOW: the keys overdubbing it) */
+    P.LP_STAGE = STAGE_LN;
+    P.LP_NOW = NOW_LN;
+    P.STAGE_T = STAGE_T;                                /* (the stage's column: the recorder's single notes sound there too) */
+    /* lanes `from` (the stage's, the preview's) going on as loop i's (REC: the stage kept as that loop while it plays;
+     * the preview's REC: as the stage's), without a break: their notes, sounding and scheduled, through the track they
+     * go on in (a loop's: its mute too; the stage's: its column) */
+    let stageGen = 0;                                   /* (each REC's: the stage's TB-303 lanes' voices named anew) */
+    P.lpMoveLanes = function (from, i) {
+        lanesEnd(i, now());
+        if (from === STAGE_LN) stageGen++;
+        const ids = [];
+        for (const ln of LN[from]) { for (const x of ln.ids) ids.push(x.id); if (ln.vid && !ids.includes(ln.vid)) ids.push(ln.vid); }
+        LN[i] = LN[from];
+        LN[from] = newLanes();
+        lanesMoved(i);
+        if (ids.length && A().retrack) A().retrack(ids, i === STAGE_LN ? STAGE_T : 16 + i);
+        for (const ln of LN[i]) ln.ids = i === STAGE_LN && ln.vid ? [{ id: ln.vid, t: now() }] : [];
+    };
+    /* the stage silenced: what it scheduled goes, what sounds lets go, at once (its lanes' own notes: a loop it went on
+     * as keeps its) */
+    P.lpStageMute = function () {
+        for (const ln of LN[STAGE_LN]) { cutLane(ln, now()); ln.pend = null; }
+        lnReq = lnReq.filter(q => q.i !== STAGE_LN);
+    };
+    /* ALGORITHM while the loops play: they move d rows at once (from the next row scheduled), round the length; a jump
+     * back is no new pass, one forward past the end is. The row it lands on is marked (lanesRow: a loop landing in its
+     * rest falls silent; the screen: OVERWRITE goes on from there) */
+    P.lpJump = function (d) {
+        if (!R || R.kind !== "loops" || !P.playing) return;
+        const n = rowsOf(R);
+        if (!n) return;
+        if (lpr.on) { if (lpr.on === 1) lpr.kr = ((lpr.kr + d) % n + n) % n; return; }   /* (RECORD LIVE's rest keeping them
+                                                         * silent: their place moved; one of its jumps under way: nothing) */
+        const from = R.nextRow < 0 ? 0 : R.nextRow, to = ((from + d) % n + n) % n;
+        R.nextRow = to;
+        if (d < 0) R.lastRow = to - 1;
+        R.jumps = (R.jumps || 0) + 1;
+        R.landing = R.jumps;
+    };
     /* the pattern recorder's preview alone (the loops stopped): a replay of its own at LOOPS' tempo, from `row` at t,
      * the loops silent and their place kept; its notes' ids "v" */
     let pvR = null;
@@ -791,6 +977,31 @@ PTFM.player = (function () {
         A().flush("v", now());
         lanesEnd(16, now());
         pvR = null;
+    };
+    /* REC with the preview alone (the pattern onto the stage; its lanes moved to the stage's first, P.lpMoveLanes): its
+     * replay goes on as the loops' from where it is, as the firmware's does: no row played again, none skipped (what it
+     * scheduled ahead stays), its pass and rows the loops' run's, and what start_("loops") sets besides (nothing else
+     * plays, the loops' effects, the metronome). False: no preview alone */
+    P.pvAdopt = function () {
+        if (!pvR) return false;
+        const r = pvR;
+        djOff();
+        stop(true);                                     /* (with pvR still set: its notes not flushed) */
+        pvR = null;
+        speed = 1; vol = 0; P.endMode = "own";
+        r.alone = false;
+        r.idp = "s";                                    /* (the loops' notes from here; the preview's own go on as the stage's) */
+        R = r;
+        hist = r.hist;
+        lpr.on = lpr.pend;
+        lpr.pend = 0;
+        P.what = "loops";
+        songGain();
+        P.playing = true;
+        P.atStart = false;
+        A().songFx(M.state.loops);
+        metroStart();
+        return true;
     };
     P.pvOn = () => !!pvR;
     P.pvAt = () => { if (!pvR) return null; const t = now(); let h = null; for (const x of pvR.hist) if (x.t <= t) h = x; return h; };
@@ -915,6 +1126,9 @@ PTFM.player = (function () {
         lpr.on = 0;
         A().flush("s", now());
         A().flush("j", now());
+        A().flush("g", now());                          /* (the stage's) */
+        if (!pvR) A().flush("v", now());                /* (the preview's, scheduled before its replay went on as the loops':
+                                                         * P.pvAdopt; while it plays alone, its own) */
         if (R && R.punchK != null) A().punch(R.punchK, false);  /* STOP ends a punch-in command */
         releaseAll(R, now());
         R = null;
@@ -969,7 +1183,7 @@ PTFM.player = (function () {
         const r = row != null ? row : kept.loop.pat === pat ? kept.loop.row : 0;
         start_("loop", Object.assign({ pat, row: r }, opts));
     };
-    /* LOOPS: from where they paused (kept.loops.row), or from `row` (0: their start, a take's); t0: when (a count-in's
+    /* LOOPS: from where they paused (kept.loops.row), or from `row` (0: their start, the stage's); t0: when (a count-in's
      * end, the preview's next row), else now */
     P.playLoops = (row, t0) => {
         const n = rowsOf({ kind: "loops" });
@@ -985,7 +1199,7 @@ PTFM.player = (function () {
         lpr.kr0 = place;
         P.playLoops(0);
     };
-    /* the length changed while they play (the first loop closed): a row past the new end goes on as the next pass's */
+    /* the length changed while they play (LENGTH, DOUBLE, GRID): a row past the new end goes on as the next pass's */
     P.lpLength = n => { if (R && R.kind === "loops" && n && R.nextRow >= n) R.nextRow %= n; };
     P.playingSong = () => R && R.kind === "song" ? R.song : P.what === "dj" && P.playing && djBeat() ? djBeat().song : -1;
     /* a song moved in the list (SONGS, SEL, MOVE): the indexes the player holds follow it */
@@ -1056,7 +1270,7 @@ PTFM.player = (function () {
         if (P.playing) return P.pause();
         if (P.what === "dj") return djPlayButton();                             /* the decks played last: resumed */
         if (P.what === "loop") return P.playLoop(kept.loop.pat);
-        if (P.what === "loops" && M.state.loops.list.length) return P.playLoops();       /* the loops played last */
+        if (P.what === "loops") return P.playLoops();                                   /* the loops played last (with loops or none) */
         if (P.what === "song" && kept.lastSong != null && M.state.songs[kept.lastSong]) return playOrRefuse(kept.lastSong);
         return playOrRefuse(U_.song);
     };
@@ -1069,7 +1283,7 @@ PTFM.player = (function () {
         if (screen === "LOOPS" || screen === "DJ") return !U_.screen.canPlay || U_.screen.canPlay();
         if (P.playing || P.what === "loop") return true;
         if (P.what === "dj") return DJ.decks.some(d => d.song != null);
-        if (P.what === "loops" && M.state.loops.list.length) return true;
+        if (P.what === "loops") return true;               /* (the loops play with none: the length goes round) */
         if (P.what === "song" && kept.lastSong != null && M.state.songs[kept.lastSong]) return has(kept.lastSong);
         return has(U_.song);
     };
@@ -1157,7 +1371,7 @@ PTFM.player = (function () {
         U().toast("SONG UNLOADED");
     };
     /* the songs' tracks by HOME + white key; the loops' tracks by their loop; on DJ each deck's own */
-    P.mutesChanged = function () {
+    P.mutesChanged = function (at) {
         if (P.what === "dj") {
             for (const d of DJ.decks) for (let t = 0; t < 16; t++) A().trackMute(d.base + t, deckMuted(d, t));
             return;
@@ -1166,6 +1380,7 @@ PTFM.player = (function () {
         /* a loop silent: muted, or another soloed (its mute kept for when the solos clear) */
         const L = M.state.loops.list, solo = L.some(l => l.soloed);
         for (let t = 0; t < 16; t++) A().trackMute(16 + t, !!L[t] && (solo ? !L[t].soloed : L[t].muted));
+        P.lpMutes(L.map(l => solo ? !l.soloed : l.muted), at);
     };
 
     /* PLAYBACK's SELECT: pause, then play row by row; back plays the row before as if it came next.
@@ -1315,6 +1530,19 @@ PTFM.player = (function () {
         for (const x of metroClicks) if (x.t <= t) b = x.beat;
         return b;
     };
+    /* its beats as it counts them, heard or not (on, or off while something plays: counted on unheard): the last
+     * one now, {beat (0: the bar's first), age (s)}, or null: PLAY's LEDs on the loops (the firmware's fx_met_seen) */
+    let metroCounted = [];
+    const metroCount = (t, beat) => {
+        metroCounted.push({ t, beat });
+        if (metroCounted.length > 16) metroCounted.splice(0, metroCounted.length - 16);
+    };
+    P.metroSeen = function () {
+        const t = now();
+        let b = null;
+        for (const x of metroCounted) if (x.t <= t) b = x;
+        return b && { beat: b.beat, age: t - b.t };
+    };
     function tickMetro(t) {
         const m = metroSet();
         if (countIn) {
@@ -1327,7 +1555,9 @@ PTFM.player = (function () {
             if (countIn.n === 0 && t >= countIn.t - .01) { const c = countIn; countIn = null; c.then(c.t); }
             return;
         }
-        if (!m.on) { metro = null; metroClicks = []; return; }
+        const heard = m.on;                 /* (off: counted on unheard while something plays, for PLAY's LEDs) */
+        if (!heard) metroClicks = [];
+        if (!m.k || (!heard && !P.playing)) { metro = null; return; }
         const follow = m.k[0] === 29, keys = !P.playing && held() === M.state.keys;   /* (THE KEYS' setup held) */
         if (follow && !P.playing && !keys) { metro = null; metroClicks = []; return; }
         if (follow && !keys) {
@@ -1335,16 +1565,22 @@ PTFM.player = (function () {
                 const rpb = h.rpb || 4;
                 if (h.clicked || h.row % rpb !== 0) continue;
                 h.clicked = true;
-                A().click(h.t, (h.row / rpb) % m.k[1] === 0, m.k[2], m.k[3]);
-                metroClicked(h.t, (h.row / rpb) % m.k[1]);
+                if (heard) {
+                    A().click(h.t, (h.row / rpb) % m.k[1] === 0, m.k[2], m.k[3]);
+                    metroClicked(h.t, (h.row / rpb) % m.k[1]);
+                }
+                metroCount(h.t, (h.row / rpb) % m.k[1]);
             }
             return;
         }
         if (!metro) metro = { t: t + .05, beat: 0 };
         const bpm = follow ? P.tempo() : m.k[0];   /* (FOLLOW on THE KEYS: their tempo) */
         while (metro.t < t + AHEAD) {
-            A().click(metro.t, metro.beat === 0, m.k[2], m.k[3]);
-            metroClicked(metro.t, metro.beat);
+            if (heard) {
+                A().click(metro.t, metro.beat === 0, m.k[2], m.k[3]);
+                metroClicked(metro.t, metro.beat);
+            }
+            metroCount(metro.t, metro.beat);
             metro.beat = (metro.beat + 1) % m.k[1];
             metro.t += 60 / bpm;
         }
@@ -1400,7 +1636,7 @@ PTFM.player = (function () {
     };
     P.rowTicks = () => R ? R.speed : held().ticks;       /* (the ticks a row of what plays: REAL TIME's tick) */
     P.stopCountIn = () => { countIn = null; };
-    /* the header's ●: the EDITOR's take, LOOPS' take recording (the screen's P.lpRecording), a count-in */
+    /* the header's ●: the EDITOR's take, LOOPS' arm or a song recording (the screen's P.lpRecording), a count-in */
     P.recording = () => !!(P.take || countIn || (P.lpRecording && P.lpRecording()));
 
     /* ========================================================================== DJ === */
@@ -2401,7 +2637,10 @@ PTFM.player = (function () {
             else { d.pauseAt = r.t; d.halted = true; }
             return false;
         }
-        if (d.loadTo != null && r.started && at().row % br === 0) {   /* a LOAD waiting: the new song from this bar line */
+        /* what waits for a bar line or a beat waits through a stop (its rows slow, stand or run back): it lands on the
+         * first one after the deck plays on */
+        const held = stopping(d);
+        if (d.loadTo != null && r.started && !held && at().row % br === 0) {   /* a LOAD waiting: the new song from this bar line */
             d.swapAt = r.t;
             d.halted = true;
             return false;
@@ -2414,7 +2653,7 @@ PTFM.player = (function () {
                        : stepPlace(s, cur.pos, cur.row, -1)) || cur;
             d.reverse.at = to;
             r.breakPos = to.pos; r.nextRow = to.row;
-        } else if (d.jump && (!d.jump.beat || at().row % s.rpb === 0) && at().pos < s.order.length) {
+        } else if (d.jump && !(held && d.jump.beat) && (!d.jump.beat || at().row % s.rpb === 0) && at().pos < s.order.length) {
             /* JUMP (to the cue), at this row or this beat; MOVE (to its cursor's bar, this beat of it), at this beat;
              * a loop goes along */
             const to = Object.assign({}, d.jump.cue ? d.cue : d.jump.to);

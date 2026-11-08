@@ -19,7 +19,9 @@
 #include "ui/gfx.h"
 #include "ui/txt.h"
 #include "ui/ui_priv.h"
+#include "ui/ed_inst.h"
 #include "play/player.h"
+#include "play/rec.h"
 
 void ui_render(void);
 
@@ -105,7 +107,7 @@ static void lay_disk(const char *path)
         p = 16;
         for (uint32_t i = 0; i < count; i++) {
             uint32_t len = d[p + 4] | d[p + 5] << 8 | d[p + 6] << 16 | (uint32_t)d[p + 7] << 24;
-            int kind = d[p], audio = kind == REC_AUDIO;
+            int kind = d[p], audio = store_is_audio((uint8_t)kind);
             if (kind < 0xE0 && audio == pass) put(d + p, d + p + 12, len, audio, 0);
             p = (p + 12 + len + 3) & ~3u;
         }
@@ -192,6 +194,28 @@ static void check(const char *what, int ok)
 {
     printf("%s %s\n", ok ? "ok  " : "FAIL", what);
     if (!ok) fails++;
+}
+/* a line of the screen as drawn: its 12 rows from y, over w columns from x, against the same runs (font T) drawn alone
+ * on black, pixel for pixel, and some of them inked; the next frame whole again after */
+static int line_as(int x, int y, int w, const g_run_t *r, int n)
+{
+    static uint16_t line[12 * 240];
+    ui_render();
+    memcpy(line, screen + y * 240, sizeof line);
+    g_invalidate();
+    g_band(y >= 120);
+    g_clear(C_BLACK);
+    g_runs(x, y, &FONT_T, r, n);
+    g_push();
+    uint16_t black = g_rgb565(C_BLACK);
+    int same = 1, inked = 0;
+    for (int j = 0; j < 12; j++)
+        for (int i = x; i < x + w && i < 240; i++) {
+            inked += line[j * 240 + i] != black;
+            if (line[j * 240 + i] != screen[(y + j) * 240 + i]) same = 0;
+        }
+    g_invalidate();
+    return same && inked > 20;
 }
 int main(int argc, char **argv)
 {
@@ -368,6 +392,53 @@ int main(int argc, char **argv)
     check("CHECK REFERENCES: none missing on the demo disk", ui_toast_now() && !strcmp(ui_toast_now(), "NO MISSING REFERENCES"));
     turn(K_K1, 1); tap(B_EDIT); run(800);               /* CHECK STORAGE */
     check("CHECK STORAGE: nothing wrong", ui_toast_now() && !strcmp(ui_toast_now(), "STORAGE OK"));
+    /* CHECK STORAGE's list as drawn (specs/ui/screens/settings.md): a sample whose entry and audio head differ (length
+     * 5000, its audio's 4999), put as a save of its own into a free block and mounted, is its first line, named by its
+     * number: SAMPLE 23: ENTRY AND AUDIO DIFFER; then the flash as it was */
+    {
+        static const char want[] = "SAMPLE 23: ENTRY AND AUDIO DIFFER";
+        static uint16_t line[12 * 240];
+        uint32_t blk = 0, sv = store_last_save() + 1, c;
+        for (uint32_t a = STORE_U2_END - 4096; a >= STORE_U2_START && !blk; a -= 4096) {
+            int ff = 1;
+            for (uint32_t i = 0; i < 4096 && ff; i++) ff = flash[a + i] == 0xFF;
+            if (ff) blk = a;
+        }
+        uint8_t r[36] = {REC_SAMPLE, 0x23, 0, 1, 20, 0, 0, 1, (uint8_t)sv, (uint8_t)(sv >> 8), (uint8_t)(sv >> 16),
+                         (uint8_t)(sv >> 24)};
+        r[16] = 0x88; r[17] = 0x13; r[20] = 0x40;       /* the entry: length 5000 (bits 0-19), coding 1 (bits 38-41) */
+        r[32] = 1; r[33] = 0x87; r[34] = 0x13;          /* the audio's head: coding 1, length 4999 */
+        c = crc32_update(crc32_update(0, r, 12), r + 16, 20);
+        r[12] = (uint8_t)c; r[13] = (uint8_t)(c >> 8); r[14] = (uint8_t)(c >> 16); r[15] = (uint8_t)(c >> 24);
+        memcpy(flash + blk, r, sizeof r);
+        store_mount();
+        player_store_changed();
+        tap(B_EDIT); run(800);                          /* CHECK STORAGE again */
+        ui_render();
+        int y = BODY_Y + 2 + 18;                        /* (the list's first line) */
+        memcpy(line, screen + y * 240, sizeof line);
+        g_invalidate();                                 /* the line drawn alone, as the list draws it, on black */
+        g_band(0);
+        g_clear(C_BLACK);
+        g_textn(8, y, &FONT_T, want, 37, C_LGREY);
+        g_push();
+        uint16_t ink = g_rgb565(C_LGREY);
+        int same = 1, inked = 0;
+        for (int j = 0; j < 12; j++)                    /* (the text's box: 37 characters from x 8; the panel's
+                                                         * border beside it is of the same grey) */
+            for (int i = 8; i < 8 + 37 * 6; i++) {
+                inked += line[j * 240 + i] == ink;
+                if ((line[j * 240 + i] == ink) != (screen[(y + j) * 240 + i] == ink)) same = 0;
+            }
+        check("CHECK STORAGE: a sample's entry and audio differing, its line SAMPLE 23: ENTRY AND AUDIO DIFFER as drawn",
+              blk && ui_top() && ui_top()->kind == OV_LIST && same && inked > 100);
+        g_invalidate();
+        tap(B_HOME);                                    /* (the list closed) */
+        memset(flash + blk, 0xFF, sizeof r);            /* the flash as it was */
+        store_mount();
+        player_store_changed();
+        run(100);
+    }
     turn(K_K1, 1); tap(B_EDIT); shot("ui_clean_up"); tap(B_OCTM);
     /* MIDI CONTROLLER (the MIDI page's line after its items): asks first (BACK: nothing changes); then, with unsaved
      * changes, whether to save them (HOME: nothing happens). Its DROP, the tracker ending, is the test's last step */
@@ -403,6 +474,62 @@ int main(int argc, char **argv)
         check("SONGS' list menu: no MOVE TO FWS", ui_top() && !fws && items > 0);
         shot("ui_songs_menu");
         tap(B_HOME);
+    }
+    /* samples by number (specs/ui/screens/instruments.md, specs/files/instruments.md#samples): a sample instrument's
+     * line names its sample, `SAMPLE 07 WIND CHIME  0.92 S  22050 HZ`; K1 on SAMPLE turns through every sample on the
+     * FM-1 by number (PERCUSSION's first instrument, on its first sample, back to DRUM KIT's last and on past its own),
+     * the instrument then playing the new one whole; ENV on SAMPLE lists them all, `SAMPLES (33)`. HOME drops the edits
+     * (the changes left unsaved before stay so) */
+    if (argv[1][0] != '-') {
+        uint8_t s[40];
+        uint32_t len;
+        uint8_t ver;
+        int nsm = 0, prev = -1, next = -1, num = -1, ok = ins_slot_bytes(0xA1, 0, s), unsaved0 = (int)ui_unsaved;
+        for (int k = 0; k < 256; k++) nsm += store_get(REC_SAMPLE, (uint8_t)k, 0, &len, &ver) != 0;
+        if (ok) num = s[0];                             /* (SAMPLE: the slot's first byte) */
+        for (int k = 0; k < 256; k++)
+            if (store_get(REC_SAMPLE, (uint8_t)k, 0, &len, &ver)) {
+                if (k < num) prev = k;
+                if (k > num && next < 0) next = k;
+            }
+        const uint8_t *e = num >= 0 ? store_get(REC_SAMPLE, (uint8_t)num, 0, &len, &ver) : 0;
+        check("samples by number: PERCUSSION A1:00 names a sample there, between two others", e && prev >= 0 && next >= 0);
+        if (e && prev >= 0 && next >= 0) {
+            char hd[16], nm[12], tl[24], cnt[8];
+            uint32_t length = rec_bits(e, 0, 20), rate = rec_bits(e, 20, 18), cs = (length * 100 + rate / 2) / rate;
+            static char rest[32];
+            snprintf(hd, sizeof hd, "SAMPLE %02X ", num);
+            rec_name(e, 42, 10, nm);
+            snprintf(rest, sizeof rest, "  %u.%02u S  %u HZ", cs / 100, cs % 100, rate);
+            ui_set_inst(0xA100);
+            home_key(5);                                /* INSTRUMENTS */
+            run(100);
+            g_run_t want[3] = {{hd, C_LGREY}, {nm, ENG_COL[ENG_SAMPLER]}, {rest, C_LGREY}};
+            check("samples by number: the instrument's line names its sample, SAMPLE NN NAME  0.92 S  22050 HZ",
+                  line_as(0, BODY_Y + 116, 240, want, 3));
+            shot("ui_sampler_line");
+            tap(B_EDIT);
+            turn(K_SELECT, -10);                        /* (the SAMPLE row) */
+            turn(K_K1, -1);
+            ok = ins_slot_bytes(0xA1, 0, s) && s[0] == prev;
+            const uint8_t *ep = store_get(REC_SAMPLE, (uint8_t)prev, 0, &len, &ver);
+            check("K1 on SAMPLE: the sample before it by number, DRUM KIT's last; played whole (START 0, END its length)",
+                  ok && ep && rec_bits(s, 8, 20) == 0 && rec_bits(s, 28, 20) == rec_bits(ep, 0, 20) && rec_bits(s, 88, 2) == 0);
+            turn(K_K1, 2);
+            check("K1 on SAMPLE: past its own, the next one by number", ins_slot_bytes(0xA1, 0, s) && s[0] == next);
+            tap(B_ENV);
+            snprintf(cnt, sizeof cnt, "%d", nsm);
+            snprintf(tl, sizeof tl, "SAMPLES (%s)", cnt);
+            g_run_t title[1] = {{tl, C_CYAN}};
+            check("ENV on SAMPLE: THE SAMPLES list, every sample on the FM-1, SAMPLES (33)",
+                  ui_top() && ui_top()->kind == OV_LIST && line_as(6, BODY_Y + 5, (int)strlen(tl) * 6 + 12, title, 1));
+            shot("ui_samples_list");
+            tap(B_HOME);                                /* (the list closed: the instrument as it was) */
+            tap(B_HOME);                                /* (edit mode left, its changes dropped) */
+            check("samples by number: HOME drops the edits, the instrument as it was", !ui_top() && (int)ui_unsaved == unsaved0 &&
+                  ins_slot_bytes(0xA1, 0, s) && s[0] == num);
+            ui_set_inst(UI_FIRST_INST);
+        }
     }
     /* the last step, MIDI CONTROLLER's switch: a song playing, SWITCH (and DROP, if changes are unsaved): the sound
      * fades, then the tracker ends for good (the screens, the sound, its LEDs) and the controller's start shows */

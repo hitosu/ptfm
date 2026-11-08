@@ -4,7 +4,8 @@
 # The emulator (specs/emulator.md, Testing): its WebAssembly against the same C built natively.
 #   1. seed the demo disk (dist/firmware/demo.ptfmdsk) into a new emulated FM-1 through fw/web/seed.js, as the
 #      page's UPLOAD DEMO DISK button does (web_seed.js): every block answered, the mount clean, the FM-1
-#      holding exactly the disk; its flash is kept for 2;
+#      holding exactly the disk; its flash is kept for 2; then a flash kept from an older PT/FM (the demo disk in the
+#      old form, tools/pack.py --old-form) converted at the page's first load after it;
 #   2. one session (web_session.txt) on both builds from that flash: the same audio, screens and LEDs
 #      at every shot. The native run's screens: build/fw/web/test/shot_<n>.png (2x) to look at.
 # Needs clang + lld (wasm32), cc, node, python3.
@@ -19,7 +20,9 @@ SRC=$(find fw/core -name '*.c' | sort)
 INC=$(find fw/core -mindepth 2 -name '*.h' -exec dirname {} \; | sort -u | while read d; do printf ' -I%s' "$d"; done)
 cc -O2 -std=gnu11 -Wall -Wno-unused-function -DWEB_NATIVE -DWEB_FW_END=0x50000u -Ifw/core $INC -I"$GEN" \
     emulator/plat_web.c $SRC $(ls "$GEN"/*.c 2>/dev/null) fw/tests/web_native.c -o "$OUT/web_native"
-node fw/tests/web_seed.js "$OUT/ptfm.wasm" dist/firmware/demo.ptfmdsk "$OUT/flash.bin"
+python3 -I tools/pack.py --old-form --out "$OUT/demo-old.ptfmdsk"
+python3 -I tools/pack.py --low-samples --out "$OUT/demo-conv.ptfmdsk"
+node fw/tests/web_seed.js "$OUT/ptfm.wasm" dist/firmware/demo.ptfmdsk "$OUT/flash.bin" "$OUT/demo-old.ptfmdsk" "$OUT/demo-conv.ptfmdsk"
 "$OUT/web_native" fw/tests/web_session.txt "$OUT/flash.bin" "$OUT/shot" > "$OUT/native.txt"
 node fw/tests/web_test.js "$OUT/ptfm.wasm" fw/tests/web_session.txt "$OUT/flash.bin" > "$OUT/wasm.txt"
 node fw/tests/web_png.js "$OUT"/shot_*.ppm

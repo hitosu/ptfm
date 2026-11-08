@@ -295,7 +295,26 @@ static void reverb(const fxpic_t *c)
 }
 
 /* --------------------------------------------------------------------- DRIVE --- */
+/* What no knob changes is worked out once, at the picture's first draw: the sine of 100 samples (441 Hz), and that sine
+ * past DRIVE's low cut, settled. A knob's change then only drives it, settles TONE's lowpass over three periods and sums
+ * the harmonics, which turning a knob must be able to do between two frames */
+#define DR_N 100
 static struct { int k0, k1, ok; int db[8]; int fc; int gain; } dr = {.k0 = -1, .k1 = -1};
+static int16_t dr_sin[DR_N];                                       /* sin(2 pi i / 100), Q15 */
+static int16_t dr_cut[DR_N];                                       /* 0.25 sin(2 pi i / 100) past the low cut, Q16 */
+static int dr_ready;
+static void drive_tables(void)
+{
+    int64_t hp = 0;
+    for (int i = -4410; i < DR_N; i++) {
+        int32_t xin = fxm_sin((uint32_t)((int64_t)i * 42949673)) >> 1;   /* 0.25 sin(2 pi i / 100), Q16 */
+        hp += ((int64_t)xin * 1 - hp) / 128;
+        if (i < 0) continue;
+        dr_cut[i] = (int16_t)((int64_t)xin - hp);
+        dr_sin[i] = (int16_t)fxm_sin((uint32_t)((uint64_t)i * 0x100000000ULL / DR_N));
+    }
+    dr_ready = 1;
+}
 static void drive_calc(int k0, int k1)
 {
     int d = k0 * 127 / 100;
@@ -303,25 +322,27 @@ static void drive_calc(int k0, int k1)
     int64_t mk = (int64_t)(30000 - 120 * d) * 2;                   /* / 32768, Q16 */
     int64_t kk = 3277 + (int64_t)k1 * 58982 / 100;                 /* 0.05 + TONE x 0.9, Q16 */
     int32_t bias = 4800, b0 = fxm_tanh(bias);                      /* 2400 / 32768 */
-    static int32_t out[100];
-    int64_t s = 0, hp = 0;
-    for (int i = -4410; i < 100; i++) {
-        int32_t xin = fxm_sin((uint32_t)((int64_t)i * 42949673)) >> 1;   /* 0.25 sin(2 pi i / 100), Q16 */
-        hp += ((int64_t)xin * 1 - hp) / 128;
-        int64_t u = ((int64_t)xin - hp) * G / 65536 + bias;
+    int32_t out[DR_N];
+    int64_t s = 0;
+    if (!dr_ready) drive_tables();
+    for (int i = 0, p = 0; i < 4 * DR_N; i++) {                    /* (TONE's lowpass at its slowest: 0.95^300 left) */
+        int64_t u = (int64_t)dr_cut[p] * G / 65536 + bias;
         if (u > 131072) u = 131072;
         if (u < -131072) u = -131072;
         int64_t y = ((int64_t)fxm_tanh((int32_t)u) - b0) * mk / 65536;
         s += (y - s) * kk / 65536;
-        if (i >= 0) out[i] = (int32_t)s;
+        out[p] = (int32_t)s;                                       /* (the last period stays) */
+        if (++p == DR_N) p = 0;
     }
     for (int j = 0; j < 8; j++) {
         int hn = 2 * j + 1;
         int64_t re = 0, im = 0;
-        for (int i = 0; i < 100; i++) {
-            uint32_t ph = (uint32_t)((uint64_t)hn * (uint64_t)i * 0x100000000ULL / 100u);
-            re += (int64_t)out[i] * fxm_cos(ph);
-            im += (int64_t)out[i] * fxm_sin(ph);
+        for (int i = 0, p = 0; i < DR_N; i++) {                    /* (p: hn i, round the table; a cosine a quarter on) */
+            int q = p + DR_N / 4;
+            re += (int64_t)out[i] * dr_sin[q < DR_N ? q : q - DR_N];
+            im += (int64_t)out[i] * dr_sin[p];
+            p += hn;
+            if (p >= DR_N) p -= DR_N;
         }
         re /= 50 * 32768;                                          /* |X| / 50, Q16 */
         im /= 50 * 32768;

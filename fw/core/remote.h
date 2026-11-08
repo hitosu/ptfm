@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #define REMOTE_STATE_VERSION 1
-#define REMOTE_STATE_LEN 331
+#define REMOTE_STATE_LEN 335                    /* (LOOPS' bytes at its end, 331-334: a reader takes 331 B as older) */
 #define REMOTE_DJ_LEN (1 + 2 * 24 + 136)        /* DJ's bytes: as FIGURES' (specs/debug.md#djs-bytes) */
 
 int remote_sysex(const uint8_t *msg, uint32_t n);   /* 40 STATE?: 1 taken (answered from remote_poll) */

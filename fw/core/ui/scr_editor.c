@@ -35,26 +35,29 @@ static struct {
     int fl_row, fl_track, fl_src[4];
     uint8_t tmode;
     int transpose, tb[4];
-    /* the keys */
-    int8_t held_track[27];
-    uint8_t held_delay[27];             /* (a take's: REAL TIME's note delay) */
-    int32_t held_at[27];                /* a take's: its note's row, counted as the player counts the rows it plays (-1:
-                                         * written step by step) */
     int chord_row;
     /* the row preview */
-    uint8_t arp, arp_on[16];
+    uint8_t arp;
     int arp_step;
     uint32_t arp_t;
     /* takes */
     uint8_t take, armed, take_seen;     /* take_seen: the loop has started (the request is applied a half later) */
     uint8_t take_now;                   /* the take started with no count-in: keys before take_seen land on its row */
     uint8_t play_panel;                 /* PLAY held past the hold delay, REC on: its panel (both ways to a take) */
-    int take_row, last_row;
+    int take_row;
     /* opened from a FUSION slot */
     int fusion;
     int want_row, want_track, want_fusion;
     uint8_t want;
 } ed = {.view = 8, .slot = 1, .fusion = -1, .chord_row = -1};
+static struct {                         /* (SIZE: the arrays apart, all 0 at the start: .bss, not the image) */
+    /* the keys */
+    int8_t held_track[27];
+    uint8_t held_delay[27];             /* (a take's: REAL TIME's note delay) */
+    int32_t held_at[27];                /* a take's: its note's row, counted as the player counts the rows it plays (-1:
+                                         * written step by step) */
+    uint8_t arp_on[16];                 /* the row preview's notes */
+} edb;
 
 /* ------------------------------------------------------------------------------- the pattern --- */
 /* the pattern edited: the one picked, or the EDITOR's own when that is gone (it is always there) */
@@ -156,7 +159,6 @@ static void start_take(int now)
 {
     if (!now && ui_set[S_COUNT_IN] == 3) { ed.armed = 1; return; }         /* COUNT-IN KEY: the first key starts it */
     ed.take_row = ed.row;
-    ed.last_row = ed.row;
     ed.take = 1;
     ed.take_seen = 0;
     ed.take_now = now || !ui_set[S_COUNT_IN];
@@ -224,9 +226,9 @@ static int take_cmd(rec_cell_t *c, int code, int hi, const uint8_t *x)
 static void keep_held(int n, int t, int32_t at, int delay)    /* key n's note: its track, its row's count (a take's;
                                                                  * -1 step by step), its note delay */
 {
-    ed.held_track[n] = (int8_t)t;
-    ed.held_at[n] = at;
-    ed.held_delay[n] = (uint8_t)delay;
+    edb.held_track[n] = (int8_t)t;
+    edb.held_at[n] = at;
+    edb.held_delay[n] = (uint8_t)delay;
 }
 
 static void key_down(int n)
@@ -253,7 +255,7 @@ static void key_down(int n)
     int t = ed.track;
     for (int busy = 1; busy && t < tracks() - 1;) {
         busy = 0;
-        for (int k = 0; k < 27; k++) if (ed.held_track[k] == t) busy = 1;
+        for (int k = 0; k < 27; k++) if (edb.held_track[k] == t) busy = 1;
         if (busy) t++;
     }
     /* a take started at once, its loop not seen playing yet (the player takes the request a half or two later): the key
@@ -286,7 +288,7 @@ static void key_down(int n)
     /* step by step: a chord spreads to the next tracks on the same row */
     int row = ed.row, held = 0, maxt = -1;
     t = ed.track;
-    for (int k = 0; k < 27; k++) if (ed.held_track[k] >= 0) { held = 1; if (ed.held_track[k] > maxt) maxt = ed.held_track[k]; }
+    for (int k = 0; k < 27; k++) if (edb.held_track[k] >= 0) { held = 1; if (edb.held_track[k] > maxt) maxt = edb.held_track[k]; }
     if (held && ed.chord_row >= 0) { row = ed.chord_row; t = maxt + 1; }
     else { ed.chord_row = row; advance(); }
     if (t >= tracks()) return;
@@ -296,11 +298,11 @@ static void key_down(int n)
 static void key_up(int n)
 {
     sound(n, 0);
-    int t = ed.held_track[n], d = ed.held_delay[n];
-    int32_t from = ed.held_at[n];
-    ed.held_track[n] = -1;
+    int t = edb.held_track[n], d = edb.held_delay[n];
+    int32_t from = edb.held_at[n];
+    edb.held_track[n] = -1;
     int any = 0;
-    for (int k = 0; k < 27; k++) if (ed.held_track[k] >= 0) any = 1;
+    for (int k = 0; k < 27; k++) if (edb.held_track[k] >= 0) any = 1;
     if (!any) ed.chord_row = -1;
     player_state_t st;
     if (t < 0 || from < 0 || !taking(&st) || st.pat != pat()) return;
@@ -626,7 +628,7 @@ static void store_own(void) { if (own()) store_go(); else ed_own_ask(store_go); 
 static void store_answer(int a) { if (a == 1) store_own(); }
 static void store_pick(int n)
 {
-    if (n == ED_PICK_NEW && (n = ed_first_free()) < 0) { ui_toast(T("NO FREE PATTERN")); return; }
+    if (n == ED_PICK_NEW && (n = rec_free_pattern()) < 0) { ui_toast(T("NO FREE PATTERN")); return; }
     store_to = n;
     if (!ed_pattern_holds((uint8_t)n)) { store_own(); return; }
     static char l0[32];                                 /* (the question copies its lines) */
@@ -1167,7 +1169,7 @@ static void draw_note_editor(void)
 /* ARP: the cursor's row repeats at the song's tempo in SETTINGS' ARP RHYTHM (`#` played, `_` a rest) */
 static void arp_off(void)
 {
-    for (int t = 0; t < 16; t++) if (ed.arp_on[t]) { player_key_off(ed.arp_on[t]); ed.arp_on[t] = 0; }
+    for (int t = 0; t < 16; t++) if (edb.arp_on[t]) { player_key_off(edb.arp_on[t]); edb.arp_on[t] = 0; }
 }
 static uint32_t row_ms(void)
 {
@@ -1193,7 +1195,7 @@ static void arp_tick(void)
         if (ref < 0) continue;
         pl_inst_t in = {(uint8_t)(ref >> 8), (uint8_t)ref};
         player_key_on(c.note, in, (c.has & RC_VOL) ? c.vol : 0x7F);
-        ed.arp_on[t] = c.note;
+        edb.arp_on[t] = c.note;
     }
 }
 
@@ -1218,7 +1220,7 @@ static const char *page(void)
 static void enter(const ui_screen_t *from)
 {
     (void)from;
-    for (int n = 0; n < 27; n++) ed.held_track[n] = -1;
+    for (int n = 0; n < 27; n++) edb.held_track[n] = -1;
     ed.chord_row = -1;
     ed.fusion = -1;
     if (ed.want) {
@@ -1489,7 +1491,7 @@ static void tick(void)
             ed.take = 0;
             ed.row = ed.take_row;
             ui_toast(T("TAKE STOPPED"));
-        } else ed.last_row = st.row;
+        }
         ui_dirty();
     }
 }

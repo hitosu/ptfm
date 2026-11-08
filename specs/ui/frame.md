@@ -56,14 +56,14 @@ screen (2026-10-10):
   | Screen | Subpage (white) | Page (light grey) |
   |---|---|---|
   | EDITOR | its pattern (`0C`) | pages of rows |
-  | PLAYBACK | | song positions (`02/0B`); while the EDITOR's pattern loop plays, the pattern (`PAT 0C`); while LOOPS' loops play on, `LOOPS` |
+  | PLAYBACK | | song positions (`02/0B`); while the EDITOR's pattern loop plays, the pattern (`PAT 0C`); empty while LOOPS' loops are what plays |
   | INSTRUMENTS | `EDIT` on the edit page | pages of slots, while browsing |
   | SONGS | | the cursor's song of how many (`3/18`) |
   | FX | its page: `LIVE`, `EDIT`, `MIXER` | |
   | VISUAL | its view: `VOICES`, `SCOPE`, `WAVE`, `SPECTRUM`, `LEVELS` | |
   | STATUS | its page: `PT/FM`, `PERFORMANCE`, `STORAGE`, `DEVICE` | |
   | SETTINGS | `MIDI` on its second page | |
-  | LOOPS | | |
+  | LOOPS | `ADJUST` while ADJUST is open | |
   | DJ | the pads' mode: `PLAY`, `LOOPS`, `LFO` | |
   | the help | | its pages |
 - **SEQ's place,** where SEQ switches a screen's pages or views: `SEQ` yellow and where it stands light
@@ -101,7 +101,8 @@ screen (2026-10-10):
 - **The right part's indicators,** in this order: the transport, CPU and the voices (a pair, the sound's load:
   1 px apart), the battery; 3 px between the others. All are as high as the text's digits and capitals, 10 px,
   and each keeps its own width whatever it shows, so nothing beside it moves.
-- **The transport:** ▶ green while playing, ❚❚ red while paused, ● red while recording, each 7 px wide.
+- **The transport:** ▶ green while playing, ❚❚ red while paused, ● red while recording (a take, a count-in; on
+  LOOPS the loops armed or a song recording), each 7 px wide.
 - **CPU:** a small bar, 4 × 10 px, as two columns of 2 px: core 1's on the left, core 2's on the right
   ([../second-core.md](../second-core.md)), each its core's share of
   the time, its mean over the last tenth of a second, read again every tenth (no faster).
@@ -139,7 +140,7 @@ A 1-px line, then 12 px of 6 × 12 text (40 characters), **on every screen**.
   | VISUAL | the view's name |
   | STATUS | the free storage |
   | SETTINGS | the item's default |
-  | LOOPS | `POLY` or `MONO`, how the next loops record; `16 OF 16` with all 16 loops; `REC: STOP AT END` while a song records; `REC: WRITE` in the pattern recorder ([screens/loops.md](screens/loops.md#the-footer)) |
+  | LOOPS | `POLY` or `MONO`, the keys' mode: how they play and how REC keeps the stage; `MEMORY 81% FREE` while a song records; `REC: TO STAGE` in the pattern recorder ([screens/loops.md](screens/loops.md#the-footer)) |
   | DJ | the FX LFO's MIX while it runs, `REV 62%` ([screens/dj.md](screens/dj.md)) |
 - **A knob turned shows in the header,** not here ([above](#the-header)): the right side stays the screen's.
 
@@ -200,7 +201,6 @@ EDITOR 0C 1/3                  > #6 []      S, 16 px: name, page; transport, CPU
 |---|---|---|---|---|
 | the header's ground | 0, 0 | 240 × 16 | | cleared every frame |
 | the name | 2, 0 | its text | S | the screen's name, a toast or a knob turned, or `LOOK FOR ONSWERS` |
-| the name's mark | the name's end + 2, 0 | its text | T | `BETA` after `LOOPS` (dark grey: its capitals' top on S's capitals' row 2); hidden while a toast or a knob shows in the name's place |
 | the subpage | the name's end + 8, 0 | its text | S | its name; hidden where the screen has none |
 | the page | the subpage's end (else the name's) + 8, 0 | its text | S | N/M; hidden with one page |
 | the header's right part | 207, 2 to 238, 11 | | | the transport, the CPU bar, the voices and the battery: each in a box of its own fixed width, all 10 px high, rows 2-11, where S's digits and capitals are; the CPU bar and the voices 1 px apart, 3 px between the others |

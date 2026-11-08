@@ -46,7 +46,7 @@ check(cm.help_page_shortcuts("PADS\n{OP1}: PLAY\n5-8: STOPS\n  STOP WHILE HELD; 
 check(cm.line_shortcuts("CONTROL: THE {KEYS}") == [], "a page's title names no shortcut")
 check(cm.line_shortcuts("  HELD: SOLO", parent=S({"HOME", "WHITE KEY"}, False)) == [S({"HOME", "WHITE KEY"}, True)],
       "a HELD line goes on from its parent")
-check(cm.line_shortcuts("{ARP*} (AGAIN, REPEAT, PLEASE): RECORD") == [S({"ARP"}, False)], "a key's reading")
+check(cm.line_shortcuts("{ARP*} (AUTOMATIC REPEAT PROCEDURE): RECORD") == [S({"ARP"}, False)], "a key's reading")
 check(cm.line_shortcuts("{PLAY}: PLAY / PAUSE, HOLD: STOP", parent=S({"LFO"}, False)) ==
       [S({"PLAY"}, False), S({"PLAY"}, True)], "a HOLD part goes on from its own line's key")
 check(cm.line_shortcuts("{K1}-{K4}: LEVEL, PAN, DELAY, REVERB") == [S({"K1", "K2", "K3", "K4"}, False)], "K1-K4")

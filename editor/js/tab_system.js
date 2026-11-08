@@ -68,7 +68,7 @@ T.kinds.loops = function (t, api) {
     }
     for (const c of items) if (M.isCart(c.kind) && !c.dim && !carts.some(z => z.key === c.id)) carts.push({ key: c.id, num: c.num, kind: c.kind, payload: c.recs[0].payload, label: side === "R" ? H2(c.num) : "--", item: c });
     const rows = h("div");
-    rows.append(h("div", { class: "looprow maprow head" }, h("span", null, "LOOP"), h("span", null, "INSTRUMENT"), h("span", null, "POLY / MONO"), h("span", null, "LANES"), h("span", null, "REPEATS"), h("span")));
+    rows.append(h("div", { class: "looprow maprow head" }, h("span", null, "LOOP"), h("span", null, "INSTRUMENT"), h("span", null, "POLY / MONO"), h("span", null, "LANES"), h("span", null, "REPEATS"), h("span", { title: "ROWS THE LOOP PLAYS LATER (+) OR EARLIER (-), ROUND THE LENGTH" }, "SHIFT"), h("span")));
     L.loops.forEach((lp, i) => {
         const t2 = api.draft.link[M.lk("c", lp.cart)];
         const ch = t2 === M.BUILTIN || t2 == null ? changedAt(lp.cart) : null;
@@ -92,6 +92,13 @@ T.kinds.loops = function (t, api) {
                 ["POLY", "MONO"].map((n, k) => h("option", { value: k, selected: k === lp.mono }, n))),
             h("input", { type: "number", min: 1, max: 4, value: lp.lanes, onchange: e => save(L2 => { L2.loops[i].lanes = Math.max(1, Math.min(4, +e.target.value || 1)); }, "LOOP " + (i + 1) + " LANES") }),
             h("input", { type: "number", min: 1, max: 255, value: lp.repeat, title: "REPEATS, 1-255", onchange: e => save(L2 => { L2.loops[i].repeat = Math.max(1, Math.min(255, +e.target.value || 1)); }, "LOOP " + (i + 1) + " REPEATS") }),
+            h("input", { type: "text", class: "mono", size: 4, value: D.shiftText(lp.shift, L.length), title: "SHIFT: +3 PLAYS 3 ROWS LATER, -3 EARLIER; 0 TO " + (L.length - 1) + " OR SIGNED",
+                onchange: e => {
+                    const v = D.shiftParse(e.target.value, L.length);
+                    if (v === null) { api.refresh(); return; }
+                    if (v === lp.shift) { e.target.value = D.shiftText(lp.shift, L.length); return; }
+                    save(L2 => { L2.loops[i].shift = v; }, "LOOP " + (i + 1) + " SHIFT " + D.shiftText(v, L.length));
+                } }),
             h("button", { class: "btn small", title: "PLAY ALL THE LOOPS", onclick: () => ED.player.toggle(api.draft, { st: api.stWith() }) }, "▶")));
     });
     t.fxPicture = (e, fx) => ED.pics.fx(e, fx, { tempo: L.tempo, ticks: L.ticks, rpb: 4 });
@@ -118,10 +125,12 @@ T.kinds.loops = function (t, api) {
         grid.innerHTML = html;
         notes = h("section", { class: "card wide" }, h("h4", null, "THE NOTES", h("span", { class: "grow" })),
             h("div", { class: "seg", style: "margin-bottom:8px;flex-wrap:wrap" }, L.loops.map((_, i) => h("button", { class: i === t.loop ? "on" : "", onclick: () => { t.loop = i; api.refresh(); } }, "LOOP " + H2(i)))),
-            h("p", { class: "hint" }, U.plural(lp.base, "ROW") + " × " + U.plural(lp.lanes, "LANE") + (lp.repeat ? ", " + lp.repeat + " REPEATS" : "") + " · RECORDED ON THE FM-1'S LOOPS SCREEN"), grid);
+            h("p", { class: "hint" }, U.plural(lp.base, "ROW") + " × " + U.plural(lp.lanes, "LANE") + (lp.repeat ? ", " + lp.repeat + " REPEATS" : "") + " · RECORDED ON THE FM-1'S LOOPS SCREEN"),
+            h("p", { class: "hint shifthint" }, D.shiftHint(lp.shift, L.length) + " (THE NOTES ARE SHOWN AS STORED)"), grid);
     }
     return h("div", { class: "cards" }, notes,
-        T.wideCard("THE LOOPS · " + U.plural(L.loops.length, "LOOP"), L.loops.length ? rows : h("p", { class: "hint" }, "NO LOOPS: THEY ARE RECORDED ON THE FM-1'S LOOPS SCREEN."),
+        T.wideCard("THE LOOPS · " + U.plural(L.loops.length, "LOOP") + " · THE LENGTH " + U.plural(L.length, "ROW"),
+            L.loops.length ? rows : h("p", { class: "hint" }, "NO LOOPS: THEY ARE RECORDED ON THE FM-1'S LOOPS SCREEN."),
             T.slider("TEMPO", { min: 3, max: 600, def: 120, get: () => L.tempo, set: v => save(L2 => { L2.tempo = v; }, "TEMPO " + v) }),
             T.slider("TICKS A ROW", { min: 1, max: 31, def: 6, get: () => L.ticks, set: v => save(L2 => { L2.ticks = v; }, "TICKS A ROW " + v) }),
             T.slider("SWING", { min: 50, max: 75, def: 50, get: () => L.swing, fmt: v => v + " %", set: v => save(L2 => { L2.swing = v; }, "SWING " + v + " %") })),

@@ -38,6 +38,8 @@
     const K23 = ["FILTER", "VOLUME"];
 
     const songs = () => M.state.songs;
+    /* dj.list: a place in the list of songs; the song there, its number (null none) */
+    const listSong = () => { const n = M.songNums()[dj.list]; return n === undefined ? null : n; };
     const L = () => DJ.sides[0], R = () => DJ.sides[1];
     const sideName = d => d === L() ? "LEFT" : "RIGHT";
     const now = () => U.now();
@@ -73,13 +75,14 @@
     }
     /* LOAD: on a playing deck at its next bar line, the tempo kept; held past the hold delay, the song's own */
     function loadKey(d, n) {
-        if (dj.list < 0 || !songs()[dj.list]) { refuseKey(n); return null; }
-        const r = P.djLoad(d, dj.list), name = songs()[dj.list].name;
+        const i = listSong();
+        if (i == null) { refuseKey(n); return null; }
+        const r = P.djLoad(d, i), name = songs()[i].name;
         if (r === "cancel") { U.toast(sideName(d) + ": LOAD CANCELLED"); return null; }
-        if (r === "empty") { refuseKey(n); U.toast("SONG " + M.hex(dj.list) + " IS EMPTY"); return null; }
+        if (r === "empty") { refuseKey(n); U.toast("SONG " + M.hex(i) + " IS EMPTY"); return null; }
         U.toast(sideName(d) + ": " + name + (r === "atbar" ? " AT THE BAR" : ""));
         if (r !== "atbar") return null;
-        const h = { d }, i = dj.list;
+        const h = { d };
         h.timer = setTimeout(() => {
             if (dj.held[n] !== h || (d.loadTo !== i && d.song !== i)) return;   /* (still waiting, or landed: not
                                                                                  * dropped by a pause) */
@@ -456,7 +459,7 @@
         if (mv && mv.move.at) mark(Math.min(x0 + 113, x0 + Math.floor(P.djBarOf(d, mv.move.at) * 114 / n)), D.CYAN);
     }
     function list() {
-        const all = songs();
+        const all = M.songList(), nums = M.songNums();
         D.hline(0, Y.rule, 240, D.DGREY);
         D.text(18, Y.cols, F.T, "NR", D.CYAN);
         D.text(36, Y.cols, F.T, "NAME", D.CYAN);
@@ -468,10 +471,10 @@
         for (let i = top; i < Math.min(all.length, top + LIST_ROWS); i++) {
             const s = all[i], y = Y.list + 13 * (i - top), on = i === dj.list;
             if (on) D.box(0, y - 1, 240, 13, D.WHITE);
-            const mark = (d, ch, x) => { if (d.song === i) D.text(x, y, F.T, ch, d.playing ? D.GREEN : D.LGREY); };
+            const mark = (d, ch, x) => { if (d.song === nums[i]) D.text(x, y, F.T, ch, d.playing ? D.GREEN : D.LGREY); };
             mark(L(), "L", 2);
             mark(R(), "R", 8);
-            D.text(18, y, F.T, M.hex(i), D.DGREY);
+            D.text(18, y, F.T, M.hex(nums[i]), D.DGREY);
             D.text(36, y, F.T, s.name.slice(0, 16), on ? D.WHITE : D.LGREY);
             const bpm = String(M.bpm(s)), pos = String(s.order.length);
             D.text(156 - D.tw(F.T, bpm), y, F.T, bpm, D.LGREY);
@@ -514,7 +517,9 @@
         keys[k.play] = playLed(d);
         keys[k.hold] = !has ? 0 : d.scratch ? 1 : .25;
         keys[k.filter] = !has ? 0 : d.filterOn ? 1 : .25;                  /* lit while on */
-        keys[k.load] = fl(k.load) || d.loadTo != null ? (blink(FAST) ? 1 : 0) : .25;   /* blinking: refused, or waiting for the bar */
+        /* blinking: refused, or waiting for the bar; dim while it can take the highlighted song (one with positions) */
+        const s = listSong() != null ? songs()[listSong()] : null;
+        keys[k.load] = fl(k.load) || d.loadTo != null ? (blink(FAST) ? 1 : 0) : s && s.order.length ? .25 : 0;
         for (const n of [k.play, k.hold, k.filter]) if (fl(n)) keys[n] = blink(FAST) ? 1 : 0;
     }
     /* the pads light for finding them by touch (specs/ui/leds.md): each group of four's first dim, the rest dark;
@@ -583,7 +588,7 @@
         ownArp: "none",                                      /* ARP does nothing here */
         lfoLayer, layerUp,
         enter() {                                            /* (what plays plays on: DJ apart till its first start) */
-            if (dj.list < 0 || !songs()[dj.list]) dj.list = Math.min(U.song, songs().length - 1);
+            if (listSong() == null) { const ns = M.songNums(), k = ns.indexOf(U.song); dj.list = k >= 0 ? k : ns.length - 1; }   /* (else the last) */
             dj.page = Math.min(dj.page, pages() - 1);
         },
         play() {
@@ -607,7 +612,7 @@
         /* no keyboard functions here: no key plays an instrument, so PRESETS and SEL + PRESETS do nothing */
         noKeyboard: true,
         knob(e, s, coarse) {
-            if (e === E.SELECT) { if (songs().length) dj.list = U.clamp(dj.list + Math.sign(s), 0, songs().length - 1); return; }
+            if (e === E.SELECT) { const n = M.songNums().length; if (n) dj.list = U.clamp(dj.list + Math.sign(s), 0, n - 1); return; }
             if (e === E.ALGORITHM) {
                 const lh = lfoHeld();                         /* an LFO's on / off pad held: its frequency */
                 if (lh) {

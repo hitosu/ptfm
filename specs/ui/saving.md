@@ -2,7 +2,8 @@
 
 Status: **settled** (2026-10-09). The record:
 [the UI proposal](../proposals/202610072229-ui.md), section 8; the edit memory and REVERT:
-[the edits proposal](../proposals/202610151809-edits.md) (2026-10-15).
+[the edits proposal](../proposals/202610151809-edits.md) (2026-10-15); LOOPS' stage:
+[the stage proposal](../proposals/202611030330-loops-redesign.md) (2026-11-03).
 
 How changes are kept: edits in RAM, SAVE writing them to flash, REVERT, the limited memory for edits,
 FWS (the firmware space), and references between things and what changes them. How the flash stores it
@@ -10,9 +11,8 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
 
 ## How saving works
 
-- **Edits go to RAM.** SAVE writes them all to flash, into the user area. The only other things that
-  write to flash are a reference update and CLONE or MOVE of a sampler cartridge with samples
-  ([screens/instruments.md](screens/instruments.md)); REVERT writes nothing.
+- **Edits go to RAM.** SAVE writes them all to flash, into the user area. The only other thing that
+  writes to flash is a reference update; REVERT writes nothing.
 - **The SAVE LED** is dim while anything is unsaved, dark when nothing is ([leds.md](leds.md)).
   - When a REVERT, an edit mode left with HOME, or an edit that puts a thing back as the flash holds it
     brings everything back to what the flash holds, nothing is unsaved, and SAVE goes dark.
@@ -25,11 +25,15 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
   - **The pattern the EDITOR is on** (its own, or a numbered one:
     [screens/editor.md](screens/editor.md#the-editors-own-pattern)) is kept the same way.
   - **The EDITOR's own pattern** is kept by SAVE as a changed built-in is; emptied, its record is deleted.
+  - **LOOPS' stage** ([screens/loops.md](screens/loops.md#the-stage)) is never saved and is no change: the SAVE LED
+    and the unsaved count take no notice of it. SAVE and REVERT ALL leave it as it is
+    ([../files/ram.md](../files/ram.md#the-stage-in-the-edit-memory)); a power cycle drops it.
 - **SAVE with nothing unsaved** (and the current instrument and the EDITOR's pattern as kept) writes nothing:
   `NOTHING TO SAVE`.
 - **SAVE during playback** is queued: SAVE blinks dim until playback pauses, and the write happens
   then, in silence (`SAVE WAITS FOR A PAUSE`). A save still waiting is lost if the FM-1 is switched off
-  first.
+  first. A song RECORD LIVE records ends before a save that does not wait, and before REVERT ALL
+  ([screens/loops.md](screens/loops.md#record-live)).
 - **A save** shows a progress bar (`SAVING 3 CHANGES`), then `SAVED`.
 - **REVERT takes a change back** ([below](#revert)): REVERT in a screen's SEL menu the thing it shows,
   REVERT ALL everything.
@@ -52,7 +56,9 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
   piece that is back as the flash holds it goes, and is unsaved no more.
 - **Every edit is heard at once,** wherever it plays: a pattern's from the next row, an instrument's from the
   next note, a song, the EDITOR's loop, LOOPS or a DJ deck alike.
-- **It fills only with real changes:** about 650 changed tracks. Nothing else uses it, and a SAVE empties it.
+- **It fills only with real changes:** about 650 changed tracks. Nothing else uses it but an edit mode's copy and
+  LOOPS' stage, neither saved ([../files/ram.md](../files/ram.md#editing-and-saving)), and a SAVE empties it, the
+  stage left.
 - **Running low** (2026-10-10): `SAVE CHANGES TO FREE MEMORY` shows for 2 s, `SAVE` in the keys' yellow as
   the help draws a key ([help.md](help.md)), when both hold:
   - an edit has just made the edit memory grow;
@@ -99,19 +105,24 @@ never writes it; only an install does. The rest of the flash is **the user area*
 - **A built-in thing never moves,** and has no DELETE.
 - **Where it is shows:** a built-in thing as the firmware has it shows its number in brown wherever it is
   listed (patterns, cartridges); changed, it is the user area's, from the first edit on, saved or not.
-- **A firmware update keeps the user area:** everything the user made stays. The install page backs
-  everything up first, for the case where another firmware runs on the FM-1 in between
-  ([../files/blob.md](../files/blob.md#seeding)).
+- **A firmware update keeps the user area:** everything the user made stays; what the new firmware no longer reads
+  the install page converts after the install ([../files/blob.md](../files/blob.md#converting-after-an-install)).
+  Copies of the library are the EDITOR page's (READ, then DOWNLOAD DISK), for the case where another firmware, or
+  an older PT/FM, runs on the FM-1 in between ([../files/disk.md](../files/disk.md#versions)).
 
 ## References
 
 **Things that refer to other things:**
 - a cell refers to an instrument;
 - a song position and a FUSION instrument refer to a pattern;
-- a sample instrument refers to a sample.
+- a sample instrument refers to a sample, by its number, in any sampler;
+- a favourite (a FAVORITES slot) refers to an instrument ([../files/instruments.md](../files/instruments.md#favorites)).
+  Nothing refers to a FAVORITES cartridge or a favourite: moving, swapping or deleting them asks nothing. A
+  favourite counts as a use of the instrument it names; a DELETE leaves it naming the place (`MISSING`).
 
 **Actions that change what a reference points at** ask first: MOVE, SWAP or DELETE of an instrument, a
-cartridge, a pattern or a sample (`PATTERN 1A IS USED 3 TIMES`, `UPDATE REFERENCES?`); YES (OCT+) / NO
+cartridge or a pattern (`PATTERN 1A IS USED 3 TIMES`, `UPDATE REFERENCES?`); a sample's DELETE has its own warning
+([screens/instruments.md](screens/instruments.md#the-samples)); YES (OCT+) / NO
 (OCT-); HOME cancels. An item nothing uses changes without a question.
 - **YES:**
   1. The change is made, with every reference it touches. A pattern's DELETE takes it out of every song's
@@ -148,17 +159,23 @@ listed only while that thing has a change not saved. After a question (`REVERT P
 | INSTRUMENTS | in a slot's menu, the slot; in the cartridge list's menu, the whole cartridge | `REVERT SLOT 0B:05 TO SAVED?`, `REVERT CARTRIDGE 0B TO SAVED?` |
 | SONGS | the song, its record whole: positions, names, mixer, FX setup | `REVERT SONG 03 TO SAVED?` |
 | FX | the effects of what plays: the song's, LOOPS' or DJ's | `REVERT THE EFFECTS TO SAVED?` over `FOR CITY LIGHTS` (the song's name), `FOR THE LOOPS` or `FOR DJ` |
-| LOOPS | all of LOOPS: every loop, the length, the properties, the loops' mixes and FX setup; what the flash holds plays again | `REVERT LOOPS TO SAVED?` |
+| LOOPS | all of LOOPS: every loop, the length, the properties, the loops' mixes and FX setup; what the flash holds plays again; the stage stays, fitted to the length | `REVERT LOOPS TO SAVED?` |
 | SETTINGS | the settings; on the MIDI page, the MIDI map | `REVERT THE SETTINGS TO SAVED?`, `REVERT THE MIDI MAP TO SAVED?` |
 
 - **Playback goes on:** what plays hears the thing as saved at once, as it hears every edit.
+- **The one REVERT that takes back more than its thing's changes:** one that brings back a sample instrument whose
+  sample is deleted and not yet saved (the slot's, the sampler cartridge's) takes that sample's deletion back with
+  it, so no REVERT leaves an instrument naming a sample about to go. The instruments deleted with that sample in
+  other samplers stay deleted until their own REVERT. One that brings back an instrument whose sample's deletion is
+  already saved (the deletions saved first when storage was full) leaves it naming a missing sample, grey and silent
+  ([../files/references.md](../files/references.md#a-reference-to-nothing)).
 - **REVERT ALL** ([above](#how-saving-works)) takes everything back at once, DJ's stand included.
 - **There is no step back** (UNDO) in this version: what an edit or an edit mode's drop (HOME,
   [controls.md](controls.md)) changed, only REVERT takes back, to what was saved.
 - **So the big actions ask first:** CLEAR LOOPS, LOOPS' LENGTH made shorter where notes would go, LOAD FROM
   PATTERN over loops and AUTO LEVEL ALL, each with its question ([screens/loops.md](screens/loops.md),
   [screens/settings.md](screens/settings.md)). The small ones stay one press (a block's CUT, CLEAR and
-  TRANSFORM, LOOPS' RE-RECORD and PEEL, a MIDI mapping deleted): REVERT is their way back.
+  TRANSFORM, LOOPS' REC into a loop, its QUANTIZE and DELETE LOOP, a MIDI mapping deleted): REVERT is their way back.
 
 ## Layout
 
@@ -228,7 +245,7 @@ centred in the body, the lines centred, the answers in S over OCT- and OCT+.
 ```
 
 The item in the references question is named as the screens name it: `PATTERN 1A`, an instrument's
-ID (`0B:05`), a cartridge, a sample.
+ID (`0B:05`), a cartridge.
 
 ## Texts
 

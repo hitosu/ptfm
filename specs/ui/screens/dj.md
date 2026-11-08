@@ -50,9 +50,11 @@ played:**
   tempo the song's own (the main's, while the right deck is synced: SYNC stays on), KEY 0, its filter OFF,
   its tracks' mutes off.
 - **While a deck plays, its LOAD waits for the deck's next bar line** (`LEFT: CITY LIGHTS AT THE BAR`, the key
-  blinking, the state line `LOADS AT THE BAR`): there the song playing stops and the new one plays on from its
-  start; KEY goes to 0 and the mutes off, the filter stays as its knob and key left it, the cue point is the new
-  song's start. **Its tempo:** LOAD tapped, the BPM the deck played, so the beat goes on (the change shows against
+  blinking, the state line `LOADS AT THE BAR`): there, on the bar line exactly, the song playing stops and the new one
+  plays on from its start; KEY goes to 0 and the mutes off, the filter stays as its knob and key left it, the cue point
+  is the new song's start. The bar line is one the deck plays into: a JUMP or MOVE meanwhile keeps the LOAD waiting
+  for the next bar line after it, not the one the jump lands on, and a JUMP or MOVE still waiting for its beat when the
+  LOAD lands is dropped. **Its tempo:** LOAD tapped, the BPM the deck played, so the beat goes on (the change shows against
   the new song's own); LOAD held past the hold delay, the song's own tempo, 0 % (`LEFT: CITY LIGHTS AT ITS
   TEMPO`; at once, if the bar line came first). A synced right deck takes the main's either way. A second tap of LOAD before the bar line cancels it
   (`LEFT: LOAD CANCELLED`); the deck paused before it (its PLAY, HOLD, CUE, another song started) drops it too. A
@@ -74,7 +76,9 @@ played:**
     start, and the deck sounds about 12 ms after the press. Both decks started together are made ready
     together and start in the same half. A deck that is to start on a bar line is made ready first and starts on
     the line exactly (pressed less than 12 ms before it, on the next one). A deck started again while it plays
-    (its own arena still in use) does it all in one half.
+    (its own arena still in use) does it all in one half, and so does a LOAD landing on a playing deck's bar line:
+    what waits for a bar line or a beat (a LOAD, JUMP or MOVE on the beat) is landed by the player itself, on the
+    row exactly.
   - **A synced right deck starts on the main's next bar line** *(proposed: the bar line, not the beat)*, its
     PLAY key blinking while it waits; a second tap cancels the start.
   - **The deck playing never moves for the one starting:** the main started while a synced right deck plays
@@ -99,7 +103,9 @@ played:**
   the PLAY button takes both back to their cue points,
   paused (`BACK TO THE CUES`); so does HOME + PLAY.
 - **A song's end:** it stops or loops, as its AT THE END says. Stopped, the deck is paused at its end (`AT THE
-  END`): its PLAY has nothing more to play (refused, `THE END: CUE GOES BACK`, its key dark), CUE takes it back
+  END`; its place the last position's last row, the playhead at the overview's end, no time left), and stays so
+  when the decks go live again after another song or a power-on: its PLAY has nothing more to play (refused, `THE
+  END: CUE GOES BACK`, its key dark), CUE takes it back
   to its cue point, JUMP plays from it, and MOVE, HOLD or a LOAD move it as from anywhere. Through the last 8 bars of
   a song that stops, the deck's time left and its overview's last bars are red, and its PLAY key blinks on the
   beat.
@@ -107,7 +113,8 @@ played:**
 ## Tempo and SYNC
 
 - **A deck's tempo is a share of its song's own,** as a turntable's pitch fader is: shown as the BPM it plays
-  (`124.0 BPM`) and the change (`+3.2%`). The song's tempo commands still act, scaled.
+  (`124.0 BPM`) and the change, to the nearest 0.1 % (`+3.2%`; a little under, `-0.0%`). The song's tempo commands
+  still act, scaled.
   - **Its range:** 3 to 600 BPM, whatever the song's own tempo, in steps of 0.1 BPM; a fast turn takes bigger
     steps ([../controls.md](../controls.md#knobs)); SEL held: 1 BPM. The limits are a song's TEMPO's
     ([../../files/songs.md](../../files/songs.md#the-record)): the player's longest tick (0.83 s, TEMPO 3) and its
@@ -116,8 +123,8 @@ played:**
     within them, its scaled tempo commands too.
   - **SEL** tapped after a turn sets it back to the song's own (`TEMPO 120.0 BPM: THE SONG'S`).
 - **SYNC** (the right deck's key, on at first) locks the right deck to the main:
-  - **its tempo** is the main's BPM, or its half or double, whichever is nearest the right song's own (a
-    70 BPM song beside a 140 BPM one plays at 70); which of the three is chosen when SYNC goes on or a song is
+  - **its tempo** is the main's BPM, or its half (to the nearest 0.1 BPM) or double, whichever is nearest the right
+    song's own (a 70 BPM song beside a 140 BPM one plays at 70); which of the three is chosen when SYNC goes on or a song is
     loaded, and kept, so a turn of the main's tempo never flips it. The right song's tempo commands are
     overridden while synced. It follows the main whether the main plays or not (an empty main: its own
     tempo);
@@ -196,7 +203,9 @@ DJ's LIMITER keeps a boost from clipping.
 - **After the crossfader:** the punch-ins and DJ's LIMITER, so two songs together never clip.
 - **DJ's FX setup** holds CHORUS, DELAY, REVERB, the LIMITER and the METRONOME (TEMPO FOLLOW: the main's
   tempo). FX from DJ shows LIVE and EDIT on them, the other effects not shown (they are the decks' songs');
-  its ROUTING is SENDS; there is no MIXER page (the decks play their songs' mixers). At first: DELAY 1/8.,
+  its ROUTING is SENDS; there is no MIXER page (the decks play their songs' mixers). Once the decks have played,
+  FX from any screen works on it too (GLO's title `DJ`), while they play and after they stop, as the keys hear it,
+  until a song, a pattern or the loops start or UNLOAD SONG ([fx.md](fx.md#the-fx-setup)). At first: DELAY 1/8.,
   PING-PONG ON, FEEDBACK 40 %, MIX 30 %; REVERB SIZE 70 %, MIX 35 %; the LIMITER on; the rest as a new song's.
 - **Punch-ins:** FX held + a white key runs them on the mix, as on every screen, from the buffer of what is
   heard. **A song's own punch-in commands** play while only its deck is heard (the crossfader at its end);
@@ -401,7 +410,10 @@ first). In groups of four across both decks' white keys, the crossfader's first,
 While a held stop runs, the deck's place goes on counting at its tempo, through
 the song's flow as playing would go (its jumps, breaks and tempo commands among the rows it passes, round a LOOP
 or REPEAT set). Letting go jumps there, as a jump to a song position does. SYNC follows this counted place, so the right deck keeps time
-with the main whatever the main's stops do. A ROLL counts no place: let go, the deck plays on from its loop.
+with the main whatever the main's stops do: a synced start waits for the bar line of the main's counted place, never
+for a row BACKSPIN plays back. A ROLL counts no place: let go, the deck plays on from its loop. What waits for a bar
+line or a beat (a LOAD, JUMP or MOVE on the beat) waits through a stop and lands on the first one after the deck plays
+on.
 
 ### Mutes
 
@@ -500,7 +512,7 @@ blinking where something waits, dark where nothing would happen ([../leds.md](..
 | POLY | always | | | |
 | HOLD | no song | ready | held | |
 | FILTER | no song | off | on | |
-| LOAD | | it can take the highlighted song | | fast: a load waiting for the deck's bar line, or refused |
+| LOAD | no song to take (none highlighted, or one with no positions) | it can take the highlighted song | | fast: a load waiting for the deck's bar line, or refused |
 | the blank key | | always | | |
 
 Fast is 150 ms on, 150 ms off; slow 500 ms each.
@@ -710,7 +722,7 @@ The properties dialog ([../dialogs.md](../dialogs.md#properties)), titled `DJ PR
 | FILTER RESONANCE | `30 %` | the DJ FILTERs' resonance, 0-100 % |
 | FILTER THE SENDS | `ON`, `OFF` | ON: a deck's filter also filters what it sends to CHORUS, DELAY and REVERB ([above](#effects)); OFF: its dry sound only, saving ~3-4 % CPU |
 | FX LFO | `REVERB MIX`, `DELAY MIX`, `CHORUS MIX` | what the FX LFO swings (the LFO pads 13-15, [above](#the-lfo-pads)): that effect's MIX |
-| RESET DJ | `EDIT` (yellow: the key) | EDIT, after a question (`RESET DJ?`, `BOTH DECKS EMPTIED, ALL AS AT FIRST`; RESET with OCT+, KEEP with OCT-): the stand back to a new store's ([Saving the stand](#saving-the-stand)): both decks empty and paused, the crossfader all the way to the left, SYNC on, every LFO off at its first setup (`DJ RESET`). The properties above and DJ's FX setup stay. SAVE then keeps it, as any change of the stand; K1 does nothing here |
+| RESET DJ | `EDIT` (yellow: the key) | EDIT, after a question (`RESET DJ?`, `BOTH DECKS EMPTIED, ALL AS AT FIRST`; RESET with OCT+, KEEP with OCT-): the stand back to a new store's ([Saving the stand](#saving-the-stand)): both decks empty and paused, the crossfader all the way to the left, SYNC on, every LFO off at its first setup (`DJ RESET`); what waited on a deck is dropped, and a key or pad held through it does nothing more when let go. The properties above and DJ's FX setup stay. SAVE then keeps it, as any change of the stand; K1 does nothing here |
 
 ## Texts
 

@@ -35,12 +35,6 @@ typedef struct {                                /* (the debug build: core 2's vo
     uint8_t most;                               /* the most of core 2's places sounding at once */
 } player_v2_t;
 void player_v2_figures(player_v2_t *f);         /* (and a new window started) */
-/* (the debug build's bench: a voice of an instrument outside the pool, in mem (player_bench_size bytes, 8-aligned);
- * start returns its engine, PL_ENG_*, or 0 none; render adds its next block of PL_BLOCK frames into buf, tick: the
- * Juno-106's firmware loop runs in it. Main loop, interrupts off.) */
-uint32_t player_bench_size(void);
-int player_bench_start(void *mem, pl_inst_t in, int note);
-void player_bench_render(void *mem, int32_t *buf, int tick);
 /* AUTO LEVEL's measurement (specs/files/instruments.md, LEVEL): instrument in's note alone, held 1 s of 1.2 s from
  * a clean start at unity gain; *ms the loudest 300 ms's mean square of (L + R) / 2 (16-bit scale), *peak either
  * side's. mem: its voices (size bytes, 8-aligned; a FUSION instrument's layers, a voice each, as many as fit).
@@ -117,8 +111,9 @@ void player_count_stop(void);
 void player_click(int accent);                  /* a count-in's beat: BEEP at 60 %, the bar's first higher
                                                  * (specs/ui/transport.md#count-in), METRONOME on or off */
 
-/* ---- what the sound costs (STATUS' PERFORMANCE, the FX screen's footer): the time the audio context spent,
- * read with plat_us() around each voice and each effect, since the last reset ---- */
+/* ---- what the sound costs: the time the audio context spent, read with plat_us() around each voice and each
+ * effect (the effects' only while fx_timed: the FX screen), since the last reset; read by nothing now (STATUS and the
+ * FX screen's footer have their own: player_fx_cost, fx_spent_us) ---- */
 typedef struct {
     uint32_t eng_us[4];         /* DX7, Juno-106, TB-303, sampler: their voices' time, us */
     uint32_t eng_blocks[4];     /* voice blocks rendered (64 frames each, 1,451 us of sound) */
@@ -126,6 +121,9 @@ typedef struct {
     uint32_t blocks;            /* blocks of 64 frames played */
 } player_costs_t;
 void player_costs(player_costs_t *c, int reset);
+/* STATUS PERFORMANCE's EFFECTS (specs/ui/screens/status.md): the whole effects stage's time (us), on whichever core,
+ * and the audio halves measured, since the last call; each call keeps it measured ~0.2 s more (main loop) */
+void player_fx_cost(uint32_t *us, uint32_t *halves);
 
 /* ---- VISUAL ---- */
 int player_master(int16_t *lr, int n);          /* the last n (<= 128) stereo frames out, interleaved */
@@ -136,7 +134,7 @@ void player_levels(uint16_t *lv);               /* each track's peak since the l
  * mixer, its 64-B FX setup) and its patterns (rec_pat_t: each track's stream, as a pattern record's) come from
  * these instead of the store. player_play_source plays it from (pos, row), looping its order as the pattern
  * loop does; player_state().what says `what`; PAUSE, PLAY, HOME + PLAY and STOP work on it as on any; a song
- * or a pattern started drops it. player_source_changed: its cells changed (a take, an erase): what is read is
+ * or a pattern started drops it. player_source_changed: its cells changed (an edit, an erase): what is read is
  * read again from the next row on; rows_changed: its length too (the replay is built again at the row it is
  * on). The audio context reads what the pointers give from its next half on: a buffer given before must stay
  * as it was until player_state().halves has gone up by 2 after the call. */
@@ -163,62 +161,147 @@ void player_source_end(uint8_t what);
  * paused song keeps its place). Once anything plays the hold is over (src 0 then does nothing) */
 void player_cue_loops(const pl_source_t *src);
 
-/* ---- LOOPS' lanes (specs/files/loops.md; specs/proposals/202610240236-loops-station.md, 13) ----
- * A lanes source plays on the second replay: loop i is its track i (the voices' track 16 + i: its instrument, mix,
- * mute, DUCK), and its notes are its stream's (rec_loops: lane l of its base's row r at the stream's row 4r + l), read
- * at each row of the loops while its repeats last (r / base < repeats, at base row r % base). A lane holds one note,
- * as a key does: its next note, note off or key off (Kxx) ends it, a note delay (EDx) starts it late, a MONO loop's
- * glide (3xx: xx / 16 semitone a tick, the voice going on; a TB-303's SLD: its slide) takes it to the next. A note rings
- * across repeats and the loops' wrap, and stops where its loop goes to rest or at a cut repeat's end. The view of the
- * loops is read again from the store at their start and whenever an edit changes them (the store's watch).
+/* ---- LOOPS' lanes (specs/files/loops.md; specs/ui/screens/loops.md) ----
+ * A lanes source plays on the second replay, which keeps the time alone: the length's rows go round, loops or none
+ * (the METRONOME, the beats). Loop i is its track i (the voices' track 16 + i: its instrument, mix, mute, DUCK), and its
+ * notes are its stream's (rec_loops: lane l of its base's row r at the stream's row 4r + l), read as the loop is heard:
+ * at the loops' row r it plays its row (r - SHIFT) round the length, while its repeats last ((r - SHIFT) / base <
+ * repeats, at base row (r - SHIFT) % base). A lane holds one note, as a key does: its next note, note off or key off
+ * (Kxx) ends it, a note delay (EDx) starts it late, a MONO loop's glide (3xx: xx / 16 semitone a tick, the voice going
+ * on; a TB-303's SLD: its slide) takes it to the next. A note rings across repeats and the loops' wrap, and stops where
+ * its loop goes to rest, at a cut repeat's end (the loop's own row 0, where its first repeat begins again) and where a
+ * jump lands in its rest. The view of the loops is read again from the store at their start and whenever an edit changes
+ * them (the store's watch).
+ * Their passes (player_state().lp_pass) count from 0 at their start: a row at or before the one played last begins the
+ * next (their wrap, a jump forward past the length's end, the rest's own jumps), but a jump back (player_lp_jump).
  * Mutes and solos: while any loop is soloed only the soloed ones sound, else the muted ones are silent; _at_bar from the
  * next row where row % bar_rows == 0; a change now drops one waiting for the bar. */
 void player_lp_mutes(uint32_t muted, uint32_t soloed);
 void player_lp_mutes_at_bar(uint32_t muted, uint32_t soloed, int bar_rows);
-/* A note on loop's lane (a take's, heard as it is written): at row `row` of the loops (when the replay starts it), or
- * at once (row < 0, a row already started, or one more than half the length away: past), its `delay` ticks (EDx)
- * counted from then; vol 00-7F (0xFF: the instrument's own); glide: a 3xx's xx (0 none; on a TB-303 any: a slide), or
- * PL_LP_LEG: a legato note (LEG). player_lp_off: the lane's note ends, the same way. A queue of 16 rows ahead; dropped
- * when the loops stop */
+/* A note on loop's lane, heard as it is written: at row `row` of the loops (when the replay starts it), or at once (row
+ * < 0, a row already started, or one more than half the length away: past), its `delay` ticks (EDx) counted from then;
+ * vol 00-7F (0xFF: the instrument's own); glide: a 3xx's xx (0 none; on a TB-303 any: a slide), or PL_LP_LEG: a legato
+ * note (LEG). player_lp_off: the lane's note ends, the same way. A queue of 16 rows ahead; dropped when the loops stop;
+ * a jump forward drops those for the rows it passes over (a jump back keeps them for when their rows come).
+ * loop: 0-15 a loop's lanes, PL_LP_STAGE_KEYS the keys on the stage (below) */
 #define PL_LP_LEG 0x100u
 void player_lp_note(int loop, int lane, uint8_t note, uint8_t vol, int row, int delay, unsigned glide);
 void player_lp_off(int loop, int lane, int row);
-/* RECORD LIVE's keys (specs/ui/screens/loops.md#record-live), heard as they are written: a key's note on the keys' lane
- * `lane` (0-3) in instrument in, the same way, on the keys' voices (the KEYS column's mix, as a key's: vol its velocity);
- * player_lp_off(PL_LP_KEYS, lane, row) its end. Its lanes' notes let go when the loops stop */
-#define PL_LP_KEYS 17
-void player_lp_keys(int lane, pl_inst_t in, uint8_t note, uint8_t vol, int row, unsigned glide);
-/* A take on loop (player_state().lp_take): armed, it begins at the loops' next start (row 0 after the wrap; at once
- * when they start with it armed) and lasts one pass, in which its loop's stream is not read (its notes come from
- * player_lp_note); at its end the notes it holds stop and the stream is read again. -1: armed, cancelled; running,
- * ended now (its notes stop, the stream unread till the next start) */
-enum { PL_TAKE_NONE, PL_TAKE_ARMED, PL_TAKE_RUNNING, PL_TAKE_DONE };
-void player_lp_take(int loop);
-/* The pattern recorder's preview (specs/ui/screens/loops.md#the-pattern-recorder-arp), a loop more: with the loops
- * playing it plays in time with them, its steps from their start, repeated over their length (the last repeat cut);
- * alone (player_lp_preview_alone(1)) the replay runs for it with the loops silent. Its voices are track `track`'s
- * (its mix, the source's song's: the next loop's at loops_n()), their lanes its own. (Copied; taken at the next half) */
+/* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live): where notes enter the voices, an event in a ring for each
+ * note that sounds and ends, whatever plays it: a lane's (the loops, the preview, the stage, its keys, the stage-off keys),
+ * a key's on another screen, the pattern recorder's single notes. Only notes with a voice among the VOICES count: one given
+ * none is not told; one losing it, taken or parked past the count, is told PT_LOST; a parked note coming back tells
+ * nothing. A muted loop's notes are not heard, so not told; a change of the loops heard comes as PT_MUTE. An event per
+ * note, never per frame; the audio context writes, the main loop reads. t: the low bits of the loops' replay's tick
+ * (player_state().lp_ticks); note: 12-127 a note, else PT_*; fl: LF-style bits PTF_*, glide: its 3xx's xx. A lane holds
+ * one note; PT_KEY's lane: a key's, told apart by its note. A ring too full loses the event (counted: player_tap_lost) */
+enum { PT_OFF, PT_LOST, PT_MUTE, PT_MOVE };     /* (a note's lane's: ends; its voice lost; the loops silent now are cart |
+                                                 * slot << 8; lane's note goes on on lane vol, its source ch) */
+enum { PTF_ACC = 1, PTF_SLD = 2, PTF_LEG = 4, PTF_SLID = 8 };   /* its ACC, its SLD, its LEG, come by a TB-303's slide */
+#define PT_KEY 96                               /* lane: the keys (a key's note, its key in glide), on any screen */
+#define PT_HEAR 97                              /* lane: the pattern recorder's single notes */
+#define PT_SKEYS 72                             /* lane: the stage's keys' first (4 x PL_LP_STAGE_KEYS) */
+#define PT_KEYCH 16                             /* ch: the keys' own (else a replay's channel) */
+typedef struct { uint16_t t; uint8_t lane, note, vol, fl, glide, ch, cart, slot; } pl_tap_t;
+void player_tap(pl_tap_t *ring, uint32_t n);    /* on, a ring of n (a power of 2) entries; ring NULL: off */
+int player_tap_peek(pl_tap_t *e);               /* the oldest event: 0 none */
+void player_tap_next(void);                     /* ... gone */
+uint32_t player_tap_lost(void);                 /* notes the ring had no room for, since it went on (an event that is no note is lost uncounted) */
+uint32_t player_tap_held(void);                 /* events waiting in the ring */
+
+/* ---- LOOPS' stage (specs/ui/screens/loops.md#the-stage; specs/files/ram.md#the-stage-in-the-edit-memory) ----
+ * The stage is a loop more, belonging to no loop: its stream the store's (store_stage, read again whenever the store's
+ * watch tells of it: player_store_watch; a stage dropped stops what its lanes hold, unless player_lp_stage_end(loop)
+ * came first), its base the length, played once, SHIFT 0, in the keys' instrument and mode (player_lp_stage), on its 4
+ * lanes. Its voices sound through the mix of the loop REC would put it in (`track`: the selected loop's place, on + NEW
+ * LOOP loops_n(), the next loop's mix) and never a mute or a solo: they are that track's (its LEVEL, PAN, DUCK and sends,
+ * a DUCK source and FILTER's envelope's as it), but the mute check passes them by; so do the preview's and
+ * player_hear's. A new track takes the sounding notes with it at once.
+ * - MONO: a stage of more than one lane plays on one voice (its lane 0): a note on any lane takes over (the later lane's
+ *   of one row), an end counts only on the lane whose note sounds, as REC writes it (loops_stage_write): the merge
+ *   counted from the stage's row 0, so a jump or an edit gives the same as playing it through. Switched to MONO, the
+ *   notes of its lanes 1-3 end at its next row; POLY again, its lanes play their own from the next row.
+ * - The keys on the stage (player_lp_note(PL_LP_STAGE_KEYS, lane, ...)): 4 lanes of their own, each note asked for at
+ *   its landing row (ahead) or at once, with its note delay, glide, LEG or a TB-303's slide, in the stage's instrument,
+ *   through the stage's column. A note asked for at a row ahead stands in for the stage's cell at that row and lane, that
+ *   once (the stage's lane does not start it then: in MONO, the cell its merge takes), so a note is heard once as it is
+ *   played, then from the stage each time the loops reach its row.
+ * - The keys while the stage is off (player_lp_note(PL_LP_STAGE_KEYS, 4 + lane, ...), lane 0 to PL_LP_OFF_LANES - 1):
+ *   16 lanes more, each note at once, in the stage's instrument, through the stage's column, as the keys on it are, but
+ *   standing in for nothing; the screen gives each POLY key a lane (as many as the pool's 16 voices can sound), MONO one,
+ *   with its glide, LEG or slide. The stage's rest does not touch them; the loops' stop and the preview alone let them
+ *   go.
+ * - The lanes held (player_lp_hold): from their row the stage's cells on those lanes are not read and their notes end
+ *   (the row's first, before anything of it plays), until they are free again; the other lanes and the rows before play
+ *   on. A jump takes the held lanes to where the loops land (OVERWRITE goes on from there); a start frees them.
+ * - The selected loop told silent (`silent`): its lanes are not read, its notes end at once; heard again from the next
+ *   row once it is not.
+ * - Its rest (`rest`, while the stage is switched off): the stage is not read, its notes end at once, no loop is silent;
+ *   from the next row once it is over.
+ * - The preview alone silences it with the loops. */
+#define PL_LP_STAGE_KEYS 18
+#define PL_LP_OFF_LANES 16              /* the stage-off keys' lanes (PL_LP_STAGE_KEYS' 4 to 19) */
 typedef struct {
-    uint16_t steps[4];          /* each row's steps switched on: bit k step k */
-    uint8_t note[4];            /* each row's note, MIDI */
-    uint8_t step_rows;          /* a step's rows */
+    pl_inst_t inst;             /* the keys' instrument: the stage's sound, its keys' too */
+    uint8_t mono;               /* the keys' mode: 1 MONO (one voice), 0 POLY */
+    uint8_t track;              /* the mix it sounds through: the selected loop's place, or loops_n() (+ NEW LOOP) */
+    uint8_t silent;             /* the loop the stage stands for, silent (the selected one while the stage holds notes);
+                                 * 0xFF none */
+    uint8_t rest;               /* 1: the stage resting (switched off) */
+} pl_lp_stage_t;
+void player_lp_stage(const pl_lp_stage_t *s);   /* (copied; taken at the next half) */
+/* the stage's lanes `lanes` (bits 0-3) held from row `row` of the loops' pass `pass` (player_state().lp_pass; a row
+ * already begun: at once), as the screen tells each change: POLY's key down all four, MONO's lane 0, OVERWRITE all four
+ * from the line; each lane its earliest held place. row < 0: those lanes free again (read from the next row) */
+void player_lp_hold(unsigned lanes, int pass, int row);
+/* ALGORITHM while the loops play (specs/ui/screens/loops.md#the-play-position-play-and-jumps): the replay's next row
+ * moved `rows` rows round the length (asked again before it lands: from where it was going), landing as the row ends.
+ * No line: the notes sounding ring on (each until its lane's next cell), a loop landing in its rest falls silent there,
+ * the stage plays what it holds from there. A jump back keeps the loops' pass, one forward past the length's end counts
+ * the next. player_state(): lp_jumps counts the landings, lp_land_row the last one's row (its pass below). Each landing
+ * counts as a switch of the rest's too (lp_sw ..., the loops' row from there); while RECORD LIVE's rest keeps them silent
+ * it moves their place (lp_rest_row) instead, and while one of its own jumps is under way it does nothing */
+void player_lp_jump(int rows);
+/* REC sent the stage (specs/ui/screens/loops.md#rec-edit-and-the-arm): loop >= 0 (the loop loops_stage_write wrote, the
+ * stage's track): what of the stage sounds goes on as that loop's, without a break (the loop's own notes let go first;
+ * its mute applies again); < 0: what of the stage sounds lets go at once (EDIT, the stage's clear, CLEAR LOOPS). Call it
+ * once the loop is written and before the stage is dropped (store_stage_drop): a drop told before the request is taken
+ * keeps the stage's lanes for it. Once a send, and not again before the request is taken (the audio takes it within a
+ * half; REC's 500 ms of nothing after a job keeps a second send that far off): a second call before then would leave
+ * a drop between the two keeping lanes that nothing moves */
+void player_lp_stage_end(int loop);
+/* The pattern recorder's preview (specs/ui/screens/loops.md#the-pattern-recorder-arp), a loop more: with the loops
+ * playing it plays in time with them, its steps from their start, a grid row each, repeated over their length (the last
+ * repeat cut there); alone (player_lp_preview_alone(1)) the replay runs for it with the loops and the stage silent. Each
+ * row a lane (the rows with a step on, in order): a step on starts its note, held NOTE LENGTH's rows plus its ties' steps
+ * (a tie: a step held from the one before), ended there by a note off unless the row's next note comes first (the
+ * pattern round: the next repeat's first); note_rows 0, TO THE NEXT: no note off. Its voices are track `track`'s (its
+ * mix, the source's song's: the next loop's at loops_n()), on the stage's column (no mute or solo silences them), their
+ * lanes its own. (Copied; taken at the next half) */
+typedef struct {
+    uint16_t steps[4];          /* each lane's steps switched on: bit k step k */
+    uint16_t ties[4];           /* ... and its ties: bit k step k held from the step before */
+    uint8_t note[4];            /* each lane's note, MIDI */
     uint8_t length;             /* LENGTH: its steps, 1-16 */
-    uint8_t ring;               /* 1 RING TO THE NEXT; 0 A STEP LONG: a note off a step after a note whose next step is off */
+    uint8_t note_rows;          /* NOTE LENGTH in rows (0: TO THE NEXT) */
     uint8_t mute;               /* its sound off (ARP while the loops play): nothing starts, what sounds stops */
     uint8_t vol;                /* its notes' volume, 00-7F (KEYS VOLUME) */
     uint8_t track;              /* its track: the loop it was opened on, else the next loop's place (loops_n()) */
-    uint8_t times;              /* with no loops: its repeats (TIMES) ... */
-    uint8_t rows;               /* ... in a clock of these rows (LENGTH x step rows x TIMES in whole bars) */
     pl_inst_t inst;             /* its instrument */
 } pl_lp_grid_t;
 void player_lp_preview(const pl_lp_grid_t *g);  /* NULL: off (alone: the replay stops, the loops' place kept) */
+/* ... a note of it heard on its own (K3, OCT, SEL + a key, a step switched on): instrument inst at vol (00-7F) on the
+ * loops' track `track` (the voices' 16 + track), through its mix as the preview's notes are, on the stage's column, the
+ * one heard before let go; note 0: that one let go. (DJ's decks held, the right deck on those tracks: a key's note) */
+void player_hear(uint8_t note, pl_inst_t inst, uint8_t vol, int track);
 /* 1: the preview alone, the loops silent, their place kept: if they play they pause and the replay runs on from where
  * it is (PLAY pausing them), else it runs from row 0 (ARP starting it); player_continue then plays the loops from their
  * place, the preview with them. 0: it stops (the replay paused, the loops' place as kept) */
 void player_lp_preview_alone(int on);
-/* REC wrote the preview into loop `loop` (its stream given before): the preview goes, its sounding notes going on as
- * that loop's, without a break; alone, the loops play on from the replay's place (theirs dropped) */
-void player_lp_preview_keep(int loop);
+/* REC put the preview onto the stage (its stream given before, store_stage_put): the preview goes, its sounding notes
+ * going on as the stage's lanes', without a break (the stage's own let go first); alone, the loops play on from the
+ * replay's place (theirs dropped). With no stage, its notes let go (alone, the loops play on all the same) */
+void player_lp_preview_keep(void);
 /* RECORD LIVE's rest (specs/ui/screens/loops.md#record-live): the loops' replay runs on while the loops are silent.
  * 1: silent from the next row, their place kept (a replay just started, loops_play: from its first row); 0: on again
  * from their place, on the next row; 2: to their start (playing: from the top on the next row; silent or paused:
@@ -309,6 +392,25 @@ typedef struct {                /* DJ's mix as it stands: the main loop sets it 
     uint8_t swaps;              /* the SWAPs the stand has made (player_dj_swap's count): a mix set before a SWAP and
                                  * taken after it (or the other way) is taken for the decks' sides as they are */
 } player_dj_t;
+/* SYNC's multiple (specs/ui/screens/dj.md#tempo-and-sync): base10 (BPM x 10) at x1 (m 0), x1/2 (1) or x2 (2), the half
+ * to the nearest 0.1 BPM (a half up); and the multiple whose BPM is nearest own10 (a tie: the first). The screen, the
+ * stand and the player pick it alike */
+static inline uint32_t pl_mult_bpm10(uint32_t base10, uint32_t m)
+{
+    return m == 1u ? (base10 + 1u) / 2u : m == 2u ? base10 * 2u : base10;
+}
+static inline uint32_t pl_nearest_mult(uint32_t base10, uint32_t own10)
+{
+    uint32_t m, best = 0, bd = ~0u;
+    for (m = 0; m < 3u; m++) {
+        uint32_t v = pl_mult_bpm10(base10, m), d = v > own10 ? v - own10 : own10 - v;
+        if (d < bd) {
+            bd = d;
+            best = m;
+        }
+    }
+    return best;
+}
 void player_dj(int on, const uint8_t *fx_setup);    /* DJ's FX setup, 64 B, the caller's while DJ plays */
 /* The second deck's own memory (its IBXM tables, its Juno-106 chorus, its mix: player_dj_mem_size bytes), lent
  * by the caller while DJ plays (specs/files/ram.md: from the ROM cache's part); without it the second deck stays
@@ -343,6 +445,17 @@ void player_deck_loop(int d, int kind, uint8_t pos, uint8_t row, uint16_t rows, 
                                                  * position over and over; ROWS: rows from (pos, row) round and round;
                                                  * roll: a ROLL, held (player_deck_roll_end lets it go) */
 void player_deck_roll_end(int d);               /* a ROLL let go: the loop off, the deck on from where it is in it */
+/* What waits for a playing deck's next bar line or beat (specs/ui/screens/dj.md#loading, #the-pads), landed there in the
+ * audio context: only on a row the deck plays into (never the row a jump lands on, nor BACKSPIN's rows back), never
+ * through a stop (the first one after the deck plays on); a pause (HOLD, PLAY), another LOAD, its song's end drop it.
+ * player_deck_load_at: a LOAD at the bar line: there the song playing stops and `song` plays on from its start, at
+ * that tempo (player_deck_tempo's), its mutes, loop and KEY cleared, a JUMP or MOVE waiting dropped; a song that stops
+ * has its last bar line at its end. Asked again, it is the one waiting (a tempo changed meanwhile); 0xFF: cancelled.
+ * player_deck_jump_at: on the deck's next beat a JUMP to (pos, row), or (move) a MOVE into the bar at (pos, row), on
+ * the beat the deck plays in its own; a loop goes along (bars: a REPEAT's bars, on their grid); player_deck_place
+ * drops it. player_state().deck[d]: land says what waits, loads and jumps count the landings */
+void player_deck_load_at(int d, uint8_t song, uint32_t share_q16, uint16_t fixed_bpm10);
+void player_deck_jump_at(int d, uint8_t pos, uint8_t row, int move, int bars);
 
 /* ---- stepping (PLAYBACK's SELECT: specs/ui/screens/playback.md) ----
  * The first step, either way, pauses what plays (or takes what is paused at its place) and plays its current
@@ -368,6 +481,15 @@ void player_arp_inst(pl_inst_t inst);           /* the current instrument change
 void player_key_on(uint8_t note, pl_inst_t inst, uint8_t vel);
 void player_key_off(uint8_t note);
 void player_keys_off(void);                     /* every key's note lets go */
+/* THE SAMPLES list's keys (specs/ui/screens/instruments.md#the-samples): a sample instrument's slot bytes, copied now,
+ * that a key names as PL_KEYS_SAMPLE_CART:PL_KEYS_SAMPLE_SLOT (no cartridge has slot FF): what ENV would make of the
+ * highlighted sample, heard before it is picked; NULL none (such a key then plays nothing). The bytes are read at each
+ * note-on, so a key plays the bytes last given before it. FE:FF, not FF:FF: the UI's "no instrument" is 0xFFFF
+ * (ui_last_inst), so a "none" that reached the player by mistake plays nothing, never the preview */
+#define PL_KEYS_SAMPLE_CART 0xFEu
+#define PL_KEYS_SAMPLE_SLOT 0xFFu
+#define PL_KEYS_SAMPLE_BYTES 40         /* (a sample instrument's slot: rec_slot_size(REC_SAMPLER)) */
+void player_keys_sample(const uint8_t *slot);
 
 /* ---- MIDI (specs/connections.md; core/midi) ----
  * player_ext_tempo: SYNC EXTERNAL's tempo, BPM x 10, in place of what plays' own (0: its own again); on DJ the
@@ -440,6 +562,8 @@ typedef struct {
         uint8_t loop;           /* PL_DLOOP_* */
         uint8_t loop_pos, loop_row, roll;
         uint16_t loop_rows;
+        uint8_t land;           /* what waits for its bar line or beat: bit 0 a LOAD, bit 1 a JUMP, bit 2 a MOVE */
+        uint8_t loads, jumps;   /* the LOADs and the JUMPs or MOVEs landed so far (counting on, wrapping) */
     } deck[2];
     int16_t lfo_xf8;            /* the crossfader now, 0-32 << 8 */
     int16_t lfo_filt8[2];       /* each DJ FILTER as heard, -64 << 8 .. 63 << 8 */
@@ -452,9 +576,10 @@ typedef struct {
     uint8_t count_beat;         /* its beats clicked so far (1 .. count_beats) */
     uint8_t lcue;               /* the loops held for the keys (player_cue_loops), not played */
     /* LOOPS' lanes (what == PL_LOOPS: row, tick and muted are theirs, muted the loops silent now) */
-    uint8_t lp_take;            /* PL_TAKE_*: player_lp_take's */
-    int8_t lp_take_loop;        /* its loop (-1 none) */
-    uint16_t lp_pass;           /* the loops' passes since they started (each wrap one more) */
+    uint8_t lp_jumps;           /* the jumps landed (player_lp_jump; counting on, wrapping) ... */
+    uint8_t lp_land_row;        /* ... the last one's row (its pass: lp_pass, one less while row is under it: read within
+                                 * a pass of it) */
+    uint16_t lp_pass;           /* the loops' passes since they started (each wrap one more, a jump forward past the end) */
     uint8_t lp_bar_wait;        /* a mute / solo change waits for the bar line */
     uint8_t lp_alone;           /* the preview plays alone (playing is 0: the loops are paused, row its place) */
     uint8_t lp_rest;            /* RECORD LIVE's rest (player_lp_rest): 1 the loops silent (playing is 1, row the
@@ -462,6 +587,8 @@ typedef struct {
     uint8_t lp_rest_row;        /* the loops' place while silent (or a queued jump's row) */
     uint8_t lp_sw, lp_sw_row;   /* the rest's switches so far (wrapping), the last one's loops' row (0xFF silent) */
     uint32_t lp_sw_rows;        /* ... and the rows_played it took effect at */
+    uint32_t lp_ticks, lp_t0;   /* the loops' replay's ticks, counted on for good (the tick playing, RECORD LIVE's time);
+                                 * the first tick of its last start */
 } player_state_t;
 void player_state(player_state_t *s, int reset_max);
 

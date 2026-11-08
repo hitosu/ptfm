@@ -24,7 +24,7 @@ if (process.env.AT_PASS_MS) ex.web_pass_min(+process.env.AT_PASS_MS * 1000);   /
 /* the device's time, rendered a quantum at a time; what sleeps wakes when its time comes */
 let now = 0, frames = 0;
 const sleepers = [], asks = [], figuresWin = [];
-let measuring = null, benchWait = null, figAt = 1000, log = [], figFlags = 0;
+let measuring = null, figAt = 1000, log = [], figFlags = 0;
 let lastFig = null, figures = 0, joined = 0;            /* (the last 31; the 31s, the 37s joined to them) */
 let figHeard = 0, stNum = 0, stLost = 0, stLate = 0, stSeen = 0;   /* (as the page counts them: io.heard, io.answers) */
 /* AT_LOSE_STATES=K:N: the state's answers K to K+N-1 lost on the way (never reach the page), as a computer drops them */
@@ -65,8 +65,6 @@ function take(m) {
     if (f) { lastFig = f; figures++; figHeard = now; if (measuring) measuring.push(f); return; }
     const c = FG.decode2(m);                            /* 37: core 2's window, into its 31's (right before it) */
     if (c) { if (FG.join(lastFig, c)) joined++; return; }
-    const b = FG.decodeBench(m);
-    if (b && benchWait) { benchWait.B.add(b); if (b.kind === "END") { const w = benchWait; benchWait = null; w.r(w.B); } }
 }
 function sendBytes(bytes) {
     if (process.env.AT_TRACE && bytes[0] !== 0xF0) log.push(`  ${(now / 1000).toFixed(3)} > ${Array.from(bytes, (x) => x.toString(16)).join(" ")}`);
@@ -83,7 +81,6 @@ const io = {
     measure: () => { measuring = []; },
     measured: () => { const w = measuring || []; measuring = null; return w; },
     freeze: (on) => { figFlags |= on ? FG.FREEZE : FG.UNFREEZE; },
-    bench: () => new Promise((r) => { benchWait = { B: FG.bench(), r }; sendBytes(FG.benchAsk(1)); }),
     prompt: async (text) => { log.push(`PROMPT: ${text}`); },
     log: (text) => { log.push(text); },
     stopped: () => STOP_AT > 0 && now >= STOP_AT,     /* AT_STOP_AT=s: STOP pressed then (the device's time) */
@@ -126,16 +123,14 @@ const R = AT.run(io, list, { scale: SCALE });
                 `  ${endOk ? "ok" : "FAIL"}`);
     if (!endOk) process.exit(1);
     /* both cores in the figures: every 31 followed by its 37 (the window's number joining them); DJ HEAVY on two
-     * cores hands blocks over (the emulator runs them where they are handed over), its ONE CORE twin none */
+     * cores hands blocks over (the emulator runs them where they are handed over) */
     const c2Blocks = (name) => ((R.results.find((r) => r.name === name) || {}).stretches || [])
         .flatMap((x) => x.windows || []).reduce((a, f) => a + (f.c2 ? f.c2.blocks : 0), 0);
     const ran = (name) => R.results.some((r) => r.name === name && r.status === "PASSED");
     console.log(`both cores: ${figures} FIGURES, ${joined} with their 37` +
-                (ran("DJ HEAVY") ? `; DJ HEAVY ${c2Blocks("DJ HEAVY")} blocks on core 2` : "") +
-                (ran("DJ HEAVY, ONE CORE") ? `, ONE CORE ${c2Blocks("DJ HEAVY, ONE CORE")}` : ""));
-    if (joined !== figures || (ran("DJ HEAVY") && !(c2Blocks("DJ HEAVY") > 0)) ||
-        (ran("DJ HEAVY, ONE CORE") && c2Blocks("DJ HEAVY, ONE CORE") !== 0)) {
-        console.log("FAIL both cores: a FIGURES without its 37, or core 2's blocks not as SECOND CORE says"); process.exit(1);
+                (ran("DJ HEAVY") ? `; DJ HEAVY ${c2Blocks("DJ HEAVY")} blocks on core 2` : ""));
+    if (joined !== figures || (ran("DJ HEAVY") && !(c2Blocks("DJ HEAVY") > 0))) {
+        console.log("FAIL both cores: a FIGURES without its 37, or DJ HEAVY handed core 2 no block"); process.exit(1);
     }
     const failed = R.results.filter((r) => r.status !== "PASSED" && !(STOP_AT && /STOPPED/.test(r.status + r.why)));
     console.log(`\nautotest: ${R.results.length} scenarios in ${(now / 1000).toFixed(0)} s of the device's time ` +

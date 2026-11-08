@@ -25,6 +25,9 @@ enum { K_LPLAY = 1, K_LHOLD = 3, K_LFILTER = 5, K_LLOAD = 8, K_RLOAD = 10, K_RPL
        K_SYNC = 20, K_MODE = 25 };         /* (POLY, 22: none since PREVIEW went, no audio of its own) */
 enum { P_SET, P_CUE, P_JUMP, P_MOVE };
 #define PAD_TAP_MS 250
+#define WAIT_SEEN_MS 300                /* a wait asked of the player and not seen there within this: not taken (the deck
+                                         * paused meanwhile) */
+#define DONE_MS 300                     /* SET CUE's and ALL OFF's pads full this long as they act */
 /* the LFOs (the LFO pads): their words */
 static const txt_t LFO_SPEED[9] = {TX("32 BARS"), TX("16 BARS"), TX("8 BARS"), TX("4 BARS"), TX("2 BARS"), TX("1 BAR"),
                                    TX("1/2"), TX("1/4"), TX("1/8")};
@@ -70,6 +73,15 @@ typedef struct {
     uint8_t hold_lrow, hold_pos, hold_row;   /* (... and where the deck stood) */
     uint32_t loop_t;                    /* when its pad went down */
     uint32_t load_t;                    /* when a LOAD on a playing deck was pressed, till it is let go (its hold) */
+    /* what waits in the player (a LOAD for the bar line, a JUMP or MOVE for the beat: the player lands it there): seen
+     * there; the player's count of such landings when asked; when asked (ms, low 16 bits) */
+    uint8_t load_seen, loads0, jump_seen, jumps0;
+    uint16_t load_ms, jump_ms;
+    uint8_t ended_was;                  /* the player had it at its song's end when the stand last followed it */
+    uint8_t bm_song, bm_n, bm_next, bm_pos[4];   /* bar_of's memo: the bars before a few positions (bm_n), for the song
+                                         * and the store as they were (bm_gen) */
+    uint16_t bm_bar[4];
+    uint32_t bm_gen;
 } dk_t;
 static struct {
     uint8_t mode, mode_before, k23vol;  /* the pads' mode; ENV: K2 / K3 turn the volumes */
@@ -88,6 +100,7 @@ static struct {
     uint8_t loads;                      /* dj_loads() as last seen (its low byte): another, the stand reloaded
                                          * (REVERT, a seed); in the padding before dirty_at, so no RAM */
     uint32_t dirty_at, flash[27], play_at[2];   /* (play_at: a deck's PLAY key down, for its hold) */
+    uint32_t done[3];                   /* SET CUE's pads (the left's, the right's) and ALL OFF lit full till then */
     uint8_t play_fired[2];              /* held past the hold delay: back at the start */
     int16_t last_row[2];
     dk_t dk[2];
@@ -103,13 +116,23 @@ static int song_beats(uint8_t n)
     return b < 1 ? 4 : b > 16 ? 16 : b;
 }
 static int bar_rows(int d) { return dj.dk[d].rpb * dj.dk[d].beats; }
-/* the bar a place is in, counted from the song's start */
+/* the bar a place is in, counted from the song's start. A frame asks for a few positions (the playhead's, the cue's, a
+ * loop's, MOVE's cursor) again and again: the bars before each kept while the song and the store stay as they were */
 static int bar_of(int d, int pos, int row)
 {
+    dk_t *k = &dj.dk[d];
+    uint8_t song = dj_deck(d)[DK_SONG];
+    int br = bar_rows(d);
     ui_song_t s;
-    if (!song_info(dj_deck(d)[DK_SONG], &s)) return 0;
-    int b = 0, br = bar_rows(d);
+    if (song == DJ_NO_SONG || br < 1) return 0;
+    if (k->bm_gen != store_gen() || k->bm_song != song) { k->bm_gen = store_gen(); k->bm_song = song; k->bm_n = 0; }
+    for (int i = 0; i < k->bm_n; i++) if (k->bm_pos[i] == pos) return k->bm_bar[i] + row / br;
+    if (!song_info(song, &s)) return 0;
+    int b = 0;
     for (int p = 0; p < pos && p < s.npos; p++) b += (ui_pattern_rows(s.order[p]) + br - 1) / br;
+    int i = k->bm_n < 4 ? k->bm_n++ : k->bm_next++ & 3;   /* (full: the oldest goes) */
+    k->bm_pos[i] = (uint8_t)pos;
+    k->bm_bar[i] = (uint16_t)b;
     return b + row / br;
 }
 static void read_song(int d)            /* at LOAD: the bars, the overview, the own tempo */
@@ -194,6 +217,9 @@ static int has_song(int d) { return dj_deck(d)[DK_SONG] != DJ_NO_SONG; }
 static void refuse_key(int n) { if (n >= 0 && n < 27) dj.flash[n] = ui_now() + 600; }
 static void no_song(int n) { refuse_key(n); ui_toast(T("NO SONG ON THE DECK")); }
 static int playing(int d) { dj_deck_state_t s; dj_deck_state(d, &s); return s.playing; }
+/* the deck moved off its song's end (CUE, JUMP, MOVE, HOLD's hand, the start, a LOAD): AT THE END cleared, and a
+ * reading of the player's from before the move does not set it again (keep_place) */
+static void off_end(int d) { dj_deck(d)[DK_FLAGS] &= (uint8_t)~DF_AT_END; dj.dk[d].ended_was = 1; }
 
 /* the tempo: a deck's own (the song's share); a synced right deck the main's, its half or its double. With SYNC
  * EXTERNAL and a clock the main deck plays at the clock's, its half or double nearest its song's own (the player
@@ -207,68 +233,94 @@ static int clock10(void)                /* the clock's BPM x 10 (SYNC EXTERNAL),
 }
 static int main10(void)
 {
-    int e = clock10(), own = dj.dk[0].own10, best = e, bd = 1 << 30;
+    uint32_t e = (uint32_t)clock10();
     if (!e || !has_song(0)) return dj_deck_bpm10(0);
-    for (int m = 0; m < 3; m++) {
-        int v = m == 1 ? e / 2 : m == 2 ? e * 2 : e, dd = v > own ? v - own : own - v;
-        if (dd < bd) { bd = dd; best = v; }
-    }
-    return best;
+    return (int)pl_mult_bpm10(e, pl_nearest_mult(e, dj.dk[0].own10));
 }
-static int sync_mult_for(int d)         /* the multiple nearest the right song's own */
-{
-    int m10 = main10(), own = dj.dk[d].own10, best = 0, bd = 1 << 30;
-    static const int M[3][2] = {{1, 1}, {1, 2}, {2, 1}};       /* x1, x1/2, x2 */
-    for (int m = 0; m < 3; m++) {
-        int v = m10 * M[m][0] / M[m][1], dd = v > own ? v - own : own - v;
-        if (dd < bd) { bd = dd; best = m; }
-    }
-    return best;
-}
+/* the multiple nearest the right song's own (own10: a song's own tempo, BPM x 10) */
+static int sync_mult_for(int own10) { return (int)pl_nearest_mult((uint32_t)main10(), (uint32_t)own10); }
 /* SYNC on: the multiple picked again for the main's tempo as it is now (a LOAD, SWAP, SYNC on, the own tempo) */
-static void sync_pick(void) { if (dj_sync() && has_song(1)) DJ_REC[6] = (uint8_t)((DJ_REC[6] & ~12) | sync_mult_for(1) << 2); }
+static void sync_pick(void) { if (dj_sync() && has_song(1)) DJ_REC[6] = (uint8_t)((DJ_REC[6] & ~12) | sync_mult_for(dj.dk[1].own10) << 2); }
 static int bpm10(int d)
 {
-    if (d == 1 && dj_sync() && has_song(0)) {
-        static const int M[3][2] = {{1, 1}, {1, 2}, {2, 1}};
-        int m = dj_sync_mult();
-        return main10() * M[m][0] / M[m][1];
-    }
+    if (d == 1 && dj_sync() && has_song(0)) return (int)pl_mult_bpm10((uint32_t)main10(), (uint32_t)dj_sync_mult());
     return d ? dj_deck_bpm10(d) : main10();
 }
-static void send_tempo(void) { for (int d = 0; d < 2; d++) if (has_song(d)) dj_deck_tempo(d, bpm10(d)); }
+static void load_post(int d);
+/* the decks' tempos to the player, a LOAD waiting's too (it lands at the tempo the deck plays then) */
+static void send_tempo(void)
+{
+    for (int d = 0; d < 2; d++) {
+        if (has_song(d)) dj_deck_tempo(d, bpm10(d));
+        if (dj.dk[d].load_to != DJ_NO_SONG) load_post(d);
+    }
+}
 static void fmt_bpm(char *b, int v10) { ui_fmt(b, 12, "%d.%d", v10 / 10, v10 % 10); }
 static void fmt_change(char *b, int d)
 {
     int own = dj.dk[d].own10, now = bpm10(d);
     if (!own) { b[0] = 0; return; }
-    int c = (now - own) * 1000 / own;                   /* x 0.1 % */
-    ui_fmt(b, 12, "%c%d.%d%%", c < 0 ? '-' : '+', (c < 0 ? -c : c) / 10, (c < 0 ? -c : c) % 10);
+    int c = ((now - own) * 2000 / own + (now >= own ? 1 : -1)) / 2;   /* x 0.1 %, to the nearest (a half away from 0) */
+    ui_fmt(b, 12, "%c%d.%d%%", now < own ? '-' : '+', (c < 0 ? -c : c) / 10, (c < 0 ? -c : c) % 10);   /* (a little
+                                                         * under: -0.0%, as the playground's) */
 }
 
 /* ------------------------------------------------------------------- the decks --- */
-/* was_playing: the LOAD waited on a playing deck (its bar line, or the end of a song that stops there): the new song
- * plays on */
-static void load_now(int d, uint8_t song, int own, int was_playing)
+/* landed: the LOAD waited on a playing deck and the player made it there (its bar line, or the end of a song that
+ * stops there: player_deck_load_at), the new song playing on; the stand follows. Else a paused deck's, at once */
+static void load_now(int d, uint8_t song, int own, int landed)
 {
     uint8_t *k = dj_deck(d);
     k[DK_SONG] = song;
     k[DK_POS] = k[DK_ROW] = k[DK_CUE_POS] = k[DK_CUE_ROW] = 0;
     k[DK_KEY] = 0;
-    k[DK_FLAGS] &= (uint8_t)~(DF_REPEAT_PATTERN | DF_AT_END);
+    k[DK_FLAGS] &= (uint8_t)~DF_REPEAT_PATTERN;
+    off_end(d);
     k[DK_LOOP] = 0;
     k[DK_MUTES] = k[DK_MUTES + 1] = 0;
     k[DK_SOLO] = 0xFF;
-    if (!was_playing) { k[DK_FILTER] = 0; k[DK_FLAGS] |= DF_FILTER_ON; k[DK_LFO] = 0; }   /* (on at OFF) */
+    if (!landed) { k[DK_FILTER] = 0; k[DK_FLAGS] |= DF_FILTER_ON; k[DK_LFO] = 0; }   /* (on at OFF) */
     read_song(d);
-    if (!was_playing || own) dj_deck_set_bpm10(d, dj.dk[d].own10);  /* tapped on a playing deck: the BPM it played */
+    if (!landed || own) dj_deck_set_bpm10(d, dj.dk[d].own10);  /* tapped on a playing deck: the BPM it played */
     sync_pick();                                        /* (either deck: the main's tempo or the right song's own) */
-    dj_deck_load(d, song);
+    if (!landed) dj_deck_load(d, song);
     send_tempo();
     dj_deck_key(d, 0);
     dj_deck_mutes(d, 0);
-    if (was_playing) dj_deck_play(d, 1);
+    dj.dk[d].roll = dj.dk[d].loop_pad = 0;              /* (a ROLL held: gone with the song) */
     changed();
+}
+/* a LOAD waiting for a playing deck's bar line, to the player (it lands it there), at the tempo it lands at: the BPM
+ * the deck plays (LOAD held past the hold delay: the song's own; a synced right deck the main's, at the multiple
+ * nearest the new song's own); asked again whenever that changes (send_tempo) */
+static void load_post(int d)
+{
+    dk_t *k = &dj.dk[d];
+    uint32_t own = dj_song_own10(k->load_to), m10 = (uint32_t)main10();
+    int b = d == 1 && dj_sync() && has_song(0) ? (int)pl_mult_bpm10(m10, pl_nearest_mult(m10, own))
+          : k->load_own ? (int)own : bpm10(d);
+    dj_deck_load_at(d, k->load_to, b);
+}
+static void load_drop(int d)                            /* a LOAD waiting dropped (CUE, cancelled) */
+{
+    dk_t *k = &dj.dk[d];
+    if (k->load_to != DJ_NO_SONG) dj_deck_load_at(d, DJ_NO_SONG, 0);
+    k->load_to = DJ_NO_SONG;
+    k->load_own = 0;
+    k->load_t = 0;
+}
+/* a JUMP or MOVE for the deck's next beat, to the player (it lands it there): the one waiting, if any, replaced */
+static void jump_post(int d, int pos, int row, int move)
+{
+    dk_t *k = &dj.dk[d];
+    dj_deck_state_t st;
+    dj_deck_state(d, &st);
+    k->jump_beat = (uint8_t)!move;
+    k->move_wait = (uint8_t)move;
+    k->jump_seen = 0;
+    k->jumps0 = st.jumps;
+    k->jump_ms = (uint16_t)ui_now();
+    dj_deck_jump_at(d, pos, row, move);
 }
 static void load_key(int d, int n)
 {
@@ -280,11 +332,17 @@ static void load_key(int d, int n)
     uint8_t song = nums[dj.list];
     if (!ui_song(song, &s) || !s.npos) { refuse_key(n); ui_toast(ui_txt_v(T("SONG # IS EMPTY"), ui_hex2(song))); return; }
     char b[48];
-    if (k->load_to != DJ_NO_SONG) { k->load_to = DJ_NO_SONG; ui_fmt(b, sizeof b, T("%s: LOAD CANCELLED"), side(d)); ui_toast(b); return; }
-    if (playing(d)) {                                   /* on the deck's next bar line */
+    if (k->load_to != DJ_NO_SONG) { load_drop(d); ui_fmt(b, sizeof b, T("%s: LOAD CANCELLED"), side(d)); ui_toast(b); return; }
+    if (playing(d)) {                                   /* on the deck's next bar line: the player lands it there */
+        dj_deck_state_t st;
+        dj_deck_state(d, &st);
         k->load_to = song;
         k->load_own = 0;
         k->load_t = ui_now() | 1;
+        k->load_seen = 0;
+        k->loads0 = st.loads;
+        k->load_ms = (uint16_t)ui_now();
+        load_post(d);
         ui_fmt(b, sizeof b, T("%s: %s AT THE BAR"), side(d), s.name);
         ui_toast(b);
         return;
@@ -458,12 +516,14 @@ static void filter_row(int d, int x0)
     g_hline(x0 + 47, y, 47, C_DGREY);
     int at = slider_x(cx, v);
     if (v) g_rect(at < cx ? at : cx, y - 2, (at > cx ? at - cx : cx - at) + 1, 5, swing && !heard ? C_DGREY : col);
-    if (swing) {                                        /* the home tick: where the knob has it */
+    if (swing) {                                        /* the home tick, where the knob has it: dark grey in the swing
+                                                         * heard; previewing, the setting the key brings in, its side's
+                                                         * colour */
         int h = slider_x(cx, (int8_t)k[DK_FILTER]);
-        g_vline(h, y - 3, 7, C_WHITE);
+        g_vline(h, y - 3, 7, heard ? C_DGREY : side_col((int8_t)k[DK_FILTER]));
     }
     g_vline(cx, y - 3, 7, C_LGREY);
-    if (lfo) g_text(x0 + 97, Y.filt, &FONT_T, T("LFO"), swing && heard ? C_WHITE : C_DGREY);
+    if (lfo) { const char *w = T("LFO"); g_text(x0 + 114 - g_tw(&FONT_T, w), Y.filt, &FONT_T, w, swing && heard ? C_WHITE : C_DGREY); }
 }
 static void set_line(int d, int x0)
 {
@@ -473,20 +533,26 @@ static void set_line(int d, int x0)
     if (kv) ui_fmt(key, sizeof key, T("KEY %s%d"), kv > 0 ? "+" : "", kv);
     int muted = 0;
     unsigned m = (unsigned)(k[DK_MUTES] | k[DK_MUTES + 1] << 8);
-    for (int t = 0; t < 16; t++) muted += m >> t & 1;
+    for (int t = 0; t < 16 && t < dj.dk[d].ntrk; t++) muted += m >> t & 1;   /* (the song's tracks only) */
     const char *mw = 0, *mn = 0;
-    char mwb[8];                                        /* (the texts kept: more are unpacked before they are drawn) */
-    if (k[DK_SOLO] != 0xFF) { mw = strcpy(mwb, T("SOLO")); mn = ui_hex2(k[DK_SOLO]); }
-    else if (muted) { mw = strcpy(mwb, T("MUTE")); mn = ui_dec(muted); }
+    char mwb[8], mnb[8];                                /* (the texts kept: more are unpacked before they are drawn) */
+    if (k[DK_SOLO] != 0xFF) { mw = strcpy(mwb, T("SOLO")); mn = strcpy(mnb, ui_hex2(k[DK_SOLO])); }
+    else if (muted) { mw = strcpy(mwb, T("MUTE")); mn = strcpy(mnb, ui_dec(muted)); }
     char lw[20] = "", sw[12] = "";
     const char *loop = lw, *shortw = sw;
     if (k[DK_FLAGS] & DF_REPEAT_PATTERN) { strcpy(lw, T("REPEAT PATTERN")); strcpy(sw, T("PATTERN")); }
-    else if (k[DK_LOOP] >= 2 && k[DK_LOOP] <= 8) {
+    else if (k[DK_LOOP] >= 2 && k[DK_LOOP] <= 8 && !(dj.dk[d].roll && dj.dk[d].loop_pad)) {   /* (a ROLL held: the state
+                                                         * line's) */
         ui_fmt(sw, sizeof sw, "%s", loop_word(k[DK_LOOP] - 1));
         ui_fmt(lw, sizeof lw, "%s %s", k[DK_LOOP] <= 4 ? T("REPEAT") : T("LOOP"), shortw);
     }
-    int x = x0;
-    if (loop[0] && (int)strlen(loop) + (mw ? 1 + 4 + 1 + (int)strlen(mn) : 0) + (key[0] ? 1 + (int)strlen(key) : 0) > 19) loop = shortw;
+    /* 19 characters, a space between each: short of room the loop drops its first word, then the mutes give way (the
+     * loop in full again where it fits) */
+    int x = x0, mlen = mw ? (int)strlen(mw) + 1 + (int)strlen(mn) : 0, klen = key[0] ? 1 + (int)strlen(key) : 0;
+#define FITS(l_, m_) ((int)strlen(l_) + (l_[0] && (m_) ? 1 : 0) + (m_) + klen <= 19)
+    if (!FITS(loop, mlen)) loop = shortw;
+    if (!FITS(loop, mlen)) { mw = 0; mlen = 0; loop = FITS(lw, 0) ? lw : shortw; }
+#undef FITS
     if (loop[0]) x = g_text(x0, Y.set, &FONT_T, loop, C_GREEN) + 6;
     if (mw) {
         ui_fmt(mute, sizeof mute, " %s", mn);
@@ -521,9 +587,11 @@ static void overview(int d, const dj_deck_state_t *st, int x0, int warn)
     for (int c = 1; c < 114; c++) if (k->ov_pos[c] != k->ov_pos[c - 1]) g_vline(x0 + c, Y.over, 16, C_BLACK);
     int cue = ov_col(d, dj_deck(d)[DK_CUE_POS], dj_deck(d)[DK_CUE_ROW]);
     g_rect(x0 + (cue > 111 ? 111 : cue), Y.over - 2, 3, 2, C_YELLOW);
-    for (int m = 0; m < (k->move ? 2 : 1); m++) {      /* the playhead, MOVE's cursor: each between black lines, so
-                                                         * they show on any column in any theme (colours.md) */
-        int cx = x0 + (m ? ov_col(d, k->move_pos, k->move_row) : ov_col(d, st->pos, st->row));
+    int end = st->ended || (rec[DK_FLAGS] & DF_AT_END);
+    for (int m = 0; m < (k->move ? 2 : 1); m++) {      /* the playhead (at the song's end: the end), MOVE's cursor: each
+                                                         * between black lines, so they show on any column in any theme
+                                                         * (colours.md) */
+        int cx = x0 + (m ? ov_col(d, k->move_pos, k->move_row) : end ? 113 : ov_col(d, st->pos, st->row));
         if (cx > x0) g_vline(cx - 1, Y.over - 1, 17, C_BLACK);
         if (cx < x0 + 113) g_vline(cx + 1, Y.over - 1, 17, C_BLACK);
         g_vline(cx, Y.over - 1, 17, m ? C_CYAN : C_WHITE);
@@ -567,8 +635,9 @@ static void draw_deck(int d, int x0)
     int w = 60 / k->beats, beat = st.row % br / k->rpb;
     for (int i = 0; i < k->beats; i++)
         g_rect(x0 + i * w, Y.beats, w - 2, 8, st.playing && i == beat ? (i ? C_GREEN : C_YELLOW) : C_DEEP + C_GREEN);
-    /* the time left at the deck's tempo: the rows to the end */
-    int rows_left = (k->bars - bar_now) * br - st.row % br, b10 = bpm10(d) ? bpm10(d) : 1200;
+    /* the time left at the deck's tempo: the rows to the end (at the end, none) */
+    int rows_left = st.ended || (dj_deck(d)[DK_FLAGS] & DF_AT_END) ? 0 : (k->bars - bar_now) * br - st.row % br;
+    int b10 = bpm10(d) ? bpm10(d) : 1200;
     uint32_t secs = (uint32_t)((int64_t)rows_left * 600 / ((int64_t)b10 * k->rpb / 1) );
     char t[12];
     ui_fmt_time(t, secs);
@@ -579,6 +648,8 @@ static void draw_deck(int d, int x0)
     filter_row(d, x0);
     set_line(d, x0);
 }
+/* the list's lines' times (each song's patterns' rows summed), kept while the lines and the store stay as they were */
+static struct { uint32_t gen; int16_t top; uint8_t ok; uint32_t secs[LIST_ROWS]; } ls;
 static void draw_list(void)
 {
     uint8_t nums[256];
@@ -591,7 +662,10 @@ static void draw_list(void)
     g_text(180 - g_tw(&FONT_T, len_h), Y.cols, &FONT_T, len_h, C_CYAN);   /* (the positions: its length) */
     g_text(192, Y.cols, &FONT_T, T("TIME"), C_CYAN);
     if (!n) { g_text(2, Y.list, &FONT_T, T("NO SONGS: MAKE ONE ON SONGS"), C_DGREY); return; }
-    int top = ui_clamp(dj.list - 2, 0, n - LIST_ROWS > 0 ? n - LIST_ROWS : 0);
+    int top = ui_clamp(dj.list - 2, 0, n - LIST_ROWS > 0 ? n - LIST_ROWS : 0), keep = ls.ok && ls.gen == store_gen() && ls.top == top;
+    ls.ok = 1;
+    ls.gen = store_gen();
+    ls.top = (int16_t)top;
     for (int i = top; i < n && i < top + LIST_ROWS; i++) {
         ui_song_t s;
         if (!ui_song(nums[i], &s)) continue;
@@ -608,7 +682,8 @@ static void draw_list(void)
         g_text(156 - g_tw(&FONT_T, bpm), y, &FONT_T, bpm, C_LGREY);
         g_text(180 - g_tw(&FONT_T, pos), y, &FONT_T, pos, C_LGREY);
         char t[8];
-        ui_fmt_time(t, ui_song_secs(&s));
+        if (!keep) ls.secs[i - top] = ui_song_secs(&s);
+        ui_fmt_time(t, ls.secs[i - top]);
         g_text(192, y, &FONT_T, t, C_LGREY);
     }
 }
@@ -713,6 +788,7 @@ static void hand(int d, int rows, int heard)
         if (p == pos && r == row) break;                /* (the song's start or end: no further) */
         pos = p;
         row = r;
+        off_end(d);                                     /* (moved off the song's end by hand) */
         if (heard) {
             uint16_t now = (uint16_t)ui_now();
             dj_deck_hand(d, pos, row, i ? 20 : (uint16_t)(now - k->hand_t));
@@ -785,13 +861,17 @@ static void knob(int e, int s, int coarse)
     if (e == K_SELECT) {
         uint8_t nums[256];
         int n = ui_songs(nums, 256);
-        dj.list = (int16_t)ui_clamp(dj.list + (s > 0 ? 1 : -1), 0, n - 1 > 0 ? n - 1 : 0);
+        if (n) dj.list = (int16_t)ui_clamp(dj.list + (s > 0 ? 1 : -1), 0, n - 1);   /* (no songs: none highlighted) */
         return;
     }
     if (e == K_ALG && dj.lfo_hold) {                    /* an LFO's on / off pad held: its speed */
         int i = (dj.lfo_hold - 1) >> 2;
         uint8_t *b = dj_lfo_bytes(i);
-        b[3] = (uint8_t)ui_clamp((b[3] > 8 ? 6 : b[3]) + (s > 0 ? 1 : -1), 0, 8);
+        /* (no length faster than 10 Hz: above 300 BPM of the leading deck, the main if it has a song and plays or the
+         * right does not, no 1/8) */
+        int lead = has_song(0) && (playing(0) || !playing(1)) ? bpm10(0) : has_song(1) ? bpm10(1) : 1200;
+        int top = lead > 3000 ? 7 : 8, now = b[3] > 8 ? 6 : b[3];
+        b[3] = (uint8_t)ui_clamp((now > top ? top : now) + (s > 0 ? 1 : -1), 0, top);
         dj.lfo_turned = 1;
         dj.last_k = 6; dj.last_d = (uint8_t)i;
         dj_mix();
@@ -855,9 +935,10 @@ static void lfo_pad(int wi, int down)
         if (dj.key_hold == wi + 1) dj.key_hold = 0;
         return;
     }
-    if (g == 3 && k == 3) {                             /* ALL OFF */
+    if (g == 3 && k == 3) {                             /* ALL OFF (its pad full as it acts) */
         for (int i = 0; i < DJ_NLFO; i++) dj_lfo_bytes(i)[0] &= (uint8_t)~1u;
         dj_mix();
+        dj.done[2] = ui_now() + DONE_MS;
         ui_toast(T("ALL LFOS OFF"));
         changed();
         return;
@@ -951,10 +1032,8 @@ static void loops_pad(int d, int k, int n, int down, const dj_deck_state_t *st)
     if (dk->loop_off || dk->loop_pad != k) { dk->loop_off = 0; return; }
     if (rec[DK_LOOP] != k + 1) { dk->loop_pad = dk->roll = 0; return; }   /* (gone meanwhile: a LOAD, RESET, PATTERN) */
     if (dk->roll) {
-        if (ui_now() - dk->loop_t < PAD_TAP_MS) {      /* a tap: it loops on */
+        if (ui_now() - dk->loop_t < PAD_TAP_MS) {      /* a tap: it loops on (the set line shows it) */
             dj_loop(d, k + 1, dk->lp_pos, dk->lp_row, dk->lp_rows, 0);
-            ui_fmt(b, sizeof b, "%s: %s %s", side(d), k <= 3 ? T("REPEAT") : T("LOOP"), loop_word(k));
-            ui_toast(b);
         } else {                                        /* a ROLL let go: on where it would have been */
             dj_roll_end(d);
             dk->loop_pad = 0;
@@ -973,13 +1052,14 @@ static void pad(int wi, int down, int flip)    /* (flip: let go after a SWAP, it
     if (!has_song(d)) return;
     dj_deck_state_t st;
     dj_deck_state(d, &st);
+    if (dj_deck(d)[DK_FLAGS] & DF_AT_END) st.ended = 1;   /* (at its end as the stand has it: gone live again there) */
     if (mode == M_LOOPS) { loops_pad(d, k, n, down, &st); return; }
     uint8_t *rec = dj_deck(d);
     if (down) dk->key_t[k] = ui_now();
     switch (k) {
     case P_SET:                                         /* SET CUE: the bar line nearest, playing on */
         if (!down) { dk->set_down = 0; return; }
-        if (dk->move) { cue_set(d, dk->move_pos, dk->move_row); return; }
+        if (dk->move) { cue_set(d, dk->move_pos, dk->move_row); dj.done[d] = ui_now() + DONE_MS; return; }
         if (st.ended) { refuse_key(n); ui_toast(T("THE END: CUE GOES BACK")); return; }
         if (st.playing) {                               /* (the nearest bar line past the pattern: the next position's
                                                          * start; on the last, the bar line at or before) */
@@ -995,6 +1075,7 @@ static void pad(int wi, int down, int flip)    /* (flip: let go after a SWAP, it
             dj_deck_place(d, rec[DK_POS], rec[DK_ROW]);
         }
         dk->set_down = 1; dk->set_beat = 0; dk->set_pos = st.pos; dk->set_row = st.row;     /* (held: its beat) */
+        dj.done[d] = ui_now() + DONE_MS;                /* (its pad full as it sets) */
         return;
     case P_CUE:                                         /* CUE: paused, set; playing, back to it while held */
         dk->cue_down = (uint8_t)down;
@@ -1010,10 +1091,10 @@ static void pad(int wi, int down, int flip)    /* (flip: let go after a SWAP, it
             } else {                                    /* (playing, or at the song's end: back to it, playing while held;
                                                          * a LOAD waiting dropped, as by a pause) */
                 dk->cue_held = 1;
-                dk->load_to = DJ_NO_SONG;
-                dk->load_own = 0;
-                dk->load_t = 0;
-                if (!st.playing) { rec[DK_FLAGS] &= (uint8_t)~DF_AT_END; dj_on(1); }
+                load_drop(d);
+                dk->jump_beat = dk->move_wait = 0;      /* (a JUMP or MOVE waiting for the beat too: the place's
+                                                         * request drops it in the player) */
+                if (!st.playing) { off_end(d); dj_on(1); }
                 loop_along(d, rec[DK_CUE_POS], rec[DK_CUE_ROW], 1);
                 rec[DK_POS] = rec[DK_CUE_POS]; rec[DK_ROW] = rec[DK_CUE_ROW];   /* (the end's place is 0:0: a start is
                                                          * from the stand's place, as JUMP) */
@@ -1030,26 +1111,33 @@ static void pad(int wi, int down, int flip)    /* (flip: let go after a SWAP, it
         }
         return;
     case P_JUMP:                                        /* JUMP: let go, to the cue and on; held 250 ms, on the beat */
-        dk->jump_down = (uint8_t)down;
-        if (down) return;
-        if (st.playing && ui_now() - dk->key_t[P_JUMP] >= PAD_TAP_MS) { dk->jump_beat = 1; return; }
+        if (down) { dk->jump_down = 1; return; }
+        if (!dk->jump_down) return;                     /* (its press dropped meanwhile: RESET DJ, the stand reloaded) */
+        dk->jump_down = 0;
+        if (st.playing && ui_now() - dk->key_t[P_JUMP] >= PAD_TAP_MS) {   /* on the beat: the player lands it */
+            jump_post(d, rec[DK_CUE_POS], rec[DK_CUE_ROW], 0);
+            return;
+        }
+        dk->jump_beat = dk->move_wait = 0;              /* (one waiting: this one instead, at once) */
         dj_on(1);
         loop_along(d, rec[DK_CUE_POS], rec[DK_CUE_ROW], 0);
         rec[DK_POS] = rec[DK_CUE_POS]; rec[DK_ROW] = rec[DK_CUE_ROW];   /* (paused, it plays from the stand's place) */
         dj_deck_place(d, rec[DK_CUE_POS], rec[DK_CUE_ROW]);
-        rec[DK_FLAGS] &= (uint8_t)~DF_AT_END;
+        off_end(d);
         if (!st.playing) start_deck(d);                 /* (synced: from the other's bar line, as its PLAY key) */
         return;
     case P_MOVE:                                        /* MOVE: held, the knobs move a cursor; let go, there */
         if (down) { dk->move = 1; dk->move_turned = 0; dk->move_pos = st.pos; dk->move_row = (uint8_t)(st.row / bar_rows(d) * bar_rows(d)); return; }
         dk->move = 0;
-        if (dk->move_turned && st.playing) { dk->move_wait = 1; return; }  /* on the next beat (tick) */
+        if (dk->move_turned && st.playing) { jump_post(d, dk->move_pos, dk->move_row, 1); return; }   /* on the next
+                                                         * beat: the player lands it */
         if (dk->move_turned) {
             int into = st.row % bar_rows(d);            /* on the beat of the bar it was playing */
             int row = st.playing ? dk->move_row + into : dk->move_row;
             loop_along(d, dk->move_pos, row, 0);
             rec[DK_POS] = dk->move_pos;
             rec[DK_ROW] = (uint8_t)row;
+            off_end(d);                                 /* (moved off the song's end) */
             dj_deck_place(d, dk->move_pos, row);
             changed();
         }
@@ -1102,6 +1190,8 @@ static int key(int n, int down)
             dj.dk[d].hold_lrow = dj_deck(d)[DK_LOOP_ROW];
             dj_deck_play(d, 0);
         } else {
+            if (!dj.dk[d].hold && !dj.dk[d].start_at) return 1;   /* (its press dropped meanwhile: RESET DJ, the stand
+                                                         * reloaded) */
             dj.dk[d].hold = 0;
             if (dj.dk[d].start_at) { dj.dk[d].start_at = 0; dj_deck_play(d, 1); }   /* (on from the hand's place) */
             else dj_deck_play(d, 0);                    /* (the hand's row let go: paused there) */
@@ -1159,6 +1249,22 @@ static const char *p_lfofx(void) { static const txt_t W[3] = {TX("REVERB MIX"), 
 static void p_lfofx_ch(int d, int c) { (void)c; DJ_REC[4] = (uint8_t)ui_clamp(DJ_REC[4] + (d > 0 ? 1 : -1), 0, 2); dj_mix(); changed(); }
 static const char *p_reset(void) { return T("EDIT"); }
 static int p_reset_col(int on) { (void)on; return C_YELLOW; }
+/* every key and pad held on a deck let go here, what waits on it dropped (RESET DJ, the stand reloaded): a release then
+ * does nothing more */
+static void hands_off(int d)
+{
+    dk_t *k = &dj.dk[d];
+    if (k->filt_down) dj_filter_slide(d, 0);
+    k->hold = k->start_at = k->cue_held = k->cue_down = k->cue_keep = k->jump_down = k->jump_beat = 0;
+    k->move = k->move_wait = k->move_turned = k->set_down = k->set_beat = k->stop = k->stay = 0;
+    k->roll = k->loop_pad = k->loop_off = k->filt_down = 0;
+    k->load_to = DJ_NO_SONG;
+    k->load_own = 0;
+    k->load_t = 0;
+    dj.play_at[d] = 0;
+    dj.play_fired[d] = 0;
+    dj.lfo_hold = dj.key_hold = 0;
+}
 static void reset_answer(int a)
 {
     if (a != 1) return;
@@ -1169,7 +1275,7 @@ static void reset_answer(int a)
     dj_record_default(DJ_REC);
     memcpy(DJ_REC, keep, 5);                            /* the properties and DJ's FX setup stay */
     memcpy(DJ_FX, fx, 64);
-    for (int d = 0; d < 2; d++) { read_song(d); dj.dk[d].load_to = DJ_NO_SONG; }
+    for (int d = 0; d < 2; d++) { read_song(d); hands_off(d); }
     dj_mix();
     changed();
     ui_toast(T("DJ RESET"));
@@ -1219,8 +1325,13 @@ static int tap(int b)
             ui_toast(ui_txt_v(T("TEMPO # BPM: THE SONG'S"), bp));
             changed();
         } else if (dj.last_k == 3) { filter_knob(dj.last_d, -(int8_t)dj_deck(dj.last_d)[DK_FILTER], 0); }
-        else if (dj.last_k == 4) { dj_deck(dj.last_d)[DK_VOL] = 0; dj_deck_volume(dj.last_d, 0); vol_word(w, 0); ui_show_knob(T("VOLUME"), w); changed(); }
-        else if (dj.last_k == 5) { dj_deck_key(dj.last_d, 0); ui_show_knob(dj.last_d ? T("KEY R") : T("KEY L"), "0"); changed(); }
+        else if (dj.last_k == 4) {
+            dj_deck(dj.last_d)[DK_VOL] = 0;
+            dj_deck_volume(dj.last_d, 0);
+            vol_word(w, 0);
+            ui_show_knob(dj.last_d ? T("VOLUME R") : T("VOLUME L"), w);
+            changed();
+        } else if (dj.last_k == 5) { dj_deck_key(dj.last_d, 0); ui_toast(T("KEY 0")); changed(); }
         else if (dj.last_k == 6) {                      /* an LFO's speed back to 1/2 */
             dj_lfo_bytes(dj.last_d)[3] = 6;
             dj_mix();
@@ -1265,7 +1376,7 @@ static void to_cues(void)
         if (dj.dk[d].start_at || playing(d)) { dj.dk[d].start_at = 0; dj_deck_play(d, 0); }
         r[DK_POS] = r[DK_CUE_POS];
         r[DK_ROW] = r[DK_CUE_ROW];
-        r[DK_FLAGS] &= (uint8_t)~DF_AT_END;
+        off_end(d);
         dj_deck_place(d, r[DK_POS], r[DK_ROW]);
     }
     ui_toast(T("BACK TO THE CUES"));
@@ -1329,34 +1440,66 @@ static void solo_key(int t)
 }
 
 /* --------------------------------------------------------------------- LEDs --- */
+/* LOAD's light: dim while it can take the highlighted song (one with positions), else dark (kept while the list and
+ * the store stay as they were) */
+static struct { uint32_t gen; int16_t list; uint8_t ok, can; } lc;
+static int can_load(void)
+{
+    if (lc.ok && lc.gen == store_gen() && lc.list == dj.list) return lc.can;
+    uint8_t nums[256];
+    ui_song_t s;
+    int ns = ui_songs(nums, 256);
+    lc.ok = 1;
+    lc.gen = store_gen();
+    lc.list = dj.list;
+    lc.can = (uint8_t)(dj.list >= 0 && dj.list < ns && ui_song(nums[dj.list], &s) && s.npos);
+    return lc.can;
+}
+/* the LEDs (specs/ui/screens/dj.md#leds), as the playground's deckKeys and padLeds */
 static int key_leds(uint8_t *keys)
 {
     uint32_t now = ui_now();
-    int fast = (now / 150) % 2 == 0;
+    int fast = (now / 150) % 2 == 0, slow = (now / 500) % 2 == 0, any = playing(0) || playing(1);
+    player_state_t ps;
+    ui_player_state(&ps);
     for (int d = 0; d < 2; d++) {
         dj_deck_state_t st;
         dj_deck_state(d, &st);
-        int has = has_song(d), b0 = d ? 8 : 0, beat = st.playing && st.row % (dj.dk[d].rpb ? dj.dk[d].rpb : 4) == 0;
-        keys[d ? K_RPLAY : K_LPLAY] = (uint8_t)(!has ? 0 : dj.dk[d].start_at ? (fast ? LV_FULL : 0) : st.playing ? (beat ? LV_FULL : LV_DIM) : LV_DIM);
-        keys[d ? K_RHOLD : K_LHOLD] = (uint8_t)(!has ? 0 : dj.dk[d].hold ? LV_FULL : LV_DIM);
-        keys[d ? K_RFILTER : K_LFILTER] = (uint8_t)(!has ? 0 : dj_deck(d)[DK_FLAGS] & DF_FILTER_ON ? LV_FULL : LV_DIM);
-        keys[d ? K_RLOAD : K_LLOAD] = (uint8_t)(dj.dk[d].load_to != DJ_NO_SONG ? (fast ? LV_FULL : 0) : LV_DIM);
+        dk_t *dk = &dj.dk[d];
+        const uint8_t *rec = dj_deck(d);
+        int has = has_song(d), b0 = d ? 8 : 0, beat = st.playing && st.row % (dk->rpb ? dk->rpb : 4) == 0;
+        int end = st.ended || (rec[DK_FLAGS] & DF_AT_END), pl = st.playing || dk->start_at;
+        int warn = has && dk->stop_end && st.playing && dk->bars - bar_of(d, st.pos, st.row) <= 8;   /* (its last 8 bars:
+                                                         * full on the beat, dark between) */
+        keys[d ? K_RPLAY : K_LPLAY] = (uint8_t)(!has || end ? 0 : dk->start_at ? (fast ? LV_FULL : 0)
+                                                : st.playing ? (beat ? LV_FULL : warn ? 0 : LV_DIM) : LV_DIM);
+        keys[d ? K_RHOLD : K_LHOLD] = (uint8_t)(!has ? 0 : dk->hold ? LV_FULL : LV_DIM);
+        keys[d ? K_RFILTER : K_LFILTER] = (uint8_t)(!has ? 0 : rec[DK_FLAGS] & DF_FILTER_ON ? LV_FULL : LV_DIM);
+        keys[d ? K_RLOAD : K_LLOAD] = (uint8_t)(dk->load_to != DJ_NO_SONG ? (fast ? LV_FULL : 0) : can_load() ? LV_DIM : 0);
         for (int k = 0; k < 8; k++) {                   /* the pads: 1 and 5 the finding light */
             int n = UI_WHITE[b0 + k], v = (k == 0 || k == 4) ? LV_DIM : 0;
             if (dj.mode == M_PLAY && has) {
-                if (k == P_CUE && !st.playing && st.pos == dj_deck(d)[DK_CUE_POS] && st.row == dj_deck(d)[DK_CUE_ROW]) v = LV_FULL;
-                if (k == P_CUE && dj.dk[d].cue_held) v = LV_FULL;
-                if (k == P_MOVE && dj.dk[d].move) v = LV_FULL;
+                if (k == P_SET && (int32_t)(dj.done[d] - now) > 0) v = LV_FULL;   /* (full as it sets) */
+                if (k == P_CUE)                         /* (paused away from the cue point: a tap would set it there) */
+                    v = dk->cue_held || (!st.playing && !end && st.pos == rec[DK_CUE_POS] && st.row == rec[DK_CUE_ROW])
+                      ? LV_FULL : !pl ? (slow ? LV_DIM : 0) : 0;
+                if (k == P_JUMP && dk->jump_beat) v = fast ? LV_FULL : 0;   /* (waiting for the beat) */
+                if (k == P_MOVE) v = dk->move ? LV_FULL : dk->move_wait ? (fast ? LV_FULL : 0) : 0;
+                if (k >= 4 && ((dk->stop && k == (int)dk->stop + 3) || (st.stop && !st.stopped && k == (int)st.stop + 3)))
+                    v = LV_FULL;                        /* (held, and kept until the deck stops) */
             }
-            if (dj.mode == M_PLAY && k >= 4 && dj.dk[d].stop && k == (int)dj.dk[d].stop + 3) v = LV_FULL;
-            if (dj.mode == M_LOOPS && k == 0 && dj_deck(d)[DK_FLAGS] & DF_REPEAT_PATTERN) v = LV_FULL;
-            if (dj.mode == M_LOOPS && k && dj_deck(d)[DK_LOOP] == k + 1) v = LV_FULL;
+            if (dj.mode == M_LOOPS && k == 0 && rec[DK_FLAGS] & DF_REPEAT_PATTERN) v = LV_FULL;
+            if (dj.mode == M_LOOPS && k && rec[DK_LOOP] == k + 1) v = LV_FULL;
             if (dj.mode == M_LFO) {                     /* each four's first dim (on / off), the rest dark; full what is
-                                                         * on: an LFO running, the reverse, a deck's KEY not 0 */
+                                                         * on: an LFO running (blinking while it waits for the lead deck's
+                                                         * step), the reverse, a deck's KEY not 0; ALL OFF as it acts */
                 int g = (b0 + k) >> 2, kk = k & 3, dd = g == 1 ? 0 : g == 2 ? 1 : -1;
+                int pg = g == 0 ? PL_LFO_FADER : g == 3 ? PL_LFO_FX : PL_LFO_FILT_L + (dd ^ dj_crossed(&ps));
                 const uint8_t *bb = dj_lfo_bytes(g);
-                v = dd >= 0 && !has_song(dd) ? (kk == 0 ? LV_DIM : 0)   /* (a deck with no song: the finding light) */
-                  : kk == 0 ? (bb[0] & 1 ? LV_FULL : LV_DIM)
+                int waits_step = (bb[0] & 1) && dj_live() && any && !(ps.lfo_live >> pg & 1);
+                v = g == 3 && kk == 3 ? ((int32_t)(dj.done[2] - now) > 0 ? LV_FULL : 0)
+                  : dd >= 0 && !has_song(dd) ? (kk == 0 ? LV_DIM : 0)   /* (a deck with no song: the finding light) */
+                  : kk == 0 ? (waits_step ? (fast ? LV_FULL : 0) : bb[0] & 1 ? LV_FULL : LV_DIM)
                   : kk == 3 && g == 0 ? (bb[0] & 2 ? LV_FULL : 0)
                   : kk == 3 && dd >= 0 ? ((int8_t)dj_deck(dd)[DK_KEY] || dj.key_hold == b0 + k + 1 ? LV_FULL : 0) : 0;
             }
@@ -1470,12 +1613,16 @@ static const char *footer(uint8_t *col)
     *col = C_WHITE;
     return b;
 }
-/* a deck paused: the stand keeps where it is */
+/* a deck paused: the stand keeps where it is, and its song's end as it comes (only what moves it from there clears AT
+ * THE END: a deck going live again at its end is loaded paused, not ended, and stays at the end; a reading from before
+ * a move off the end, the player's not yet, sets nothing again) */
 static void keep_place(int d, const dj_deck_state_t *st)
 {
-    uint8_t *r = dj_deck(d), end = st->ended ? DF_AT_END : 0;
+    uint8_t *r = dj_deck(d);
+    dk_t *k = &dj.dk[d];
     if (r[DK_POS] != st->pos || r[DK_ROW] != st->row) { r[DK_POS] = st->pos; r[DK_ROW] = st->row; changed(); }
-    if ((r[DK_FLAGS] & DF_AT_END) != end) { r[DK_FLAGS] = (uint8_t)((r[DK_FLAGS] & ~DF_AT_END) | end); changed(); }
+    if (st->ended && !k->ended_was && !(r[DK_FLAGS] & DF_AT_END)) { r[DK_FLAGS] |= DF_AT_END; changed(); }
+    k->ended_was = st->ended;
 }
 /* the decks standing otherwise than written (specs/files/dj.md#the-stand) and not an edit yet: a change put once both
  * decks pause, or a deck playing (its place moves on). One unsaved change (ui_unsaved_refresh), whatever the screen */
@@ -1513,7 +1660,43 @@ static void set_cue_beat(int d, dj_deck_state_t *st)
     char b[40];
     ui_fmt(b, sizeof b, T("CUE: POS %s BAR %X BEAT %d"), ui_hex2(k->set_pos), row / br, row % br / rpb);
     ui_toast(b);
+    dj.done[d] = ui_now() + DONE_MS;
     changed();
+}
+/* what waits in the player for the deck's bar line or beat (load_post, jump_post): landed (its count moved on), the
+ * stand follows (a LOAD: the new song's; a JUMP or MOVE: its loop where the player took it along); no longer the
+ * player's without landing (the deck paused, another start, the song's end), dropped, a LOAD's hold with it */
+static void lands(int d, const dj_deck_state_t *st)
+{
+    dk_t *k = &dj.dk[d];
+    if (k->load_to != DJ_NO_SONG) {
+        if (st->loads != k->loads0) {
+            uint8_t song = k->load_to;
+            int own = k->load_own;
+            k->load_to = DJ_NO_SONG;
+            k->load_own = 0;
+            k->jump_beat = k->move_wait = 0;            /* (a JUMP or MOVE waiting went with it) */
+            load_now(d, song, own, 1);
+        } else if (st->land & 1) k->load_seen = 1;
+        else if (k->load_seen || (uint16_t)((uint16_t)ui_now() - k->load_ms) > WAIT_SEEN_MS) {
+            k->load_to = DJ_NO_SONG;
+            k->load_own = 0;
+            k->load_t = 0;
+        }
+    }
+    if (k->jump_beat || k->move_wait) {
+        uint8_t *r = dj_deck(d);
+        if (st->jumps != k->jumps0) {
+            k->jump_beat = k->move_wait = 0;
+            if (st->loop == PL_DLOOP_ROWS && r[DK_LOOP] >= 2 && !k->roll &&
+                (r[DK_LOOP_POS] != st->loop_pos || r[DK_LOOP_ROW] != st->loop_row)) {
+                r[DK_LOOP_POS] = k->lp_pos = st->loop_pos;
+                r[DK_LOOP_ROW] = k->lp_row = st->loop_row;
+                changed();
+            }
+        } else if (st->land & 6) k->jump_seen = 1;
+        else if (k->jump_seen || (uint16_t)((uint16_t)ui_now() - k->jump_ms) > WAIT_SEEN_MS) k->jump_beat = k->move_wait = 0;
+    }
 }
 static void waits(int shown)
 {
@@ -1521,12 +1704,10 @@ static void waits(int shown)
                                                          * the overviews are the new songs' */
         dj.loads = (uint8_t)dj_loads();
         dj.dirty = 0;
-        for (int d = 0; d < 2; d++) {                   /* (what waited, the decks before's: dropped) */
-            dk_t *k = &dj.dk[d];
+        for (int d = 0; d < 2; d++) {                   /* (what waited, the decks before's: dropped; what is held
+                                                         * does nothing more) */
             read_song(d);
-            k->load_to = DJ_NO_SONG;
-            k->load_t = 0;
-            k->jump_beat = k->move_wait = k->start_at = 0;
+            hands_off(d);
         }
     }
     for (int d = 0; d < 2; d++) {
@@ -1538,50 +1719,21 @@ static void waits(int shown)
             k->load_to = DJ_NO_SONG;
             k->load_own = 0;
             k->load_t = 0;
+            k->jump_beat = k->move_wait = 0;
             set_cue_beat(d, &st);
             continue;
         }
-        int br = bar_rows(d) ? bar_rows(d) : 16;
         if (k->start_at == 1 && st.armed && !k->hold) k->start_at = 2;            /* (a synced start: the arm taken) */
         if (k->start_at == 2 && !st.armed && !st.playing) k->start_at = 0;       /* (... dropped by the player: PLAY
                                                          * pausing both, a LOAD, RESET) */
         if (k->start_at && st.playing && !st.armed && !k->hold) k->start_at = 0;   /* (a synced start: it started) */
-        if (k->load_to != DJ_NO_SONG && !st.playing) {
-            if (st.ended) {                             /* a song that stops: its end is its last bar line, the new
-                                                         * song plays on (st as the player will have it: keep_place
-                                                         * leaves the stand) */
-                load_now(d, k->load_to, k->load_own, 1);
-                st.ended = 0;
-                st.playing = 1;
-            } else k->load_t = 0;                        /* the deck paused (its PLAY, HOLD, the PLAY key's hold, the
-                                                         * PLAY button): dropped, its hold with it */
-            k->load_to = DJ_NO_SONG;
-            k->load_own = 0;
-        }
+        lands(d, &st);
         if (st.row != dj.last_row[d]) {
             dj.last_row[d] = (int16_t)st.row;
-            if (st.row % br == 0 && st.playing && k->load_to != DJ_NO_SONG) {   /* a LOAD waiting: the bar line */
-                load_now(d, k->load_to, k->load_own, 1);
-                k->load_to = DJ_NO_SONG;
-            }
-            int rpb = k->rpb ? k->rpb : 4;
-            if (st.row % rpb == 0 && k->jump_beat) {    /* JUMP held: to the cue on the beat */
-                k->jump_beat = 0;
-                loop_along(d, dj_deck(d)[DK_CUE_POS], dj_deck(d)[DK_CUE_ROW], 0);
-                dj_deck_place(d, dj_deck(d)[DK_CUE_POS], dj_deck(d)[DK_CUE_ROW]);
-            }
-            if (st.row % rpb == 0 && k->move_wait) {    /* MOVE let go: into the cursor's bar on the beat, in phase */
-                k->move_wait = 0;
-                int row = k->move_row + st.row % br;
-                loop_along(d, k->move_pos, row, 0);
-                dj_deck(d)[DK_POS] = k->move_pos;
-                dj_deck(d)[DK_ROW] = (uint8_t)row;
-                dj_deck_place(d, k->move_pos, row);
-                changed();
-            }
             if (shown) ui_dirty();
         }
         set_cue_beat(d, &st);
+        if (!st.ended) k->ended_was = 0;                /* (its end comes anew: keep_place takes it, shown or later) */
         if (!st.playing && shown) keep_place(d, &st);   /* (the stand follows a paused deck while DJ shows it; a save
                                                          * elsewhere puts it: ui_dj_stand_put) */
         /* LOAD held past the hold delay on a playing deck (load_t: its press, till it is let go): the song's own
@@ -1592,7 +1744,7 @@ static void waits(int shown)
             char b[48];
             uint8_t song = k->load_to != DJ_NO_SONG ? k->load_to : dj_deck(d)[DK_SONG];
             k->load_t = 0;
-            if (k->load_to != DJ_NO_SONG) k->load_own = 1;
+            if (k->load_to != DJ_NO_SONG) { k->load_own = 1; load_post(d); }   /* (the player's: at that tempo) */
             else if (!(d == 1 && dj_sync() && has_song(0))) {
                 dj_deck_set_bpm10(d, k->own10);
                 if (d == 0) sync_pick();                /* (as at the bar line: load_now) */
@@ -1608,7 +1760,7 @@ static void waits(int shown)
             dj_deck_play(d, 0);
             dj_deck_place(d, 0, 0);
             dj_deck(d)[DK_POS] = dj_deck(d)[DK_ROW] = 0;
-            dj_deck(d)[DK_FLAGS] &= (uint8_t)~DF_AT_END;
+            off_end(d);
             char b[32];
             ui_fmt(b, sizeof b, T("%s: BACK TO THE START"), side(d));
             ui_toast(b);
@@ -1641,8 +1793,9 @@ static void enter(const ui_screen_t *from)
     dj.shown = 1;
     int ns = ui_songs(nums, 256);                       /* (songs deleted meanwhile: the current song highlighted, else
                                                          * the last; fewer tracks after a LOAD: the first mutes) */
-    if (dj.list < 0 || dj.list >= ns) {
-        dj.list = (int16_t)(ns > 0 ? ns - 1 : 0);
+    if (dj.list < 0 || dj.list >= ns) {                 /* (no songs: none, so the next entry with songs takes the current
+                                                         * one) */
+        dj.list = (int16_t)(ns > 0 ? ns - 1 : -1);
         for (int i = 0; i < ns; i++) if (nums[i] == ui_cur.song) dj.list = (int16_t)i;
     }
     if (dj.mute_page >= mute_pages()) dj.mute_page = 0;
@@ -1690,7 +1843,7 @@ static void transport(int st, int spp)
         loop_along(0, rec[DK_CUE_POS], rec[DK_CUE_ROW], 0);
         rec[DK_POS] = rec[DK_CUE_POS];
         rec[DK_ROW] = rec[DK_CUE_ROW];
-        rec[DK_FLAGS] &= (uint8_t)~DF_AT_END;
+        off_end(0);
         if (playing(0)) dj_deck_place(0, rec[DK_POS], rec[DK_ROW]);
         else dj_deck_play(0, 1);
         changed();

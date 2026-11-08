@@ -6,8 +6,10 @@
 #include "ui_core.h"
 #include "ui_priv.h"
 #include "ui_data.h"
+#include "ui_lp.h"
 #include "../play/player.h"
 #include "../play/dj.h"
+#include "../play/loops.h"
 #include "../store/store.h"
 #include "../fx/fx.h"
 
@@ -239,6 +241,8 @@ void ui_settings_apply(int k)
     if (k == S_KEYS_GAIN) {                     /* the keys' notes, all of them: their level, and FX MIXER's KEYS */
         player_keys_gain(ui_set[S_KEYS_GAIN]);
         player_keys_mix(ui_keys_mix);
+        loops_changed(0);                       /* (KEYS' sends the next loop's: the stage on + NEW LOOP hears them from
+                                                 * the next block) */
     }
     if (k == S_KEYS_FX) player_keys_dry(ui_set[S_KEYS_FX]);        /* the keys heard past every effect, or not */
     if (k == S_THEME) g_theme(ui_set[S_THEME]);
@@ -350,6 +354,7 @@ int ui_save_all(void)
 void ui_revert_all(void)
 {
     int dj = dj_live();
+    lp_song_stop();                                     /* (a song recording ends first, an edit like the others) */
     player_pause();
     ui_edit_drop();
     player_store_changed();

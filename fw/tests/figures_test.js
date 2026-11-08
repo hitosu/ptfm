@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Vasily Kazantsev
 // The debug page's side (fw/web/figures.js, specs/debug.md) on two FIGURES answers the debug build gave on
 // the PC (run_ui3.sh catches them): decoded as the device wrote them, gathered into two sections, the
-// statistics and the report; a bench run's records, a window on DJ, core 2's 37s (joined to their windows), and
-// 36 RECORDS written by hand (only the FM-1 makes one).
-//   node fw/tests/figures_test.js FIGURES1.syx FIGURES2.syx [BENCH.syx [FIGURES3.syx [F1-37.syx F3-37.syx]]]
+// statistics and the report; a window on DJ, core 2's 37s (joined to their windows), and 36 RECORDS written by
+// hand (only the FM-1 makes one).
+//   node fw/tests/figures_test.js FIGURES1.syx FIGURES2.syx [FIGURES3.syx [F1-37.syx F3-37.syx]]
 "use strict";
 const fs = require("fs"), path = require("path");
 const FG = require(path.join(__dirname, "../web/figures.js"));
@@ -35,8 +35,8 @@ ok(a.win === ((b.win - 1) & 255) && a.c2 === null, "the windows numbered one aft
        "FIGURES: a page reads only its own version (10 refused, 11 read)");
 }
 ok(FG.ask(FG.FREEZE).join() === [0xF0, 0x7D, 0x50, 0x54, 0x30, 2, 0xF7].join(), "30 FIGURES? with FREEZE");
-ok(a.version === "TEST DEBUG" && !a.frozen && a.frozenNow && a.what === 1 && a.playing && a.song === 0,
-   "the first: version, frozen from now (not through it), song 00 playing");
+ok(a.version === "TEST DEBUG" && !a.frozen && a.frozenNow && a.what === 1 && a.playing && a.song === 0xA0,
+   "the first: version, frozen from now (not through it), song A0 playing");
 ok(b.frozen && !b.frozenNow, "the second: frozen through it, thawed after it");
 ok(a.halves > 300 && a.isrSum > 0 && a.stages.length === FG.STAGES.length &&
    a.stages[FG.STAGES.indexOf("VOICES")].name === "VOICES" && a.stages[FG.STAGES.indexOf("DJ LFOS")].sum === 0 &&
@@ -90,15 +90,15 @@ ok(FG.STAGES.indexOf("BLOCKS") === FG.STAGES.indexOf("CLOCK") + 1 && !FG.INSIDE.
     put(40, a.halves * 300, 4); put(44, a.halves, 2); r[46] = 4; put(48, a.halves * 3, 4); put(52, 21, 2);   /* (its
                                                     * voice jobs: one a half, 4 places at most, core 1's waits) */
     const m = pack(0x37, r), c = FG.decode2(m);
-    ok(c && c.win === a.win && c.state === 1 && c.setting && !c.forced && !c.clk && c.whole && c.start10ns === 41 &&
+    ok(c && c.win === a.win && c.state === 1 && c.setting && !c.clk && c.whole && c.start10ns === 41 &&
        c.sum === a.halves * 900 && c.max === 1300 && c.blocks === a.halves * 4 && c.waitSum === a.halves * 2 &&
        c.waitMax === 14 && c.late1 === 2 && c.late2 === 1 && c.stackUsed === 1840 && c.stackSize === 6144 && !c.faultVec &&
        c.vUs === a.halves * 300 && c.vJobs === a.halves && c.vMost === 4 && c.vWaitSum === a.halves * 3 && c.vWaitMax === 21,
        "37 FIGURES 2 decoded (version 2: its voice jobs too)");
-    ok(FG.decode2(FG.secondAsk(0)) === null && FG.decode(m) === null && FG.decode2(new Uint8Array(fs.readFileSync(process.argv[2]))) === null &&
+    ok(FG.decode2(FG.ask(0)) === null && FG.decode(m) === null && FG.decode2(new Uint8Array(fs.readFileSync(process.argv[2]))) === null &&
        FG.decode2(m.slice(0, 20)) === null, "37: another command, a 31 or a short one is none, and the other way round");
-    ok(FG.secondAsk(0).join() === [0xF0, 0x7D, 0x50, 0x54, 0x38, 0, 0xF7].join() && FG.secondAsk(1)[5] === 1,
-       "38 SECOND CORE: 0 core 2 off, 1 as SETTINGS says");
+    ok(FG.secondAsk === undefined && FG.benchAsk === undefined && FG.bench === undefined,
+       "no 38 SECOND CORE, no 32 BENCH: the debug build has neither");
     const a2 = Object.assign({}, a), b2 = Object.assign({}, b);
     ok(FG.join(a2, c) && a2.c2 === c && !FG.join(b2, c) && b2.c2 === null, "37 joined to its own window only (its number)");
     const s2 = FG.stats([a2]);
@@ -118,14 +118,14 @@ ok(FG.STAGES.indexOf("BLOCKS") === FG.STAGES.indexOf("CLOCK") + 1 && !FG.INSIDE.
        has(/core 1 waited for them 3\.0 us a job, the longest 21 us/),
        "a section's report: CPU 1, CPU 2, core 2's state, core 1's waits, the late halves by core, the voice jobs");
     ok(L.every((l) => l.length < 100 && /^[\x20-\x7E]*$/.test(l)), "core 2's lines: plain ASCII, under 100 characters");
-    /* stopped after a fault, then off by 38: each window's state, the fault record, the report says them */
+    /* stopped after a fault, then off (SETTINGS' SECOND CORE OFF): each window's state, the fault record, the report says them */
     const stop = Object.assign({}, c, { state: 3, why: 4, faultVec: 9, faultPc: 0x01C71234, whole: false });
-    const off = Object.assign({}, c, { state: 2, forced: true, whole: false, sum: 0, blocks: 0 });
-    ok(FG.c2Text(stop) === "STOPPED: FAULT" && FG.c2Text(off) === "OFF (38)" && FG.c2Text(c) === "ON",
+    const off = Object.assign({}, c, { state: 2, setting: false, whole: false, sum: 0, blocks: 0 });
+    ok(FG.c2Text(stop) === "STOPPED: FAULT" && FG.c2Text(off) === "OFF" && FG.c2Text(c) === "ON",
        "core 2's state in words (DEVICE's)");
     const L2 = FG.sectionLines("FALLBACK", FG.stats([Object.assign({}, a, { c2: c }), Object.assign({}, a, { c2: stop }),
                                                       Object.assign({}, a, { c2: off })]));
-    ok(L2.some((l) => /core 2 in 3 windows: ON 1, STOPPED: FAULT 1, OFF \(38\) 1/.test(l)) &&
+    ok(L2.some((l) => /core 2 in 3 windows: ON 1, STOPPED: FAULT 1, OFF 1/.test(l)) &&
        L2.some((l) => /ITS FAULT: vector 9, pc 01C71234/.test(l)) && L2.every((l) => l.length < 100),
        "a section's core 2 through a fallback: its states in order, its fault record");
     console.log(L.concat(L2).filter((l) => /^(CPU|core 2|  )/.test(l)).join("\n"));
@@ -152,33 +152,8 @@ ok(S.remove(0) && S.sections.length === 1 && S.sections[0].name === "FROZEN" && 
 S.reset();
 ok(!S.all.length && !S.sections.length && !S.recording, "DELETE ALL drops every run");
 
-/* the bench's records (a third file: every 33 BENCH RECORD of a run, one after another) */
-const benchFile = process.argv[4];
-if (benchFile) {
-    const d = fs.readFileSync(benchFile), msgs = [];
-    for (let i = 0, s = 0; i < d.length; i++) if (d[i] === 0xF7) { msgs.push(d.subarray(s, i + 1)); s = i + 1; }
-    const recs = msgs.map((m) => FG.decodeBench(m));
-    ok(recs.length > 12 && recs.every(Boolean), "bench: every record decodes");
-    ok(FG.benchAsk(1).join() === [0xF0, 0x7D, 0x50, 0x54, 0x32, 1, 0xF7].join() && FG.decodeBench(msgs[0].slice(0, 6)) === null &&
-       FG.decode(msgs[0]) === null && FG.decodeBench(new Uint8Array(fs.readFileSync(process.argv[2]))) === null,
-       "bench: 32 BENCH to run it; a bench record is no FIGURES and the other way round");
-    const B = FG.bench();
-    recs.forEach((r) => B.add(r));
-    const kinds = recs.map((r) => r.kind);
-    ok(kinds[0] === "START" && kinds[kinds.length - 1] === "END" && B.end.status === 0 && !B.running() &&
-       B.rows.length === B.start.total && B.rows.every((r, i) => r.n === i + 1) && B.rows.every((r) => r.kind === "CORE" || r.kind === "ALONE"),
-       "bench: START, every piece numbered (THE CORE and ALONE only), END (done)");
-    ok(B.rows.filter((r) => r.kind === "ALONE" && /^(DX7|JUNO|TB-303|SAMPLE) /.test(r.name)).every((r) => r.runs === 8 && r.unit === "block"),
-       "bench: the engines alone, 8 warm runs a block each");
-    const bl = B.lines();
-    ok(bl[0].startsWith("== BENCH  (") && bl.some((l) => l.startsWith("THE CORE")) && bl.some((l) => l.startsWith("ALONE")) &&
-       !bl.some((l) => l.startsWith("STEPS")) && bl.every((l) => l.length < 100 && /^[\x20-\x7E]*$/.test(l)),
-       "bench: the report's parts (THE CORE, ALONE); ASCII, under 100");
-    console.log(bl.slice(0, 40).join("\n"));
-}
-
-/* DJ (a fourth answer: a window on DJ, both decks playing, the left's FILTER, the crossfader's LFO on) */
-const djFile = process.argv[5];
+/* DJ (a third answer: a window on DJ, both decks playing, the left's FILTER, the crossfader's LFO on) */
+const djFile = process.argv[4];
 if (djFile) {
     const c = FG.decode(new Uint8Array(fs.readFileSync(djFile)));
     ok(c && c.what === 4 && c.dj.live && c.dj.decks.every((k) => k.playing && k.name && k.bpm10 > 0) && c.dj.rec.length === 136,
@@ -213,16 +188,16 @@ if (djFile) {
     console.log(dl.filter((l, i) => i < 16).join("\n"));
 }
 
-/* core 2's 37s as the debug build sent them (fifth and sixth files: the first window's; the DJ window's, its platform
+/* core 2's 37s as the debug build sent them (fourth and fifth files: the first window's; the DJ window's, its platform
    figures set by the test as the device's plat_dbg gives them) */
-if (process.argv[6]) {
-    const c = FG.decode2(new Uint8Array(fs.readFileSync(process.argv[6]))), a3 = Object.assign({}, a);
-    ok(c && FG.join(a3, c) && a3.c2 === c && !c.forced && !c.blocks && !c.sum,
-       "the first window's 37 from the debug build: joined to its 31, not off by 38, no core 2 (no blocks)");
+if (process.argv[5]) {
+    const c = FG.decode2(new Uint8Array(fs.readFileSync(process.argv[5]))), a3 = Object.assign({}, a);
+    ok(c && FG.join(a3, c) && a3.c2 === c && !c.blocks && !c.sum,
+       "the first window's 37 from the debug build: joined to its 31, no core 2 (no blocks)");
 }
-if (process.argv[7] && djFile) {
-    const d = FG.decode(new Uint8Array(fs.readFileSync(djFile))), c = FG.decode2(new Uint8Array(fs.readFileSync(process.argv[7])));
-    ok(c && FG.join(d, c) && !c.forced && c.clk && c.whole && c.start10ns === 41 &&
+if (process.argv[6] && djFile) {
+    const d = FG.decode(new Uint8Array(fs.readFileSync(djFile))), c = FG.decode2(new Uint8Array(fs.readFileSync(process.argv[6])));
+    ok(c && FG.join(d, c) && c.clk && c.whole && c.start10ns === 41 &&
        c.sum === 400000 && c.max === 1500 && c.blocks === 2700 && c.misreads === 2 && c.waitSum === 3000 &&
        c.waitMax === 25 && c.late1 === 1 && c.late2 === 3 && c.stackUsed === 2100 && c.stackSize === 6144 &&
        c.faultVec === 9 && c.faultPc === 0x01C71234, "the DJ window's 37 from the debug build: every field, joined");
@@ -247,8 +222,23 @@ if (process.argv[7] && djFile) {
         crash.forEach((v, i) => put32(20 + 4 * i, v));
         [0x01C78D00, 0x01C7CC00, 0x01C7CD00, 0x01C7FC00].forEach((v, i) => put32(20 + 4 * crash.length + 4 * i, v));
         if (version >= 3) [0x01C7CBF0, 0x01C7FC00, 0x01C7FC00].forEach((v, i) => put32(108 + 4 * i, v));   /* (sp = ssp) */
+        if (version >= 4) {                             /* (the start check: the firmware started, its check 21.5 ms) */
+            r[120] = 1; r[121] = 0; r[122] = 0; r[123] = 1; put32(124, 21500); r[128] = 3; r[130] = 1; r[132] = 1;
+        }
         return pack(0x36, r);
     };
+    const m4 = records(4, 136, 0), d4 = FG.decodeRecords(m4), l4 = d4 && FG.recordsLines(d4);
+    ok(d4 && d4.start && d4.start.did === 1 && d4.start.checkUs === 21500 && d4.start.starts === 3 && d4.start.p3 === 1 &&
+       l4.some((l) => /it read the reset reasons 00000001/.test(l)) && d4.start.part &&
+       d4.start.loader === 1 && l4.some((l) => /the start check: the firmware; its CRC-32 of the firmware 21\.5 ms; 3 starts/.test(l)) &&
+       l4.some((l) => /the update loader in the staging: PT\/FM's, kept; the debug part: in/.test(l)),
+       "36 RECORDS (version 4, 136 B): the start check's decision, its time, the loader kept, the debug part");
+    {
+        const r = FG.decodeRecords(records(4, 136, 0));
+        r.start.did = 2; r.start.why = 1 | 16;
+        ok(FG.recordsLines(r).some((l) => /the update loader \(UPDATE MODE\) \(OCT- held, no update loader kept\)/.test(l)),
+           "RECORDS' lines: update mode and why");
+    }
     const m = records(3, 120, 1), d = FG.decodeRecords(m);
     ok(FG.proveAsk(3).join() === [0xF0, 0x7D, 0x50, 0x54, 0x35, 3, 0xF7].join() && FG.proveAsk(6)[5] === 6,
        "35 PROVE: the interrupts' stack; core 2 stuck (6)");

@@ -3,7 +3,8 @@
 /* The engines' reference sounds (specs/files/instruments.md#level-and-the-engines-reference): each engine's
  * plain sound, held a second, its loudest 300 ms at -20 dB RMS of the 16-bit full scale at the voice's
  * output; then the same instruments as records (cartridges 01-04, LEVEL 0) played on the keys through the
- * player: voices enter the mix at half, so -26 dB there. The DX7's and the TB-303's pitch too.
+ * player: voices enter the mix at half, so -26 dB there. The DX7's and the TB-303's pitch too. A sample instrument
+ * naming a sample that is not there, or one whose entry and audio differ, silent.
  *   ref_test */
 #include <math.h>
 #include <stdio.h>
@@ -74,14 +75,19 @@ static void check(const char *what, double v, double want, double tol)
 #define N 44100
 static int32_t buf[N];
 
-static uint8_t dx7_slot[112], juno_slot[28], tb_slot[24], samp_cart[11 + 40 + 16], fus_cart[10];
+/* the sampler cartridge (version 2: instruments only, each naming a sample by its number, specs/files/instruments.md):
+ * slot 0 the reference on sample 00; slot 1 naming sample 42, which is not there; slots 2 and 3 naming samples 01 and
+ * 02, whose entries differ from their audio's head (the length; the coding): read as missing, so all three silent */
+#define SAMP_SLOTS 4
+static uint8_t dx7_slot[112], juno_slot[28], tb_slot[24], samp_cart[10 + 40 * SAMP_SLOTS], fus_cart[10];
 static uint8_t carts[4][10 + 112];
 static uint8_t ptr[4 + 4 + 2 + 1 + 100];
+static uint8_t samples[3][16 + sizeof ptr];   /* samples 00-02: the entry (16 B), then the audio (specs/files/instruments.md#samples) */
 
 static void make_records(void)
 {
     bw_t w;
-    int op, i;
+    int op, i, k;
     /* DX7: algorithm 32, operator 1 alone at OUTPUT LEVEL 99, ratio 1.00, its EG rates 99, levels 99 99 99 0 */
     memset(dx7_slot, 0, sizeof dx7_slot);
     w.p = dx7_slot;
@@ -121,22 +127,28 @@ static void make_records(void)
     name(&w, "REF");
     put(&w, 0, 8);
     /* the sampler: a full-scale 8-bit sine, 441 Hz at 44.1 kHz (100 samples), looped whole, at its BASE NOTE;
-     * TUNE 0, VOLUME 64, the envelope's rates 99 and levels 99 99 99 0. Its audio: PTR 8-bit, one raw block */
+     * TUNE 0, VOLUME 64, the envelope's rates 99 and levels 99 99 99 0. Its audio: PTR 8-bit, one raw block. The
+     * same instrument in slots 1-3, on samples 42 (none), 01 and 02 (their entries and audio differ) */
     memset(samp_cart, 0, sizeof samp_cart);
-    samp_cart[9] = 1;
-    samp_cart[10] = 1;
-    w.p = samp_cart + 11;
-    w.pos = 0;
-    put(&w, 0, 6), put(&w, 0, 20), put(&w, 100, 20), put(&w, 0, 20), put(&w, 100, 20), put(&w, 1, 2);
-    put(&w, 60, 7), put(&w, 0x80, 8), put(&w, 0, 8), put(&w, 64, 7);
-    for (i = 0; i < 4; i++)
-        put(&w, 99, 7);
-    put(&w, 99, 7), put(&w, 99, 7), put(&w, 99, 7), put(&w, 0, 7);
-    name(&w, "SINE");
-    w.p = samp_cart + 11 + 40;
-    w.pos = 0;
-    put(&w, 100, 20), put(&w, 44100, 18), put(&w, 1, 4);
-    name(&w, "SINE");
+    samp_cart[9] = SAMP_SLOTS;
+    for (k = 0; k < SAMP_SLOTS; k++) {
+        static const uint8_t ON[SAMP_SLOTS] = {0x00, 0x42, 0x01, 0x02};
+        w.p = samp_cart + 10 + 40 * k;
+        w.pos = 0;
+        put(&w, ON[k], 8), put(&w, 0, 20), put(&w, 100, 20), put(&w, 0, 20), put(&w, 100, 20), put(&w, 1, 2);
+        put(&w, 60, 7), put(&w, 0x80, 8), put(&w, 0, 8), put(&w, 64, 7);
+        for (i = 0; i < 4; i++)
+            put(&w, 99, 7);
+        put(&w, 99, 7), put(&w, 99, 7), put(&w, 99, 7), put(&w, 0, 7);
+        name(&w, "SINE");
+    }
+    for (k = 0; k < 3; k++) {            /* the samples' entries: length 100 (01: 101), rate, coding 1 (02: 2), name */
+        memset(samples[k], 0, 16);
+        w.p = samples[k];
+        w.pos = 0;
+        put(&w, k == 1 ? 101u : 100u, 20), put(&w, 44100, 18), put(&w, k == 2 ? 2u : 1u, 4);
+        name(&w, "SINE");
+    }
     ptr[0] = 1;
     ptr[1] = 100;
     ptr[4] = 10;                         /* the group's offset: after the 4 + 4 + 2 bytes of the head */
@@ -156,7 +168,10 @@ static void make_records(void)
     disk_put(REC_JUNO, 2, 0, carts[1], 10 + 28);
     disk_put(REC_TB303, 3, 0, carts[2], 10 + 24);
     disk_put(REC_SAMPLER, 4, 0, samp_cart, sizeof samp_cart);
-    disk_put(REC_AUDIO, 4, 0, ptr, sizeof ptr);
+    for (k = 0; k < 3; k++) {
+        memcpy(samples[k] + 16, ptr, sizeof ptr);
+        disk_put(REC_SAMPLE, (uint8_t)k, 0, samples[k], sizeof samples[k]);
+    }
     (void)fus_cart;
 }
 
@@ -241,6 +256,26 @@ int main(void)
                 buf[b] = 0;
             player_key_off(NOTE[e]);
             check(WHAT[e], loudest(buf, N), -26.02, 0.4);
+        }
+    }
+    {   /* a sample instrument naming a sample that is not there, or one whose entry and audio's head differ (read as
+         * missing): a note on it plays nothing, as an empty slot (specs/files/instruments.md#samples) */
+        static const char *WHAT[SAMP_SLOTS - 1] = {"sampler, sample 42 missing: peak", "sampler, entry's length: peak",
+                                                   "sampler, entry's coding: peak"};
+        int e;
+        for (e = 1; e < SAMP_SLOTS; e++) {
+            static int16_t half[512];
+            pl_inst_t in = {4, (uint8_t)e};
+            int peak = 0;
+            player_init();
+            player_key_on(60, in, 127);
+            for (b = 0; b + 256 <= N; b += 256) {
+                player_audio(half, 256);
+                for (i = 0; i < 512; i++)
+                    peak = abs(half[i]) > peak ? abs(half[i]) : peak;
+            }
+            player_key_off(60);
+            check(WHAT[e - 1], peak, 0, 0);
         }
     }
     {   /* a punch-in command, TAPE STOP !08 at row 16 of a song at 120 BPM (a row 0.125 s), a note every other

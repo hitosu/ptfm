@@ -58,7 +58,7 @@ function instrument(it, st, slot, what, page, group) {
         } catch (e) { /* (drawn as the FM-1 draws what is missing) */ }
     }
     const size = R.SLOT[it.kind] ? R.SLOT[it.kind][1] : it.kind === K.SAMPLER ? R.SAMPLER_SLOT : 0;
-    const b = it.recs[0].payload, at = it.kind === K.SAMPLER ? 11 + slot * R.SAMPLER_SLOT : 10 + slot * size;
+    const b = it.recs[0].payload, at = 10 + slot * size;                /* (a sampler of version 2 too: its head is the cartridges' 10 bytes) */
     const ex = fw.ex, buf = ex.ed_pic_buf();
     fw.mem().fill(0, buf, buf + 512);
     fw.mem().set(b.subarray(at, at + size), buf);

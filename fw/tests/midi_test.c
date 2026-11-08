@@ -145,7 +145,7 @@ static void lay_disk(const char *path)
         p = 16;
         for (uint32_t i = 0; i < count; i++) {
             uint32_t len = d[p + 4] | d[p + 5] << 8 | d[p + 6] << 16 | (uint32_t)d[p + 7] << 24;
-            int kind = d[p], audio = kind == REC_AUDIO;
+            int kind = d[p], audio = store_is_audio((uint8_t)kind);
             if (kind < 0xE0 && audio == pass) { last_hdr = at; put(d + p, d + p + 12, len, audio); }
             p = (p + 12 + len + 3) & ~3u;
         }
@@ -816,6 +816,7 @@ int main(int argc, char **argv)
         run(10);
         int n = sx_last_n > 6 ? unpack7(sx_last + 5, sx_last_n - 6, st) : 0;
         check("STATE: 40 asked, 41 answered with its bytes", sx_last_n > 6 && sx_last[4] == 0x41 && n >= 301 && st[0] == 1);
+        check("STATE: 335 B (LOOPS' bytes at its end), 389 on the wire", n == 335 && sx_last_n == 389);
         check("STATE: MIRROR on, channel 16; the screen SONGS; its cursor the current song",
               (st[1] & 2) && st[2] == 15 && !strcmp((const char *)st + 26, "SONGS") && st[68] == ui_cur.song && st[42] == 0);
         check("STATE: the settings (HOLD DELAY, KEYS OCTAVE, VOICES) and the keys' instrument",

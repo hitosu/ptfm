@@ -10,11 +10,14 @@ node tests/playground/harness.js tests/playground/checks.js
 node tests/playground/harness.js tests/playground/keys_only.js   # (no song at all: the keys' song)
 node tests/playground/harness.js tests/playground/loops_cue.js   # (nothing playing: the keys' song held, LOOPS' loops; UNLOAD SONG)
 node tests/playground/harness.js tests/playground/loops.js       # (LOOPS, the loop station: takes, QUANTIZE, lanes, CONTROL, the pattern recorder ...)
+node tests/playground/harness.js tests/playground/loops_metro.js # (PLAY's LEDs while the loops play: the visual metronome)
 node tests/playground/harness.js tests/playground/editor_own.js  # (the EDITOR's own pattern; FWS holds nothing of the user's)
 node tests/playground/harness.js tests/playground/storage.js     # (the user area kept in the browser: clean, DEMO DISK, SAVE, a power cycle)
 node tests/playground/harness.js tests/playground/refs_save.js   # (UPDATE REFERENCES?: YES pauses and saves as SAVE does)
 node tests/playground/harness.js tests/playground/revert_fx.js   # (REVERT ALL: the paused song's effects as saved at once)
 node tests/playground/harness.js tests/playground/cut_fx.js      # (CUT held 2 s: every effect off, an edit)
+node tests/playground/harness.js tests/playground/favorites.js   # (FAVORITES: ADD TO FAVORITES, SEL + ENV, browsing, a favourite's edit mode ...)
+node tests/playground/harness.js tests/playground/samples.js     # (samples numbered on their own: THE SAMPLES list, REPLACE SAMPLE, CREATE, the tools ...)
 node tests/playground/sound.js
 node tests/playground/harness.js tests/playground/screens.js > /dev/null
 node tests/playground/harness.js tests/playground/mirror_ui.js > /dev/null   # (fw/tests/ui_test.c's steps: its shots' counterparts)

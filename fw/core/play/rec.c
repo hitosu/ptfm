@@ -338,7 +338,7 @@ int rec_pattern(uint8_t num, rec_pat_t *pt)
 #endif
     return rec_pattern_walk(num, pt);
 }
-void rec_ahead(const uint8_t *nums, int n)
+PLAT_COLD void rec_ahead(const uint8_t *nums, int n)   /* (the main loop's: ahead_poll's) */
 {
     uint32_t i;
     int j;
@@ -456,7 +456,76 @@ int rec_cur_at(rec_cur_t *c, int row, rec_cell_t *out)
     return 1;
 }
 
+PLAT_COLD int rec_free_pattern(void)
+{
+    uint8_t nums[256];
+    int n = store_list(REC_PATTERN, nums, 256), k = 0;
+    for (int f = 0; f < 0xF0; f++) {
+        while (k < n && nums[k] < f) k++;
+        if (k == n || nums[k] != f) return f;
+    }
+    return -1;
+}
+
 /* ---- the loops ---- */
+PLAT_COLD int rec_bridge(const rec_cell_t *c)
+{
+    return !(c->has & (RC_NOTE | RC_VOL)) && c->n == 1 && c->cmd[0][0] == 0x0Eu && c->cmd[0][1] == 0xD0u;
+}
+PLAT_COLD int rec_stage_cells(rec_cur_t *cu, int r, rec_cell_t *c4)
+{
+    int l, has = 0;
+    for (l = 0; l < 4; l++)
+        if (rec_cur_at(cu, 4 * r + l, &c4[l]) && !rec_bridge(&c4[l]))
+            has |= 1 << l;
+    return has;
+}
+PLAT_COLD int rec_stage_merge(int has, const rec_cell_t *c4, int8_t *from)
+{
+    int l, note = -1, end = -1;
+    for (l = 0; l < 4; l++) {
+        if (!(has >> l & 1))
+            continue;
+        if ((c4[l].has & RC_NOTE) && c4[l].note != REC_NOTE_OFF) {
+            note = l;
+            *from = (int8_t)l;
+        } else if (l == *from && note < 0) {
+            end = l;
+        }
+    }
+    if (note >= 0)
+        return note;
+    if (end >= 0)
+        *from = -1;
+    return end;
+}
+PLAT_COLD uint32_t rec_note_offs(uint32_t on, uint32_t tie, uint32_t n, uint32_t nr)
+{
+    uint32_t k, t, nx, end, off = 0;
+    tie &= ~on;
+    for (k = 0; nr && k < n; k++) {
+        if (!(on >> k & 1u))
+            continue;
+        for (t = 0; t + 1u < n && tie >> ((k + 1u + t) % n) & 1u; t++)
+            ;
+        for (nx = k + 1u; nx < k + 1u + n && !(on >> (nx % n) & 1u); nx++)
+            ;
+        end = k + t + nr;
+        if (end < nx && !(on >> (end % n) & 1u))
+            off |= 1u << (end % n);
+    }
+    return off;
+}
+PLAT_COLD int rec_loops_rows_default(const uint8_t *head)
+{
+    static const uint8_t RPB[4] = {4, 6, 8, 4};
+    uint32_t beats = head[8 + 11], bar, most;
+    beats = beats < 1u ? 4u : beats > 16u ? 16u : beats;
+    bar = RPB[head[4] & 3u] * beats;
+    most = PAT_ROWS_MAX / bar;
+    most = most < 1u ? 1u : most > 4u ? 4u : most;
+    return (int)(most * bar);
+}
 /* the flash's part sub of the loops, in version 4 (another version is as none) */
 static const uint8_t *loops_part(uint32_t sub, uint32_t *len)
 {
@@ -488,7 +557,7 @@ PLAT_COLD int rec_loops(rec_loops_t *l, int streams)
     l->head = h;
     l->head_len = hl;
     l->n = (uint8_t)n;
-    l->rows = (uint8_t)(!n ? 0u : h[7] > PAT_ROWS_MAX ? PAT_ROWS_MAX : h[7] ? h[7] : 1u);
+    l->rows = (uint8_t)(h[7] > PAT_ROWS_MAX ? PAT_ROWS_MAX : h[7] ? h[7] : (uint32_t)rec_loops_rows_default(h));
     if (!streams || !n)
         return 0;
     for (sub = 0; f && sub < 16u; sub++) {   /* the flash's streams, in whichever part holds each */
@@ -534,13 +603,16 @@ void rec_loop(const rec_loops_t *l, int i, rec_loop_t *o)
     o->lanes = (uint8_t)((e[3] & 3u) + 1u);
     o->base = (uint8_t)(e[4] + 1u > PAT_ROWS_MAX ? PAT_ROWS_MAX : e[4] + 1u);
     o->repeats = e[5] ? e[5] : 1u;
+    o->shift = (uint8_t)(l->rows ? (uint32_t)REC_LOOP_SHIFT(e) % l->rows : 0u);   /* (a SHIFT not under the length: modulo it) */
     o->mix = e + 6;
 }
 
 /* ---- cartridges ---- */
-static const uint8_t SLOT_SIZE[REC_CART_LAST + 1] = {0, 112, 28, 24, 40, 16, 28};
+static const uint8_t SLOT_SIZE[REC_CART_LAST + 1] = {0, 112, 28, 24, 40, 16, 28, 3};
 
 int rec_slot_size(uint8_t kind) { return kind >= REC_DX7 && kind <= REC_CART_LAST ? SLOT_SIZE[kind] : 0; }
+
+uint8_t rec_cart_ver(uint8_t kind) { return kind == REC_SAMPLER ? REC_SAMPLER_VER : 1u; }
 
 PLAT_COLD int rec_cart(uint8_t num, rec_cart_t *c)
 {
@@ -551,9 +623,9 @@ PLAT_COLD int rec_cart(uint8_t num, rec_cart_t *c)
     for (k = REC_DX7; k <= REC_CART_LAST; k++) {
         const uint8_t *p = store_get((uint8_t)k, num, 0, &len, &ver), *h = 0;
         int ed = store_edit_obj((uint8_t)k, num) != 0;
-        if (p && (ver != 1 || len < 10u))
+        if (p && (ver != rec_cart_ver((uint8_t)k) || len < REC_CART_HEAD))   /* (an old sampler: not read) */
             p = 0;
-        if (ed && (h = store_piece((uint8_t)k, num, STORE_PC_HEAD, &hl)) && hl < 10u)
+        if (ed && (h = store_piece((uint8_t)k, num, STORE_PC_HEAD, &hl)) && hl < REC_CART_HEAD)
             h = 0;
         if (!p && !h)
             continue;
@@ -563,20 +635,31 @@ PLAT_COLD int rec_cart(uint8_t num, rec_cart_t *c)
         c->base = p;
         c->base_len = p ? len : 0u;
         c->base_n = p ? p[9] : 0u;
-        c->base_ns = p && k == REC_SAMPLER && len > 10u ? p[10] : 0u;
-        if (p && k == REC_SAMPLER && 11u + 40u * c->base_n + 16u * c->base_ns > len)
-            return c->kind = 0, -1;
-        if (p && k != REC_SAMPLER && 10u + (uint32_t)SLOT_SIZE[k] * c->base_n > len)
+        if (p && REC_CART_HEAD + (uint32_t)SLOT_SIZE[k] * c->base_n > len)
             return c->kind = 0, -1;
         c->head = h ? h : p;
         c->nslots = c->head[9];
-        c->nsamples = k == REC_SAMPLER && (h ? hl : len) > 10u ? c->head[10] : 0u;
         return 0;
     }
     return -1;
 }
 
-void rec_cart_name(const rec_cart_t *c, char *out)
+/* a cartridge number in use: a cartridge this reader reads (the edits counted), or any cartridge's live record there in
+ * a version it does not read (an old sampler: its number stays taken, specs/files/instruments.md#the-old-form) */
+PLAT_COLD int rec_cart_taken(uint8_t num)
+{
+    rec_cart_t c;
+    uint32_t len;
+    int k;
+    if (!rec_cart(num, &c))
+        return 1;
+    for (k = REC_DX7; k <= REC_CART_LAST; k++)
+        if (store_get((uint8_t)k, num, 0, &len, 0))
+            return 1;
+    return 0;
+}
+
+PLAT_COLD void rec_cart_name(const rec_cart_t *c, char *out)
 {
     if (c->kind)
         rec_name(c->head, 0, 12, out);
@@ -584,20 +667,20 @@ void rec_cart_name(const rec_cart_t *c, char *out)
         out[0] = 0;
 }
 
-/* each kind's name and LEVEL: where they start in the slot (bits) */
+/* each kind's name and LEVEL: where they start in the slot (bits; a sampler's in version 2) */
 static uint32_t name_pos(uint8_t kind)
 {
-    return kind == REC_DX7 ? 784u : kind == REC_JUNO ? 123u : kind == REC_TB303 ? 42u : kind == REC_SAMPLER ? 174u
+    return kind == REC_DX7 ? 784u : kind == REC_JUNO ? 123u : kind == REC_TB303 ? 42u : kind == REC_SAMPLER ? 176u
          : kind == REC_CHIP ? 121u : 8u;
 }
 
 static uint32_t level_pos(uint8_t kind)
 {
-    return kind == REC_DX7 ? 844u : kind == REC_JUNO ? 183u : kind == REC_TB303 ? 102u : kind == REC_SAMPLER ? 103u
+    return kind == REC_DX7 ? 844u : kind == REC_JUNO ? 183u : kind == REC_TB303 ? 102u : kind == REC_SAMPLER ? 105u
          : kind == REC_CHIP ? 181u : 68u;
 }
 
-const uint8_t *rec_slot(const rec_cart_t *c, uint8_t slot)
+static const uint8_t *slot_raw(const rec_cart_t *c, uint8_t slot)
 {
     const uint8_t *s = 0;
     uint32_t len;
@@ -608,16 +691,28 @@ const uint8_t *rec_slot(const rec_cart_t *c, uint8_t slot)
     if (!s) {                            /* (as the flash has it) */
         if (!c->base || slot >= c->base_n)
             return 0;
-        s = c->base + (c->kind == REC_SAMPLER ? 11u : 10u) + (uint32_t)SLOT_SIZE[c->kind] * slot;
+        s = c->base + REC_CART_HEAD + (uint32_t)SLOT_SIZE[c->kind] * slot;
     }
-    if (rec_bits(s, name_pos(c->kind), 6) == REC_NAME_EMPTY)
+    return s;
+}
+
+const uint8_t *rec_slot(const rec_cart_t *c, uint8_t slot)
+{
+    const uint8_t *s = c->kind == REC_FAV ? 0 : slot_raw(c, slot);     /* (a favourite is no instrument) */
+    if (!s || rec_bits(s, name_pos(c->kind), 6) == REC_NAME_EMPTY)
         return 0;
     return s;
 }
 
+const uint8_t *rec_fav(const rec_cart_t *c, uint8_t slot)
+{
+    const uint8_t *s = c->kind == REC_FAV ? slot_raw(c, slot) : 0;
+    return s && s[1] != 0xFFu ? s : 0;
+}
+
 int8_t rec_level(uint8_t kind, const uint8_t *slot) { return (int8_t)rec_bits(slot, level_pos(kind), 8); }
 
-void rec_slot_name(uint8_t kind, const uint8_t *slot, char *out) { rec_name(slot, name_pos(kind), 10, out); }
+PLAT_COLD void rec_slot_name(uint8_t kind, const uint8_t *slot, char *out) { rec_name(slot, name_pos(kind), 10, out); }
 
 /* the DX7's fields, in the slot's order (specs/files/instruments.md#dx7): each operator 6 to 1, then the
  * voice; MSFA's layout keeps the same order, a byte each */
@@ -659,52 +754,39 @@ void rec_tb_knobs(const uint8_t *slot, uint8_t *k)
 
 uint8_t rec_fusion_pattern(const uint8_t *slot) { return slot[0]; }
 
-void rec_sampler_inst(const uint8_t *slot, rec_sinst_t *si)
+void rec_sampler_inst(const uint8_t *slot, rec_sinst_t *si)   /* (version 2's bits: rec.h) */
 {
     uint32_t i;
-    si->sample = (uint8_t)rec_bits(slot, 0, 6);
-    si->start = rec_bits(slot, 6, 20);
-    si->end = rec_bits(slot, 26, 20);
-    si->loop_start = rec_bits(slot, 46, 20);
-    si->loop_end = rec_bits(slot, 66, 20);
-    si->loop = (uint8_t)rec_bits(slot, 86, 2);
-    si->base = (uint8_t)rec_bits(slot, 88, 7);
-    si->tune = (uint8_t)rec_bits(slot, 95, 8);
-    si->level = (int8_t)rec_bits(slot, 103, 8);
+    si->sample = slot[0];
+    si->start = rec_bits(slot, 8, 20);
+    si->end = rec_bits(slot, 28, 20);
+    si->loop_start = rec_bits(slot, 48, 20);
+    si->loop_end = rec_bits(slot, 68, 20);
+    si->loop = (uint8_t)rec_bits(slot, 88, 2);
+    si->base = (uint8_t)rec_bits(slot, 90, 7);
+    si->tune = (uint8_t)rec_bits(slot, 97, 8);
+    si->level = (int8_t)rec_bits(slot, 105, 8);
     si->volume = rec_sampler_volume(slot);
     for (i = 0; i < 8u; i++)
-        si->env[i] = (uint8_t)rec_bits(slot, 118u + 7u * i, 7);
+        si->env[i] = (uint8_t)rec_bits(slot, 120u + 7u * i, 7);
 }
 
-uint8_t rec_sampler_volume(const uint8_t *slot) { return (uint8_t)rec_bits(slot, 111, 7); }
+uint8_t rec_sampler_volume(const uint8_t *slot) { return (uint8_t)rec_bits(slot, 113, 7); }
 
-uint32_t rec_slot_at(const rec_cart_t *c, uint8_t slot)
-{
-    return (c->kind == REC_SAMPLER ? 11u : 10u) + (uint32_t)SLOT_SIZE[c->kind] * slot;
-}
+uint32_t rec_slot_at(const rec_cart_t *c, uint8_t slot) { return REC_CART_HEAD + (uint32_t)SLOT_SIZE[c->kind] * slot; }
 
-const uint8_t *rec_sample_entry(const rec_cart_t *c, uint8_t idx)
+int rec_sample(uint8_t num, rec_sample_t *s)
 {
-    const uint8_t *e;
     uint32_t len;
-    if (c->kind != REC_SAMPLER || idx >= c->nsamples)
-        return 0;
-    if (c->edited && (e = store_piece(REC_SAMPLER, c->num, STORE_PC_TABLE, &len)))    /* (its table edited) */
-        return 16u * (idx + 1u) <= len ? e + 16u * idx : 0;
-    if (!c->base || idx >= c->base_ns)
-        return 0;
-    return c->base + 11u + 40u * c->base_n + 16u * idx;
-}
-
-int rec_sample(const rec_cart_t *c, uint8_t idx, rec_sample_t *s)
-{
-    const uint8_t *e = rec_sample_entry(c, idx);
-    if (!e)
+    uint8_t ver;
+    const uint8_t *p = store_get(REC_SAMPLE, num, 0, &len, &ver);
+    if (!p || ver != 1u || !store_sample_ok(p, len) || rec_bits(p, 42, 6) == REC_NAME_EMPTY)
         return -1;
-    if (rec_bits(e, 42, 6) == REC_NAME_EMPTY)
-        return -1;
-    s->length = rec_bits(e, 0, 20);
-    s->rate = rec_bits(e, 20, 18);
-    s->coding = (uint8_t)rec_bits(e, 38, 4);
+    s->length = rec_bits(p, 0, 20);
+    s->rate = rec_bits(p, 20, 18);
+    s->coding = (uint8_t)rec_bits(p, 38, 4);
+    s->entry = p;
+    s->audio = p + 16;
+    s->audio_len = len - 16u;
     return 0;
 }

@@ -37,8 +37,8 @@ in place from the flash, as core 1 does. Core 2 must not touch the flash, code o
 program or direct read has the code window off: that wedges the flash path, both cores stopping until the watchdog
 (measured: [hardware.md](hardware.md#the-flash)). So **every flash operation of core 1's that switches the code
 window off waits until core 2 is idle,** with the interrupts off so that no job is handed over meanwhile: the store's
-erases, programs and direct reads, the seeding's, the update's own (its staging), the debug build's bench and PROVE,
-and the audio context's direct-read path (which no voice reaches: the user area and the built-ins read in place). A
+erases, programs and direct reads, the seeding's, the update's own (its staging), the debug build's PROVE, and the
+audio context's direct-read path (which no voice reaches: the user area and the built-ins read in place). A
 wait lasts at most what core 2 was handed, a fraction of a millisecond. Two short paths of core 2's run from the
 image besides the voice job: its entry at a start and its fault handler's first steps (the one vector table);
 neither runs while the flash is busy (core 1 starts it, and every flash operation waits for it to be idle).
@@ -174,8 +174,8 @@ Every datum the sound uses belongs to one core at a time:
   anything the sound depends on.
 - **The main loop's locks** hold off the audio interrupt, and wait for core 2 to finish what it was handed: the
   store's and the edits' sections change what the voices read (their patches and records), which a voice job may be
-  reading. The effects' changes go through the requests, which the audio interrupt takes at a half's start. The
-  debug build's bench runs its pieces on core 1 with no block handed over meanwhile. **The figures core 2 counts** (its stages,
+  reading. The effects' changes go through the requests, which the audio interrupt takes at a half's start. **The
+  figures core 2 counts** (its stages,
   its time) are its own, per half: core 1 reads the half before's at the next half's start, once core 2 has
   finished it (so never half-counted), adds them to that half's own and clears them.
 
@@ -224,7 +224,7 @@ queue in its loop in RAM when it has nothing to do; it takes no interrupts.
   restart that was not a power-on (a crash, the STOPPED screen, the watchdog, a crash while core 2 was starting),
   leaves core 2 off until the power goes off (`STOPPED: AFTER A CRASH`): the word lives in the RAM kept across
   restarts, which a power-off clears, so a fault core 2 caused cannot loop. The boot guard is unchanged: two failed
-  starts in a row end in the USB rescue; a crash core 2 caused counts once, and the next start, on one core, is
+  starts in a row end in update mode; a crash core 2 caused counts once, and the next start, on one core, is
   healthy.
 - **The supplies stay at the boot loader's levels.**
 
@@ -325,7 +325,7 @@ At the supplies the boot loader leaves (1.40 V, 1.26 V):
 - a start after a hold faults in the ROM, every time, contained; a software restart and an update's restart clear
   it; the ROM writes its start stack near 0x01C6FC70-0x01C6FF04.
 
-With the effects on core 2 (the full AUTOTEST, SECOND CORE on and, for its ONE CORE scenarios, off):
+With the effects on core 2 (the full AUTOTEST, SECOND CORE on and, for comparison, off):
 
 - core 2 ran in every window, no misread; its start answered in 0.41 µs on the first try; core 1 waits for it
   4-5 µs a half on average, 47 at most; its jobs' stack 4,764 of 6,144 B at most (the punch-ins);

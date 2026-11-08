@@ -9,7 +9,14 @@
 
 const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
+// the same to PT/FM's own update loader ("ota-FM-1_901" on): this page answers its hash reads too, a read at
+// 0xD0000000 | offset asking the CRC-32 of the package's 4 KB there, so it fetches only the blocks that differ
+const UPGRADE_HASHES = [0xF0, 0x22, 0x24, 0x35, 0x7C, 0xF7];
+const HASHES = (id) => /^ota-FM-1_9(0[1-9]|[1-9]\d)$/i.test(id.text);
+const HASH_AT = 0xD0000000;
 const MAXDATA = 512;
+const CRC_T = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const IS_OTA = (id) => /^ota-/i.test(id.model);
 // the port names an FM-1 shows, its update loader's too (the ports probed first; others only when hunting the loader)
@@ -173,6 +180,11 @@ export class Updater {
   // when the port disappears (lost: true) instead of waiting out idleMs
   async serve(link, image, finishAddr, idleMs, onProgress) {
     let served = 0, last = Date.now();
+    // (with hashes, PT/FM's loader fetches only the blocks that differ: the progress then follows its place in the
+    // firmware slot, as reads of a whole install (the head's 32, then 8 a block), so the page's bar moves as the FM-1's:
+    // through its CHECKING, then through its WRITING, the blocks found equal skipped)
+    let slotAt = -1, slotRead = false;
+    const place = (off) => 32 + Math.floor((off - slotAt) / 512);
     for (;;) {
       const pkt = await link.read(1000);
       if (!pkt) {
@@ -188,13 +200,27 @@ export class Updater {
         if (r.addr === finishAddr) return { served, finished: true };
         continue;
       }
+      if ((r.addr & 0xF0000000) >>> 0 === HASH_AT && r.len === 4) {    // a block's hash (PT/FM's loader asks)
+        const off = r.addr & 0x0FFFFFFF;
+        if (off + 4096 > image.length) throw fail("badreq", `bad hash request ${r.addr.toString(16)}`);
+        const c = crc32(image.subarray(off, off + 4096));
+        if (!link.send(response(r.addr, [c & 0xFF, (c >>> 8) & 0xFF, (c >>> 16) & 0xFF, c >>> 24], r.fl)))
+          return { served, finished: false, lost: true };
+        served++;
+        if (slotAt < 0) slotAt = off;
+        if (onProgress) onProgress(place(off + 4096), 0);
+        continue;
+      }
       if (r.len > MAXDATA || r.addr + r.len > image.length) throw fail("badreq", `bad request ${r.addr.toString(16)}+${r.len}`);
       await sleep(10);
       if (!link.send(response(r.addr, Array.from(image.subarray(r.addr, r.addr + r.len)), r.fl))) {
         return { served, finished: false, lost: true };
       }
       served++;
-      if (onProgress) onProgress(served, r.addr + r.len);   // (the image read up to there)
+      const mark = slotAt >= 0 && r.addr >= slotAt + 0x8E000 && !slotRead;      // (the mark's block, fetched first, at the
+      if (onProgress) onProgress(slotAt < 0 || r.addr < slotAt ? served : mark ? place(slotAt) : place(r.addr + r.len),
+                                 mark ? 0 : r.addr + r.len);    // start: not how far the image has got)
+      if (slotAt >= 0 && r.addr >= slotAt && r.addr < slotAt + 0x8E000) slotRead = true;
     }
   }
 
@@ -229,10 +255,14 @@ export class Updater {
 
   // step 2 with the loader found by find()/waitFor()
   async write(ota, image, step) {
-    ota.link.send(UPGRADE);
+    ota.link.send(HASHES(ota.id) ? UPGRADE_HASHES : UPGRADE);
     await sleep(2000);
     const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n, end) => step("write", n, end));
     ota.link.close();
+    if (s2.finished) {                                  // (all of it: the blocks found equal are never read, so the place
+      step("write", 1179, image.length);                // the last read left can be short of the end; 1179: a whole install's)
+      await sleep(500);
+    }
     return s2;
   }
 

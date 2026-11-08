@@ -32,13 +32,20 @@ the sound are written again in plain JS ([layout.md](layout.md)). It is how the 
 
 ## What it fakes
 
-- the CPU figures, estimated from what sounds and each engine's cost on the FM-1 (the header's CPU bar and
-  OVER 9000 follow the estimate, [ui/frame.md](ui/frame.md#the-header)), split as on the FM-1: the effects' and the
+- the CPU figures, estimated from what sounds and each engine's and effect's cost on the FM-1 (STATUS'
+  shares, [ui/screens/status.md](ui/screens/status.md); its EFFECTS the estimate, where the FM-1 measures; the
+  header's CPU bar and OVER 9000 follow the estimate, [ui/frame.md](ui/frame.md#the-header)), split as on the FM-1: the effects' and the
   output's share is core 2's while SETTINGS' SECOND CORE is on, core 1's while it is off; the second core never
   stops there ([second-core.md](second-core.md#the-emulator-and-the-playground));
 - the battery;
 - AUTO LEVEL on INSTRUMENTS, which sets a level without measuring it;
-- the flash: SAVE keeps the changes in the browser tab, and a reload starts from the demo data again;
+- the flash: SAVE keeps the changes in the browser tab, and a reload starts from the demo data again; a SAVE is
+  whole at once there, so the FM-1's save in two parts when storage is full (deletions first,
+  [ui/saving.md](ui/saving.md)) has no twin: its end state is the same;
+- the stage's room ([files/ram.md](files/ram.md)): a note that makes the stage longer counts only what it adds, so near a
+  full edit memory the FM-1 can refuse a note as full a little earlier;
+- a row's moment: a row is decided about 120 ms before it sounds, on the FM-1 as it sounds, so an edit whose effect falls
+  on the next row can land a row later there; a song it records writes what it played;
 - USB audio: there is none, so USB GAIN is kept but changes nothing; the page's sound is the analog
   out's (LINE GAIN, MASTER, OUTPUT);
 - MIDI in and out ([connections.md](connections.md)): SETTINGS' MIDI page is there and keeps its

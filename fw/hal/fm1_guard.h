@@ -23,7 +23,8 @@
  *                     attached.
  *   bus-invalid       fetch/read/write of unmapped space (NULL page, XIP
  *                     writes) -> DBG_MSG bits 4, 5, 16..21.
- *   PC limit          instruction fetch outside [0x02000120, _etext] and the
+ *   PC limit          instruction fetch outside [0x02000120, _pc_top] (_etext,
+ *                     or the debug build's debug part's end: app.ld) and the
  *                     RAM window [_rt_start, _c2_end) (the flash driver's
  *                     code up to the end of core 2's, its loop and park
  *                     included, the data region between inside it: the two
@@ -49,7 +50,7 @@
 #define FM1_EMU_USP_H (*(volatile uint32_t *)0x1EEF0E0u)
 #define FM1_EMU_USP_L (*(volatile uint32_t *)0x1EEF0E4u)
 
-extern char _guard0[], _guard1[], _etext[], _records_top[];   /* (the stacks' ends: fm1_irq.h) */
+extern char _guard0[], _guard1[], _etext[], _pc_top[], _records_top[];   /* (the stacks' ends: fm1_irq.h) */
 extern uint32_t _rt_start[], _rt_end[], _c2_start[], _c2_end[];
 
 enum { FM1_GUARD_STACK = 1, FM1_GUARD_WRITE = 2, FM1_GUARD_BUS = 4, FM1_GUARD_PC = 8 };
@@ -121,7 +122,7 @@ static void fm1_guard_enable(uint32_t which)
         FM1_DBG_EN |= (0x3Fu << 16) | (0x3u << 4);
     if (which & FM1_GUARD_PC) {
         FM1_PC_LIMIT0_L = 0x02000120u;
-        FM1_PC_LIMIT0_H = (uint32_t)(uintptr_t)_etext;
+        FM1_PC_LIMIT0_H = (uint32_t)(uintptr_t)_pc_top;   /* (_etext; the debug build's debug part's end) */
         {   /* RAM code (.ram_text up to core 2's code's end, its loop and park included, the RAM between inside);
              * with none, repeat the XIP window */
             volatile uint32_t rs = (uint32_t)(uintptr_t)_rt_start, re = (uint32_t)(uintptr_t)_rt_end;

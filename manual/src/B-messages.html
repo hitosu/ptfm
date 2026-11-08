@@ -155,12 +155,12 @@ semitones.</td></tr>
 the knobs move to other cells, or back to the fields.</td></tr>
 <tr><td><samp class="msg" data-t="PATTERN: # NOTES">PATTERN: 12 NOTES</samp> <samp class="msg" data-t="PATTERN: # NOTE">PATTERN:
 1 NOTE</samp></td><td>RECORD PATTERN wrote that many notes.</td></tr>
-<tr><td><samp class="msg">KEYS: THE NOTE</samp> <samp class="msg">KEYS: THE STEPS</samp></td><td>The pattern recorder:
-the next key sets the row's note, or the keys switch steps again.</td></tr>
+<tr><td><samp class="msg">KEYS: THE NOTE</samp> <samp class="msg">KEYS: THE STEPS</samp></td><td>RECORD PATTERN, and
+LOOPS' pattern recorder: the next key sets the note, or the keys switch steps again.</td></tr>
 <tr><td><samp class="msg" data-t="NOTE %s">NOTE C-5</samp> <samp class="msg" data-t="NOTE #">NOTE C-5</samp></td><td>The
-pattern recorder's row note, moved with OCT.</td></tr>
-<tr><td><samp class="msg">NO STEPS ON</samp></td><td>REC in the pattern recorder with no step on: switch some on
-first.</td></tr>
+recorder's note (in LOOPS the selected row's), moved with OCT.</td></tr>
+<tr><td><samp class="msg">NO STEPS ON</samp></td><td>REC in RECORD PATTERN or LOOPS' pattern recorder with no step on:
+switch some on first.</td></tr>
 <tr><td><samp class="msg">THIS: NOT IN THIS FIRMWARE YET</samp> <samp class="msg">EDITOR: NOT IN THIS FIRMWARE YET</samp>
 <samp class="msg">FX: NOT IN THIS FIRMWARE YET</samp></td><td>That part is not in this version of PT/FM.</td></tr>
 </tbody>
@@ -173,24 +173,37 @@ first.</td></tr>
 <thead><tr><th>Message</th><th>Means</th></tr></thead>
 <tbody>
 <tr><td><samp class="msg" data-t="COPIED %d">COPIED 3</samp></td><td>That many sounds copied.</td></tr>
-<tr><td><samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 0C DELETED</samp></td><td>A sampler's sample deleted: its
-audio gone, its place in the list kept, empty, and the instruments that played it emptied.</td></tr>
+<tr><td><samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 0C DELETED</samp></td><td>A sample no instrument used
+deleted (THE SAMPLES list, SEL, DELETE): its row reads (DELETED) until SAVE.</td></tr>
+<tr><td><samp class="msg">NO SAMPLES ON THE FM-1</samp></td><td>REPLACE SAMPLE, CREATE, EDIT on an empty sampler slot or
+ENV on SAMPLE with no sample to pick: upload some from the computer first.</td></tr>
+<tr><td><samp class="msg">THE SAMPLE IS MISSING</samp></td><td>On a sampler instrument's page, in grey where the waveform
+would be: the instrument names a sample number with no sample (a partial upload, a disk without it). It plays nothing.
+Pick another sample (K1 on SAMPLE, or SEL, REPLACE SAMPLE).</td></tr>
+<tr><td><samp class="msg">DELETE SAMPLE?</samp> <samp class="msg" data-t="# INSTRUMENTS USE IT AND ARE">3 INSTRUMENTS USE
+IT AND ARE</samp> (one: <samp class="msg">1 INSTRUMENT USES IT AND IS</samp>) <samp class="msg">DELETED TOO</samp></td><td>DELETE in THE SAMPLES list, when instruments of any sampler play
+the sample: <kbd>OCT+</kbd> deletes it with them, <kbd>OCT-</kbd> keeps it.</td></tr>
+<tr><td><samp class="msg">EMPTY SLOT: SEL MENU, CREATE OR PASTE</samp></td><td>An empty slot in a sampler: SEL, CREATE (or
+EDIT) picks a sample to make an instrument from.</td></tr>
 <tr><td><samp class="msg" data-t="COPIED FROM #: NOT HERE">COPIED FROM DX7: NOT HERE</samp></td><td>The copied sound is of
 another type than this cartridge: paste it into a cartridge of its own type.</td></tr>
+<tr><td><samp class="msg" data-t="ADDED TO #">ADDED TO FB:07</samp></td><td>ADD TO FAVORITES: the sound is a favourite
+now, in that slot (the first one added).</td></tr>
+<tr><td><samp class="msg" data-t="ALREADY IN #">ALREADY IN FB:07</samp></td><td>ADD TO FAVORITES: the sound is there already,
+in that slot; nothing added.</td></tr>
+<tr><td><samp class="msg">FAVORITES FULL</samp></td><td>ADD TO FAVORITES: not enough empty slots for them all; nothing
+added. REMOVE some, or make another FAVORITES cartridge.</td></tr>
+<tr><td><samp class="msg">NO FAVORITES YET</samp></td><td><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span>
+with no favourite anywhere, or <span class="combo"><kbd>GLO</kbd> held + <kbd>PRESETS</kbd></span> with none in the
+FAVORITES cartridge: add some with ADD TO FAVORITES first.</td></tr>
 <tr><td><samp class="msg">NO EMPTY SLOT: SWAP INSTEAD</samp></td><td>MOVE in a full cartridge: use SWAP.</td></tr>
 <tr><td><samp class="msg">EMPTY SLOT: SEL, INIT</samp></td><td>EDIT on an empty slot: SEL, INIT makes a sound to start
-from.</td></tr>
+from (in a sampler EDIT lists the samples to make one from).</td></tr>
 <tr><td><samp class="msg" data-t="LEVEL SET TO #">LEVEL SET TO -1.5 DB</samp></td><td>AUTO LEVEL set the sound's level.</td></tr>
 <tr><td><samp class="msg">NO SOUND TO MEASURE</samp></td><td>AUTO LEVEL on a silent sound: its level is kept.</td></tr>
 <tr><td><samp class="msg">LEVELS SET</samp></td><td>AUTO LEVEL ALL done.</td></tr>
 <tr><td><samp class="msg" data-t="CARTRIDGE %02X MADE">CARTRIDGE 11 MADE</samp></td><td>A new cartridge.</td></tr>
 <tr><td><samp class="msg">ALL CARTRIDGE NUMBERS USED</samp></td><td>No cartridge number left: delete one first.</td></tr>
-<tr><td><samp class="msg">SAVE IT FIRST</samp></td><td>MOVE of a sampler cartridge with unsaved changes: SAVE, then
-move it.</td></tr>
-<tr><td><samp class="msg">NO ROOM IN THE USER AREA</samp></td><td>No room for a copy of the cartridge's samples: free
-some storage first.</td></tr>
-<tr><td><samp class="msg">CLONE FAILED: FLASH ERROR</samp></td><td>Copying the samples failed; nothing changed. Run CHECK
-STORAGE.</td></tr>
 </tbody>
 </table>
 </section>
@@ -200,13 +213,36 @@ STORAGE.</td></tr>
 <table>
 <thead><tr><th>Message</th><th>Means</th></tr></thead>
 <tbody>
-<tr><td><b>LOOP 00: 4 BARS</b></td><td>The first loop closed: its length.</td></tr>
-<tr><td><samp class="msg">NOTHING PLAYED: NO LOOP</samp></td><td>The first loop closed with no notes: play something
-next time.</td></tr>
-<tr><td><samp class="msg">REC, THEN PLAY: THE FIRST LOOP</samp></td><td>PLAY with no loops: press REC first.</td></tr>
-<tr><td><samp class="msg" data-t="# RE-RECORDING">LOOP 03 RE-RECORDING</samp></td><td>The loop is being recorded again;
-its old notes are gone.</td></tr>
-<tr><td><samp class="msg" data-t="# PEELED">LOOP 03 PEELED</samp></td><td>LFO removed the loop.</td></tr>
+<tr><td><samp class="msg" data-t="STAGE AS #">STAGE AS LOOP 06</samp></td><td>REC on + NEW LOOP kept the stage
+as a new loop; the stage is empty again.</td></tr>
+<tr><td><samp class="msg" data-t="STAGE INTO #">STAGE INTO LOOP 03</samp></td><td>REC on a loop: the stage's notes
+replaced the loop's.</td></tr>
+<tr><td><samp class="msg">THE STAGE IS EMPTY</samp></td><td>REC while the loops play, with nothing on the stage: play
+something first.</td></tr>
+<tr><td><samp class="msg" data-t="# ON THE STAGE">LOOP 03 ON THE STAGE</samp></td><td>EDIT copied the loop onto the
+stage; REC writes it back.</td></tr>
+<tr><td><samp class="msg">STAGE CLEARED</samp></td><td>EDIT held, EDIT on + NEW LOOP or the menu's CLEAR STAGE emptied
+the stage, and it is on.</td></tr>
+<tr><td><samp class="msg">OVERWRITE</samp> <samp class="msg">OVERDUB</samp></td><td>LFO switched the stage's mode: the
+line erases what it passes, or the keys overdub.</td></tr>
+<tr><td><samp class="msg">STAGE OFF</samp> <samp class="msg">STAGE ON</samp></td><td>ARP switched the stage off (kept,
+not heard; the keys play over the loops and nothing is written), or on again; REC switches it on too.</td></tr>
+<tr><td><samp class="msg">STAGE ON: ARMED</samp></td><td>REC switched the stage on with the loops stopped, and armed
+them: your first note or PLAY starts them.</td></tr>
+<tr><td><samp class="msg">THE STAGE IS FULL</samp></td><td>The stage holds no more notes: the note played was neither
+heard nor written. EDIT, DOUBLE or REC that would pass it are refused, nothing changed.</td></tr>
+<tr><td><samp class="msg">STAGE NOT WRITTEN: STORAGE BUSY</samp></td><td>The stage cannot change while the memory is
+being written (a save, or a computer sending data): wait, and try again.</td></tr>
+<tr><td><samp class="msg">CANCELLED</samp></td><td>REC disarmed the loops (or ARP did, switching the stage off), a
+count-in was called off, HOME left ADJUST, or a song's recording was cancelled (HOME, or the song ended before its
+first row).</td></tr>
+<tr><td><samp class="msg" data-t="#: SHIFT #">LOOP 03: SHIFT +17 ROWS</samp></td><td>ADJUST kept: the loop plays that
+many rows later (-3: earlier).</td></tr>
+<tr><td><b>KEYS: 01:04 BRASS, MONO</b></td><td>ENV held or TAKE ITS INSTRUMENT: the loop's sound and MONO / POLY are now
+yours.</td></tr>
+<tr><td><b>LOOP 03: 01:04 BRASS, MONO</b></td><td>APPLY INSTRUMENT: the loop took your sound.</td></tr>
+<tr><td><samp class="msg">KEYS: MONO</samp> <samp class="msg">KEYS: POLY</samp></td><td>The keys play and keep one
+note at a time, or up to 4.</td></tr>
 <tr><td><samp class="msg">KEYS: CONTROL</samp> <samp class="msg">KEYS: PLAY</samp></td><td>SEQ: the keys mute and solo
 loops, or play notes.</td></tr>
 <tr><td><samp class="msg" data-t="# MUTED">LOOP 03 MUTED</samp> <samp class="msg" data-t="# ON">LOOP 03 ON</samp></td><td>A
@@ -222,21 +258,27 @@ held).</td></tr>
 <tr><td><samp class="msg">SEQ: MUTE</samp> <samp class="msg">SEQ: SOLO</samp></td><td>CONTROL mode's white keys mute, or
 solo.</td></tr>
 <tr><td><samp class="msg" data-t="QUANTIZE: #">QUANTIZE: 2 ROWS</samp></td><td>Where the next notes land.</td></tr>
-<tr><td><samp class="msg">NEXT LOOPS: MONO</samp> <samp class="msg">NEXT LOOPS: POLY</samp></td><td>How the next loops
-record.</td></tr>
-<tr><td><samp class="msg">NO LOOPS YET</samp></td><td>The action needs a loop: record one first.</td></tr>
-<tr><td><samp class="msg">GRID: ONLY BEFORE THE FIRST LOOP</samp></td><td>GRID can change only with no loops (CLEAR
-LOOPS first).</td></tr>
-<tr><td><samp class="msg" data-t="DOUBLED: # BARS">DOUBLED: 8 BARS</samp></td><td>The length doubled.</td></tr>
-<tr><td><samp class="msg" data-t="DOUBLE: AT MOST # BARS">DOUBLE: AT MOST 8 BARS</samp></td><td>The length cannot double
+<tr><td><samp class="msg">NO LOOPS YET</samp></td><td>The action needs a loop: keep one first.</td></tr>
+<tr><td><samp class="msg">GRID: ONLY WITH NO LOOPS</samp></td><td>GRID can change only with no loops (CLEAR LOOPS
+first).</td></tr>
+<tr><td><samp class="msg">GRID: ONLY WITH THE STAGE EMPTY</samp></td><td>... and with the stage empty (REC keeps it, LFO
+held + REC held clears it).</td></tr>
+<tr><td><samp class="msg" data-t="CUT TO #?">CUT TO 2 BARS?</samp> <samp class="msg">NOTES IN THE BARS CUT
+GO</samp></td><td>A shorter LENGTH would cut notes that play: OCT+ CUT, OCT- KEEP (the length as it was).</td></tr>
+<tr><td><samp class="msg" data-t="DOUBLED: #">DOUBLED: 8 BARS</samp></td><td>The length doubled (a length ending inside a
+bar is said in beats, DOUBLED: 42 BEATS).</td></tr>
+<tr><td><samp class="msg" data-t="DOUBLE: AT MOST #">DOUBLE: AT MOST 8 BARS</samp></td><td>The length cannot double
 further (128 rows at most).</td></tr>
-<tr><td><samp class="msg">LOOPS CLEARED</samp></td><td>Every loop gone.</td></tr>
-<tr><td><samp class="msg">NOTES RING TO THE NEXT</samp> <samp class="msg">NOTES A STEP LONG</samp></td><td>The pattern
-recorder's note length.</td></tr>
-<tr><td><samp class="msg" data-t="PATTERN: %s, %s">PATTERN: LOOP 06, 4 BARS</samp></td><td>The pattern recorder made a
-new loop.</td></tr>
-<tr><td><samp class="msg" data-t="PATTERN INTO #">PATTERN INTO LOOP 03</samp></td><td>... or replaced a loop's notes.</td></tr>
-<tr><td><samp class="msg">RECORDING A SONG</samp></td><td>RECORD LIVE runs: the loops cannot change until it ends (REC).</td></tr>
+<tr><td><samp class="msg" data-t="# QUANTIZED: #">LOOP 03 QUANTIZED: 4 ROWS</samp></td><td>The menu's QUANTIZE moved the
+loop's notes onto that grid.</td></tr>
+<tr><td><samp class="msg" data-t="# DELETED">LOOP 03 DELETED</samp></td><td>DELETE LOOP: the loop is gone (REVERT brings
+back what was saved).</td></tr>
+<tr><td><samp class="msg" data-t="CLEAR ALL # LOOPS?">CLEAR ALL 6 LOOPS?</samp> <samp class="msg">THE STAGE TOO; THE
+LENGTH STAYS</samp></td><td>CLEAR LOOPS asks first: OCT+ CLEAR, OCT- KEEP.</td></tr>
+<tr><td><samp class="msg">LOOPS CLEARED</samp></td><td>Every loop gone, and the stage's notes.</td></tr>
+<tr><td><samp class="msg">REVERT LOOPS TO SAVED?</samp></td><td>The menu's REVERT asks first; the stage stays.</td></tr>
+<tr><td><samp class="msg">PATTERN ON THE STAGE</samp></td><td>The pattern recorder's REC put its pattern onto the stage;
+REC on the screen keeps it as a loop.</td></tr>
 <tr><td><samp class="msg" data-t="SONG # RECORDED: #, # PATTERNS">SONG 12 RECORDED: 1:23, 5 PATTERNS</samp></td><td>RECORD
 LIVE wrote the song (SAVE keeps it).</td></tr>
 <tr><td><samp class="msg" data-t="SONG #: # NOTES LEFT OUT">SONG 12: 3 NOTES LEFT OUT</samp></td><td>Notes that did not fit
@@ -244,7 +286,7 @@ LIVE wrote the song (SAVE keeps it).</td></tr>
 <tr><td><samp class="msg" data-t="SONG # STOPPED: MEMORY FOR EDITS IS FULL">SONG 12 STOPPED: MEMORY FOR EDITS IS
 FULL</samp> <samp class="msg" data-t="SONG # STOPPED: ALL 240 PATTERNS USED">SONG 12 STOPPED: ALL 240 PATTERNS USED</samp>
 <samp class="msg" data-t="SONG # STOPPED: 256 POSITIONS">SONG 12 STOPPED: 256 POSITIONS</samp></td><td>RECORD LIVE stopped
-by itself, keeping what was written: SAVE, or free patterns.</td></tr>
+by itself, keeping the patterns written; the rows waiting for the next are gone: SAVE, or free patterns.</td></tr>
 <tr><td><samp class="msg">NO SONG NUMBER FREE</samp></td><td>RECORD LIVE needs a free song number.</td></tr>
 <tr><td><samp class="msg" data-t="LOOPS STORED IN PATTERN #">LOOPS STORED IN PATTERN 2A</samp>
 <samp class="msg" data-t="PATTERN #: # NOTES LEFT OUT">PATTERN 2A: 3 NOTES LEFT OUT</samp></td><td>SAVE TO PATTERN done
@@ -253,6 +295,10 @@ by itself, keeping what was written: SAVE, or free patterns.</td></tr>
 <samp class="msg" data-t="PATTERN # IN LOOPS: # INSTRUMENTS LEFT OUT">PATTERN 2A IN LOOPS: 3 INSTRUMENTS LEFT OUT</samp>
 <samp class="msg" data-t="PATTERN # IN LOOPS: # COMMANDS LEFT OUT">PATTERN 2A IN LOOPS: 12 COMMANDS LEFT OUT</samp></td>
 <td>LOAD FROM PATTERN done, and what did not fit.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # IS NOT EMPTY">PATTERN 2A IS NOT EMPTY</samp> <samp class="msg">REPLACE IT
+WITH THE LOOPS?</samp></td><td>SAVE TO PATTERN onto a pattern with notes asks first.</td></tr>
+<tr><td><samp class="msg">REPLACE THE LOOPS</samp> <samp class="msg" data-t="WITH PATTERN #?">WITH PATTERN
+2A?</samp></td><td>LOAD FROM PATTERN over loops asks first.</td></tr>
 <tr><td><samp class="msg" data-t="CARTRIDGE # IS EMPTY">CARTRIDGE 0A IS EMPTY</samp></td><td>ENV picked a cartridge with no
 sounds.</td></tr>
 </tbody>
@@ -340,7 +386,14 @@ copied into yours to edit.</td></tr>
 run: 12 sound until it does.</td></tr>
 <tr><td><samp class="msg">COUNTS ZEROED</samp></td><td>STATUS: MAX, HALF, LATE and STEALS back to zero.</td></tr>
 <tr><td><samp class="msg">NO MISSING REFERENCES</samp></td><td>CHECK REFERENCES found nothing missing.</td></tr>
+<tr><td><samp class="msg" data-t="SAMPLER %02X:%02X: SAMPLE %02X">SAMPLER 01:05: SAMPLE 23</samp></td><td>A line of CHECK
+REFERENCES: slot 05 of sampler 01 plays sample 23, which is not there.</td></tr>
+<tr><td><samp class="msg" data-t="CARTRIDGE %02X: OLDER FORM">CARTRIDGE 03: OLDER FORM</samp></td><td>A line of CHECK
+REFERENCES, after the missing ones and not counted with them: sampler 03 is still in the form an older PT/FM made. This
+PT/FM leaves it alone; convert it (the install page after an install, or the EDITOR page).</td></tr>
 <tr><td><samp class="msg">STORAGE OK</samp></td><td>CHECK STORAGE found every record whole.</td></tr>
+<tr><td><samp class="msg" data-t="SAMPLE %02X">SAMPLE 23</samp><samp class="msg">: ENTRY AND AUDIO DIFFER</samp></td><td>A
+line of CHECK STORAGE: the sample's description and its audio do not agree. It is read as missing.</td></tr>
 <tr><td><samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>
 <samp class="msg">NOTHING TO CLEAN UP</samp></td><td>CLEAN UP's result.</td></tr>
 <tr><td><samp class="msg">64 MAPPINGS: DELETE ONE FIRST</samp></td><td>LEARN is full: delete a mapping (LFO) first.</td></tr>
@@ -354,7 +407,7 @@ MIDI, or let it go.</td></tr>
 <tr><td><samp class="msg" data-t="DATA RECEIVED: # RECORDS">DATA RECEIVED: 52 RECORDS</samp></td><td>An upload (the
 install page, the EDITOR page) arrived whole.</td></tr>
 <tr><td><samp class="msg" data-t="DATA RECEIVED, # BAD RECORDS">DATA RECEIVED, 2 BAD RECORDS</samp></td><td>Some records
-arrived damaged and were left out: upload again.</td></tr>
+arrived damaged and were left out: upload again. It counts what SETTINGS, TOOLS, CHECK STORAGE would name.</td></tr>
 <tr><td><samp class="msg">DATA NOT RECEIVED: TRY AGAIN</samp></td><td>The upload failed; what was there is whole. Upload
 again.</td></tr>
 </tbody>

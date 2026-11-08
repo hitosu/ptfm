@@ -176,10 +176,10 @@ static void web_usb_block(const int32_t *lr, const int16_t *click, int n)
 /* the second core: one core here, so a block's job runs at once where it is handed over (the device's order, the
  * same sound) and its time is core 2's; core 1's figure is the half's time without it */
 #define WEB_C2_START_US 2000000u         /* the device's time when core 2 is ready (STARTING before) */
-static int web_c2_sw = 1, web_c2_forced;     /* SETTINGS' SECOND CORE, and the debug build's force-off */
+static int web_c2_sw = 1;                    /* SETTINGS' SECOND CORE */
 static double web_c2_half_us;                /* core 2's jobs' time this half */
 static uint32_t web_c2_half_n;               /* the blocks handed over this half */
-static int web_c2_on(void) { return web_c2_sw && !web_c2_forced; }
+static int web_c2_on(void) { return web_c2_sw; }
 
 void plat_cpu(plat_cpu_t *c, int reset)
 {
@@ -204,7 +204,6 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 }
 
 void plat_c2_enable(int on) { web_c2_sw = on != 0; }
-void plat_c2_force_off(int off) { web_c2_forced = off != 0; }
 void plat_c2_wait(void) {}                   /* (the jobs are done where they were handed over) */
 
 /* --------------------------------------------------------------- flash --- */
@@ -388,9 +387,6 @@ void plat_dbg(plat_dbg_t *d)
     d->c2.late1 = d->late;
     memset(&web_dbg, 0, sizeof web_dbg);
 }
-uint32_t plat_ticks(void) { return (uint32_t)(web_clock_us() * 24.0); }
-void plat_cache_cold(void) {}
-int plat_bench_core(int i, dbg_bench_t *r) { (void)i; (void)r; return 0; }
 #endif
 
 /* ------------------------------------------------------- the device's time --- */

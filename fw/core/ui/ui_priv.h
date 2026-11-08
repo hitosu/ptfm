@@ -19,6 +19,8 @@ void ui_open_home(void);
 
 /* the held buttons' layers (dialogs.md#hold-layers) */
 int ui_layer_open(int b);               /* 1 if b has a layer here (then it shows until let go) */
+int ui_sel_fav_here(void);              /* SEL + GLO goes to FAVORITES and back here (its layer says so) */
+int ui_glo_fav_here(void);              /* GLO + PRESETS picks a favourite once here (GLO's layer says so) */
 void ui_layer_close(int b);
 void ui_layers_draw(void);
 

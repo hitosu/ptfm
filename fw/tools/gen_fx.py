@@ -87,7 +87,10 @@ def env_t10():
 
 def c_lines():
     out = ["/* the effects' tables (fw/tools/gen_fx.py) */"]
-    out += arr("FX_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 128)) for i in range(257)])
+    # (one copy for the image and core 2's room: fx.c defines it, FX_TANH_HERE; player.c's ceiling reads it too)
+    tanh = arr("FX_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 128)) for i in range(257)])
+    out += ["extern const int16_t FX_TANH_Q15[257];", "#ifdef FX_TANH_HERE",
+            tanh[0].replace("static const", "const", 1), *tanh[1:], "#endif"]
     g = [round(4096 * math.tan(math.pi * min(20 * 1000 ** (i / 255), 0.45 * SR) / SR)) for i in range(256)]
     out += arr("FX_G_Q12", "uint16_t", g)
     filt = []

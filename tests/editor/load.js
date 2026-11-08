@@ -7,8 +7,8 @@ const fs = require("fs"), path = require("path");
 const ROOT = path.join(__dirname, "..", "..");
 global.ED = global.ED || {};
 global.PTFM_seed = require(path.join(ROOT, "fw", "web", "seed.js"));
-const FILES = ["util.js", "defs.js", "records.js", "model.js", "flash.js", "cmds.js", "conv_syx.js", "conv_sound.js", "optimize.js", "ibxm_load.js",
-    "conv_mod.js", "conv_midi.js", "fm1.js", "drops.js", "player.js"];
+const FILES = ["util.js", "defs.js", "records.js", "model.js", "flash.js", "cmds.js", "conv_syx.js", "conv_sound.js", "optimize.js", "slices.js", "ibxm_load.js",
+    "conv_mod.js", "conv_midi.js", "fm1.js", "drops.js", "player.js", "cutting.js", "slotops.js"];
 for (const f of FILES) {
     const p = path.join(ROOT, "editor", "js", f);
     if (fs.existsSync(p)) require(p);

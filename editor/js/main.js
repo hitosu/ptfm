@@ -32,7 +32,8 @@ async function start() {
     ED.tabs.show("files");
     wire();
     const n = app.st.L.length + app.st.R.length;
-    U.status(n ? "BACK AS YOU LEFT IT: " + U.plural(app.st.L.length, "ITEM") + " ON THE TABLE, " + U.plural(app.st.R.length, "ITEM") + " ON THE FM-1 PANEL"
+    U.status(n ? "BACK AS YOU LEFT IT: " + U.plural(app.st.L.length, "ITEM") + " ON THE TABLE, " + U.plural(app.st.R.length, "ITEM") + " ON THE FM-1 PANEL" +
+        (saved && saved.converted ? " · THEIR SAMPLES CONVERTED: SAMPLES ARE ITEMS OF THEIR OWN NOW" : "")
         : "DROP FILES ON THE TABLE, OR READ WHAT THE FM-1 HOLDS");
 }
 function wire() {

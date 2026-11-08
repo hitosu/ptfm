@@ -13,12 +13,21 @@
 
 static struct { int view, left, track; } pb = {8, 0, 0};
 typedef struct { int pat, row, pos, npos; uint8_t song; } where_t;
-/* what PLAYBACK shows: what plays (or paused), else the current song's first position */
+/* LOOPS' loops are what plays, or what played last (playing or paused): PLAYBACK acts as if nothing were loaded and
+ * nothing on it changes anything (it says only that they play); 1 playing, 2 paused, 0 not */
+static int loops_now(void)
+{
+    player_state_t st;
+    ui_player_state(&st);
+    return st.what == PL_LOOPS && !st.lcue ? 1 + !st.playing : 0;
+}
+/* what PLAYBACK shows: what plays (or paused), else the current song's first position; nothing of the loops */
 static int where(where_t *w)
 {
     player_state_t st;
     ui_player_state(&st);
     ui_song_t s;
+    if (loops_now()) return 0;
     if (st.what == PL_SONG || st.what == PL_LOOP) {
         w->pat = st.pat; w->row = st.row; w->song = st.song;
         w->pos = st.what == PL_SONG ? st.pos : -1;
@@ -111,6 +120,7 @@ static void knob(int e, int s, int coarse)
         ui_show_knob(T("K2 VIEW"), view_word());
         return;
     }
+    if (loops_now()) return;                            /* (the loops play: K1, K3, K4 and SELECT change nothing) */
     if (e == K_K4 && has && w.pos >= 0) {               /* the playback speed: 1 BPM a click (SEL held: 10) */
         ui_song_t sg;
         int own;
@@ -144,12 +154,11 @@ static void p_scroll_change(int d, int c)
     ui_set[S_PLAYBACK_SCROLL] = !ui_set[S_PLAYBACK_SCROLL];
     ui_settings_changed();
 }
-static const char *p_unload(void)                       /* (what is held: the song's name, THE LOOPS, DJ) */
+static const char *p_unload(void)                       /* (what is held: the song's name, DJ; not offered for the loops) */
 {
     static ui_song_t s;
     player_state_t st;
     ui_player_state(&st);
-    if (st.what == PL_LOOPS) return T("THE LOOPS");
     if (st.what == PL_DJ) return T("DJ");
     return ui_song(st.song, &s) ? s.name : "";
 }
@@ -172,7 +181,7 @@ static int tap(int b)
     if (b == B_GLO) {
         const ui_prop_t items[2] = {{TX("SCROLL"), p_scroll, p_scroll_change, 0, 0, 0},
                                     {TX("UNLOAD SONG"), p_unload, 0, p_unload_edit, 0, 0}};
-        ui_props(T("PLAYBACK VIEW"), items, 1 + ui_song_held(), B_GLO);   /* (UNLOAD SONG while a song is held) */
+        ui_props(T("PLAYBACK VIEW"), items, 1 + (ui_song_held() && !loops_now()), B_GLO);   /* (UNLOAD SONG while a song is held, not the loops) */
         return 1;
     }
     if (b == B_EDIT) {
@@ -215,6 +224,11 @@ static void draw(void)
 {
     where_t w;
     int rows_n;
+    int lp = loops_now();
+    if (lp) {
+        g_text(0, BODY_Y + 40, &FONT_T, lp == 1 ? T("THE LOOPS PLAY: LOOPS SHOWS THEM") : T("THE LOOPS ARE PAUSED: PLAY GOES ON"), C_DGREY);
+        return;
+    }
     if (!where(&w) || !(rows_n = ui_pattern_rows((uint8_t)w.pat))) {
         g_text(0, BODY_Y + 40, &FONT_T, T("NOTHING HAS PLAYED: PLAY STARTS THE SONG"), C_DGREY);
         return;

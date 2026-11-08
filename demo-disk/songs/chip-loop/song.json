@@ -17,7 +17,7 @@
   "slides": "linear",
   "fast_volume_slides": false,
   "global_volume": 50,
-  "positions": [44, 45],
+  "positions": [210, 211],
   "mixer": [
     {"level": 125, "pan": 128, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},
     {"level": 83, "pan": 152, "duck": 0, "chorus": 0, "delay": 0, "reverb": 0},

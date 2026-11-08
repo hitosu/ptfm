@@ -10,10 +10,12 @@
 
     /* ===================================================================== PLAYBACK === */
     const pb = { view: 8, left: 0, track: 0 };      /* track: the cursor track ALGORITHM moves */
+    /* LOOPS' loops are what plays, or what played last (playing or paused): PLAYBACK acts as if nothing were loaded and
+     * nothing on it changes anything; it says only that they play */
+    const pbLoops = () => P.what === "loops";
     function pbWhere() {
         const h = P.at();
-        /* LOOPS' loops, playing on outside LOOPS (or what played last): their one pattern */
-        if (P.what === "loops") return { loops: true, row: P.playing && h ? h.row % Math.max(1, M.state.loops.rows) : P.kept.loops.row || 0, pos: -1 };
+        if (pbLoops()) return null;
         if (h && (P.playing || P.stepped) && h.pat >= 0) return h;
         if (P.what === "loop") return { pat: P.kept.loop.pat, row: P.kept.loop.row, pos: -1 };
         const i = P.kept.lastSong != null ? P.kept.lastSong : U.song, s = M.state.songs[i], k = P.kept.song[i] || { pos: 0, row: 0 };
@@ -47,7 +49,6 @@
         page() {
             const w = pbWhere();
             if (!w) return null;
-            if (w.loops) return "LOOPS";
             if (w.pos < 0) return w.pat === M.EDITOR_PATTERN ? "EDITOR" : "PAT " + M.hex(w.pat);     /* (its own: no number) */
             const s = pbSong(), n = s.order.length;
             return M.of(w.pos, n, 2);
@@ -55,7 +56,7 @@
         knob(e, s, coarse) {
             const w = pbWhere();
             if (e === E.ALGORITHM) {                         /* the cursor track, one at a time; the view follows it */
-                const p = w && (w.loops ? U.loopsPattern() : M.pattern(w.pat));
+                const p = w && M.pattern(w.pat);
                 if (p) pb.track = U.clamp(pb.track + Math.sign(s), 0, p.tracks - 1);
                 return;
             }
@@ -65,7 +66,7 @@
                 U.showKnob("K2 VIEW", pb.view === 1 ? "1 TRACK" : pb.view + " TRACKS");
                 return;
             }
-            if (w && w.loops) return;                        /* the loops: watched here, stepped and moved in LOOPS */
+            if (pbLoops()) return;                           /* the loops play: K1, K3, K4 and SELECT change nothing */
             if (e === E.K4) {                                /* the playback speed: 1 BPM a click (SEL held: 10) */
                 const sg = pbSong(), own = sg && own10(sg);
                 if (!w || w.pos < 0 || !own) return;         /* (not the EDITOR's pattern loop) */
@@ -92,18 +93,17 @@
                 return true;
             }
             if (b === B.GLO) {
-                /* SCROLL; UNLOAD SONG while anything is held (the song's name, THE LOOPS, DJ; EDIT: done, the panel
-                 * closed) */
+                /* SCROLL; UNLOAD SONG while a song or DJ is held, not the loops (the song's name, DJ; EDIT: done, the
+                 * panel closed) */
                 U.props("PLAYBACK VIEW", [{ name: "SCROLL", get: () => U.set("PLAYBACK SCROLL"),
                     change: () => U.edit(() => { M.state.settings["PLAYBACK SCROLL"] = U.set("PLAYBACK SCROLL") === "ROWS" ? "PAGES" : "ROWS"; }) },
-                    P.held() && { name: "UNLOAD SONG", get: () => P.heldName(), edit: () => { U.close(); P.unload(); } }]
+                    P.held() && !pbLoops() && { name: "UNLOAD SONG", get: () => P.heldName(), edit: () => { U.close(); P.unload(); } }]
                     .filter(Boolean));
                 return true;
             }
             if (b === B.EDIT) {
                 const w = pbWhere();
                 if (!w) return true;
-                if (w.loops) { U.go("LOOPS"); return true; }  /* the loops are edited in LOOPS */
                 const go = () => { U.pattern = w.pat; U.goDeep("EDITOR", { row: w.row }); };
                 if (w.pat === M.EDITOR_PATTERN) go(); else U.ownAsk(go);   /* (the EDITOR's own pattern's warning first) */
                 return true;
@@ -125,11 +125,15 @@
         footer() {
             const w = pbWhere();
             if (!w) return null;
-            const where = w.loops ? "LOOPS " : w.pos >= 0 ? "POS " + M.hex(w.pos) + " " : w.pat === M.EDITOR_PATTERN ? "" : "PAT " + M.hex(w.pat) + " ";
+            const where = w.pos >= 0 ? "POS " + M.hex(w.pos) + " " : w.pat === M.EDITOR_PATTERN ? "" : "PAT " + M.hex(w.pat) + " ";
             return [where + "ROW " + M.hex(w.row), D.LGREY];
         },
         draw() {
-            const w = pbWhere(), p = w && (w.loops ? (M.state.loops.rows ? U.loopsPattern() : null) : M.pattern(w.pat));
+            if (pbLoops()) {                                 /* one line in the empty screen's place and colour */
+                D.text(0, Y0 + 40, F.T, P.playing ? "THE LOOPS PLAY: LOOPS SHOWS THEM" : "THE LOOPS ARE PAUSED: PLAY GOES ON", D.DGREY);
+                return;
+            }
+            const w = pbWhere(), p = w && M.pattern(w.pat);
             if (!p) { D.text(0, Y0 + 40, F.T, "NOTHING HAS PLAYED: PLAY STARTS THE SONG", D.DGREY); return; }   /* 40 characters: the full width */
             const V = U.VIEWS[pb.view], rows = V.rows;
             let top = U.set("PLAYBACK SCROLL") === "ROWS" ? w.row - (rows >> 1) : Math.floor(w.row / rows) * rows;
@@ -680,7 +684,7 @@
                 const C = mixCols(PTFM.audio.fxSong());
                 return [fx.mixT === C.n ? "KEYS" : C.word + M.hex(fx.mixT), D.LGREY];
             }
-            const n = selName(), cost = { GATE: .4, FILTER: 1.2, DRIVE: .8, "LO-FI": .5, CHORUS: 2.2, DELAY: 1.4, REVERB: 7.5, LIMITER: .6, DUCK: .3, METRONOME: .1 }[n];
+            const n = selName(), cost = { GATE: 1.1, FILTER: 1.2, DRIVE: 2.2, "LO-FI": 1.0, CHORUS: 2.1, DELAY: 3.1, REVERB: 8.3, LIMITER: .2, DUCK: .3, METRONOME: .1 }[n];
             return cost != null ? [n + " " + cost.toFixed(1) + "% CPU", D.LGREY] : null;
         },
         draw() {

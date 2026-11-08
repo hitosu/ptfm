@@ -72,10 +72,17 @@ PTFM.audio = (function () {
         node.connect(split);
         split.connect(analysers[0], 0);
         split.connect(analysers[1], 1);
-        node.port.onmessage = e => { if (e.data.t === "stats") stats(e.data); };
-        /* the samples, once */
+        node.port.onmessage = e => {
+            if (e.data.t === "stats") stats(e.data);
+            else if (e.data.t === "tap") A.tapped(Object.assign(e.data, { time: e.data.time + off }));
+        };
+        /* the samples there are, by number (one put under a number later goes when an instrument names it: sampleKey) */
         const list = [];
-        for (const c of M.state.carts) if (c.samples) c.samples.forEach((s, i) => list.push({ key: c.id + ":" + i, data: M.audio[s.audio], rate: s.rate }));
+        sampleSent.clear();
+        for (let n = 0; n < M.SAMPLES_MAX; n++) {
+            const s = M.sample(n);
+            if (s) { list.push({ key: n, data: M.audio[s.audio], rate: s.rate }); sampleSent.set(n, s.audio + " " + s.rate); }
+        }
         node.port.postMessage({ t: "samples", list });
         voicesSent = A.voicesInForce();
         node.port.postMessage({ t: "voices", n: voicesSent });
@@ -122,17 +129,27 @@ PTFM.audio = (function () {
     }
 
     /* -------------------------------------------------------------- instruments --- */
-    function instMsg(ref) {
-        const c = M.cart(ref >> 8), inst = M.inst(ref);
-        if (!c || !inst) return null;
-        let p = inst.p;
-        if (c.type === "SAMPLER") p = Object.assign({ key: c.id + ":" + p.sample }, p);
-        if (c.type === "FUSION") return null;
-        return { t: "inst", ref, engine: c.type, p, level: inst.level };
+    /* a sample instrument's sample, found by its number (specs/files/instruments.md#samples): the worklet's key, the
+     * number; its audio sent first where the worklet does not have it as it is; null with no sample there (a deleted
+     * one, a number never filled), and the voice plays nothing, as an empty slot does */
+    const sampleSent = new Map();               /* a sample's number -> its audio and rate as the worklet has them */
+    function sampleKey(n) {
+        const s = M.sample(n);
+        if (!s) return null;
+        const k = s.audio + " " + s.rate;
+        if (node && sampleSent.get(n) !== k) { post({ t: "samples", list: [{ key: n, data: M.audio[s.audio], rate: s.rate }] }); sampleSent.set(n, k); }
+        return n;
     }
+    function instMsg(ref) {
+        const type = M.instType(ref), inst = M.inst(ref);
+        if (!type || !inst || type === "FUSION") return null;
+        const p = type === "SAMPLER" ? Object.assign({ key: sampleKey(inst.p.sample) }, inst.p) : inst.p;
+        return { t: "inst", ref, engine: type, p, level: inst.level };
+    }
+    A.instMsg = instMsg;                        /* (what a note on ref is sent with: for the checks) */
     function ensure(ref) {
         if (M.version !== version) { sent.clear(); version = M.version; }
-        if (sent.has(ref)) return;
+        if (sent.has(ref) && ref !== M.KEYS_SAMPLE) return;       /* (THE SAMPLES list's keys: their instrument each time) */
         const m = instMsg(ref);
         if (m) post(m);
         sent.set(ref, true);
@@ -144,14 +161,16 @@ PTFM.audio = (function () {
     /* vol 0-127 (127: the instrument at its own level); opts: accent, glide (TB-303), offset (a
      * sample's start, in samples past START), params (instrument parameters for this note alone),
      * asEdited (the instrument is being edited: its track's parameters from commands left out), leg (a
-     * legato note, LEG: the held note's id, which goes on at this note if it still sounds) */
+     * legato note, LEG: the held note's id, which goes on at this note if it still sounds), tap (RECORD LIVE records: the
+     * worklet tells of it, A.tapped, if it gets no voice or loses it) */
     A.noteOn = (id, time, midi, ref, vol, track, opts) => {
         if (!node) return;
         ensure(ref);
         post({ t: "on", id, time, midi, ref, vol, track, accent: !!opts.accent, glide: !!opts.glide, offset: opts.offset || 0,
                params: opts.params && opts.params.length ? opts.params : null, asEdited: !!opts.asEdited, key: !opts.song,
-               leg: opts.leg || null });
+               leg: opts.leg || null, tap: !!opts.tap });
     };
+    A.tapped = m => { if (PTFM.player.lpTapped) PTFM.player.lpTapped(m); };
     /* FILTER's envelope's hits (specs/ui/screens/fx.md#filters-envelope): a track's note (its row; idp its replay's ids'
      * first letter, so a flush drops it with the replay's notes), or the keys' (-1) */
     A.fire = (track, time, idp) => { if (node) post({ t: "fire", track, time, id: idp ? idp + "~f" : undefined }); };
@@ -159,6 +178,12 @@ PTFM.audio = (function () {
     /* a sounding note's pitch (semitones from its note) and level (0-1), tick by tick */
     A.ctl = (id, time, bend, vol) => post({ t: "ctl", id, time, bend, vol });
     A.flush = (prefix, time, at) => post({ t: "flush", prefix, time, at: at != null ? at - off : null });
+    /* LOOPS' stage (specs/ui/screens/loops.md#the-stage): some notes' events from `time` on dropped, by their ids (the
+     * lanes a key replaces, from its landing row); its column's mix, the loop's track it stands for (never its mute or a
+     * solo); notes moved to another track, sounding and scheduled (the stage kept as a loop goes on as the loop's) */
+    A.flushIds = (ids, time) => post({ t: "flushids", ids, time });
+    A.stageCol = track => post({ t: "stagecol", track });
+    A.retrack = (ids, track) => post({ t: "retrack", ids, track });
     /* at `time`, every note of a replay (its ids' first letter) cut, as NOTE CUT cuts a track's: silent at once,
      * gone 4 ms on (PLAYBACK's K1 landing: the position starts clean) */
     A.cutAt = (prefix, time) => { post({ t: "cutp", prefix, time }); post({ t: "killp", prefix, time: time + .004 }); };
@@ -229,7 +254,7 @@ PTFM.audio = (function () {
     A.fxNow = function () {
         const P = PTFM.player, dj = P.what === "dj", s = dj ? M.state.dj : heardSrc();
         if (!s) return;
-        post({ t: "fx", setup: s.fx, mixer: dj ? null : s.mixer, base: s === M.state.loops ? 16 : 0, tempo: P.tempo(),
+        post({ t: "fx", setup: s.fx, mixer: dj ? null : s === M.state.loops ? M.loopsMixer(s) : s.mixer, base: s === M.state.loops ? 16 : 0, tempo: P.tempo(),
                gates: M.state.gates.map(g => g.steps), id: dj ? "dj" : s === M.state.loops ? "loops" : s === M.state.keys ? "keys" : M.state.songs.indexOf(s) });
         if (dj && P.djPost) P.djPost();                         /* the decks' songs' setups and DJ's mix */
     };
@@ -262,11 +287,13 @@ PTFM.audio = (function () {
     }, 200);
 
     /* ------------------------------------------------------------ the figures --- */
-    /* each voice's cost on the FM-1 at 44.1 kHz, % of a half (measured with the firmware's engines:
-     * DX7 and Juno-106 about 6 % a voice at 8 voices; the TB-303 and samples less; CHIP's estimated from its code: a
-     * pulse under 1 %, the fastest noise about 2 %), and the effects' */
-    const COST = { DX7: 5.6, JUNO: 4.4, TB303: 2.8, SAMPLER: 1.6, CHIP: 2.5 };   /* (CHIP's: a triangle at A-4, measured on the FM-1) */
-    const FX_COST = { GATE: .4, FILTER: 1.2, DRIVE: .8, "LO-FI": .5, CHORUS: 2.2, DELAY: 1.4, REVERB: 7.5, LIMITER: .6, DUCK: .3 };
+    /* each voice's cost on the FM-1 at 44.1 kHz, % of a half, and the effects': STATUS's own figures
+     * (specs/ui/screens/status.md, where they come from): the FM-1's live costs at 4 voices held (JUNO the mean of a
+     * resonant patch's 3.9 and a plain one's 2.9), CHIP's a triangle at A-4 measured alone; the effects' while they
+     * work in a song (GATE, FILTER, DRIVE and LO-FI measured alone, DUCK estimated) */
+    const COST = { DX7: 3.9, JUNO: 3.4, TB303: 3.3, SAMPLER: 1.1, CHIP: 2.5 };
+    const FX_COST = { GATE: 1.1, FILTER: 1.2, DRIVE: 2.2, "LO-FI": 1.0, CHORUS: 2.1, DELAY: 3.1, REVERB: 8.3, LIMITER: .2, DUCK: .3 };
+    A.COST = COST;                                              /* (STATUS's engines: the same figures) */
     const win = { tenth: { at: 0, v: 0, c: 0, c2: 0, n: 0 }, half: { at: 0, v: 0, c: 0, c2: 0, n: 0 } };
     /* the second core (specs/second-core.md#the-emulator-and-the-playground): DEVICE reads STARTING for the page's
      * first 2 s (SETTINGS ON), then ON or OFF (it never stops here); it runs, and shows, only in ON */
@@ -297,6 +324,7 @@ PTFM.audio = (function () {
         /* DJ: each deck's song's small effects, its DJ FILTER while not OFF, and the filtered sends (3.5 %) */
         const djc = dj && P.djCost ? P.djCost(FX_COST) : 0;
         fxc += djc;
+        if (fxc || S.used) fxc += 1.5;                          /* (the punch-ins' buffer, recording what is heard) */
         let v = 3;
         for (const k in m.count) v += m.count[k] * COST[k];
         S.fxCost = fxc;

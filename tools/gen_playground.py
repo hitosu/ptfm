@@ -10,15 +10,22 @@ DIR: a copy of the demo disk's sources to read instead of demo-disk/.
 
 Run it again when demo-disk/ changes; the playground itself has no build. Everything the demo disk
 holds goes in, with the disk's numbers: the cartridges (patches with their LEVEL, sampler cartridges
-with their samples' audio and their instruments, FUSION), the pattern pool, the songs (timing,
-positions, mixer, FX setup). Nothing is made up here; the playground starts with no loops. The header
-names every licence the disk's files carry.
+with their instruments, FUSION), the samples (records of their own, specs/files/instruments.md#samples),
+the pattern pool, the songs (timing, positions, mixer, FX setup). Nothing is made up here; the playground
+starts with no loops. The header names every licence the disk's files carry.
+
+The samples are numbered as the demo disk numbers them (specs/files/disk.md#the-demo-disk, tools/pack.py): in
+turn from the disk's first, sampler by sampler in number order, in each in its samples' order, the same sample
+(its name, rate and audio) once. With the packed demo disk there
+(dist/firmware/demo.ptfmdsk, made by tools/pack.py from demo-disk/), each sample is checked against the
+disk's record of the same number and each sampler instrument's number against the disk's: they differ
+only when the disk is older than its sources (pack.py again).
 
 What changes on the way:
 - names in capitals, from the characters PT/FM's names allow (instruments and samples 10, cartridges
   12, songs 16);
 - a sample's audio as signed 8-bit, base64, rounded from the 16-bit master as the disk keeps it; an
-  instrument's sample as its index in its cartridge;
+  instrument's sample as the sample's number;
 - notes as MIDI numbers, instruments as cartridge << 8 | slot;
 - a cell as a list: [row, track, note, instrument, volume, code, value, code, value, ...], with note
   0 for none and 1 for a note off, instrument and volume -1 for none, then up to four commands as
@@ -38,6 +45,8 @@ import ptfm_records as R  # noqa: E402  (a CHIP slot's settings)
 
 DEMO = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "demo-disk"
 OUT = ROOT / "playground" / "content.js"
+DISK = ROOT / "dist" / "firmware" / "demo.ptfmdsk"        # the packed demo disk (tools/pack.py): its samples' numbers
+SAMPLES_MAX = 256                                       # samples 00-FF (specs/files/instruments.md#samples)
 NOTES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
 NAME_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :.-?|/\\*#$@%")
 TYPES = {"dx7": ("DX7", 32), "juno106": ("JUNO", 128), "tb303": ("TB303", 128), "sampler": ("SAMPLER", 64),
@@ -171,9 +180,57 @@ def mixer(rows, n):
     return rows + [dict(MIX_DEFAULT) for _ in range(n - len(rows))]
 
 
+def samples_of(index):
+    """the samplers' samples, numbered as the demo disk numbers them: in turn from the disk's first, sampler by sampler in
+    number order, in each in its samples' order, the same sample (name, rate, audio) once -> (the samples
+    [{n, name, kind, rate, audio}], {(sampler number, sample id): its number})"""
+    samples, number, seen = [], {}, {}
+    for c in sorted((c for c in index["cartridges"] if c["type"] == "sampler"), key=lambda c: c["number"]):
+        path = DEMO / c["path"]
+        for s in read_json(path)["samples"]:
+            audio = base64.b64encode(flac_read(path.parent / s["file"], s.get("optimize"))).decode("ascii")
+            key = (clean(s["name"], 10), s["rate"], audio)
+            if key not in seen:
+                if len(samples) >= SAMPLES_MAX:
+                    raise SystemExit(f"gen_playground: more than {SAMPLES_MAX} samples")
+                seen[key] = len(samples)
+                samples.append({"n": len(samples), "name": key[0], "kind": s.get("kind"), "rate": s["rate"], "audio": audio})
+            number[(c["number"], s["id"])] = seen[key]
+    first = index["first"]
+    for s in samples:
+        s["n"] += first
+    return samples, {k: n + first for k, n in number.items()}
+
+
+def check_disk(carts, samples):
+    """the samples and the sampler instruments' numbers against the packed demo disk's (DISK): the same numbers, names,
+    rates and 8-bit audio"""
+    files = R.unpack_disk(DISK.read_bytes())
+    disk = {}
+    for kind, num, _, _, payload in files:
+        if kind == R.KIND_SAMPLE:
+            r = R.unpack_sample(payload)
+            _, values = R.ptr_decode(r["audio"])
+            disk[num] = ((r["entry"] or {}).get("name"), (r["entry"] or {}).get("rate"),
+                         base64.b64encode(bytes(v & 0xFF for v in values)).decode("ascii"))
+    mine = {s["n"]: (s["name"], s["rate"], s["audio"]) for s in samples}
+    if disk != mine:
+        bad = sorted(n for n in set(disk) | set(mine) if disk.get(n) != mine.get(n))
+        raise SystemExit(f"gen_playground: samples {', '.join(f'{n:02X}' for n in bad)} differ from {DISK.relative_to(ROOT)}: "
+                         "is the disk older than demo-disk/? (tools/pack.py)")
+    for kind, num, _, _, payload in files:
+        if kind != R.KIND_SAMPLER:
+            continue
+        want = [s["sample"] if s else None for s in R.unpack_sampler(payload)["instruments"]]
+        got = next(c for c in carts if c["id"] == num)["slots"]
+        if [s["sampler"]["sample"] for s in got] != want[:len(got)] or any(x is not None for x in want[len(got):]):
+            raise SystemExit(f"gen_playground: sampler {num:02X}'s instruments name other samples than {DISK.relative_to(ROOT)}'s")
+
+
 def main():
     index = read_json(DEMO / "index.json")
     carts, patterns, found = [], [], set()
+    samples, sample_no = samples_of(index)
 
     def add_patterns(path):
         for p in read_json(path)["patterns"]:
@@ -200,14 +257,10 @@ def main():
             for i, lv in zip(src["instruments"], src["levels"]):
                 cart["slots"].append({"name": clean(i["name"], 10), "level": lv,
                                       "chip": R.chip_numeric(R.chip_values(i))})
-        elif c["type"] == "sampler":
-            ids = [s["id"] for s in src["samples"]]
-            cart["samples"] = [{"name": clean(s["name"], 10), "kind": s.get("kind"), "rate": s["rate"],
-                                "audio": base64.b64encode(flac_read(path.parent / s["file"], s.get("optimize"))).decode("ascii")}
-                               for s in src["samples"]]
+        elif c["type"] == "sampler":                    # (instruments only, each naming a sample by its number)
             for i in src["instruments"]:
                 cart["slots"].append({"name": clean(i["name"], 10), "level": made_up(src, i), "sampler": {
-                    "sample": ids.index(i["sample"]), "start": i["start"], "end": i["end"],
+                    "sample": sample_no[(c["number"], i["sample"])], "start": i["start"], "end": i["end"],
                     "loop": i["loop"].upper(), "loopStart": i["loop_start"], "loopEnd": i["loop_end"],
                     "base": midi(i["base_note"]), "tune": i["tune"], "volume": i["volume"],
                     "env": {"rates": i["envelope"]["rates"], "levels": i["envelope"]["levels"]}}})
@@ -239,14 +292,18 @@ def main():
 
     if not found:
         raise SystemExit("gen_playground: the disk names no licence")
+    checked = DEMO == ROOT / "demo-disk" and DISK.exists()
+    if checked:
+        check_disk(carts, samples)
     head = ["/* SPDX-License-Identifier: " + " AND ".join(sorted(found)),
             " * PT/FM UI playground: its content, the demo disk (demo-disk/). Generated by tools/gen_playground.py:",
             " * do not edit. Every work's licence, author and source, and the licences' texts: demo-disk/CREDITS.md. */",
             "window.PTFM = window.PTFM || {};"]
-    body = json.dumps({"cartridges": carts, "patterns": patterns, "songs": songs}, separators=(",", ":"))
+    body = json.dumps({"cartridges": carts, "samples": samples, "patterns": patterns, "songs": songs}, separators=(",", ":"))
     OUT.write_text("\n".join(head) + "\nPTFM.CONTENT = " + body + ";\n", encoding="ascii")
-    print(f"{OUT.relative_to(ROOT)}: {len(carts)} cartridges, {len(patterns)} patterns, {len(songs)} songs, "
-          f"{OUT.stat().st_size:,} bytes")
+    print(f"{OUT.relative_to(ROOT)}: {len(carts)} cartridges, {len(samples)} samples, {len(patterns)} patterns, "
+          f"{len(songs)} songs, {OUT.stat().st_size:,} bytes"
+          + (f"; the samples numbered as {DISK.relative_to(ROOT)}'s" if checked else ""))
 
 
 if __name__ == "__main__":

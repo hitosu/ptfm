@@ -56,7 +56,8 @@ int disk_load(const char *path)
     return 0;
 }
 
-/* a record made by the test itself (the reference instruments), taking the place of the disk's */
+/* a record made by the test itself (the reference instruments, LOOPS' loops), taking the place of the disk's: of the
+ * version the firmware reads (a sampler's REC_SAMPLER_VER, the loops' 4, every other kind's 1) */
 void disk_put(uint8_t kind, uint8_t num, uint8_t sub, const uint8_t *p, uint32_t len)
 {
     int i;
@@ -70,7 +71,7 @@ void disk_put(uint8_t kind, uint8_t num, uint8_t sub, const uint8_t *p, uint32_t
     recs[i].kind = kind;
     recs[i].num = num;
     recs[i].sub = sub;
-    recs[i].ver = 1;
+    recs[i].ver = kind == REC_SAMPLER ? REC_SAMPLER_VER : kind == REC_LOOPS ? 4 : 1;   /* (the loops: REC_LOOPS_VER) */
     recs[i].len = len;
     recs[i].p = p;
 }
@@ -129,6 +130,21 @@ const uint8_t *store_piece(uint8_t kind, uint8_t num, uint16_t id, uint32_t *len
     (void)kind; (void)num; (void)id; (void)len;
     return 0;
 }
+/* LOOPS' stage (store.h): none, unless the test gives one (disk_stage: a stream with its 0x00; len 0 none), and tells
+ * the player of it itself (player_store_watch(STORE_STAGE, 0, 0)) */
+static const uint8_t *stage_p;
+static uint32_t stage_n;
+void disk_stage(const uint8_t *p, uint32_t len)
+{
+    stage_p = len > 1u ? p : 0;
+    stage_n = len > 1u ? len : 0;
+}
+const uint8_t *store_stage(uint32_t *len)
+{
+    if (len)
+        *len = stage_n;
+    return stage_p;
+}
 
 /* the platform's clock for the costs' figures (plat.h): the PC's */
 #include <time.h>
@@ -158,7 +174,7 @@ uint32_t plat_ms(void) { return plat_us() / 1000u; }   /* (SYNC EXTERNAL's clock
 #define C2_QUEUE (PLAT_HALF / 64u)      /* (a half's blocks) */
 static int c2_mode = -1;
 static uint8_t c2_take;                 /* this half's answer */
-static uint8_t c2_on = 1, c2_forced;    /* SETTINGS' SECOND CORE, the debug build's 38 */
+static uint8_t c2_on = 1;               /* SETTINGS' SECOND CORE */
 static uint8_t c2_dropped;              /* mode 5: the voice job dropped, core 2 stopped */
 static uint32_t c2_halves;
 static struct { void (*job)(uint32_t); uint32_t j; } c2_q[C2_QUEUE];
@@ -225,7 +241,7 @@ int plat_c2_half(void)
     c2_run();                           /* (core 2 finished the half before: first thing) */
     if ((c2_mode == 4 || c2_mode == 5) && c2_halves < 500u)
         c2_halves++;
-    c2_take = (uint8_t)(c2_mode && c2_on && !c2_forced && !(c2_mode == 4 && c2_halves >= 500u) && !c2_dropped);
+    c2_take = (uint8_t)(c2_mode && c2_on && !(c2_mode == 4 && c2_halves >= 500u) && !c2_dropped);
     return c2_take;
 }
 
@@ -277,5 +293,4 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 }
 
 void plat_c2_enable(int on) { c2_on = (uint8_t)(on != 0); }
-void plat_c2_force_off(int off) { c2_forced = (uint8_t)(off != 0); }
 void plat_c2_wait(void) { c2_run(); }

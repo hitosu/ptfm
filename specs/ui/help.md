@@ -15,6 +15,9 @@ pages are at the end of its file ([screens/](README.md#the-files)).
 - It opens as an overlay. The header reads `LOOK FOR ONSWERS` and the page (`LOOK FOR ONSWERS 1/13`, counted from 1)
   in place of the screen's name; the screen is named by the first page's title
   (`EDITOR: WRITE PATTERNS`).
+- **It always opens at its first page,** wherever on the screen it is opened: in a mode (LOOPS' CONTROL mode) or over a
+  box held open (HOME held + LFO in LOOPS' pattern recorder), the screen's help from page 1. HOME closes it, back to
+  what was open, as it was.
 - The grace period ([controls.md](controls.md)) makes sure the combination never clears anything.
 - HOME stays lit while the help is open ([leds.md](leds.md)).
 
@@ -88,7 +91,11 @@ later mention, on that page or the next ones, uses the label alone.
 - **LFO's reading,** `LEAVE FIELD OPEN`, is given only where LFO clears, deletes or resets something
   (`{LFO*}: DELETE A LETTER` on the KNOBS page). `LOOK FOR ONSWERS` is the help's own header.
 - **The screen keys go by theirs** on the shared SCREENS page: `OP1 (OPEN PAGE 1): SONGS`.
-- **Every line has to fit its 40 characters** with any reading it may get; the build checks it.
+- **ARP's reading may come again where ARP holds something on,** pressed with a key held, on each such line:
+  `+ {ARP} (AUTOMATIC REPEAT PROCEDURE):` (a punch-in held on). The build lets it come again after any `+`.
+- **Every line has to fit its 40 characters** with any reading it may get; the build checks it, and each reading's
+  place: ENV's, SEQ's and ARP's at the key's first mention and at no later one (ARP's hold lines aside), LFO's at most
+  once, the screen keys' only on the shared pages.
 
 ## Writing the text
 
@@ -107,8 +114,8 @@ later mention, on that page or the next ones, uses the label alone.
 
 The help is stored packed, with every other fixed text of the firmware, by one tokenizer: byte-pair
 encoding, one table, one decoder ([texts.md](texts.md)). What is the help's own:
-- **Its size:** 45 pages (39 of the screens' own, the EDITOR's 10 among them, 6 shared), about 23.8 KB as
-  plain text; about half that packed.
+- **Its size:** 49 pages (43 of the screens' own, the EDITOR's 11 and INSTRUMENTS' 7 among them, 6 shared), about
+  25 KB as plain text; about half that packed.
 - **Unpacking** is for the one page on screen, a line at a time.
 - **The readings:** on a screen's own pages the build writes them in, since it knows the page order.
   On the shared pages, a button that may need one is a token of its own, and the help adds the reading
@@ -116,7 +123,7 @@ encoding, one table, one decoder ([texts.md](texts.md)). What is the help's own:
 - **Part of the build toolchain:** the help is written as plain text in the repository; the texts'
   tool in `tools/` ([texts.md](texts.md#in-the-firmwares-source)) packs it on every firmware build:
   - it checks every page (40 characters as drawn, with the readings each screen's page order gives, 17
-    lines, the fonts' characters);
+    lines, the fonts' characters, each reading's place: [above](#readings));
   - it adds the readings and the colour tokens before training the tokenizer on the help and the
     other texts together;
   - a host test unpacks every page with the firmware's own code and compares it with the text.
@@ -239,6 +246,7 @@ TAP: PRESS AND LET GO; MOST ACT THEN
 HOLD {SEL} + {K1}: KEEP {SEL} DOWN AND
   TURN {K1}; AGAIN AND AGAIN IS FINE
   {SEL} LET GO UP TO 0.1 S EARLY: OK
+HOLD {GLO} + {PRESETS}: A FAVORITE, ONCE
 HOLD ONE ALONE: IT SHOWS WHAT IT DOES
   WITH THE OTHER KEYS AND KNOBS
 THE KEY THAT OPENS: CLOSES, KEEPS EDITS

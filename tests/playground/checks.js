@@ -15,7 +15,7 @@ module.exports = async t => {
     };
 
     /* ---- the grammar: the grace period, either order ---- */
-    U.pattern = M.patternNums()[0];                         /* (the EDITOR on a numbered pattern: its own, editor_own.js) */
+    U.pattern = M.state.songs[0xA0].order[0];               /* (the EDITOR on a numbered pattern: its own, editor_own.js) */
     await t.homeKey(3);
     ok(U.screen.name === "EDITOR", "HOME + OP2 goes to the EDITOR");
     const before = JSON.stringify(M.pattern(U.pattern).cells[0]);
@@ -194,17 +194,18 @@ module.exports = async t => {
     for (let i = 0; i < 3; i++) await t.tap("SEQ");
 
     /* ---- PRESETS and SEL + PRESETS ---- */
-    U.setInst(0x011F);
+    U.setInst(0xA01F);
     await t.turn("PRESETS", 1);
-    ok(U.inst === 0x0100, "PRESETS wraps within the cartridge");
-    ok(U.knobNow() === "PRESETS 01:00 " + M.inst(0x0100).name, "PRESETS shows in the header as every knob: " + U.knobNow());
+    ok(U.inst === 0xA000, "PRESETS wraps within the cartridge");
+    ok(U.knobNow() === "PRESETS A0:00 " + M.inst(0xA000).name, "PRESETS shows in the header as every knob: " + U.knobNow());
     t.down("SEL"); await t.sleep(20); await t.turn("PRESETS", 1);
     const listHeld = U.overlays.length === 1 && !!U.top().presetsList;
     t.up("SEL"); await t.sleep(150);
-    ok(U.inst >> 8 === M.state.carts[1].id && listHeld && !U.top(),
+    const next1 = M.state.carts[M.cartIndex(0xA0) + 1];     /* (the lists' order: the FAVORITES first, then 01, 02 ...) */
+    ok(U.inst >> 8 === next1.id && listHeld && !U.top(),
        "SEL + PRESETS turns cartridges, their list open while SEL is held; SEL's own tap does not happen");
-    ok(U.knobNow() === "CARTRIDGE " + M.hex(M.state.carts[1].id) + " " + M.state.carts[1].name, "SEL + PRESETS: the cartridge in the header: " + U.knobNow());
-    U.setInst(0x0100);
+    ok(U.knobNow() === "CARTRIDGE " + M.hex(next1.id) + " " + next1.name, "SEL + PRESETS: the cartridge in the header: " + U.knobNow());
+    U.setInst(0xA000);
 
     /* ---- step writing ---- */
     U.editor.row = 2; U.editor.track = 0;
@@ -652,30 +653,39 @@ module.exports = async t => {
     await t.tap("HOME"); await t.turn("SELECT", 1); await t.tap("HOME");
     ok(U.screen.name === "EDITOR", "then HOME, SELECT goes to the next screen");
 
-    /* ---- SONGS: CLONE and DELETE take the player's song places along with the list ---- */
+    /* ---- SONGS: every song made takes the smallest number free; DELETE frees its number, the others keep theirs ---- */
     await t.homeKey(1);
+    U.song = 0xA0;
+    P.kept.song[0xA1] = { pos: 2, row: 0 };
+    const songMenu = async what => { await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf(what); await t.tap("SEL"); };
+    ok(!M.state.songs[0] && M.songNums()[0] === 0xA0, "the disk's songs from A0, 00 free");
+    await songMenu("CLONE");
+    ok(U.song === 0 && M.state.songs[0].name === M.state.songs[0xA0].name + " 2" && P.kept.song[0xA1] && P.kept.song[0xA1].pos === 2,
+       "CLONE: the copy at the smallest number free, 00, current; the others keep their numbers and places");
+    await songMenu("NEW"); await t.tap("SEL");
+    ok(U.song === 1 && M.state.songs[1].name === "NEW SONG", "NEW: the next smallest, 01, current");
     U.song = 0;
-    P.kept.song[1] = { pos: 2, row: 0 };
-    await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("CLONE"); await t.tap("SEL");
-    ok(U.song === 1 && P.kept.song[2] && P.kept.song[2].pos === 2 && !P.kept.song[1],
-       "CLONE: the songs after it keep their places (song 1's is now song 2's)");
-    await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("DELETE"); await t.tap("SEL");
-    await t.tap("OCT+");
-    ok(U.song === 1 && P.kept.song[1] && P.kept.song[1].pos === 2 && !P.kept.song[2],
-       "DELETE: they move back (song 2's place is song 1's again)");
-    delete P.kept.song[1];
+    await songMenu("DELETE"); await t.tap("OCT+");
+    ok(!M.state.songs[0] && M.state.songs[1] && U.song === 1 && P.kept.song[0xA1] && P.kept.song[0xA1].pos === 2,
+       "DELETE: its number free, the others keep theirs, the next in the list current");
+    await songMenu("NEW"); await t.tap("SEL");
+    ok(U.song === 0 && M.state.songs[0].name === "NEW SONG", "NEW fills the gap");
+    await songMenu("DELETE"); await t.tap("OCT+");
+    U.song = 1;
+    await songMenu("DELETE"); await t.tap("OCT+");
+    ok(!M.state.songs[0] && !M.state.songs[1] && M.songNums()[0] === 0xA0, "(the two made gone)");
+    delete P.kept.song[0xA1];
 
     /* ---- SONGS' DELETE (specs/ui/screens/songs.md#deletes-question): one line, ITS PATTERNS TOO, ticked at first: the
      * song's own patterns go too (toast); cleared: the song alone; a clone's (all shared): NONE, OCT+ still deletes ---- */
     {
-        const s = M.state.songs[0], own = M.songOwn(s), k = own.items.length, n0 = M.state.songs.length, u0 = M.unsaved;
-        const keepSongs = M.state.songs.slice(), undo = () => U.edit(() => {
-            M.state.songs.splice(0, M.state.songs.length, ...keepSongs);
+        const s = M.state.songs[0xA0], own = M.songOwn(s), k = own.items.length, n0 = M.songList().length, u0 = M.unsaved;
+        const undo = () => U.edit(() => {
+            M.state.songs[0xA0] = s;
             for (const p of own.items) M.state.patterns[p.n] = p;
-            P.songsRemap(i => i + 1);
         });
         const del = async clear => {
-            U.song = 0;
+            U.song = 0xA0;
             await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("DELETE"); await t.tap("SEL");
             const q = U.top();
             if (clear) await t.turn("K1", -1);
@@ -683,21 +693,21 @@ module.exports = async t => {
             return q;
         };
         const q = await del(false);
-        ok(q.title === "DELETE SONG 00?" && q.more.sub === s.name && q.more.bare && q.rows.length === 1 && q.rows[0].name === "ITS PATTERNS TOO" &&
+        ok(q.title === "DELETE SONG A0?" && q.more.sub === s.name && q.more.bare && q.rows.length === 1 && q.rows[0].name === "ITS PATTERNS TOO" &&
            q.rows[0].count === k && k > 0 && q.rows[0].note === k + "  " + M.kb(own.bytes),
            "DELETE asks with one line: ITS PATTERNS TOO, the song's own (" + q.rows[0].note + ")");
-        ok(M.state.songs.length === n0 - 1 && own.items.every(p => !M.state.patterns[p.n]) && U.toastNow() === "SONG 00 DELETED, " + k + " PATTERNS TOO",
+        ok(M.songList().length === n0 - 1 && own.items.every(p => !M.state.patterns[p.n]) && U.toastNow() === "SONG A0 DELETED, " + k + " PATTERNS TOO",
            "... ticked at first: OCT+ deletes the song and its own patterns (" + U.toastNow() + ")");
         undo();
-        ok(M.state.songs.length === n0 && own.items.every(p => M.state.patterns[p.n]) && M.unsaved === u0, "... (put back)");
+        ok(M.songList().length === n0 && own.items.every(p => M.state.patterns[p.n]) && M.unsaved === u0, "... (put back)");
         await t.sleep(2100);                                 /* (the toast gone) */
         await del(true);
-        ok(M.state.songs.length === n0 - 1 && own.items.every(p => M.state.patterns[p.n]) && !/DELETED/.test(U.toastNow() || ""),
+        ok(M.songList().length === n0 - 1 && own.items.every(p => M.state.patterns[p.n]) && !/DELETED/.test(U.toastNow() || ""),
            "... the tick cleared: the song alone, no toast");
         undo();
         const c = Object.assign(structuredClone(s), { name: "COPY" });
-        U.edit(() => { M.state.songs.splice(1, 0, c); P.songsRemap(i => i ? i + 1 : i); });
-        U.song = 1;
+        U.edit(() => { M.state.songs[0] = c; });
+        U.song = 0;
         await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("DELETE"); await t.tap("SEL");
         const cq = U.top();
         ok(cq.rows[0].count === 0 && !cq.rows[0].on && cq.rows[0].note === "NONE" && cq.more.foot === (k + own.shared) + " SHARED WITH OTHER SONGS STAY",
@@ -705,19 +715,19 @@ module.exports = async t => {
         await t.turn("K1", 1);
         ok(!cq.rows[0].on, "... NONE cannot be ticked");
         await t.tap("OCT+");
-        ok(M.state.songs.length === n0 && M.state.songs[1] !== c && own.items.every(p => M.state.patterns[p.n]),
+        ok(M.songList().length === n0 && !M.state.songs[0] && own.items.every(p => M.state.patterns[p.n]),
            "... OCT+ with nothing ticked: the copy alone");
         ok(M.unsaved === u0, "... (as before)");
     }
 
     /* ---- switching songs rewinds (specs/ui/transport.md); the same song goes on from its place ---- */
-    P.playSong(0); await t.sleep(700); P.pause();
-    const kept0 = P.kept.song[0];
-    P.playSong(0); await t.sleep(100);
+    P.playSong(0xA0); await t.sleep(700); P.pause();
+    const kept0 = P.kept.song[0xA0];
+    P.playSong(0xA0); await t.sleep(100);
     ok(kept0 && kept0.row > 2 && P.at().row >= kept0.row, "the same song again: on from where it paused");
-    P.pause(); P.playSong(1); await t.sleep(100);
+    P.pause(); P.playSong(0xA1); await t.sleep(100);
     ok(P.at().pos === 0 && P.at().row < 3, "another song: from its beginning");
-    P.pause(); P.playSong(0); await t.sleep(100);
+    P.pause(); P.playSong(0xA0); await t.sleep(100);
     ok(P.at().pos === 0 && P.at().row < 3, "... and the one left went back to its start");
     P.pause(); P.stopToStart();
 
@@ -748,11 +758,11 @@ module.exports = async t => {
     await t.homeKey(22);
     ok(U.screen.name === "LOOPS" && P.playing && P.what === "song", "into LOOPS: the song plays on");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(300);
-    ok(!P.playing && P.what === "song", "PLAY there with no loops yet: pauses the song");
+    ok(P.playing && P.what === "loops", "PLAY there with no loops yet: the loops play (over their length), the song pauses");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(300);
-    ok(!P.playing && U.flash[12], "PLAY again, nothing to play: refused (REC first)");
+    ok(!P.playing && P.what === "loops" && !U.flash[12], "PLAY again: the loops stop");
     await t.sleep(700); t.frame();
-    ok(t.leds[12] === 0, "... and PLAY's red dark there: nothing to play");
+    ok(t.leds[12] > 0, "... and PLAY's red lit there: the loops play with none");
     await t.tap("HOME"); t.frame();
     {
         const hl3 = U.homeLines(U.home()).map(lineText);
@@ -769,25 +779,28 @@ module.exports = async t => {
     await t.homeKey(15);
 
     /* ---- LOOPS: two loops made, for the transport's checks below (its behaviour: tests/playground/loops.js) ---- */
-    U.setInst(0x0113);
+    U.setInst(0xA013);
     await t.homeKey(22);
     const LS = () => M.state.loops;
     await t.tap("REC");
-    ok(U.screen.state().arm && !P.playing, "LOOPS: REC on + NEW LOOP with nothing playing: armed, nothing plays yet");
+    ok(U.screen.state().arm && !P.playing, "LOOPS: REC with nothing playing and the stage empty: armed, nothing plays yet");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(150);
-    ok(P.playing && P.what === "loops" && LS().list.length === 1 && P.recording(), "... PLAY (COUNT-IN OFF): the loops and the first loop's take at once");
+    ok(P.playing && P.what === "loops" && !U.screen.state().arm && !LS().list.length, "... PLAY (COUNT-IN OFF): the loops at once");
     t.keyDown(7); await t.sleep(150); t.keyUp(7); await t.sleep(100);
     await t.tap("REC");
-    ok(LS().rows === 16 && LS().list.length === 1 && LS().list[0].inst === 0x0113 && !U.screen.state().take,
-       "... REC in bar 1: the first loop closes on its bar line (1 bar), in the current instrument");
-    await t.tap("ARP");
+    ok(LS().rows === 64 && LS().list.length === 1 && LS().list[0].inst === 0xA013 && LS().list[0].cells.some(c => c && c.note === U.midi(7)),
+       "... a note on the stage, REC: the stage the first loop (the length 4 bars), in the current instrument");
+    await t.combo("ARP", "REC");
     for (const k of [0, 4, 8, 12]) await t.key(U.WHITE[k]);
     await t.tap("REC");
-    ok(LS().list.length === 2 && !t.top(), "... ARP's pattern recorder, REC: a second loop");
+    const onStage = !t.top() && U.screen.stage().cells && U.screen.stage().cells.some(c => c && c.note != null && c.note !== M.OFF);
+    await t.sleep(400);                                    /* (REC's 500 ms after the recorder's REC) */
+    await t.tap("REC");
+    ok(onStage && LS().list.length === 2 && !t.top(), "... ARP's pattern recorder, REC: onto the stage; REC: a second loop");
     /* the loops play on outside LOOPS until something else starts; PLAY there pauses and resumes them */
-    P.playSong(0); await t.sleep(200);
+    P.playSong(0xA0); await t.sleep(200);
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(300);
-    ok(P.playing && P.what === "loops" && P.kept.song[0], "a song playing, PLAY in LOOPS: the loops start, the song pauses (its place kept)");
+    ok(P.playing && P.what === "loops" && P.kept.song[0xA0], "a song playing, PLAY in LOOPS: the loops start, the song pauses (its place kept)");
     await t.tap("HOME"); await t.turn("SELECT", -2); await t.tap("HOME");
     ok(U.screen.name === "VISUAL" && P.playing && P.what === "loops", "HOME, SELECT back twice: VISUAL; the loops play on");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(200);
@@ -801,28 +814,31 @@ module.exports = async t => {
        "the loops paused outside LOOPS: FX edits THE LOOPS, what the keys hear");
     {
         const had = M.state.loops.list.length;
-        await t.homeKey(8); await t.tap("GLO"); await t.turn("SELECT", 1);
-        const it = U.top() && U.top().items[1], itName = it && it.get();
-        await t.tap("EDIT");
-        ok(it && it.name === "UNLOAD SONG" && itName === "THE LOOPS" && !P.held() && !t.top() &&
-           t.PTFM.audio.fxHeard() === M.state.keys && M.state.loops.list.length === had && had > 0,
-           "PLAYBACK's GLO: UNLOAD SONG (THE LOOPS): the loops let go, kept; the keys' song held");
+        await t.homeKey(8); await t.tap("GLO");
+        ok(U.top() && U.top().items.length === 1 && P.held(), "PLAYBACK's GLO with the loops held: SCROLL alone, no UNLOAD SONG");
+        await t.tap("GLO");
+        await t.homeKey(1); await t.tap("SEL");               /* SONGS' menu: UNLOAD SONG */
+        const m = U.top(), at = m && m.items ? m.items.indexOf("UNLOAD SONG") : -1;
+        if (at >= 0) m.sel = at;
+        await t.tap("SEL");
+        ok(at >= 0 && !P.held() && !t.top() && t.PTFM.audio.fxHeard() === M.state.keys && M.state.loops.list.length === had && had > 0,
+           "SONGS' UNLOAD SONG (THE LOOPS): the loops let go, kept; the keys' song held");
     }
     P.playSong(U.song); await t.sleep(100); P.pause();   /* (the current song held again: FX's checks below edit its setup) */
 
     /* ---- INSTRUMENTS: references, FUSION ---- */
     await t.homeKey(5);
-    U.setInst(0x0100);
-    const s00 = M.inst(0x0100), s01 = M.inst(0x0101);
+    U.setInst(0xA000);
+    const s00 = M.inst(0xA000), s01 = M.inst(0xA001);
     await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("SWAP"); await t.tap("SEL");
     ok(!t.top(), "SEL, SWAP: no box, the instrument floats in the list");
     await t.turn("SELECT", 1); await t.tap("SEL");
-    ok(t.top() === "question" && M.inst(0x0100) === s00, "SELECT shows where, SEL puts it down: a used one asks about references first");
+    ok(t.top() === "question" && M.inst(0xA000) === s00, "SELECT shows where, SEL puts it down: a used one asks about references first");
     await t.tap("HOME");
-    ok(M.inst(0x0100) === s00 && M.inst(0x0101) === s01, "... HOME there: nothing moved");
+    ok(M.inst(0xA000) === s00 && M.inst(0xA001) === s01, "... HOME there: nothing moved");
     await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("SWAP"); await t.tap("SEL");
     await t.turn("SELECT", 1); await t.tap("HOME");
-    ok(!t.top() && M.inst(0x0100) === s00, "afloat, HOME takes it back");
+    ok(!t.top() && M.inst(0xA000) === s00, "afloat, HOME takes it back");
     /* COPY takes 4 slots at most (the firmware's COPY holds 4), the first 4 marked */
     await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("MARK"); await t.tap("SEL");
     await t.turn("SELECT", 5);
@@ -831,8 +847,8 @@ module.exports = async t => {
     m.sel = m.items.indexOf("COPY"); await t.tap("SEL");
     ok(marked === "SLOTS 00-05" && U.toastNow() === "COPIED 4", "6 slots marked (" + marked + "), COPY: COPIED 4");
     await t.tap("HOME"); await t.tap("HOME");
-    U.setInst(0x0100);
-    if (!M.cart(1).slots.some(x => !x)) {
+    U.setInst(0xA000);
+    if (!M.cart(0xA0).slots.some(x => !x)) {
         await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("MOVE"); await t.tap("SEL");
         await t.tap("ENV");
         ok(t.top() === "list", "MOVE in a full cartridge: nowhere to go, nothing floats (ENV still opens the list)");
@@ -864,7 +880,7 @@ module.exports = async t => {
     }
     /* a built-in cartridge's menu (a synth cartridge as shipped); then the demo disk's FUSION cloned: the clone is
      * edited below */
-    const BI = M.state.carts.find(c => c.builtin && c.rom).id;
+    const BI = M.state.carts.find(c => c.builtin && c.rom && c.type !== "FAVORITES").id;
     U.setInst(BI << 8);
     await t.tap("ENV"); await t.tap("SEL");
     ok(t.top() === "menu" && U.top().title === "CARTRIDGE " + M.hex(BI) && U.top().items.join() === "NEW,CLONE,RENAME,AUTO LEVEL ALL",
@@ -875,8 +891,7 @@ module.exports = async t => {
     await t.tap("ENV"); await t.tap("SEL");
     m = U.top(); m.sel = m.items.indexOf("CLONE"); await t.tap("SEL");
     const fclone = M.state.carts.find(c => c.type === "FUSION" && c.id !== FD);
-    ok(fclone && fclone.id <= M.USER_LAST && fclone.id === Math.max(...M.state.carts.filter(c => !c.builtin).map(c => c.id)),
-       "CLONE: an editable copy, after the last of the user's cartridges (" + (fclone && M.hex(fclone.id)) + ")");
+    ok(fclone && fclone.id === 0, "CLONE: an editable copy, at the smallest free number (" + (fclone && M.hex(fclone.id)) + ")");
     await t.tap("HOME");
     const FUS = fclone.id << 8;
     U.setInst(FUS);
@@ -908,13 +923,13 @@ module.exports = async t => {
     ok(U.screen.name === "INSTRUMENTS", "HOME tap goes back");
     await t.tap("HOME");
     /* an empty FUSION slot: EDIT offers the last instrument picked, its note on each row */
-    U.setInst(0x0100);
+    U.setInst(0xA000);
     const fc = M.cart(FUS >> 8), fe = fc.slots.findIndex(s => !s);
     U.setInst(FUS | fe);
     await t.tap("EDIT");
-    ok(t.top() === "question" && U.top().lines[1].includes("01:00"), "EDIT on an empty FUSION slot: fill it with 01:00?");
+    ok(t.top() === "question" && U.top().lines[1].includes("A0:00"), "EDIT on an empty FUSION slot: fill it with A0:00?");
     await t.turn("SELECT", 1);
-    ok(U.top().lines[1].includes("01:01"), "... SELECT offers the next sound (" + U.top().lines[1] + ")");
+    ok(U.top().lines[1].includes("A0:01"), "... SELECT offers the next sound (" + U.top().lines[1] + ")");
     await t.turn("K1", 1);
     const otherCart = U.top().lines[1];
     ok(!otherCart.includes("FILL IT WITH 01:"), "... K1 the next cartridge's (" + otherCart + ")");
@@ -924,11 +939,11 @@ module.exports = async t => {
     t.PTFM.audio.noteOn = fon0;
     ok(fillHeard.length && otherCart.includes(M.refText(fillHeard[0])), "... the keys play the one offered");
     await t.turn("K1", -1);
-    ok(U.top().lines[1].includes("01:00"), "... K1 back: that cartridge's first, 01:00");
+    ok(U.top().lines[1].includes("A0:00"), "... K1 back: that cartridge's first, A0:00");
     await t.tap("OCT+");
     const fp = M.pattern(fc.slots[fe] && fc.slots[fe].p.pattern);
-    ok(U.screen.name === "EDITOR" && fp && fp.step === 0 && fp.cells[0x3C * 16].note === 60 && fp.cells[0x3C * 16].inst === 0x0100
-       && fp.cells[0x7F * 16].note === 0x7F && !fp.cells[0x0B * 16], "OCT+: filled, C-4 on row 3C with 01:00, rows 0C-7F; the EDITOR");
+    ok(U.screen.name === "EDITOR" && fp && fp.step === 0 && fp.cells[0x3C * 16].note === 60 && fp.cells[0x3C * 16].inst === 0xA000
+       && fp.cells[0x7F * 16].note === 0x7F && !fp.cells[0x0B * 16], "OCT+: filled, C-4 on row 3C with A0:00, rows 0C-7F; the EDITOR");
     await t.tap("HOME"); await t.tap("HOME");
     /* no nesting: the FUSION named in its own row (any FUSION may be written anywhere) is silent there */
     fp.cells[0x3C * 16 + 1] = M.newCell(60, FUS | fe, null);
@@ -1127,7 +1142,7 @@ module.exports = async t => {
         AU.fxBypass = on => { calls.bypass.push(on); return b0(on); };
         AU.fxWatch = on => { calls.watch.push(on); return w0(on); };
         U.keyOn = n => { calls.notes++; return k0(n); };
-        U.song = 0;
+        U.song = 0xA0;
         await toFx();
         for (let i = 0; i < 3 && U.screen.sub() !== "LIVE"; i++) await t.tap("SEQ");
         const fxs = t.PTFM.audio.fxSong().fx, wasOn = fxs.on.CHORUS;
@@ -1209,61 +1224,61 @@ module.exports = async t => {
         AU.punch = p0; AU.fxBypass = b0; AU.fxWatch = w0; U.keyOn = k0;
         await t.homeKey(1);
     }
-    M.state.songs.pop(); M.state.patterns[pc] = null; U.song = 0;
+    M.state.songs.pop(); M.state.patterns[pc] = null; U.song = 0xA0;
     await t.homeKey(5);
-    U.setInst(0x0100);
-    ok(!U.editing("inst", 0x0100), "INSTRUMENTS, browsing: nothing is being edited");
+    U.setInst(0xA000);
+    ok(!U.editing("inst", 0xA000), "INSTRUMENTS, browsing: nothing is being edited");
     await t.tap("EDIT");
-    ok(U.editing("inst", 0x0100) && !U.editing("inst", 0x0101), "its edit page: that instrument is being edited, no other");
+    ok(U.editing("inst", 0xA000) && !U.editing("inst", 0xA001), "its edit page: that instrument is being edited, no other");
     await t.tap("HOME");
 
     /* ---- edit modes entered with EDIT: EDIT keeps the changes, HOME drops them (specs/ui/controls.md) ---- */
     P.pauseAll();
     await t.tap("SAVE"); await t.sleep(1800);
-    const insNow = () => JSON.stringify(M.inst(0x0100)), ins0 = insNow();
-    const nextNow = () => JSON.stringify(M.inst(0x0101)), next0 = nextNow();
+    const insNow = () => JSON.stringify(M.inst(0xA000)), ins0 = insNow();
+    const nextNow = () => JSON.stringify(M.inst(0xA001)), next0 = nextNow();
     await t.tap("EDIT"); await t.turn("K1", 3); await t.turn("PRESETS", 1); await t.turn("K1", 3);
     ok(insNow() !== ins0 && nextNow() !== next0 && M.unsaved > 0, "an instrument's edit page: K1 changes it, and the next one PRESETS turns to");
     await t.tap("HOME");
     ok(insNow() === ins0 && nextNow() === next0 && !U.editing("inst", U.inst), "HOME leaves dropping the changes: both instruments as they were");
     ok(M.unsaved === 0, "... and nothing is unsaved again");
-    U.setInst(0x0100);
-    await t.tap("EDIT"); await t.turn("K1", -2);
+    U.setInst(0xA000);
+    await t.tap("EDIT"); await t.turn("K1", 2);          /* (A0:00 is on sample 00: K1 to the left has no sample further) */
     const ins1 = insNow();
     await t.tap("EDIT");
-    ok(insNow() === ins1 && insNow() !== ins0 && !U.editing("inst", 0x0100), "EDIT leaves keeping them");
+    ok(insNow() === ins1 && insNow() !== ins0 && !U.editing("inst", 0xA000), "EDIT leaves keeping them");
     /* the slot's REVERT: last in its menu while it has something unsaved, after its question; the next slot's not */
     {
         await t.tap("SEL"); m = U.top();
         ok(m.items[m.items.length - 1] === "REVERT" && !m.items.includes("UNDO"), "the slot's menu: REVERT last while the slot is unsaved: " + m.items.join());
         m.sel = m.items.indexOf("REVERT"); await t.tap("SEL");
-        ok(t.top() === "question" && U.top().lines.join("/") === "REVERT SLOT 01:00 TO SAVED?" && U.top().answers.join() === "REVERT,KEEP",
-           "REVERT asks first: REVERT SLOT 01:00 TO SAVED?, REVERT / KEEP");
+        ok(t.top() === "question" && U.top().lines.join("/") === "REVERT SLOT A0:00 TO SAVED?" && U.top().answers.join() === "REVERT,KEEP",
+           "REVERT asks first: REVERT SLOT A0:00 TO SAVED?, REVERT / KEEP");
         await t.tap("OCT+");
         ok(!t.top() && insNow() === ins0 && !M.unsavedThing("slot", [1, 0]) && U.toastNow() === "REVERTED", "... REVERT: the slot as saved, REVERTED");
         await t.tap("SEL"); m = U.top();
         ok(!m.items.includes("REVERT"), "... nothing unsaved in it: no REVERT in its menu");
         await t.tap("HOME");
         /* the whole cartridge's REVERT, from the cartridge list's menu */
-        await t.tap("EDIT"); await t.turn("K1", -2); await t.tap("EDIT");
+        await t.tap("EDIT"); await t.turn("K1", 2); await t.tap("EDIT");
         await t.tap("ENV"); await t.tap("SEL"); m = U.top();
         ok(m.items[m.items.length - 1] === "REVERT", "the cartridge list's menu: REVERT last while the cartridge is unsaved: " + m.items.join());
         m.sel = m.items.indexOf("REVERT"); await t.tap("SEL");
-        ok(t.top() === "question" && U.top().lines.join("/") === "REVERT CARTRIDGE 01 TO SAVED?", "REVERT asks first: REVERT CARTRIDGE 01 TO SAVED?");
+        ok(t.top() === "question" && U.top().lines.join("/") === "REVERT CARTRIDGE A0 TO SAVED?", "REVERT asks first: REVERT CARTRIDGE A0 TO SAVED?");
         await t.tap("OCT+");
         ok(insNow() === ins0 && !M.unsavedThing("cart", 1), "... REVERT: the whole cartridge as saved");
         if (t.top()) await t.tap("HOME");
         /* AUTO LEVEL ALL asks first */
         await t.tap("ENV"); await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("AUTO LEVEL ALL"); await t.tap("SEL");
-        const nS = M.cart(1).slots.filter(Boolean).length;
+        const nS = M.cart(0xA0).slots.filter(Boolean).length;
         ok(t.top() === "question" && U.top().lines.join("/") === "AUTO LEVEL " + nS + (nS === 1 ? " SOUND?" : " SOUNDS?") + "/EACH ONE'S LEVEL SET AGAIN" &&
            U.top().answers.join() === "LEVEL,KEEP", "a cartridge's AUTO LEVEL ALL asks first: " + U.top().lines.join(" / "));
         await t.tap("OCT-");
         ok(t.top() !== "progress", "... KEEP: nothing measured");
         if (t.top()) await t.tap("HOME");                    /* (the cartridge list) */
-        U.setInst(0x0100);
+        U.setInst(0xA000);
     }
-    await t.tap("EDIT"); await t.turn("K1", -2);
+    await t.tap("EDIT"); await t.turn("K1", 2);
     const ins2 = insNow();
     await t.tap("EDIT");
     ok(insNow() === ins2 && insNow() !== ins0, "(changed again, kept, for what follows)");
@@ -1370,22 +1385,26 @@ module.exports = async t => {
         await t.tap("HOME");
         M.save();
     }
-    /* ---- a sampler's CLONE with its samples (specs/ui/screens/instruments.md): saved at once, a bar first ---- */
+    /* ---- a sampler's CLONE (specs/ui/screens/instruments.md): as any cartridge's, its instruments only, an edit (no bar,
+     * nothing written at once), the clone's instruments naming the same samples ---- */
     {
         M.save();
-        const sc = M.state.carts.find(c => c.type === "SAMPLER" && !c.rom && (c.samples || []).length);
-        const carts0 = M.state.carts.length;
+        const sc = M.state.carts.find(c => c.type === "SAMPLER" && !c.rom);
+        const carts0 = M.state.carts.length, smp0 = (M.state.samples || []).filter(Boolean).length;
         U.setInst(sc.id << 8);
         await t.homeKey(5);
         await t.tap("ENV"); await t.tap("SEL");
         m = U.top(); m.sel = m.items.indexOf("CLONE"); await t.tap("SEL");
-        ok(t.top() === "progress" && U.top().text === "CLONING ITS SAMPLES", "a sampler's CLONE: " + (U.top() && U.top().text));
-        await t.sleep(2200);
-        const cl = M.state.carts.find(c => c.id !== sc.id && c.name === (sc.name.slice(0, 9) + " 2").trim()) || { samples: [] };
-        ok(M.state.carts.length === carts0 + 1 && cl.samples.length === sc.samples.length && !M.unsaved &&
-           U.toastNow() === M.hex(sc.id) + " CLONED TO " + M.hex(cl.id), "... its samples copied, saved at once: " + U.toastNow());
+        const bar = t.top() === "progress";
+        await t.sleep(bar ? 2200 : 50);
+        const cl = M.state.carts.find(c => c.id !== sc.id && c.name === (sc.name.slice(0, 9) + " 2").trim());
+        ok(!bar && !!cl && M.state.carts.length === carts0 + 1 && M.unsaved === 1 && !cl.samples && smp0 === 33 &&
+           (M.state.samples || []).filter(Boolean).length === smp0 && cl.slots.every((s, k) => !s === !sc.slots[k] && (!s || s.p.sample === sc.slots[k].p.sample)) &&
+           U.toastNow() === M.hex(sc.id) + " CLONED TO " + M.hex(cl.id),
+           "a sampler's CLONE: as any cartridge's, an edit, its instruments naming the same samples, no sample copied (" + U.toastNow() + ")");
         await t.tap("HOME");
-        M.commit(st => { st.carts.splice(st.carts.findIndex(c => c.id === cl.id), 1); });
+        if (cl) M.revertThing("cart", cl.id);
+        M.save();
     }
     const pt = M.state.patterns.indexOf(null);
     M.state.patterns[pt] = M.newPattern(pt, 1, 4);
@@ -1400,11 +1419,11 @@ module.exports = async t => {
     await t.tap("GLO"); await t.sleep(300);
     ok(U.editing("time", U.song) && Math.round(P.tempo()) === 1200, "the song's properties open: it plays at its own TEMPO, F skipped");
     await t.tap("HOME"); P.pauseAll();
-    M.state.songs.pop(); M.state.patterns[pt] = null; U.song = 0;
+    M.state.songs.pop(); M.state.patterns[pt] = null; U.song = 0xA0;
 
     /* ---- E3x glissando, an extension to IBXM: a slide to the note heard in semitones ---- */
     const pg = M.state.patterns.indexOf(null), gp = M.newPattern(pg, 1, 8);
-    gp.cells[0] = M.newCell(60, 0x0100, null);
+    gp.cells[0] = M.newCell(60, 0xA000, null);
     gp.cells[16] = M.newCell(64, null, null);
     gp.cells[16].cmds.push({ c: 0x03, v: 0x04 }, { c: 0x0E, v: 0x31 });
     for (let r = 2; r < 8; r++) { gp.cells[r * 16] = M.newCell(null, null, null); gp.cells[r * 16].cmds.push({ c: 0x03, v: 0 }); }
@@ -1443,13 +1462,13 @@ module.exports = async t => {
 
     /* ---- VISUAL's views, the pattern list's preview, NEW PATTERN, PLAY held, ARP's turns, K1 on PLAYBACK,
      * the EDITOR's PLAY and footer, the edit page's pages and NAME ---- */
-    P.pauseAll(); U.song = 0;
+    P.pauseAll(); U.song = 0xA0;
     await t.homeKey(15);
     const view0 = U.screen.sub();
     await t.turn("SELECT", 1);
     ok(U.screen.sub() !== view0 && U.screen.sub() === "SCOPE", "VISUAL: SELECT turns the views, the header naming each (VOICES, SCOPE ...)");
     await t.homeKey(1);
-    P.playSong(0); await t.sleep(150);
+    P.playSong(0xA0); await t.sleep(150);
     await t.tap("EDIT"); await t.tap("ENV");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(150);
     const heard = P.auditioning();
@@ -1458,35 +1477,35 @@ module.exports = async t => {
     ok(P.auditioning() >= 0 && P.auditioning() !== heard, "... and follows the highlight");
     await t.tap("HOME");
     ok(!t.top() && !P.playing && P.what === "song", "leaving the list ends it; the song is again what PLAY resumes");
-    const ord = () => M.state.songs[0].order, ordLen = ord().length, newN = M.freePattern();
+    const ord = () => M.state.songs[0xA0].order, ordLen = ord().length, newN = M.freePattern();
     await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("NEW PATTERN"); await t.tap("SEL");
     ok(ord().length === ordLen + 1 && ord().includes(newN) && M.pattern(newN).cells.every(c => !c), "the order's SEL, NEW PATTERN: an empty pattern, put after the position");
     await t.tap("HOME");
     ok(ord().length === ordLen && !M.pattern(newN), "HOME drops it with the order's other changes");
-    P.playSong(0); await t.sleep(400);
+    P.playSong(0xA0); await t.sleep(400);
     t.down("PLAY"); await t.sleep(700); t.up("PLAY"); await t.sleep(50);
-    ok(!P.playing && P.kept.song[0].pos === 0 && P.kept.song[0].row === 0, "PLAY held: stops, back to the start");
+    ok(!P.playing && P.kept.song[0xA0].pos === 0 && P.kept.song[0xA0].row === 0, "PLAY held: stops, back to the start");
     t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(150);
     const from0 = P.at();
     ok(P.playing && from0 && from0.pos === 0 && from0.row <= 2, "PLAY then plays from the beginning");
     P.pauseAll();
     await t.homeKey(8);
-    P.kept.lastSong = 0; P.kept.song[0] = { pos: 0, row: 5 };
+    P.kept.lastSong = 0xA0; P.kept.song[0xA0] = { pos: 0, row: 5 };
     await t.turn("K1", 2);
-    ok(P.kept.song[0].pos === 2 && P.kept.song[0].row === 0, "PLAYBACK, paused: K1 picks another position, from its first row");
-    P.playSong(0); await t.sleep(300);
+    ok(P.kept.song[0xA0].pos === 2 && P.kept.song[0xA0].row === 0, "PLAYBACK, paused: K1 picks another position, from its first row");
+    P.playSong(0xA0); await t.sleep(300);
     await t.turn("K1", 1); await t.sleep(500);
     ok(P.at() && P.at().pos === 3, "playing: K1 jumps to the next position as the row ends");
     await t.tap("ENV");
     ok(t.top() === "list" && U.top().sel === 0, "PLAYBACK: ENV opens the song list, on the song playing");
     await t.turn("SELECT", 2); await t.tap("ENV");
-    ok(!t.top() && P.playingSong() === 0, "... ENV again only closes it");
+    ok(!t.top() && P.playingSong() === 0xA0, "... ENV again only closes it");
     await t.tap("ENV"); await t.turn("SELECT", 2); await t.tap("PLAY"); await t.sleep(200);
-    ok(!t.top() && U.screen.name === "PLAYBACK" && U.song === 2 && P.playingSong() === 2 && P.at() && P.at().pos === 0,
+    ok(!t.top() && U.screen.name === "PLAYBACK" && U.song === 0xA2 && P.playingSong() === 0xA2 && P.at() && P.at().pos === 0,
        "... PLAY there plays song 02 from its start, PLAYBACK following it");
     {   /* K4 the playback speed, K3 the songs' volume (specs/ui/screens/playback.md): turned in BPM and dB, kept
          * through other songs, heard at once; LFO resets the one turned last; back when something else plays */
-        const sg = M.state.songs[2], own = Math.floor((Math.floor(sg.tempo * 2400 / (sg.ticks * sg.rpb)) + 5) / 10), b0 = P.tempo();
+        const sg = M.state.songs[0xA2], own = Math.floor((Math.floor(sg.tempo * 2400 / (sg.ticks * sg.rpb)) + 5) / 10), b0 = P.tempo();
         await t.turn("K4", -10);
         const share = Math.floor((own - 100) * 65536 / own) / 65536;
         ok(Math.abs(P.speed() - share) < 1e-9 && Math.abs(P.tempo() - b0 * share) < .01,
@@ -1501,9 +1520,9 @@ module.exports = async t => {
         ok(P.speed() === 1 && /^K4 TEMPO .* \+0\.0%$/.test(U.knobNow() || ""), "... K4 then: LFO back to 100 % (" + U.knobNow() + ")");
         await t.turn("K4", 3); await t.turn("K3", -3);
         const s3 = P.speed();
-        P.playSong(0); await t.sleep(100);
+        P.playSong(0xA0); await t.sleep(100);
         ok(P.speed() === s3 && s3 > 1 && P.volume() === -3, "... another song keeps the speed and the volume");
-        P.playLoop(M.state.songs[0].order[0], 0); await t.sleep(100);
+        P.playLoop(M.state.songs[0xA0].order[0], 0); await t.sleep(100);
         ok(P.speed() === 1 && P.volume() === 0, "... something else playing (a pattern): 100 %, 0 dB");
     }
     P.pauseAll();
@@ -1519,7 +1538,7 @@ module.exports = async t => {
     const foot = U.screen.footer();
     ok(foot && foot[0].startsWith(t.PTFM.cmds.text({ c: 0x0A, v: 0x04 }) + " "), "the EDITOR's footer: the command at the cursor, in words (" + (foot && foot[0]) + ")");
     footPat.cells[0x20 * 16] = fcell0;
-    await t.homeKey(5); U.setInst(0x0100);
+    await t.homeKey(5); U.setInst(0xA000);
     await t.tap("ARP");
     t.keyDown(4); await t.sleep(30); t.keyDown(0); await t.sleep(30); t.keyDown(7); await t.sleep(30);
     t.keyUp(4); t.keyUp(0); t.keyUp(7); await t.sleep(30);
@@ -1527,7 +1546,7 @@ module.exports = async t => {
     t.keyDown(2); await t.sleep(30); t.keyUp(2); await t.sleep(30);
     ok(P.repeatNotes().join() === String(U.midi(2)), "... a key pressed with none held starts anew");
     await t.turn("SELECT", 1);
-    ok(P.repeatInst() === U.inst && U.inst !== 0x0100, "... SELECT to the next slot: the repeat plays it (as PRESETS does)");
+    ok(P.repeatInst() === U.inst && U.inst !== 0xA000, "... SELECT to the next slot: the repeat plays it (as PRESETS does)");
     await t.turn("ALGORITHM", 1);
     ok(P.repeatInst() === U.inst, "... ALGORITHM too");
     /* the arpeggiator's rules (specs/ui/controls.md, ARP): the pattern, the latch, ARP held + the knobs */
@@ -1583,7 +1602,7 @@ module.exports = async t => {
     if (!dxUser) {
         dxUser = structuredClone(M.state.carts.find(c => c.type === "DX7"));
         dxUser.id = M.freeCart(); delete dxUser.rom; delete dxUser.builtin;
-        M.state.carts.push(dxUser); M.state.carts.sort((a, b) => a.id - b.id);
+        M.state.carts.push(dxUser); M.state.carts.sort(M.cartCmp);
     }
     U.setInst(dxUser.id << 8 | dxUser.slots.findIndex(Boolean));
     await t.tap("EDIT"); await t.turn("ALGORITHM", 8); await t.tap("SEL");
@@ -1592,16 +1611,16 @@ module.exports = async t => {
 
     /* ---- SEL, MOVE: afloat; SELECT shows where, SEL puts it down, HOME takes it back ---- */
     P.pauseAll();
-    await t.homeKey(1); U.song = 0;
-    const song0 = M.state.songs[0], moveSong = async d => { await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("MOVE"); await t.tap("SEL"); await t.turn("SELECT", d); };
+    await t.homeKey(1); U.song = 0xA0;
+    const song0 = M.state.songs[0xA0], moveSong = async d => { await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("MOVE"); await t.tap("SEL"); await t.turn("SELECT", d); };
     await moveSong(2);
-    ok(!t.top() && M.state.songs[0] === song0, "SONGS, MOVE: the song afloat, nothing moved yet");
+    ok(!t.top() && M.state.songs[0xA0] === song0, "SONGS, MOVE: the song afloat, nothing moved yet");
     await t.tap("SEL");
-    ok(M.state.songs[2] === song0 && U.song === 2, "SEL puts it down two places on");
+    ok(M.state.songs[0xA2] === song0 && U.song === 0xA2, "SEL puts it down two places on");
     await moveSong(-2); await t.tap("HOME");
-    ok(M.state.songs[2] === song0 && U.screen.name === "SONGS", "afloat, HOME takes it back");
+    ok(M.state.songs[0xA2] === song0 && U.screen.name === "SONGS", "afloat, HOME takes it back");
     await moveSong(-2); await t.tap("SEL");
-    ok(M.state.songs[0] === song0, "... and back where it was");
+    ok(M.state.songs[0xA0] === song0, "... and back where it was");
     U.pattern = M.patternNums()[0];                         /* (one of the user's: MOVE is offered) */
     await t.homeKey(3); await t.tap("ENV");
     const plist = U.top(), pn = M.patternNums()[plist.sel];
@@ -1622,15 +1641,14 @@ module.exports = async t => {
     }
     await t.tap("HOME");
     await t.homeKey(5); await t.tap("ENV");
-    /* (the user's numbers, 00-EF: the built-in cartridges, F0-FA, come after them) */
-    const clist = U.top(), lastId = Math.max(...M.state.carts.filter(c => !c.builtin).map(c => c.id));
+    /* (lastId + 1: the smallest free number) */
+    const clist = U.top(), lastId = M.freeCart() - 1;
     await t.tap("SEL"); m = U.top(); m.sel = m.items.indexOf("NEW"); await t.tap("SEL");
     ok(U.top().level && U.top().level.group === "NEW" && U.top().items[0] === "BACK" && U.top().items.includes("FUSION"),
        "NEW: a group (the types), BACK first");
     m = U.top(); m.sel = m.items.indexOf("DX7"); await t.tap("SEL");
     const ci = M.cartIndex(lastId + 1);
-    ok(ci >= 0 && M.state.carts[ci].type === "DX7" && M.state.carts[ci + 1].builtin,
-       "a NEW cartridge: the number after the last of the user's, the end of their part of the list");
+    ok(ci >= 0 && M.state.carts[ci].type === "DX7", "a NEW cartridge: the smallest free number");
     await t.tap("SEL"); m = U.top();
     ok(m.level && m.level.group === "NEW" && m.items[m.sel] === "DX7", "the menu again: at the last action's level, inside NEW, on DX7");
     m.goto("MOVE"); await t.tap("SEL");
@@ -1653,20 +1671,24 @@ module.exports = async t => {
     await t.tap("EDIT");
     const sc = kindOf("SAMPLER"), own = sc.slots.findIndex(s => s && sc.slots.some((o, j) => o && j !== sc.slots.indexOf(s) && o.p.sample !== s.p.sample));
     const k = sc.slots.find((s, j) => s && j !== own && s.p.sample !== sc.slots[own].p.sample).p.sample;
-    const users = sc.slots.map((s, j) => s && s.p.sample === k ? j : -1).filter(j => j >= 0);
+    /* (a sample's instruments in every sampler: specs/files/instruments.md#deleting) */
+    const users = [];
+    for (const c of M.state.carts) if (c.type === "SAMPLER") c.slots.forEach((s, j) => { if (s && s.p.sample === k) users.push([c.id, j]); });
     U.setInst(sc.id << 8 | own); await t.sleep(30);
     await t.tap("EDIT"); await t.tap("ENV");
     ok(t.top() === "list", "edit mode, on SAMPLE: ENV opens the samples");
-    U.top().sel = k;
-    const scSnap = structuredClone(sc);
+    U.top().sel = M.sampleRows ? M.sampleRows().findIndex(r => r.n === k) : k;
+    const smpKept = { carts: structuredClone(M.state.carts), samples: structuredClone(M.state.samples) };
     await t.tap("SEL"); await t.tap("SEL");
-    ok(t.top() === "question" && U.top().lines.join(" ").includes(users.length + " INSTRUMENT"), "deleting a used sample warns: its instruments go too");
+    ok(t.top() === "question" && U.top().lines.join(" ").includes(users.length + " INSTRUMENT") && !U.screen.editMode(),
+       "deleting a used sample: edit mode left first, then the warning: its instruments go too");
     await t.tap("OCT+");
-    ok(sc.samples[k].deleted && users.every(j => !sc.slots[j]) && sc.slots[own], "DELETE: the sample and the instruments that use it; the others stay");
-    U.edit(() => { M.state.carts[M.cartIndex(sc.id)] = structuredClone(scSnap); });     /* (put back, for what follows) */
-    const sc2 = M.cart(sc.id);
-    ok(!sc2.samples[k].deleted && users.every(j => sc2.slots[j]), "(put back: the sample and its instruments)");
-    await t.tap("HOME"); await t.tap("EDIT");
+    ok(!!M.state.samples && !M.state.samples[k] && users.every(([c, j]) => !M.cart(c).slots[j]) && sc.slots[own],
+       "DELETE: the sample and the instruments that use it, in every sampler; the others stay");
+    U.edit(() => { M.state.carts = smpKept.carts; M.state.samples = smpKept.samples; });    /* (put back, for what follows) */
+    ok(!!M.state.samples && !!M.state.samples[k] && users.every(([c, j]) => M.cart(c).slots[j]), "(put back: the sample and its instruments)");
+    await t.tap("HOME");
+    if (U.screen.editMode()) await t.tap("EDIT");
     /* LINE GAIN and USB GAIN (specs/ui/screens/settings.md): 0 dB at first, K1 a dB up to +12, LFO back
      * to 0; LINE GAIN reaches the sound, USB GAIN is only kept (the playground has no USB audio) */
     const gainAt = M.SETTINGS.findIndex(s => s.k === "LINE GAIN"), AUg = t.PTFM.audio, g0 = AUg.gain, gains = [];
@@ -1718,13 +1740,13 @@ module.exports = async t => {
         await t.homeKey(20); await t.turn("SELECT", -M.SETTINGS.length); await t.turn("SELECT", toolsAt);
         U.pickTool(name); await t.tap("EDIT");
     };
-    M.state.songs[0].order.push(M.freePattern());           /* (a pattern that is not there) */
+    M.state.songs[0xA0].order.push(M.freePattern());           /* (a pattern that is not there) */
     await runTool("CHECK REFERENCES"); await t.sleep(900);
     ok(t.top() === "list" && U.top().title === "MISSING REFERENCES: 1", "CHECK REFERENCES lists the missing ones");
     await t.tap("HOME");
-    M.state.songs[0].order.pop();
-    const spare = 0xDF;                                      /* (a user number nothing uses: F0-FF are the firmware's,
-                                                              * E0-E5 the disk's FUSION's) */
+    M.state.songs[0xA0].order.pop();
+    const spare = 0xE8;                                      /* (a user number nothing uses: F0-FF are the firmware's,
+                                                              * A0-DF the disk's) */
     M.state.patterns[spare] = Object.assign(structuredClone(M.state.patterns.find(Boolean)), { n: spare });
     await runTool("CLEAN UP");
     const cq = U.top();
@@ -1746,7 +1768,7 @@ module.exports = async t => {
     {
         P.pause();
         await t.homeKey(1);
-        const all = M.state.songs, i = 0, s = all[i], was = s.atEnd, last = s.order.length - 1;
+        const all = M.state.songs, i = 0xA0, s = all[i], was = s.atEnd, last = s.order.length - 1;
         const from = Math.min(s.loopFrom || 0, last);
         const nearEnd = () => { P.kept.lastSong = i; P.kept.song[i] = { pos: last, row: M.pattern(s.order[last]).rows - 4 }; };
         s.atEnd = "LOOP";                                    /* (a looping song first) */
@@ -1906,8 +1928,8 @@ module.exports = async t => {
      * (PLAY, LOOPS, the LFO pads), SWAP, mutes, the PLAY button, REC, FX on DJ's setup, a song moving onto the
      * main deck ---- */
     {
-        const DJ = P.dj, L = () => DJ.sides[0], R = () => DJ.sides[1], song = n => M.state.songs.findIndex(s => s.name === n);
-        const pick = async n => { await t.turn("SELECT", n - U.screen.listAt()); };
+        const DJ = P.dj, L = () => DJ.sides[0], R = () => DJ.sides[1], song = n => M.state.songs.findIndex(s => s && s.name === n);
+        const pick = async n => { await t.turn("SELECT", M.songNums().indexOf(n) - U.screen.listAt()); };
         const foot = () => U.screen.footHints().map(x => x[0]).join("");
         const barRows = d => { const s = M.state.songs[d.song]; return s.rpb * (((s.fx.knobs || {}).METRONOME || [])[1] || 4); };
         /* the black keys, a job a group; PLAY's pads 1 SET CUE, 2 CUE, 3 JUMP, 4 MOVE, 5 BRAKE; LOOPS' pad 1, PATTERN;
@@ -1938,6 +1960,15 @@ module.exports = async t => {
            "HOLD and FILTER keys: dark with no song on the decks");
         ok([0, 4].map(i => t.leds[14 + U.WHITE[i]]).every(v => v === .25) && [1, 2, 3, 5].map(i => t.leds[14 + U.WHITE[i]]).every(v => v === 0),
            "the pads: each group of four's first dim, the rest dark, for finding them by touch");
+        {   /* LOAD dim while it can take the highlighted song, dark with one of no positions (dj.md#leds) */
+            const s = M.state.songs[song("TRANCE LOOP")], ord = s.order;
+            await pick(song("TRANCE LOOP")); t.frame();
+            const lit = t.leds[14 + K.LLOAD] === .25 && t.leds[14 + K.RLOAD] === .25;
+            s.order = []; t.frame();
+            const dark = t.leds[14 + K.LLOAD] === 0 && t.leds[14 + K.RLOAD] === 0;
+            s.order = ord; t.frame();
+            ok(lit && dark && t.leds[14 + K.LLOAD] === .25, "LOAD dim while it can take the highlighted song, dark with one of no positions");
+        }
         await pick(song("TRANCE LOOP")); await t.key(K.LLOAD);
         ok(L().song === song("TRANCE LOOP") && U.toastNow() === "LEFT: TRANCE LOOP", "OP4 loads the highlighted song on the left deck: LEFT: TRANCE LOOP");
         await pick(song("BREAKS LOOP")); await t.key(K.RLOAD);
@@ -1960,6 +1991,17 @@ module.exports = async t => {
             ok(swapped && st.at.pos === 0 && Math.abs(P.djBpm(L()) - bpm0) < .05 && L().cue.pos === 0 && L().cue.row === 0,
                "... at the bar line the new song plays on from its start, at the BPM the deck played (" + P.djBpm(L()).toFixed(1) + ")");
             ok(await atBar("TRANCE LOOP"), "... and back again, the same way");
+            /* a LOAD waiting through a held BRAKE: landed only once the deck plays on (dj.md#landing-in-time) */
+            await pick(song("BREAKS LOOP"));
+            t.keyDown(BRAKE); await t.sleep(60);
+            await t.key(K.LLOAD);
+            await t.sleep(2500);
+            const through = L().song === song("TRANCE LOOP") && L().loadTo === song("BREAKS LOOP");
+            t.keyUp(BRAKE);
+            for (let i = 0; i < 40 && L().song !== song("BREAKS LOOP"); i++) await t.sleep(100);
+            ok(through && L().song === song("BREAKS LOOP") && L().playing && L().loadTo == null,
+               "a LOAD waits through a held BRAKE (" + through + "), and lands once the deck plays on");
+            ok(await atBar("TRANCE LOOP"), "... and back again");
             await pick(song("BREAKS LOOP"));
         }
         await t.key(K.SYNC);
@@ -2337,10 +2379,10 @@ module.exports = async t => {
         }
         /* a song that stops at its end: the deck paused there, PLAY refused, CUE back to the cue point */
         P.pause();
-        const ps = M.state.songs[song("PUNCH IN")], wasEnd = ps.atEnd;
+        const ps = M.state.songs[0xA0], wasEnd = ps.atEnd;
         ps.atEnd = "STOP";
         P.djLfoOn(L().lfo);
-        P.djLoad(L(), song("PUNCH IN"));
+        P.djLoad(L(), 0xA0);
         ok(!L().lfo.on, "a LOAD on a paused deck: its filter's LFO off with its filter");
         const lastPos = ps.order.length - 1;
         L().place = { pos: lastPos, row: M.pattern(ps.order[lastPos]).rows - 2 };
@@ -2355,7 +2397,7 @@ module.exports = async t => {
          * without HOME: nothing, no message */
         {
             const trk = s => Math.max(0, ...s.order.map(x => (M.pattern(x) || { tracks: 0 }).tracks));
-            const few = M.state.songs.findIndex(s => trk(s) <= 8), many = M.state.songs.findIndex(s => trk(s) > 8);
+            const few = M.state.songs.findIndex(s => s && trk(s) <= 8), many = M.state.songs.findIndex(s => s && trk(s) > 8);
             const homeOct = async b => { t.down("HOME"); await t.sleep(30); await t.tap(b); t.up("HOME"); await t.sleep(200); };
             P.djLoad(L(), few); P.djLoad(R(), few);
             U.toast("-"); await t.tap("OCT+"); await homeOct("OCT+"); t.frame();
@@ -2377,7 +2419,7 @@ module.exports = async t => {
             }
         }
         /* LOOPS' PATTERN: the deck's current pattern over and over; a deck's PLAY held: back to its start */
-        P.djLoad(L(), song("PUNCH IN"));
+        P.djLoad(L(), 0xA0);
         const rows0 = M.pattern(ps.order[0]).rows;
         L().place = { pos: 0, row: rows0 - 4 };
         await t.key(K.LPLAY); await t.sleep(150);

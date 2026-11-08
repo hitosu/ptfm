@@ -23,7 +23,9 @@ time, with `plat_web.c` in place of the device's hardware layer.
 - **UPLOAD CUSTOM DISK** (or a disk dropped on the page) writes a disk (`.ptfmdsk`) into the emulated FM-1, **UPLOAD DEMO DISK** the demo disk, as the install page
   seeds the real one (`../fw/web/seed.js`): the device reports its layout, the plan is shown, WRITE writes.
 - **The flash is kept in this browser** (IndexedDB), so what was seeded and saved is there after a reload.
-  `emu.eraseFlash()` in the console starts again from a new FM-1.
+  `emu.eraseFlash()` in the console starts again from a new FM-1. A kept flash an older PT/FM wrote is converted at its
+  first load, as the install page converts an FM-1 after an install (`seed.js`'s `convertDevice`), the status line and
+  DISKS saying so; a disk of the old form is converted as it loads.
 - **DOWNLOAD DISK** saves what the emulated FM-1 holds in its user area as a disk (`.ptfmdsk`): its live records,
   asked of the firmware (`plat_web.c`'s `web_disk`), read from its flash and checked. Changes not saved are not in
   the flash: a box says so first (SAVE on the FM-1, or DOWNLOAD ANYWAY).
@@ -47,5 +49,6 @@ time, with `plat_web.c` in place of the device's hardware layer.
 | `index.html`, `main.js`, `emulator.css` | the page: the panel, the firmware's loading, switching on, input, the screen, seeding, the kept flash; its frame (the sidebar, ZOOM, MIDI, the status line) is the playground's, `../panel/page.js` and `page.css` |
 | `build.py` | the build |
 
-Tests: `../fw/tests/run_web.sh` seeds the demo disk through `seed.js` into the WebAssembly, then runs one
-session on it and on the same C built natively: the audio, the screens and the LEDs must be equal.
+Tests: `../fw/tests/run_web.sh` seeds the demo disk through `seed.js` into the WebAssembly, converts a kept flash of
+the old form at its load, then runs one session on it and on the same C built natively: the audio, the screens and the
+LEDs must be equal.
