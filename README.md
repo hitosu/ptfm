@@ -57,3 +57,5 @@ GPL-3.0-only (`LICENSE`). Copyright (C) 2026 Vasily Kazantsev.
 
 No warranty: custom firmware is installed at your own risk. M-VAVE and FM-1 are trademarks of
 their owners; PT/FM is not affiliated with them.
+
+You can also try PT/FM in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
