@@ -88,7 +88,7 @@ int main(int argc, char **argv)
             if (b == pb) chip_param(&v, (uint32_t)code, (uint32_t)val);
             for (int i = 0; i < ne && i < 8; i++)
                 if (b == xa[i]) chip_param(&v, (uint32_t)xc[i], (uint32_t)xv[i]);
-            if (b >= pf && b < pt) {     /* (parked: its time goes on unheard) */
+            if (b >= pf && b < pt) {     /* (skipped: its time goes on unheard) */
                 if (chip_active(&v)) chip_skip(&v);
             } else if (chip_active(&v)) {
                 chip_render(&v, out);

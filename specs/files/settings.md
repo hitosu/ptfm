@@ -24,7 +24,7 @@ and the user's own GATE patterns ([../ui/screens/fx.md](../ui/screens/fx.md)). K
 | 119 | CLOCK OUT: 0 OFF, 1 ON |
 | 120 | SYNC PULSE's side as byte 0 has it (0 none, 1 left, 2 right), written for readers from before SYNC PULSE became OUTPUT's; read only when byte 0 is 0 or 1, as SYNC PULSE L / R |
 | 121-122 | the current instrument at the last SAVE: its cartridge, its slot |
-| 123 | bit 0: bytes 121-122 are set (clear: F0:00, the first built-in instrument); bit 1: SECOND CORE OFF (clear: ON, [../second-core.md](../second-core.md)); bit 2: PRESETS LIST OFF (clear: ON, [../ui/screens/settings.md](../ui/screens/settings.md)); bits 3-7 0 |
+| 123 | bit 0: bytes 121-122 are set (clear: F0:00, the first built-in instrument); bit 1: SECOND CORE OFF (clear: ON, [../second-core.md](../second-core.md)); bit 2: PRESETS LIST OFF (clear: ON, [../ui/screens/settings.md](../ui/screens/settings.md)); bit 3: CORE SUPPLIES LOWER (clear: STOCK, [../hardware.md](../hardware.md#the-chip)); bits 5-4: KEYS VELOCITY, 0 NORMAL, 1 HARD, 2 CONSTANT, 3 SOFT ([../hardware.md](../hardware.md#the-keys-velocity)); bits 7-6: CONTROLLER AFTERTOUCH, 0 CHANNEL, 1 POLY, 2 OFF (3 read as CHANNEL; [../controller.md](../controller.md#3-general-mode)) |
 | 124 | KEYS GAIN: dB, signed, −24 to +12 |
 | 125 | KEYS: 0 THROUGH FX, 1 DRY |
 | 126 | bit 0: byte 127 is set (clear: the EDITOR's own pattern); bits 1-7 0 |
@@ -32,7 +32,8 @@ and the user's own GATE patterns ([../ui/screens/fx.md](../ui/screens/fx.md)). K
 | 128-132 | FX MIXER's KEYS column ([../ui/screens/fx.md](../ui/screens/fx.md#mixer)), the keys' mixer bytes as a track's ([songs.md](songs.md#a-tracks-mixer-bytes)), each stored so that 0 is its default: PAN XOR `80`, DUCK, then the CHORUS, DELAY and REVERB SENDS each as `7F` − the send. Their LEVEL is KEYS GAIN (byte 124) |
 
 Bytes 115-132 are 0 at their defaults, so a record from before them (128 B, or shorter) reads as the
-defaults; so is QUANTIZE (byte 109's bits 4-2, which a record from before it holds as 0: ROW).
+defaults; so is QUANTIZE (byte 109's bits 4-2, which a record from before it holds as 0: ROW), and so are KEYS
+VELOCITY and CONTROLLER AFTERTOUCH (byte 123's bits 7-4: NORMAL, CHANNEL).
 
 - **The screen at the last SAVE:** the FM-1 cannot write at power-off, so LAST means the screen when
   last saved. With POWER-ON SCREEN = LAST, SAVE writes the record again when the screen differs from the one

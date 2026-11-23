@@ -139,7 +139,14 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         t.BB = [1, (47e3 / 220e3) * (1 + 100e3 / 10e3), t1z / t1p, onepole(1 / (TWO_PI * t1p)), t2z / t2p, onepole(1 / (TWO_PI * t2p))];
         return t;
     })();
-    const J_TICKS16 = 16 * (1000 / 4.2335) / SR;                   /* the voice CPU's loop passes in 16 frames */
+    /* the voice CPU's loop passes, as the FM-1 counts them: one clock for every voice, J_TQ (Q16) a 64-frame block (U),
+     * a pass at the start of each block it overflows in, from block 0 (the player's pl_tick_acc, juno_tick_q16: 22,466 at
+     * 44.1 kHz). Its passes in blocks [a, b): one division, the forward work's too */
+    const J_U = 64, J_TQ = Math.round(J_U * (1000 / 4.2335) / SR * 65536);   /* (J_U: the FM-1's block, frames) */
+    const jPasses = (a, b) => Math.floor(b * J_TQ / 65536) - Math.floor(a * J_TQ / 65536);
+    /* the passes a note has had by frame f (absolute), from its first frame t0: the pass of the block it starts in (at
+     * its first frame, as a note starting in a block plays it whole on the FM-1), then each later block's at its start */
+    const jHad = (t0, f) => f <= t0 ? 0 : jPasses(Math.floor(t0 / J_U), Math.max(Math.floor(t0 / J_U) + 1, Math.ceil(f / J_U)));
     const J_VCA_SLEW = 1 - Math.exp(-1 / (.000687 * SR)), J_VCF_SLEW = 1 - Math.exp(-16 / (.000522 * SR));
     const J_DC = onepole(1.59), J_HPF = [0, 0, onepole(236), onepole(754)];
     const J_IN = .065, J_DIRECT = .142, J_OUT = 35185 / 4096;
@@ -234,10 +241,9 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         v.pw = .5 - (v.pwMan ? v.pwm : Math.trunc(v.pwm * (8191 + lfo) / 16382)) * 58982 / 4294967296;
         vcaTarget(v);
     }
-    /* every 16 frames: the loop's passes due, the filter's seed, the cutoff CV smoothed, the coefficients */
+    /* every 16 frames (on the absolute 16-frame grid, a block's start among them): the filter's seed, the cutoff CV
+     * smoothed, the coefficients */
     function junoChunk(v) {
-        v.tk += J_TICKS16;
-        if (v.tk >= 1) { v.tk -= 1; voiceTick(v); }
         const energy = Math.max(Math.abs(v.s0) + Math.abs(v.s1) + Math.abs(v.s2) + Math.abs(v.s3), v.inEnv);
         v.seed = .00125 / (1 + 1000 * energy);   /* white noise into the filter: what starts a self-oscillation */
         v.dacS += (v.dac - v.dacS) * J_VCF_SLEW;
@@ -247,20 +253,126 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         v.invden = 1 / (1 + k * g2 * g2);
         v.kk = k;
     }
+    /* the forward work (a ghost's return, dsp-core.js), as the firmware's juno_forward: the voice CPU's loop worked on
+     * over many ticks at once, to the state its ticks leave. The envelope a stretch at a time: its attack to its top in
+     * one sum; its DECAY and RELEASE (decay's ticks on the distance d to the sustain, or to 0) by stretches where the
+     * coefficient's high byte ch is 254 or 255 (the slow ones: a tick takes d down by vh x w - (vh x cl >> 8) + q while
+     * d's high byte vh and its low byte's band stand, w = 256 - ch, q = ceil(vl x w / 256)), J_FWD_TICKS ticks a step
+     * below; at its sustain, or ended, it stands. The integers are the routines' own, so it is exact */
+    const J_FWD_TICKS = 4;
+    function jEnvGo(v, n, steps) {
+        let t = 0;
+        while (t < n) {
+            const e = v.env;
+            let k;
+            if (v.envState === ATTACK) {
+                k = e < ENV_MAX ? Math.floor((ENV_MAX - 1 - e) / v.atk) + 1 : 1;   /* (the tick that reaches the top) */
+                if (n - t < k) { v.env = e + (n - t) * v.atk; t = n; }
+                else { v.env = ENV_MAX; v.envState = DECAY; t += k; }
+                steps.n--;
+            } else if (v.envState === RELEASE || (v.envState === DECAY && e > v.sus)) {
+                const s = v.envState === DECAY ? v.sus : 0, c = v.envState === DECAY ? v.dec : v.relC;
+                let d = e - s;
+                if (c >> 8 >= 254 && d) {                   /* (a stretch: its band, its amount a tick, its ticks) */
+                    const w = 256 - (c >> 8), vh = d >> 8, vl = d & 255, q = (vl * w + 255) >> 8;
+                    const lo = q ? ((q - 1) << (9 - w)) + 1 : 0, by = vh * w - ((vh * (c & 255)) >> 8) + q;
+                    k = Math.min(Math.floor((vl - lo) / by) + 1, n - t);
+                    d -= k * by;
+                    steps.n--;
+                } else {
+                    let m = n - t;                          /* (the ticks the budget allows, J_FWD_TICKS a step) */
+                    if (steps.n <= Math.floor((m - 1) / J_FWD_TICKS)) m = steps.n * J_FWD_TICKS;
+                    k = 0;
+                    do d = decay(d, c); while (++k < m && d);
+                    steps.n -= Math.ceil(k / J_FWD_TICKS);
+                }
+                v.env = d + s;
+                if (!d && v.envState === RELEASE) v.envState = DONE;
+                t += k;
+            } else {                                        /* (at its sustain, or ended: it stands) */
+                if (v.envState === DECAY) v.env = v.sus;
+                return n;
+            }
+            if (steps.n <= 0) break;
+        }
+        return t;
+    }
+    /* the LFO moved on n ticks: its triangle rises from 0 and falls from 0x1FFF, each for h = 0x1FFF / coeff + 1
+     * ticks, its sign flipping as each rise starts; its delay, the hold then the ramp, each to its end in one sum */
+    function jLfoGo(v, n) {
+        const c = v.lfoCoeff, h = Math.floor(0x1FFF / c) + 1, a = v.lfoAcc;
+        if (!n) return;
+        let t = v.lfoRising ? Math.floor((0x1FFF - a) / c) + 1 + h : Math.floor(a / c) + 1;   /* (the next rise's first tick) */
+        if (n < t) {
+            if (!v.lfoRising) v.lfoAcc = a - n * c;
+            else if (n < t - h) v.lfoAcc = a + n * c;
+            else { v.lfoAcc = 0x1FFF - (n - (t - h)) * c; v.lfoRising = 0; }
+        } else {
+            let r = n - t;
+            v.lfoPol ^= (1 + Math.floor(r / (2 * h))) & 1;
+            r %= 2 * h;
+            v.lfoRising = r < h ? 1 : 0;
+            v.lfoAcc = r < h ? r * c : 0x1FFF - (r - h) * c;
+        }
+        if (v.inHold) {                                     /* (no LFO throughout, the tick that ends it too) */
+            t = Math.floor((0x3FFF - v.holdAcc) / v.holdInc) + 1;
+            v.lfoAmp = 0;
+            if (n < t) { v.holdAcc += n * v.holdInc; return; }
+            v.inHold = false;
+            v.holdAcc = 0x4000;
+            if (!(n -= t)) return;
+        }
+        t = Math.floor((0xFFFF - v.rampAcc) / v.rampInc) + 1;   /* (the tick that fills it) */
+        if (n < t) { v.rampAcc += n * v.rampInc; v.lfoAmp = v.rampAcc >> 8; }
+        else { v.rampAcc = 0xFFFF; v.lfoAmp = 255; }
+    }
+    /* the loop moved on by up to n ticks (n > 0): the envelope and the LFO to the tick before the last one gone, that
+     * tick by voiceTick, then the cutoff's and the VCA's smoothing where they head (a step with the LFO's move). The
+     * ticks gone */
+    function jRun(v, n, steps) {
+        const to = jEnvGo(v, n - 1, steps);
+        jLfoGo(v, to);
+        voiceTick(v);
+        v.dacS = v.dac;
+        v.vca = v.vcaT;
+        steps.n--;
+        return to + 1;
+    }
+    /* the ticks a RELEASE takes from the envelope's top until it is under J_REL_SILENT, the first envelope the firmware's
+     * VCA curve (in whole numbers) gives a gain at all: silent at any level from there, by RELEASE (the firmware's
+     * juno_release_ticks, its table counted the same way): a ghost let go longer ago is dropped with no work */
+    const J_REL_SILENT = 11;
+    J.REL_TICKS = J.DECREL.slice(0, 128).map(c => { let e = ENV_MAX, k = 0; while (e >= J_REL_SILENT) { e = decay(e, c); k++; } return k; });
+    /* the VCA's gain at the envelope's top (an attack's most), as vcaTarget makes it there */
+    J.VCA_TOP = (() => { const x = (ENV_MAX * 1020) >> 8, i = x >> 8; return J.VCA[i] + (J.VCA[i + 1] - J.VCA[i]) * (x & 255) / 256; })();
+
     /* the chorus's delay line (written at w) read d frames back, between two of its samples */
     function bbd(cb, w, d) {
         const n = Math.floor(d), at = w - n, a = cb[at & 255];
         return a + (cb[(at - 1) & 255] - a) * (d - n);
     }
     E.engines.JUNO = {
+        /* a new start of the sound (the worklet made again): the chorus modes' LFOs and the noise source from where they
+         * start, as the FM-1's start has them */
+        fresh() {
+            for (const c of J_CHORUS) if (c) { c.at = -1; c.ph = 0; }
+            NZ.at = -1; NZ.seed = 22222; NZ.st.fill(0);
+        },
         /* a legato note (LEG): the VCF's key follow moves to it (the pitch comes from the bend) */
         key(v, midi) { v.pitch88 = E.clamp(midi, 0, 127) << 8; },
-        start(v, p, midi) {
+        /* (last: its engine's last Juno-106 note, as the FM-1's juno_note_on finds it there, its sound ended or cut (a
+         * note never meets one sounding: the pool's engines are cut or ended before their next note): the LFO's triangle
+         * and sign, the coupling capacitors and the HPF go on; the filter too where it was left ringing out (not cut)
+         * and does not self-oscillate; its delay, the envelope (at 0), the DCO and the VCA start again. None: a fresh
+         * engine's zeros) */
+        start(v, p, midi, m, proc, last) {
+            const was = last ? last.st : null;
             v.p = p;
             this.refresh(v);
             v.pitch88 = E.clamp(midi, 0, 127) << 8;
-            v.holdAcc = 0; v.inHold = v.holdInc < ENV_MAX; v.rampAcc = 0; v.lfoAmp = 0;
-            v.lfoAcc = 0; v.lfoRising = 0; v.lfoPol = 0;
+            v.holdAcc = 0; v.inHold = v.holdInc < ENV_MAX; v.rampAcc = 0; v.lfoAmp = 0;   /* (its gate was down: the delay
+                                                         * starts again) */
+            v.lfoAcc = was ? was.lfoAcc : 0; v.lfoRising = was ? was.lfoRising : 0; v.lfoPol = was ? was.lfoPol : 0;
             v.gate = 1;
             v.env = 0; v.envState = ATTACK;
             envTick(v);                                  /* the first attack step at once */
@@ -272,11 +384,12 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
              * with it ringing (its steady state: each stage 45 degrees, x 1 / sqrt 2), so a patch with
              * no oscillator (its drums: a kick is the filter swept by the envelope) sounds at once */
             const a = J.OSC[p.vcf.res];
-            v.s0 = -2 * a; v.s1 = 0; v.s2 = a; v.s3 = a;
+            if (a || !was || last.cut) { v.s0 = -2 * a; v.s1 = 0; v.s2 = a; v.s3 = a; }   /* (cut: juno_cut's zeros) */
+            else { v.s0 = was.s0; v.s1 = was.s1; v.s2 = was.s2; v.s3 = was.s3; }
             v.pw = .5 - (v.pwMan ? v.pwm : v.pwm >> 1) * 58982 / 4294967296;
             vcaTarget(v);
-            v.dc = 0; v.hp0 = 0; v.hp1 = 0;
-            v.tk = .5; v.c16 = 0;                       /* the loop runs on its own clock: half a pass to the next */
+            if (was) { v.dc = was.dc; v.hp0 = was.hp0; v.hp1 = was.hp1; } else { v.dc = 0; v.hp0 = 0; v.hp1 = 0; }
+            v.jAbs = -1; v.c16 = 0;                    /* (the loop's passes on the one clock: from its first render) */
             v.cw = 0; v.clp0 = 0; v.clp1 = 0;
         },
         /* what follows from the patch; again when a parameter command changes it */
@@ -299,12 +412,59 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             if (v.envState !== undefined) vcaTarget(v);
         },
         release(v) { v.gate = 0; v.envState = RELEASE; },
-        render(v, out, a, b) {
+        /* the forward work (dsp-core.js: a ghost coming back, as the firmware's juno_forward): a note just started
+         * worked on without its sound, in its loop's ticks, w.on ticks held, then (w.off >= 0) its note off and w.off
+         * ticks more, spending steps.n; true when done, false when the budget ran out first (called again it goes on).
+         * Its envelope, LFO and delay, cutoff, pitch, width and VCA come out as those ticks leave them, the cutoff's
+         * and the VCA's smoothing where they head; the oscillator's phase and the filter's state are not kept */
+        forward(v, w, steps) {
+            for (;;) {
+                if (!w.on && (w.off < 0 || (!w.off && !v.gate))) return true;
+                if (steps.n <= 0) return false;
+                if (w.on) w.on -= jRun(v, w.on, steps);
+                else if (v.gate) { this.release(v); steps.n--; }   /* (the note off, once: its gate tells it was) */
+                else w.off -= jRun(v, w.off, steps);
+            }
+        },
+        /* the most it still reaches: the VCA (its target or its smoothing, the larger; an attack counted at its top)
+         * times the output's scale for a filter's output of 1, four times that with the bass boost (HPF 0) */
+        heard(v) {
+            let t = Math.max(v.vcaT, v.vca);
+            if (v.envState === ATTACK && !v.gateMode) t = Math.max(t, J.VCA_TOP * v.level);
+            return t * J_OUT * (v.p.hpf === 0 ? 4 : 1);
+        },
+        releaseTicks: p => p.vca.mode === "gate" ? 1 : J.REL_TICKS[Math.min(127, p.env.r)],   /* (VCA GATE: a tick) */
+        active: v => v.envState !== DONE || v.vca > 4 / 32768,   /* (it still sounds: render's) */
+        /* its loop's passes in f frames from its start t0 (absolute), on the one clock (jHad) */
+        units: (f, up, t0 = 0) => jHad(t0, t0 + f),
+        /* worked forward over the passes before frame f of its note (t0 + f absolute): the passes at or after it come
+         * as render reaches their blocks; the chunk it falls in made now, on the 16-frame grid; let go there (rel), its
+         * note off after it */
+        resume(v, f, rel, t0 = 0) {
+            const at = t0 + f, r = at % 16;
+            v.jAbs = at;
+            v.c16 = 0;
+            if (r) { junoChunk(v); v.c16 = 16 - r; }
+            if (rel) this.release(v);
+        },
+        render(v, out, a, b, pool) {
             const nz = noise(), cho = v.cho, hpf = v.p.hpf, hpg = J_HPF[hpf], B = J.BB;
             const gSaw = v.gSaw, gPulse = v.gPulse, gSub = v.gSub, gNoise = v.gNoise, kfb = v.kfb, nbuf = nz.buf, white = nz.white;
             let i = a;
+            if (v.jAbs < 0) {                   /* (its first frame, absolute: its block's pass, if the block has one) */
+                v.jAbs = (pool && pool.frame !== undefined ? pool.frame : 0) + a;
+                const k = Math.floor(v.jAbs / J_U);
+                if (v.jAbs % J_U && jPasses(k, k + 1)) voiceTick(v);
+            }
+            const f0 = v.jAbs - a;             /* (out[i] is frame f0 + i: its frames rendered one after another) */
+            v.jAbs = f0 + b;
             while (i < b) {
-                if (v.c16 === 0) { junoChunk(v); v.c16 = 16; }
+                const at = f0 + i;
+                if (at % J_U === 0) {           /* (a block's start: its pass on the one clock) */
+                    const k = at / J_U;
+                    if (jPasses(k, k + 1)) { voiceTick(v); v.c16 = 0; }
+                }
+                if (v.c16 === 0) { junoChunk(v); v.c16 = 16 - at % 16; }
                 const end = Math.min(b, i + v.c16);
                 v.c16 -= end - i;
                 /* the chunk's values (the loop pass and the coefficients change between chunks) */
@@ -515,16 +675,205 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
      * envelope as a DX7 operator's; at release the sound goes on from where it is through the rest of
      * the loop to END while the envelope releases. Its parameters (commands.md): positions as 1/256 of the
      * sample's length */
+    /* the sampler's parameter codes (specs/files/commands.md): START, END, LOOP, LOOP START, LOOP END, TUNE, then the
+     * envelope's four rates and four levels */
+    const SC = E.SAMP_CODES = { START: 0x40, END: 0x41, LOOP: 0x42, LOOP_START: 0x43, LOOP_END: 0x44, TUNE: 0x45, RATES: 0x48, LEVELS: 0x4C };
     E.params.SAMPLER = function (p, c, v, proc) {
-        const s = proc.samples[p.key], len = s ? s.data.length : 0, at = Math.round(Math.min(v, 255) / 256 * len);
-        if (c === 0x40) p.start = at;
-        else if (c === 0x41) p.end = v >= 255 ? len : at;
-        else if (c === 0x42) p.loop = ["OFF", "FORWARD", "PING-PONG"][Math.min(2, v)];
-        else if (c === 0x43) p.loopStart = at;
-        else if (c === 0x44) p.loopEnd = v >= 255 ? len : at;
-        else if (c === 0x45) p.tune = v - 128;
-        else if (c >= 0x48 && c <= 0x4B) p.env.rates[c - 0x48] = Math.min(99, v);
-        else if (c >= 0x4C && c <= 0x4F) p.env.levels[c - 0x4C] = Math.min(99, v);
+        /* (a position: v / 256 of the sample's length in whole frames, as the firmware works it out, 255 its end) */
+        const s = proc.samples[p.key], len = s ? s.data.length : 0, at = v >= 255 ? len : (len >> 8) * v + ((len & 255) * v >> 8);
+        if (c === SC.START) p.start = at >= len ? 0 : at;   /* (its end: from the sample's start, as the firmware's) */
+        else if (c === SC.END) p.end = Math.max(1, at);     /* (END 0: one frame, not the whole sample) */
+        else if (c === SC.LOOP) p.loop = ["OFF", "FORWARD", "PING-PONG"][Math.min(2, v)];
+        else if (c === SC.LOOP_START) p.loopStart = at;
+        else if (c === SC.LOOP_END) p.loopEnd = at;
+        else if (c === SC.TUNE) p.tune = v - 128;
+        else if (c >= SC.RATES && c < SC.RATES + 4) p.env.rates[c - SC.RATES] = Math.min(99, v);
+        else if (c >= SC.LEVELS && c < SC.LEVELS + 4) p.env.levels[c - SC.LEVELS] = Math.min(99, v);
+    };
+    /* the sampler's envelope moved on by up to n steps, a stretch a step (E.opEnv.span, as the DX7's): the steps gone */
+    function sRun(v, n, steps) {
+        const e = v.env;
+        let t = 0;
+        while (t < n) {
+            const sp = E.opEnv.span(e);
+            if (!sp) { t = n; steps.n--; break; }           /* (standing for good: its sustain, or released to its end) */
+            const k = Math.min(sp, n - t);
+            E.opEnv.go(e, k, sp);
+            t += k;
+            if (--steps.n <= 0) break;
+        }
+        if (t) v.g1 = E.opEnv.gain(e.level);
+        return t;
+    }
+    /* Where a sampler note is in its sample without its voice (a ghost, dsp-core.js; the firmware's samp_place_t): its
+     * position, going back or not (a ping-pong pass), in its sustain loop or not, ended or not; moved on by the frames
+     * at a pitch as render() moves a voice's, in one sum a run (to the loop's end, a turn, END), the loop's rounds held
+     * by their remainder; so a ghost's end and the place it comes back at come from one count */
+    /* the frames until x, moving up by S, reaches T (the frame it does, the last); falling by d, goes under T */
+    const rise = (x, T, S) => x >= T ? 1 : Math.max(1, Math.ceil((T - x) / S));
+    const fall = (x, d, T) => x < T ? 1 : Math.floor((x - T) / d) + 1;
+    const PLACE = { pos: 0, dir: 1, looping: false, ended: false };   /* (endFrames' copy of a place, kept) */
+    E.samp = {
+        /* an instrument's points as a voice plays them (its END, its loop's within it, room for a loop) */
+        facts(p, s) {
+            const len = s ? s.data.length : 0, end = Math.min(p.end || len, len), le = Math.min(p.loopEnd, end);
+            return { end, ls: p.loopStart, le, room: le > p.loopStart + 1, mode: p.loop };
+        },
+        /* the loop rule (the firmware's), the one place it is written: patch p (its points P) has a loop to play, LOOP on
+         * with room; parameter code c turned on it takes a note out of its loop: LOOP to OFF, or END or a loop point
+         * leaving it no room (any other command leaves a note's loop as it is, and none puts a note into one); code c
+         * moves a ghost's place (END, the loop and its points, TUNE) */
+        loops: (p, P) => p.loop !== "OFF" && P.room,
+        unloops: (c, p, P) => (c === SC.LOOP && p.loop === "OFF") || ((c === SC.END || c === SC.LOOP_START || c === SC.LOOP_END) && !P.room),
+        moves: c => c >= SC.END && c <= SC.TUNE,
+        inc: (p, s, midi, bend) => s.rate / SR * Math.pow(2, (midi + (bend || 0) - p.base + E.samp.tune(p)) / 12),
+        /* TUNE (1/128 semitones) as the FM-1's pitch takes it: in 1/64 steps, its half toward zero */
+        tune: p => Math.trunc((p.tune || 0) / 2) / 64,
+        /* where a note starts (its SAMPLE OFFSET past START), as start() puts it */
+        start(p, s, offset) {
+            const P = E.samp.facts(p, s);
+            return { pos: Math.min((p.start || 0) + (offset || 0), P.end - 1), dir: 1, looping: E.samp.loops(p, P), ended: !s };
+        },
+        of: v => ({ pos: v.pos, dir: v.dir, looping: v.looping, ended: !!v.dead }),
+        set(v, pl) { v.pos = pl.pos; v.dir = pl.dir; v.looping = pl.looping; if (pl.ended) v.dead = true; },
+        /* pl moved on n frames at inc, its key held or not: the frames walked (n, or fewer if it ended: pl.ended; Infinity:
+         * n was, and it never ends). A stretch at a time, as the firmware's samp.c walks its place: each a sum up to the
+         * frame its way changes at (render's frame by frame: on by inc, back by it on a ping-pong's pass back; held in
+         * the loop a FORWARD loop's end takes it back by the loop L, a PING-PONG's ends mirror it; let go, out of the loop
+         * at its end, or a pass back's turn; then past END, or under the sample's start, the end) */
+        go(pl, P, inc, n, held) {
+            const S = inc, LS = P.ls, LE = P.le, L = LE - LS, E1 = P.end - 1, pp = P.mode === "PING-PONG", inL = S <= L;
+            let done = 0, k;                             /* (the frames walked; a stretch's frames: n and done move by them) */
+            while (n > 0 && !pl.ended) {
+                const x = pl.pos;
+                if (!pl.looping) {                           /* out of its loop: on past END; back under the sample's start,
+                                                  * or past END at once if the frame back stands there (in it by its
+                                                  * flag alone, as render's: a loop with no room too) */
+                    if (pl.dir > 0) {
+                        k = rise(x, E1, S);
+                        if (k > n) { pl.pos += n * S; return done + n; }
+                        pl.pos += k * S;
+                        pl.ended = true;
+                        return done + k;
+                    }
+                    k = x - S >= E1 ? 1 : fall(x, S, 0);
+                    if (k > n) { pl.pos -= n * S; return done + n; }
+                    pl.pos -= k * S;
+                    pl.ended = true;
+                    return done + k;
+                }
+                if (!pp && pl.dir < 0) {                     /* a FORWARD loop going back (LOOP turned from PING-PONG on a
+                                                  * pass back): under the sample's start; past the loop's end, out of
+                                                  * it let go, or round it each frame held, back by the step and the loop */
+                    if (x - S < LE) {
+                        k = fall(x, S, 0);
+                        if (k > n) { pl.pos -= n * S; return done + n; }
+                        pl.pos -= k * S;
+                        pl.ended = true;
+                        return done + k;
+                    }
+                    if (!held) {
+                        pl.pos = x - S; pl.looping = false; n--; done++;
+                        if (pl.pos >= E1) { pl.ended = true; return done; }
+                        continue;
+                    }
+                    if (S + L <= 0) {                        /* (a loop no longer than the step back, one with no room: on
+                                                  * by -L - S each frame, standing there or running away up for good) */
+                        if (n === Infinity) return Infinity;
+                        pl.pos -= n * (S + L);
+                        return done + n;
+                    }
+                    k = fall(x, S + L, LE + S);
+                    if (k > n) { pl.pos -= n * (S + L); return done + n; }
+                    pl.pos -= k * (S + L);
+                    n -= k; done += k;
+                    continue;
+                }
+                if (!held) {                                 /* let go: to the loop's end and out of it, or a pass back to
+                                                  * its start, turned there and out; on to END after */
+                    if (pl.dir > 0) {
+                        k = rise(x, LE, S);
+                        if (k > n) { pl.pos += n * S; return done + n; }
+                        pl.pos += k * S;
+                    } else {
+                        k = fall(x, S, LS);
+                        if (k > n) { pl.pos -= n * S; return done + n; }
+                        pl.pos = 2 * LS - (x - k * S);
+                        pl.dir = 1;
+                    }
+                    pl.looping = false;
+                    n -= k; done += k;
+                    if (pl.pos >= E1) { pl.ended = true; return done; }
+                    continue;
+                }
+                if (inL && x >= LS && x < LE) {              /* held in it, the step within its length: round a FORWARD
+                                                  * loop, to and fro in a PING-PONG one (its two ways a round of 2 L) */
+                    if (n === Infinity) return Infinity;
+                    if (!pp) pl.pos = LS + (x - LS + n * S) % L;
+                    else {
+                        const u = ((pl.dir < 0 ? 2 * L - (x - LS) : x - LS) + n * S) % (2 * L);
+                        pl.dir = u < L ? 1 : -1;
+                        pl.pos = u < L ? LS + u : LS + 2 * L - u;
+                    }
+                    return done + n;
+                }
+                if (pl.dir < 0) {                            /* a PING-PONG's pass back (from past its end, or at a step
+                                                  * past its length): to its start, turned there */
+                    k = fall(x, S, LS);
+                    if (k > n) { pl.pos -= n * S; return done + n; }
+                    pl.pos = 2 * LS - (x - k * S);
+                    pl.dir = 1;
+                    n -= k; done += k;
+                    continue;
+                }
+                if (x + S < LE) {                            /* on to the loop's end, up to the frame before the one that
+                                                  * passes it */
+                    k = rise(x, LE - S, S);
+                    if (k > n) { pl.pos += n * S; return done + n; }
+                    pl.pos += k * S;
+                    n -= k; done += k;
+                    continue;
+                }
+                if (!pp) {                                   /* a FORWARD loop held past its end (started there, or its
+                                                  * end moved): round each frame, nearer by L - S, into it; at a step
+                                                  * past its length, round each frame running away by S - L (it never
+                                                  * ends) */
+                    if (S >= L) { if (n === Infinity) return Infinity; pl.pos += n * (S - L); return done + n; }
+                    k = fall(x, L - S, LE - S);
+                    if (k > n) { pl.pos -= n * (L - S); return done + n; }
+                    pl.pos -= k * (L - S);
+                    n -= k; done += k;
+                    continue;
+                }
+                /* a PING-PONG's, going on past its end (or at a step past its length): mirrored there, and its pass back
+                 * turned at its start the frame after (a turn of two frames, on by 2 (S - L): nearer while the step is
+                 * within the loop, farther out else) while the turn is whole; ended as a mirror at its end lands before
+                 * the sample's start */
+                const d = 2 * (S - L), Tf = LE + L - 2 * S, Te = 2 * LE - S;
+                if (x > Te) { pl.pos = 2 * LE - x - S; pl.dir = -1; pl.ended = true; return done + 1; }
+                if (x > Tf && n >= 2) {
+                    let t = d < 0 ? Math.ceil((x - Tf) / -d) : d > 0 ? Math.floor((Te - x) / d) + 1 : Infinity;
+                    if (t === Infinity && n === Infinity) return Infinity;
+                    t = Math.min(t, Math.floor(n / 2));
+                    pl.pos += t * d;
+                    n -= 2 * t; done += 2 * t;
+                    continue;
+                }
+                pl.pos = 2 * LE - x - S;                     /* (a frame: mirrored at its end, back) */
+                pl.dir = -1;
+                n--; done++;
+            }
+            return done;
+        },
+        /* the frames from pl until its note ends by itself, by its place, at inc (Infinity: held in its loop, never); the
+         * walk on a copy of it, one kept for that */
+        endFrames(pl, P, inc, held) {
+            if (pl.ended) return 0;
+            const q = PLACE;
+            q.pos = pl.pos; q.dir = pl.dir; q.looping = pl.looping; q.ended = false;
+            const k = E.samp.go(q, P, inc, Infinity, held);
+            return q.ended ? k : Infinity;
+        },
     };
     E.engines.SAMPLER = {
         start(v, p, midi, m, proc) {
@@ -535,25 +884,59 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             v.end = Math.min(p.end || s.data.length, s.data.length);
             v.pos = Math.min((p.start || 0) + (m.offset || 0), v.end - 1);
             v.dir = 1;
-            v.looping = p.loop !== "OFF";
+            v.looping = E.samp.loops(p, E.samp.facts(p, s));   /* (a loop with no room: none for this note, as the
+                                                         * firmware's start refuses it) */
             v.env = E.opEnv.make(p.env.rates, p.env.levels);
             v.g0 = v.g1 = 0;
             v.n = 0;
         },
-        refresh(v) {
-            const p = v.p;
-            v.end = Math.min(p.end || v.s.data.length, v.s.data.length);
-            v.looping = v.looping && p.loop !== "OFF";
+        /* the forward work (dsp-core.js: a ghost coming back, as the firmware's samp_forward): its envelope worked on in
+         * its own 64-frame steps, w.on held, then (w.off >= 0) its note off and w.off more, spending steps.n (a stretch
+         * a step, the envelope standing read once a step; the note off a step). Its place is not moved here: it is the
+         * ghost's own (E.samp.go), put on it as it comes back. A voice that does not sound is done at once */
+        forward(v, w, steps) {
+            if (v.dead) { w.on = 0; if (w.off >= 0) w.off = 0; return true; }
+            for (;;) {
+                if (!w.on && (w.off < 0 || (!w.off && v.releasing))) return true;
+                if (steps.n <= 0) return false;
+                if (w.on) w.on -= sRun(v, w.on, steps);
+                else if (!v.releasing) { this.release(v); steps.n--; }
+                else w.off -= sRun(v, w.off, steps);
+            }
+        },
+        /* the most it still reaches: its envelope's gain (a stage rising counted at its target; the last step's, which
+         * the next frames glide from), as a full-scale sample plays */
+        heard: v => v.dead ? 0 : Math.max(E.opEnv.gain(E.opEnv.top(v.env)), v.g1),
+        units: (f, up) => up ? Math.ceil(f / 64) : Math.floor(f / 64),   /* (its envelope's steps in f frames) */
+        active: v => !v.dead && !E.opEnv.done(v.env),   /* (it still sounds: render's) */
+        /* worked forward over the steps before frame f of its note: the step of the 64 frames f falls in made now and
+         * glided across from f's place in them, so its next steps fall where the note never taken's do; let go within
+         * them (rel), its note off after that step */
+        resume(v, f, rel) {
+            const r = f % 64;
+            v.n = 0;
+            if (r) { v.g0 = v.g1; v.g1 = E.opEnv.step(v.env); v.n = 64 - r; }
+            if (rel) this.release(v);
+        },
+        /* the patch changed by parameter `code` (dsp-core.js's paramOn): its END, and its loop by the loop rule
+         * (E.samp.unloops); a note with no sample (dead: nothing made) is left as it is */
+        refresh(v, code) {
+            if (v.dead) return;
+            const p = v.p, P = E.samp.facts(p, v.s);
+            v.end = P.end;
+            if (E.samp.unloops(code, p, P)) v.looping = false;
             E.opEnv.retune(v.env, p.env.rates, p.env.levels);
         },
-        release(v) { v.releasing = true; E.opEnv.release(v.env); },
+        release(v) { v.releasing = true; if (v.env) E.opEnv.release(v.env); },
         render(v, out, a, b) {
             if (v.dead) return false;
             const p = v.p, d = v.s.data;
-            const inc = v.s.rate / SR * Math.pow(2, (v.midi + (v.bend || 0) - p.base + (p.tune || 0) / 128) / 12);
-            const ls = p.loopStart, le = Math.min(p.loopEnd, v.end), room = le > ls + 1;
+            const inc = v.s.rate / SR * Math.pow(2, (v.midi + (v.bend || 0) - p.base + E.samp.tune(p)) / 12);
+            /* (in its loop by its flag alone, as the firmware's: a loop left with no room by its instrument's edit while a
+             * ghost (dsp-core.js's ready) loops as it stands, on one sample or running away past END for good) */
+            const ls = p.loopStart, le = Math.min(p.loopEnd, v.end);
             for (let i = a; i < b; i++) {
-                const loop = room && v.looping;
+                const loop = v.looping;
                 if (v.n-- <= 0) { v.g0 = v.g1; v.g1 = E.opEnv.step(v.env); v.n = 63; }
                 const g = v.g1 + (v.g0 - v.g1) * v.n / 64;
                 const ip = Math.floor(v.pos), fr = v.pos - ip;
@@ -575,7 +958,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                         else v.pos -= le - ls;
                     }
                 }
-                if (v.pos < 0 || (v.pos >= v.end - 1 && !(room && v.looping))) return false;
+                if (v.pos < 0 || (v.pos >= v.end - 1 && !v.looping)) return false;
             }
             return !E.opEnv.done(v.env);
         },

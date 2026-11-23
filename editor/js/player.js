@@ -5,9 +5,11 @@
  * number it). What plays, then a second of silence, then again, until STOP: a song from its start to its end, a pattern
  * once through at the tempo of a song that plays it, a sample once at its own rate, an instrument a melodic arpeggio
  * (C-4 E-4 G-4 C-5 G-4 E-4 C-4 in eighths at 120 BPM, the last held a second), a cartridge its instruments one after
- * another, a FUSION slot its pattern, LOOPS all its loops together. The worklet keeps the time: the repeat, the
+ * another, a FUSION slot its pattern. LOOPS (and a LOOPS set) plays all its loops together and on round their length as
+ * LOOPS does, with no rest, until STOP. The worklet keeps the time: the repeat, the
  * arpeggios' notes and the end of a song or a pattern are its own, so they keep time whatever the page does.
- *   ED.player.canPlay(it), isPlaying(it), toggle(it, o), play(it, o), stop(), update(it) (a tab's draft heard at once),
+ *   ED.player.canPlay(it), isPlaying(it), toggle(it, o), play(it, o), stop(), update(it) (a tab's draft heard at once;
+ *   LOOPS' changes with the loops playing on, as an edit on LOOPS),
  *   key(on, note, cart, slot) (a tab's keyboard), plan(it, st, o) -> { recs, play, label } (no DOM: the tests)
  * The page's own player (specs/editor.md, Recording and cutting sounds): a sound as it is (a take, an original, a sample
  * the preview cannot hold) through the browser at its own rate and VOL, shown in the footer as the preview is;
@@ -56,6 +58,7 @@ function worklet() {
                     if (ok) for (const d of m.dels) ex.ed_edit_del(d.kind, d.num, d.sub);
                     if (!ok) this.port.postMessage({ t: "editsFailed" });
                     else if (m.how === "cells") { ex.ed_cells_changed(); for (const s of m.songs) ex.ed_song_changed(s); }
+                    else if (m.how === "loops") ex.ed_loops_changed(m.rows, m.fx, m.soloed);   /* (playing on) */
                     else ex.ed_store_changed();
                 } else if (m.t === "play") { this.ex.ed_all_off(); this.job = Object.assign({ phase: "run", t0: this.written, evi: 0, last: -1 }, m.job); this.begin(); }
                 else if (m.t === "stop") { this.job = null; this.ex.ed_stop(); this.ex.ed_keys_off(); this.ex.ed_all_off(); }
@@ -104,9 +107,10 @@ function worklet() {
             let end = j.started && j.clean && (ended || !playing);
             /* (a song looping from its last position: back to its LOOP FROM, or its last pattern again) */
             if (j.kind === "song" && j.lastPos === j.npos - 1 && (pos < j.lastPos || (pos === j.lastPos && j.lastRow > 0 && row < j.lastRow))) end = true;
-            if ((j.kind === "pattern" || j.kind === "loops") && j.lastRow > 0 && row < j.lastRow) end = true;
+            if (j.kind === "pattern" && j.lastRow > 0 && row < j.lastRow) end = true;
             j.lastPos = pos; j.lastRow = row;
-            if (end || el > 600) this.rest();
+            /* (LOOPS plays on round its length as on the FM-1, no rest: until STOP, or the loops stop by themselves) */
+            if (end || (el > 600 && j.kind !== "loops")) this.rest();
         }
         rest() { const j = this.job; this.ex.ed_stop(); this.ex.ed_keys_off(); j.phase = "gap"; j.gapEnd = this.written + GAP; }
         pull() {
@@ -159,7 +163,7 @@ function parseState(st) {
 
 /* ---- what an item plays: its flash image and the job ---- */
 const ARP = [60, 64, 67, 72, 67, 64, 60], EIGHTH = 0.25, ARP_LEN = 6 * EIGHTH + 1.0, BETWEEN = 0.4;
-const SYS = [K.SETTINGS, K.MIDIMAP, K.DJ];
+const SYS = [K.SETTINGS, K.MIDIMAP, K.DJ, K.AUTO];    /* (AUTOMATIONS plays the FM-1's controls: no sound) */
 function slotsOf(it) {
     const b = it.recs[0].payload;
     if (it.kind === K.SAMPLER) return R.unpackSampler(b).instruments.map((s, i) => s ? i : -1).filter(i => i >= 0);
@@ -169,6 +173,7 @@ function canPlay(it) {
     if (!it || it.dim || it.isDefault || SYS.includes(it.kind)) return false;
     if (it.kind === K.SONG) return it.recs[0].payload[20] >= 0 && !(it.side === "R" && it.num === M.FE);
     if (it.kind === K.LOOPS) return it.recs[0].payload[5] > 0;
+    if (it.kind === K.LSET) return it.recs[0].payload[R.LSET_PRE + 5] > 0;
     if (M.isCart(it.kind)) { try { return slotsOf(it).length > 0; } catch (e) { return false; } }
     return it.kind === K.PATTERN || it.kind === K.SAMPLE;
 }
@@ -236,6 +241,12 @@ function plan(it, st, o) {
     } else if (it.kind === K.LOOPS) {
         const im = imageItems(st, side, [it.id]);
         recs = M.toRecords(im.items);
+        job = { kind: "loops" };
+    } else if (it.kind === K.LSET) {                /* a LOOPS set: as LOOPS once it is loaded, its records the loops' (its
+                                                     * 16 bytes off part 0) */
+        const im = imageItems(st, side, [it.id]), s = M.byIdMap(im.items).get(im.map(it.id));
+        recs = M.toRecords(im.items).filter(r => !(r.kind === K.LSET && r.num === s.num))
+            .concat(s.recs.map(r => ({ kind: K.LOOPS, num: 0, sub: r.sub, ver: R.VERSION[K.LOOPS], payload: r.sub ? r.payload : r.payload.subarray(R.LSET_PRE) })));
         job = { kind: "loops" };
     } else if (it.kind === K.SAMPLE) {
         /* a sample: itself, and a sampler of the preview's own with one instrument that plays it */
@@ -307,8 +318,9 @@ class Engine {
     post(m) { if (this.node) this.node.port.postMessage(m); }
     /* the records it plays from: laid out and mounted the first time or after big changes (what plays stops); after
      * that what changed goes in through the edit memory and what plays goes on. Built-ins' changes always as edits. */
-    load(recs) {
+    load(recs, live) {                              /* (live: LOOPS playing, { soloed }: their changes heard as LOOPS' own) */
         this.lastRecs = recs;
+        this.posted = false;
         const key = r => r.kind + "." + r.num + "." + r.sub;
         const want = new Map();
         for (const r of recs) want.set(key(r), r);
@@ -324,12 +336,20 @@ class Engine {
             if (!big && puts.length + dels.length <= 48 && this.editBytes + bytes < 40 * 1024) {
                 const sameSize = r => { const c = this.cur.get(key(r)); return c && r.kind === K.PATTERN && r.payload[0] === c.payload[0] && r.payload[1] === c.payload[1]; };
                 const cells = !dels.length && puts.every(r => sameSize(r) || r.kind === K.SONG);
-                this.post({ t: "edits", how: cells ? "cells" : "store", songs: puts.filter(r => r.kind === K.SONG).map(r => r.num),
+                /* (the loops' own records alone, while they play: as an edit on LOOPS, no pause; the head's length and FX
+                 * setup told apart) */
+                const loops = !!live && puts.concat(dels).every(r => r.kind === K.LOOPS);
+                const h1 = loops && puts.find(r => r.sub === 0), h0 = h1 && this.cur.get(key(h1));
+                const differ = (a, b, from, to) => { for (let i = from; i < to; i++) if (a[i] !== b[i]) return true; return false; };
+                this.post({ t: "edits", how: loops ? "loops" : cells ? "cells" : "store", songs: puts.filter(r => r.kind === K.SONG).map(r => r.num),
+                    rows: h0 && h1.payload[7] !== h0.payload[7] ? 1 : 0, fx: h0 && differ(h1.payload, h0.payload, 8, 72) ? 1 : 0,
+                    soloed: live ? live.soloed : 0,
                     puts: puts.map(r => ({ kind: r.kind, num: r.num, sub: r.sub, ver: r.ver, payload: r.payload })),
                     dels: dels.map(r => ({ kind: r.kind, num: r.num, sub: r.sub })) });
                 for (const r of puts) this.cur.set(key(r), r);
                 for (const r of dels) this.cur.delete(key(r));
                 this.editBytes += bytes;
+                this.posted = true;
                 return false;
             }
         }
@@ -364,6 +384,7 @@ async function play(it, o) {
         return;
     }
     if (keyImage && keyImage.it !== it) keyImage = null;   /* (another item's image: the keys load theirs again) */
+    if (p.job && p.job.kind === "loops") eng.post({ t: "call", fn: "ed_loops_changed", args: [0, 0, loopSolos(it)] });   /* (a set's solos heard) */
     eng.post({ t: "play", job: p.job });
     now = { it, side: it.side, job: p.job, slots: p.slots, label: ED.files.label(it, app.st[it.side]) + " · " + (it.side === "R" ? "FM-1" : "TABLE") };
     paint();
@@ -435,13 +456,24 @@ function ownStop() {
     clearInterval(ownTimer);
     if (ownSrc) { ownSrc.onended = null; try { ownSrc.stop(); } catch (e) { /* (ended) */ } ownSrc = null; }
 }
-/* a tab's draft: what plays goes on with the change (the same item's records, changed) */
+/* a LOOPS set's solos (bit i loop i; a LOOPS record keeps none) */
+function loopSolos(it) {
+    if (it.kind !== K.LSET) return 0;
+    const S = R.unpackLSet(it.recs.map(r => r.payload));
+    return S.solos & ((1 << S.loops.loops.length) - 1);
+}
+/* a tab's draft: what plays goes on with the change (the same item's records, changed); LOOPS' changes, the solos
+ * included, heard at once with the loops playing on, as an edit on LOOPS */
 function update(it, st) {
     if (!now || now.own || !now.it || now.it.id !== it.id) return;
     try {
         const p = plan(it, st, { slot: now.slots && now.slots.length === 1 ? now.slots[0] : undefined });
+        const live = p.job && p.job.kind === "loops" ? { soloed: loopSolos(it) } : null;
         /* mounted again (a big change: a sample's audio): what played starts again, as it now is */
-        if (eng.load(p.recs)) { eng.post({ t: "play", job: p.job }); now.job = p.job; now.slots = p.slots; paint(); }
+        if (eng.load(p.recs, live)) {
+            if (live) eng.post({ t: "call", fn: "ed_loops_changed", args: [0, 0, live.soloed] });
+            eng.post({ t: "play", job: p.job }); now.job = p.job; now.slots = p.slots; paint();
+        } else if (live && !eng.posted) eng.post({ t: "call", fn: "ed_loops_changed", args: [0, 0, live.soloed] });   /* (a solo alone) */
     } catch (e) { /* (kept as it was) */ }
 }
 /* a tab's keyboard: a note on an instrument, the item's image loaded first */

@@ -71,13 +71,13 @@
                 const sg = pbSong(), own = sg && own10(sg);
                 if (!w || w.pos < 0 || !own) return;         /* (not the EDITOR's pattern loop) */
                 const [lo, hi] = M.tempoRange(sg);
-                const now = U.clamp(Math.floor((own * P.speed() * 65536 + 32768) / 65536) + Math.sign(s) * (coarse ? 100 : 10), Math.round(lo * 10), Math.round(hi * 10));
+                const now = U.clamp(Math.floor((own * P.speed() * 65536 + 32768) / 65536) + s * (coarse ? 100 : 10), Math.round(lo * 10), Math.round(hi * 10));
                 setSpeed(sg, Math.floor(now * 65536 / own) / 65536);
                 return;
             }
             if (e === E.K3) {                                /* the songs' volume: a dB a click (SEL held: 6) */
                 if (!w || w.pos < 0 || !pbSong()) return;
-                setVolume(U.clamp(P.volume() + Math.sign(s) * (coarse ? 6 : 1), -25, 6));
+                setVolume(U.clamp(P.volume() + s * (coarse ? 6 : 1), -25, 6));
                 return;
             }
             if (e === E.SELECT) P.step(Math.sign(s));
@@ -372,7 +372,9 @@
                  muted: c => !!L[c] && (solo ? !L[c].soloed : L[c].muted) };
     }
     /* the KEYS column, the last (specs/ui/screens/fx.md#mixer): the keys' own, one for every setup (the settings'
-     * KEYS MIX), its LVL KEYS GAIN as dB + 24 (0-36); DRY: no DUCK, no sends (dark) */
+     * KEYS MIX), its LVL KEYS GAIN as dB + 24 (0-36); DRY: no DUCK, no sends (dark). The loops' last is NEW instead: the
+     * next loop's own mix (M.loopsNew: RAM's, a loop's values; M.loopsNewSet) */
+    const isNew = s => s === M.state.loops;
     const keysNow = k => k === "lvl" ? U.set("KEYS GAIN") + 24 : U.set("KEYS MIX")[k];
     const keysDark = k => U.set("KEYS") === "DRY" && k !== "lvl" && k !== "pan";
     const keysWords = (k, v) => k === "lvl" ? (v > 24 ? "+" : "") + (v - 24) + " DB" : U.mixWords(k, v);
@@ -388,16 +390,18 @@
         const left = Math.floor(fx.mixT / 8) * 8;
         D.text(2, Y0 + 2, F.T, s === M.state.loops ? "MIXER: THE LOOPS" : "MIXER", D.CYAN);
         for (let k = 0; k < 8 && left + k <= C.n; k++) {
-            const c = left + k, t = C.track(c), x = 30 + k * 26, keys = c === C.n, dim = !keys && (c >= used || C.muted(c));
+            const c = left + k, t = C.track(c), x = 30 + k * 26, last = c === C.n, nw = last && isNew(s), keys = last && !nw;
+            const dim = !last && (c >= used || C.muted(c));
             if (keys) D.text(x - 2, Y0 + 16, F.T, "KEYS", c === fx.mixT ? D.WHITE : D.CYAN);
+            else if (nw) D.text(x + 1, Y0 + 16, F.T, "NEW", c === fx.mixT ? D.WHITE : D.CYAN);
             else D.text(x + 3, Y0 + 16, F.T, M.hex(c), c === fx.mixT ? D.WHITE : dim ? D.DGREY : D.CYAN);
             rowsDef.forEach((r, j) => {
-                const now = keys ? { v: keysNow(r.k), cmd: false } : mixNow(s, t, r.k), v = now.v, y = Y0 + 30 + j * 26;
+                const now = keys ? { v: keysNow(r.k), cmd: false } : nw ? { v: M.loopsNew(s)[r.k], cmd: false } : mixNow(s, t, r.k), v = now.v, y = Y0 + 30 + j * 26;
                 const col = dim || (keys && keysDark(r.k)) ? D.DGREY : now.cmd ? D.WHITE : r.k === "pan" ? D.LGREY : r.k === "lvl" ? D.GREEN : r.k === "dck" ? D.BROWN : D.LBLUE;
                 if (c === fx.mixT && j === fx.mixR) D.box(x - 2, y - 2, 24, 24, D.WHITE);
                 if (r.k === "pan") { D.hline(x + 1, y + 10, 18, D.DGREY); D.rect(x + 9 + Math.round((v - 128) / 128 * 9), y + 5, 2, 11, col); }
-                else if (r.k === "dck" && (keys ? s.fx.knobs.DUCK[0] >= 16 : C.tracksOf(c).includes(s.fx.knobs.DUCK[0])))
-                    D.text(x + 7, y + 5, F.T, "S", D.BROWN);      /* (DUCK's source: a track, or the keys) */
+                else if (r.k === "dck" && (keys ? s.fx.knobs.DUCK[0] >= 16 : nw ? s.fx.knobs.DUCK[0] === c : C.tracksOf(c).includes(s.fx.knobs.DUCK[0])))
+                    D.text(x + 7, y + 5, F.T, "S", D.BROWN);      /* (DUCK's source: a track, or the keys; NEW: its place's) */
                 else {
                     const hgt = Math.round(v / (keys && r.k === "lvl" ? 36 : 127) * 18);   /* (KEYS' LVL: -24 to +12 dB) */
                     D.rect(x + 6, y + 2, 8, 18, D.DEEP + D.DGREY); D.rect(x + 6, y + 20 - hgt, 8, hgt, col);
@@ -406,6 +410,10 @@
         }
         rowsDef.forEach((r, j) => D.text(2, Y0 + 35 + j * 26, F.T, r.n, j === fx.mixR ? D.WHITE : D.CYAN));
         const r = rowsDef[fx.mixR];
+        if (fx.mixT === C.n && isNew(s)) {
+            D.text(2, Y0 + 196, F.T, "NEW LOOP  " + r.n + " " + U.mixWords(r.k, M.loopsNew(s)[r.k]), D.LGREY);
+            return;
+        }
         if (fx.mixT === C.n) {
             D.text(2, Y0 + 196, F.T, "KEYS, EVERYWHERE  " + r.n + " " + keysWords(r.k, keysNow(r.k)) + (U.set("KEYS") === "DRY" ? "  DRY" : ""), D.LGREY);
             return;
@@ -425,7 +433,7 @@
             const sng = PTFM.audio.fxSong(), rows = mixRows(sng);
             if (fx.page === EDIT) return ["K1-K4: BIG STEPS", "OCT: THE OCTAVE"];   /* (SEL + OCT: combo) */
             if (fx.page !== MIXER) return ["K1-K4: BIG STEPS"];
-            return [fx.mixT === mixCols(sng).n && rows[U.clamp(fx.mixR, 0, rows.length - 1)].k === "lvl" ? "K1: BY 6 DB" : "K1: BY 16"];
+            return [fx.mixT === mixCols(sng).n && !isNew(sng) && rows[U.clamp(fx.mixR, 0, rows.length - 1)].k === "lvl" ? "K1: BY 6 DB" : "K1: BY 16"];
         },
         /* LIVE and EDIT: the effect under the cursor is being edited, the hand's alone (its knobs, its ON / OFF; the
          * others follow their commands); MIXER: the mixer shown (the loops', or the song's) */
@@ -461,7 +469,11 @@
                 const sng = PTFM.audio.fxSong(), mx = sng.mixer, rowsDef = mixRows(sng), C = mixCols(sng);
                 if (e === E.ALGORITHM) fx.mixT = U.clamp(fx.mixT + Math.sign(s), 0, C.n);
                 else if (e === E.SELECT) fx.mixR = U.clamp(fx.mixR + Math.sign(s), 0, rowsDef.length - 1);
-                else if (e === E.K1 && fx.mixT === C.n) {      /* KEYS: a setting, every setup's */
+                else if (e === E.K1 && fx.mixT === C.n && isNew(sng)) {   /* NEW: RAM's, no edit */
+                    const r = rowsDef[U.clamp(fx.mixR, 0, rowsDef.length - 1)];
+                    M.loopsNewSet(r.k, U.clamp(M.loopsNew(sng)[r.k] + s * (coarse ? 16 : 1), 0, r.k === "pan" ? 255 : 127));
+                    U.showKnob(r.n + " NEW", U.mixWords(r.k, M.loopsNew(sng)[r.k]));
+                } else if (e === E.K1 && fx.mixT === C.n) {      /* KEYS: a setting, every setup's */
                     const r = rowsDef[U.clamp(fx.mixR, 0, rowsDef.length - 1)];
                     keysSet(r.k, keysNow(r.k) + s * (coarse ? (r.k === "lvl" ? 6 : 16) : 1));
                     U.showKnob(r.n + " KEYS", keysWords(r.k, keysNow(r.k)));
@@ -531,6 +543,8 @@
             if (fx.page === MIXER) {
                 if (b === B.LFO) {
                     const sng = PTFM.audio.fxSong(), r = mixRows(sng)[fx.mixR];
+                    if (fx.mixT === mixCols(sng).n && isNew(sng)) { M.loopsNewSet(r.k, M.loopsNewDef(sng)[r.k]); return true; }   /* (NEW: a
+                                                                * new loop's default) */
                     if (fx.mixT === mixCols(sng).n) { keysSet(r.k, r.k === "lvl" ? 24 : M.KEYS_MIX_DEF[r.k]); return true; }   /* (KEYS: 0 DB, 80, 00, 7F) */
                     fxEdit(() => { sng.mixer[fx.mixT][r.k] = r.def; });
                     return true;
@@ -681,8 +695,8 @@
         },
         footer() {
             if (fx.page === MIXER) {
-                const C = mixCols(PTFM.audio.fxSong());
-                return [fx.mixT === C.n ? "KEYS" : C.word + M.hex(fx.mixT), D.LGREY];
+                const sng = PTFM.audio.fxSong(), C = mixCols(sng);
+                return [fx.mixT === C.n ? (isNew(sng) ? "NEW LOOP" : "KEYS") : C.word + M.hex(fx.mixT), D.LGREY];
             }
             const n = selName(), cost = { GATE: 1.1, FILTER: 1.2, DRIVE: 2.2, "LO-FI": 1.0, CHORUS: 2.1, DELAY: 3.1, REVERB: 8.3, LIMITER: .2, DUCK: .3, METRONOME: .1 }[n];
             return cost != null ? [n + " " + cost.toFixed(1) + "% CPU", D.LGREY] : null;

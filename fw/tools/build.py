@@ -88,6 +88,7 @@ SMALL = ("core/ui/", "core/ctlmode.c", "core/dbg.c", "core/remote.c", "core/stor
 SMALL_NOT = ("gfx.c",)  # the screens', the controller's, the debug build's, the store's and MIDI's code: -Oz, the
                         # smallest (but the drawing's own); the device layer and the rest -Os
 POOL = '-DPLAT_POOL=__attribute__((section(".pool")))'
+NOINIT = '-DPLAT_NOINIT=__attribute__((section(".noinit")))'   # (core/plat.h: the few bytes a restart keeps)
 SPARE_SEC = '-DPLAT_SPARE=__attribute__((section(".spare")))'   # the spare zone's own part: the data region's last
 SPARE_OWN = 24576                                               # object (spare.h's SPARE_OWN)
 # core 2's room (core/plat.h, ../specs/second-core.md#ram): the code a block's job reaches and its constant tables,
@@ -96,26 +97,63 @@ C2_SEC = ['-DPLAT_C2=__attribute__((section(".c2_text")))', '-DPLAT_C2_RO=__attr
 # the debug build's debug part (core/plat.h's PLAT_DBG, ../specs/debug.md#the-debug-part): linked at device/app.ld's
 # DBGX (flash 0xF7000 + its 32-B head), written apart (ptfm-debug-part.bin), out of the slot
 DBG_SEC = '-DPLAT_DBG=__attribute__((section(".dbg_text"),noinline))'
+# ... and it holds no help (specs/debug.md): its pages, about 10 KB of the texts, are its probes' room in the slot;
+# every screen's help is one line saying so (gen_texts.py's NO_HELP). The emulator's and the host tests' builds keep it
+
+
+def no_help():
+    return ["--no-help"] if DEBUG else []
 DBG_PART = 0xF7000
 DBG_ROOM = 0x8000
 # the only functions of the slot that may call into the debug part: each call there waits for plat_dbg_part() /
-# dbg_part_ok (the part checked out). A call from anywhere else (an interrupt's, the flash's reads) would run whatever
+# plat_dbg_in (the part checked out). A call from anywhere else (an interrupt's, the flash's reads) would run whatever
 # the flash holds there when the part is missing, or before the plain window is set
 DBG_CALLERS = {"fm1_cstart", "ptfm_main", "sysex_route", "app_poll", "app_sysex", "ui_render"}
+# ... and the part's functions any code may call, the audio interrupt's included: the sound's probes in the part (the
+# ghosts' figures, player.c's pl_gf_*), each call behind plat_dbg_in, read before it (player.c's PL_GFC)
+DBG_PROBES = ("pl_gf_",)
+
+
+def probe_calls_check():
+    """the debug part's sound probes (player.c's pl_gf_*, DBG_PROBES) are called only through PL_GFC or PL_GH_READY, which
+    test plat_dbg_in first, or from the part's own functions: any other call would run whatever the flash holds there
+    while the part is missing (the disassembly's check, dbg_calls, sees the calls but not their test)"""
+    path = SRC / "core" / "play" / "player.c"
+    src = path.read_text(encoding="utf-8")
+    spans = []                                  # the part's own functions' bodies
+    for m in re.finditer(r"\bPLAT_DBG\b[^;{]*\{", src):
+        depth, i = 0, m.end() - 1
+        while i < len(src):
+            depth += {"{": 1, "}": -1}.get(src[i], 0)
+            if depth == 0:
+                break
+            i += 1
+        spans.append((m.start(), i))
+    bad = []
+    for m in re.finditer(r"\b(?:%s)\w*\s*\(" % "|".join(DBG_PROBES), src):
+        at = m.start()
+        if any(a <= at <= b for a, b in spans):
+            continue
+        start = src.rfind("\n", 0, at) + 1
+        line = src[start:src.find("\n", at)]
+        if "PL_GFC(" in src[start:at] or re.match(r"\s*(static\b|#\s*define PL_GH_READY\b)", line):
+            continue
+        bad.append("player.c:%d" % (src.count("\n", 0, at) + 1))
+    return ["a sound probe of the debug part called without PL_GFC (plat_dbg_in first): " + ", ".join(bad[:8])] if bad else []
 
 
 def dbg_calls(dis, lo, hi):
-    """the calls and gotos into [lo, hi) from code outside it: [(the caller, the address, the target)]"""
+    """the calls and gotos into [lo, hi) from code outside it: [(the caller, the address, the target, its name)]"""
     out, fn = [], ""
-    for ln in dis.splitlines():
+    for ln in stackdepth.joined(dis):   # (a call inside a block's braces has its target on the next line)
         if re.match(r"^[A-Za-z_][\w.]*:$", ln):
             fn = ln[:-1]
             continue
-        m = re.match(r"^\s*([0-9a-f]+):.*\b(?:call|goto)\s+-?\d+\s+<[^:]*:\s*([0-9a-f]+)\s*>", ln)
+        m = re.match(r"^\s*([0-9a-f]+):.*\b(?:call|goto)\s+-?\d+\s+<([^:]*):\s*([0-9a-f]+)\s*>", ln)
         if m:
-            at, to = int(m.group(1), 16), int(m.group(2), 16)
+            at, to = int(m.group(1), 16), int(m.group(3), 16)
             if lo <= to < hi and not lo <= at < hi:
-                out.append((fn, at, to))
+                out.append((fn, at, to, m.group(2).strip()))
     return out
 # Where core 2's room must put things, by what the chip does (measured facts, as DMA_FLOOR): the chip's ROM writes its
 # start stack inside ROM_STACK at every start of core 2 (the room's jobs' stack must cover it, holding nothing then);
@@ -236,7 +274,7 @@ def generate(bringup):
     GEN_DEV.mkdir(parents=True, exist_ok=True)
     cmds = [[sys.executable, "-I", str(ROOT / "tools" / "gen_fonts.py"), "--c", str(GEN_DEV / "fonts.h")]]
     if not bringup:
-        cmds.insert(0, [sys.executable, "-I", str(SRC / "tools" / "gen.py"), str(GEN)])
+        cmds.insert(0, [sys.executable, "-I", str(SRC / "tools" / "gen.py"), str(GEN), *no_help()])
     for cmd in cmds:
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         sys.stdout.write(r.stdout + r.stderr)
@@ -383,7 +421,8 @@ def packed_copies():
     the packed table (specs/ui/texts.md; fw/tools/gen_texts.py --rewrite): the folder they are in"""
     if RW.exists():
         shutil.rmtree(RW)
-    r = subprocess.run([sys.executable, "-I", str(SRC / "tools" / "gen_texts.py"), str(GEN), "--rewrite", str(RW)],
+    r = subprocess.run([sys.executable, "-I", str(SRC / "tools" / "gen_texts.py"), str(GEN), "--rewrite", str(RW),
+                        *no_help()],
                        cwd=ROOT, capture_output=True, text=True)
     sys.stdout.write(r.stdout + r.stderr)
     if r.returncode:
@@ -399,7 +438,7 @@ def build_app(version, code, bringup):
               *(["-DPTFM_BRINGUP"] if bringup else []), *debug]
     rw = None if bringup else packed_copies()      # (the app's core compiled from the packed copies)
     core_inc = rel(rw) if rw else "core"
-    cflags = [*CFLAGS, *APP_EXTRA, "-I" + core_inc, "-Idevice/include", "-I" + rel(GEN), POOL, SPARE_SEC, *C2_SEC, COLD,
+    cflags = [*CFLAGS, *APP_EXTRA, "-I" + core_inc, "-Idevice/include", "-I" + rel(GEN), POOL, NOINIT, SPARE_SEC, *C2_SEC, COLD,
               f'-DPTFM_VERSION="{version}"', *(["-DUI_TXT_PACKED", "-Werror=int-conversion"] if rw else []), *debug]
     # (packed: a table's text number given where a text is wanted, without T(), is an error, not a warning)
     jobs = [(SRC / "device" / "crt0.S", OBJ / "crt0.o", []),
@@ -613,8 +652,9 @@ def measure(objs):
     """the link failed (a region overflowed, perhaps): link again with every region far too big, only for
     the map, and print what each object takes"""
     ld = (SRC / "device" / "app.ld").read_text()
-    for name, origin, length in (("XIP", "0x10000000", "0x4000000"), ("DATA", "0x20000000", "0x4000000"),
-                                 ("C2RAM", "0x30000000", "0x4000000")):
+    for name, origin, length in (("XIP", "0x10000000", "0x100000"), ("DBGX", "0x10100000", "0x100000"),
+                                 ("DATA", "0x20000000", "0x4000000"), ("C2RAM", "0x30000000", "0x4000000")):
+        # (the debug part beside the image: its calls both ways stay in a call's reach)
         ld = re.sub(rf"(\n\s*{name}\s*\([a-z]+\)\s*:\s*ORIGIN = )0x[0-9A-Fa-f]+(, LENGTH = )[0-9A-Fa-fxK]+",
                     rf"\g<1>{origin}\g<2>{length}", ld)
     ld = re.sub(r"\n\s*ASSERT\(.*?\"\)", "", ld, flags=re.S)   # (the layout's own checks: the measuring link maps)
@@ -753,15 +793,20 @@ def check(img, syms, dis, rt, ota):
         errors.append("RAM: the data region is not the pool first, then the variables, then the spare zone "
                       "(device/app.ld)")
     errors += room_check(s, sym, dis, notes)
+    errors += probe_calls_check()
     dlo, dhi = sym("_dbg_start"), sym("_dbg_end")
     if dlo is not None and dhi is not None and dhi > dlo:   # the debug part: reached only from the guarded callers
         calls = dbg_calls(dis, dlo, dhi)
-        bad = sorted({f"{fn} -> {to:#x}" for fn, _, to in calls if fn not in DBG_CALLERS})
+        bad = sorted({f"{fn} -> {name or hex(to)}" for fn, _, to, name in calls
+                      if fn not in DBG_CALLERS and not name.startswith(DBG_PROBES)})
         if bad:
-            errors.append("the debug part called from outside its guarded callers (DBG_CALLERS): " + ", ".join(bad[:8]))
+            errors.append("the debug part called from outside its guarded callers (DBG_CALLERS) and not a probe's "
+                          "(DBG_PROBES): " + ", ".join(bad[:8]))
         else:
+            probes = sorted({fn for fn, _, _, name in calls if fn not in DBG_CALLERS})
             notes.append(f"the debug part: {dhi - dlo} B, {len(calls)} calls into it, all from "
-                         f"{', '.join(sorted({fn for fn, _, _ in calls}))}")
+                         f"{', '.join(sorted({fn for fn, _, _, _ in calls} - set(probes)))}"
+                         + (f"; the probes' from {', '.join(probes)}" if probes else ""))
     notes.append(f"stacks: the main loop's {s['_ustack_lo']:#010x}..{s['_ustack_top']:#010x} "
                  f"({s['_ustack_top'] - s['_ustack_lo']} B), the interrupts' {s['_sstack_lo']:#010x}.."
                  f"{s['_sstack_top']:#010x} ({s['_sstack_top'] - s['_sstack_lo']} B), guard bands at "

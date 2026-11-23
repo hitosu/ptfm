@@ -21,6 +21,12 @@ AT_PASS_MS=100 node --single-threaded fw/tests/autotest_test.js "$OUT/ptfm.wasm"
     "A BEAT" "THE EDITOR'S OWN PATTERN" "NEW SONG" "THE KEYS ON LOOPS" "LOOPS TO A PATTERN AND BACK" "RECORD LIVE" \
     > "$OUT/slow.log" || { cat "$OUT/slow.log"; exit 1; }
 tail -1 "$OUT/slow.log"
+# the loops' taps on their rows with the main loop as slow as the FM-1's on LOOPS (the page's estimate of a pass's
+# start; with one look at the playhead gone back, passes of 50 ms put every other chord on the row before it)
+echo "== the taps on their rows: every pass 50 ms"
+AT_PASS_MS=50 node --single-threaded fw/tests/autotest_test.js "$OUT/ptfm.wasm" "$OUT/flash.bin" 0.05 "TB-303" "GHOST NOTES" \
+    > "$OUT/rows.log" || { cat "$OUT/rows.log"; exit 1; }
+tail -1 "$OUT/rows.log"
 # the state's answers lost on the way (as a busy computer drops the FM-1's messages now and then): six in a row, the
 # FIGURES still coming; the scenario goes on and notes the silence, the answers numbered telling how many were lost
 echo "== six state answers lost on the way"

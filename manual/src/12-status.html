@@ -18,7 +18,7 @@ song.</figcaption></figure>
 <tbody>
 <tr><td><b>CPU 1, MAX</b></td><td>How much of its time the first processor spends on the sound now, and the most
 since the last reset. Green up to 50 %, yellow to 80 %, red above.</td></tr>
-<tr><td><b>CPU 2</b></td><td>The same for the second processor (effects and voices 11-16); OFF while it does not
+<tr><td><b>CPU 2</b></td><td>The same for the second processor (the effects and its share of the voices); OFF while it does not
 run.</td></tr>
 <tr><td><b>HALF</b></td><td>The longest piece of sound work, in microseconds: over 5804 is too slow.</td></tr>
 <tr><td><b>LATE</b></td><td>Pieces of sound not ready in time: each one is a click (dropout).</td></tr>
@@ -37,8 +37,9 @@ steals; each engine's share; voices; the effects' cost; a graph of the last 30 s
 <dt>STORAGE</dt><dd>The user area (where everything you keep goes), used and free; what it holds by kind; unsaved
 changes and the memory they take.
 <figure data-shot="status-storage"><figcaption>STORAGE.</figcaption></figure></dd>
-<dt>USER FLASH MAP</dt><dd>The user area as a map, a square a kilobyte, each in the colour of what it holds. SAMPLES counts the samples; the audio of a sampler still in
-the older form is counted under OTHER, with the settings, DJ's stand and the MIDI map.
+<dt>USER FLASH MAP</dt><dd>The user area as a map, a square a kilobyte, each in the colour of what it holds. SAMPLES
+counts the samples, LOOPS the loops and your LOOPS sets; the audio of a sampler still in the older form is counted
+under OTHER, with the settings, DJ's stand, the MIDI map and AUTOMATIONS.
 <figure data-shot="status-flash"><figcaption>USER FLASH MAP.</figcaption></figure></dd>
 <dt>RAM MAP</dt><dd>The FM-1's 512 KB of memory as a map, a square a kilobyte.
 <figure data-shot="status-ram"><figcaption>RAM MAP.</figcaption></figure></dd>
@@ -49,6 +50,9 @@ SECOND CORE reads <b>STARTING</b> in the first two seconds, then <b>ON</b>; <b>O
 off; or, in red, why it stopped until the next start: <b>STOPPED: NO ANSWER</b>, <b>STOPPED: MISREAD</b>,
 <b>STOPPED: STUCK</b>, <b>STOPPED: FAULT</b>, or <b>STOPPED: AFTER A CRASH</b> (after PT/FM crashed, the second
 processor stays off until the FM-1 is switched off and on). Without it, the FM-1 plays on with 12 voices at most.
+After the second processor refused a write aimed outside the memory, two red lines under SECOND CORE say where it was
+aimed and what asked for it (<b>BAD FILL TO</b> or <b>BAD COPY TO</b>, <b>ASKED FROM</b>): note them when you report
+it.
 BATTERY reads 1, 2 or 3 bars, or <b>USB POWER</b>.</dd>
 </dl>
 <p>The footer's right side shows the free storage (<b>FREE 237K</b>).</p>

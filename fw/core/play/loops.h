@@ -31,14 +31,11 @@ enum { LQ_ROW, LQ_2_ROWS, LQ_3_ROWS, LQ_4_ROWS, LQ_REAL };     /* QUANTIZE */
 
 uint32_t loops_record_default(uint8_t *p);      /* the head with no loops (80 B): TEMPO 120, TICKS A ROW 6, SWING 50,
                                                  * 1/16, ROW, COUNT-IN OFF, MONO LEGATO JUMP, POLY, the FX setup a new
-                                                 * song's (loops_fx_new), the next loop's mix plain, the length 4 bars,
-                                                 * VIEW 2 BARS, K1-K4's jobs not stored (the defaults) */
+                                                 * song's (loops_fx_new), bytes 72-77 a plain mix, the length 4 bars,
+                                                 * VIEW 2 BARS, K1-K4's jobs and a new loop's defaults not stored (the
+                                                 * defaults) */
 extern void (*loops_fx_new)(uint8_t *s64);      /* a new song's FX setup (the UI's fxd_default): LOOPS with no record,
                                                  * or a record whose FX setup is all 0 (none), starts from it */
-extern const uint8_t *loops_keys_mix;           /* FX MIXER's KEYS column (RM_*: the UI's ui_keys_mix, every setup's):
-                                                 * the next loop's CHORUS, DELAY and REVERB SENDS, heard on the stage on
-                                                 * + NEW LOOP and written into the loop REC makes there; NULL (no UI):
-                                                 * the head's own */
 uint32_t loops_ram(void);                       /* its RAM (STATUS' RAM MAP: LOOPS): the head's copy and the source's */
 
 /* ---- the setup ---- */
@@ -70,6 +67,12 @@ enum { LJ_LEVEL, LJ_PAN, LJ_DUCK, LJ_CHORUS, LJ_DELAY, LJ_REVERB, LJ_TEMPO, LJ_V
 int loops_job(int k);                           /* knob k's (0-3: K1-K4) job, LJ_*: at first (not stored) LEVEL, PAN,
                                                  * REVERB SEND, TEMPO */
 int loops_set_job(int k, int job);              /* (the four written, stored: byte 79's bit 6) */
+/* a new loop's defaults (bytes 72-77: LEVEL, PAN, DUCK and the sends, RM_*), LOOPS' properties: stored (byte 79's bit 7)
+ * as written; not stored (a record from before them) LEVEL 40, PAN 80, DUCK 0, the sends 7F, whatever 72-77 hold */
+const uint8_t *loops_new_def(void);
+int loops_set_new_def(int k, int v);            /* GLO's (LEVEL or a send): the six written, stored; NEW's value with it */
+void loops_new_reset(void);                     /* NEW (loops_mix(loops_n())) back to the defaults: after a REC that
+                                                 * makes a loop from it, LOAD FROM PATTERN, CLEAR LOOPS (the tests' too) */
 int loops_sel(void);                            /* the loop selected; loops_n(): the placeholder (+ NEW LOOP) */
 void loops_set_sel(int s);                      /* (RAM: no change by itself; written with the next head, or at SAVE) */
 int loops_keep_sel(void);                       /* SAVE: the selection into the head when it moved and LOOPS has
@@ -86,7 +89,7 @@ int loops_rows_step(int rows, int d);           /* LENGTH a click (d > 0 longer)
                                                  * bar the next whole bar each way, 1 bar to the most */
 int loops_bpm(void);
 
-/* ---- the loops (i < loops_n(); i = loops_n(): the next loop's mix) ---- */
+/* ---- the loops (i < loops_n(); i = loops_n(): NEW, the next loop's own mix) ---- */
 uint16_t loops_inst(int i);                     /* its instrument, cartridge << 8 | slot */
 int loops_colour(int i);                        /* 0-11 (specs/ui/screens/loops.md#colours) */
 int loops_mono(int i);
@@ -94,15 +97,24 @@ int loops_muted(int i);
 int loops_soloed(int i);
 int loops_lanes(int i);                         /* 1-4: the most lanes its notes use */
 int loops_base(int i);                          /* the rows its notes cover, 1-128 */
-int loops_repeats(int i);                       /* 1-255 */
+int loops_repeats(int i);                       /* 1-255 (a cut loop: 1) */
 int loops_shift(int i);                         /* its SHIFT: the rows it plays later, round the length, 0 to the length - 1
                                                  * (stored 0-127, read modulo the length) */
 int loops_set_shift(int i, int s);              /* ADJUST kept: s taken round the length (negative: earlier) */
-const uint8_t *loops_mix(int i);                /* its mixer bytes (RM_*: LEVEL, PAN, DUCK, the sends); loops_n() the next
-                                                 * loop's as heard, its sends the KEYS column's (loops_keys_mix; a copy,
-                                                 * good till the next call) */
-int loops_set_mix(int i, int k, int v);         /* one of them (loops_n(): the head's next loop's mix, its sends kept
-                                                 * there as written, not heard) */
+/* its cut (specs/ui/screens/loops.md#cut): 0 none, else 1 to the length - 1, a window: the loops' rows, counted from
+ * their start across the length's end, go round it, and at each the loop plays what it plays at that row with no cut
+ * (its SHIFT turning its notes under the window); its base the length, once */
+int loops_cut(int i);
+/* CUT HERE: loop i's window ends at row `at` of the length (a cut loop's moved there), or (at < 0) REMOVE CUT. A loop
+ * with no cut has its repeats and rest written out over the length first (base the length, once; its SHIFT kept), so
+ * it sounds the same. LP_OK; LP_NO (no such loop, nothing before the mark, no cut to remove), LP_FULL, LP_BUSY */
+int loops_set_cut(int i, int at);
+const uint8_t *loops_mix(int i);                /* its mixer bytes (RM_*: LEVEL, PAN, DUCK, the sends); loops_n() NEW,
+                                                 * the next loop's own: RAM's alone, from the defaults at LOOPS' first
+                                                 * look, again after each REC that makes a loop from it, LOAD FROM PATTERN
+                                                 * and CLEAR LOOPS (loops_new_reset); heard on the stage on + NEW LOOP and
+                                                 * the preview there, written into the loop REC makes there */
+int loops_set_mix(int i, int k, int v);         /* one of them (loops_n(): NEW's, no edit: lost at a power-off) */
 int loops_set_inst(int i, uint8_t cart, uint8_t slot);
 int loops_set_sound(int i, uint8_t cart, uint8_t slot, int mono);   /* APPLY INSTRUMENT: its instrument and MONO / POLY */
 int loops_set_muted(int i, int m);
@@ -115,20 +127,27 @@ uint32_t loops_silent_mask(void);               /* the loops not heard: with any
 
 /* ---- changes ---- */
 int loops_new(uint8_t cart, uint8_t slot);      /* a new loop at the end, empty (its number, else LP_*): the next colour,
-                                                 * the keys' mode, the head's next loop's mix as stored, 1 lane, its base
-                                                 * the length, once, SHIFT 0; the length as it is (the tests' constructor:
-                                                 * the UI's new loops are REC's, loops_stage_write) */
+                                                 * the keys' mode, NEW's mix (NEW then the defaults again), 1 lane, its
+                                                 * base the length, once, SHIFT 0; the length as it is (the tests'
+                                                 * constructor: the UI's new loops are REC's, loops_stage_write) */
 int loops_peel(int i);                          /* DELETE LOOP: loop i goes, the ones after it move up (the length
                                                  * stays) */
-int loops_clear(void);                          /* CLEAR LOOPS: every loop goes (the length, setup, FX, next mix stay) */
+int loops_move(int i, int to);                  /* MOVE: loop i to place to (0 .. loops_n() - 1), the ones between one
+                                                 * place towards i's, each with its stream, entry (mix, colour, mute) and
+                                                 * solo; the selection stays (loops_set_sel); LP_OK, LP_NO, LP_FULL, LP_BUSY */
+uint32_t loops_mask_move(uint32_t m, int i, int to);   /* a mask by loop (bit i: loop i) as loops_move(i, to) moves them */
+int loops_clear(void);                          /* CLEAR LOOPS: every loop goes (the length, setup, FX, a new loop's
+                                                 * defaults stay), NEW the defaults again */
 /* LENGTH (1-128 rows; with loops or none): a shifted loop first written out as it is heard over the old length (SHIFT
  * 0); shorter then cuts each loop's base and repeats at the new end (a base past it cut there, a note sounding over the
  * cut stopped at the wrap: a note off at row 0); longer first writes out over the old length a loop whose last repeat
- * the old length cut (the repeats it never reached dropped), so the rows added are silence */
+ * the old length cut (the repeats it never reached dropped), so the rows added are silence. A cut loop keeps its cut,
+ * its base the new length (written out as any shifted loop is); as short as its cut or shorter, the cut goes */
 int loops_set_rows(int rows);
-int loops_cut_drops(int rows);                  /* 1: a length of rows would drop a note heard (the loops as heard) */
+int loops_cut_drops(int rows);                  /* 1: a length of rows would drop a note heard (the loops as heard; a cut
+                                                 * loop in full: its notes past the cut too) */
 int loops_double(void);                         /* the length x 2, every loop playing twice what it played (its SHIFT
-                                                 * kept) */
+                                                 * kept; a cut loop its base twice, its cut kept: it plays the same) */
 int loops_revert(void);                         /* REVERT: LOOPS as saved (its pieces dropped) */
 int loops_quantize(int i, int q);               /* SEL's QUANTIZE (LQ_ROW, LQ_2_ROWS ... LQ_4_ROWS): loop i's notes to the
                                                  * nearest line of that size, the lines counted as the loop is heard (from
@@ -168,8 +187,9 @@ void loops_enc_cell(lp_enc_t *e, int srow, const rec_cell_t *c);
 uint32_t loops_enc_end(lp_enc_t *e);            /* the stream's bytes with its 0x00 (0: past max) */
 /* loop i as it is heard over the length, into buf (max; NULL: counted): its notes written out (its repeats one after
  * another, a note off where it goes to rest with a note sounding, a note off at row 0 where the length cuts its last
- * repeat), then turned its SHIFT rows; a stream of the length's rows, unmarked (EDIT's copy onto the stage). Its bytes
- * with its 0x00; 0 past max (EDIT past the stage's 3,800 B: THE STAGE IS FULL), or no such loop */
+ * repeat), then turned its SHIFT rows; a stream of the length's rows, unmarked (EDIT's copy onto the stage; a cut loop's
+ * in full, the stage then playing its rows below the cut). Its bytes with its 0x00; 0 past max (EDIT past the stage's
+ * 3,800 B: THE STAGE IS FULL), or no such loop */
 uint32_t loops_heard(int i, uint8_t *buf, uint32_t max);
 /* the stage's stream (s, len with its 0x00) of `rows` rows, into buf (max; NULL: counted), its marks kept. Its bytes
  * with its 0x00; 0 past max (DOUBLE past the stage's 3,800 B: THE STAGE IS FULL) */
@@ -188,7 +208,7 @@ int loops_bridge(const rec_cell_t *c);          /* a gap's bridge, nothing in it
 typedef struct { rec_cur_t cu; int mono, from; } lp_st_rd_t;
 int loops_stage_row(lp_st_rd_t *d, int r, rec_cell_t *c4);
 /* REC: the stage's stream (s, len with its 0x00, the length's rows) written into loop i, or a new loop at the end (i ==
- * loops_n(): the next colour, the next loop's mix as heard (loops_mix's: its sends the KEYS column's), unmuted): its
+ * loops_n(): the next colour, NEW's mix (loops_mix's; NEW then the defaults again), unmuted): its
  * instrument (cart, slot) and mode (mono) the keys', its
  * base the length, once, SHIFT 0; a loop's place, colour, mix and mute kept. What is written is what was heard: MONO one
  * lane (a POLY stage merged as it played: the later of overlapping notes, an end counting on the lane whose note
@@ -222,10 +242,45 @@ void loops_timing_fit(lp_timing_t *tm);
  * loop an instrument, in the order they first play, its notes from every track that plays it, up to 4 at once as its
  * lanes (more at once: another loop of it), each POLY, once, SHIFT 0, its mix from the mixer commands with its notes;
  * glides, note delays and key offs kept, the other commands left out and counted; 16 loops at most (the instruments past
- * them counted). The timing and the length become the pattern's, with notes or none; the selection the first. LP_OK,
- * LP_NO (no such pattern), LP_FULL, LP_BUSY */
+ * them counted). The timing and the length become the pattern's, with notes or none; the selection the first; NEW the
+ * defaults again. LP_OK, LP_NO (no such pattern), LP_FULL, LP_BUSY */
 typedef struct { uint8_t loops, insts; uint16_t cmds; } lp_loaded_t;   /* loops made; instruments, commands left out */
-int loops_load(uint8_t num, const lp_timing_t *tm, lp_loaded_t *res);
+int loops_load(uint8_t num, const lp_timing_t *tm, lp_loaded_t *res, int go);   /* go 0: only whether it fits (LP_OK,
+                                                 * LP_FULL, LP_NO: the screen's check before the loops stop), nothing
+                                                 * changed */
+
+/* ---- sets (specs/files/loops.md#sets): the working area copied whole under a number of its own, its solos with it ---- */
+#define LP_SET_LAST 0xEF                        /* the user's sets: 00-EF (F0-FF kept for built-in ones, none yet) */
+int loops_sets(uint8_t *nums, int max);         /* the sets this firmware reads, in numbers' order (max 256: another
+                                                 * version's left out) */
+int loops_set_free(void);                       /* the first number of the user's without a set (another version's
+                                                 * taken), -1 none */
+typedef struct { char name[17]; uint8_t n, rows, bar; } lp_set_t;   /* its name, loops, length in rows, a bar's rows
+                                                 * (its METRONOME's BEATS A BAR, its grid) */
+int loops_set_info(uint8_t num, lp_set_t *o);   /* 1 there and read */
+/* STORE AS A SET: the working area as it stands (its unsaved changes, the selection, the solos) into set num, all its
+ * pieces at once (one edit: SAVE keeps it, REVERT ALL drops it), name12 its name (12 B, 16 characters of 6 bits; NULL:
+ * the set's own, a set replaced keeping it). LP_OK; LP_FULL (MEMORY FOR EDITS IS FULL), LP_BUSY; LP_BIG: 16 loops whose
+ * streams all pass what part 0 holds beside the head (no set holds them), nothing stored */
+int loops_set_store(uint8_t num, const uint8_t *name12);
+/* LOAD A SET: set num into the working area (an edit: SAVE keeps it, LOOPS' REVERT undoes it), its solos and selection,
+ * NEW its defaults (the screen stops the loops and fits the stage). go 0: only whether it fits, nothing changed (the
+ * screen's check before the loops stop). LP_OK, LP_NO (no such set, or one of another version), LP_FULL, LP_BUSY */
+int loops_set_load(uint8_t num, int go);
+/* a set's rename (an edit, the set saved whole); LP_OK, LP_NO, LP_FULL, LP_BUSY, LP_BIG (a set made elsewhere in 17
+ * parts: 16 loops none of which fits part 0) */
+int loops_set_rename(uint8_t num, const uint8_t *name12);
+int loops_set_delete(uint8_t num);              /* (an edit) LP_OK, LP_FULL, LP_BUSY */
+void loops_saved(void);                         /* SAVE: a load kept */
+void loops_unloaded(void);                      /* REVERT (LOOPS' or ALL) after a load since the last SAVE: no solos */
+/* references (specs/files/references.md): the loops naming instrument ref, LOOPS' own and every set's (each a use);
+ * those naming `from` made to name `to` (swap: and back; whole_cart: by cartridge, the slot kept; to < 0: left), write
+ * 0 only the edit memory their heads take (made first: all or nothing); CLEAN UP's slots of cart the loops name, a bit
+ * a slot (32 B); CHECK REFERENCES' every loop told with its instrument (set -1: LOOPS' own) */
+int loops_inst_uses(uint16_t ref);
+uint32_t loops_remap(int from, int to, int swap, int whole_cart, int write);
+void loops_cart_used(uint8_t cart, uint8_t *used);
+void loops_each_inst(void (*each)(int set, int i, uint16_t ref));
 
 /* ---- the player ---- */
 void loops_play(uint8_t row);                   /* the loops from a row (their mutes and solos with them) */
@@ -238,6 +293,6 @@ void loops_changed(int rows);                   /* a change made: the player tol
                                                  * differ from what it was given last (player_lp_mutes_at_bar's change
                                                  * waiting there kept) */
 int loops_song(rec_song_t *s);                  /* the loops' "song" as the player has it (tempo, mixer, FX; track
-                                                 * loops_n() the next loop's mix as heard, loops_mix's): 0 read */
+                                                 * loops_n() NEW's mix, loops_mix's): 0 read */
 
 #endif

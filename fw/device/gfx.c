@@ -52,15 +52,15 @@ static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
         cv_px[(uint32_t)y * cv_w + (uint32_t)x] = swap16(c);
 }
 
-/* glyph index of a character: lower case folds to upper case when the font
- * has none, anything missing (and C1 controls) draws as '?' */
+/* glyph index of a character: the fonts hold no lower case (capitals only, as the app's: gen_fonts.py's HELD), so it
+ * folds to upper case and { | } ~ follow the backtick; anything missing (and C1 controls) draws as '?' */
 static uint32_t glyph(const gfx_font_t *f, uint32_t ch)
 {
-    if (ch >= 'a' && ch <= 'z' && f->last < 'a')
+    if (ch >= 'a' && ch <= 'z')
         ch -= 32u;
     if (ch < f->first || ch > f->last || (ch >= 127u && ch < 160u))
         ch = '?';
-    return ch - f->first;
+    return ch > 'z' ? ch - f->first - 26u : ch - f->first;
 }
 
 /* text in colour c (a pixel set or left); returns the end x */

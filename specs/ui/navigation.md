@@ -32,7 +32,7 @@ the EDITOR deep. HOME's combination as a control is in [controls.md](controls.md
 | OP3 | **INSTRUMENTS** ([screens/instruments.md](screens/instruments.md)) | MAKE | cartridges and instruments: choose, try, edit |
 | OP4 | **PLAYBACK** ([screens/playback.md](screens/playback.md)) | PLAY | what plays, following it; not editable |
 | OP5 | **DJ** ([screens/dj.md](screens/dj.md)) | PLAY | live playing: two songs on two decks, in time, mixed with a crossfader; a playback of its own |
-| OP6 | reserved | HEAR | kept for a screen later |
+| OP6 | **AUTOMATIONS** ([screens/automations.md](screens/automations.md)) | (HEAR's key, PLAY's colour) | the controls as worked, recorded and played back by the FM-1: 16 slots |
 | PIT | **VISUAL** ([screens/visual.md](screens/visual.md)) | HEAR | visualisers |
 | GLO | **STATUS** ([screens/status.md](screens/status.md)) | HEAR | the start screen: PT/FM, its version, how to get help; performance, storage, the device |
 | MONO | **SETTINGS** ([screens/settings.md](screens/settings.md)) | SYSTEM | global settings and tools |
@@ -47,26 +47,26 @@ the EDITOR deep. HOME's combination as a control is in [controls.md](controls.md
   - **MAKE:** the hierarchy from song down to sound;
   - **PLAY:** what plays, and played live: PLAYBACK and DJ (FX, the effects played on it, by its own
     button);
-  - **HEAR:** what comes out, seen and measured, with room for one more screen;
+  - **HEAR:** what comes out, seen and measured, and AUTOMATIONS on its first key;
   - **SYSTEM:** the settings, and LOOPS beside them;
   - **the blank key,** alone at the end: no screen, kept for later.
 
-  LOOPS' name is in the PLAY group's colour.
+  LOOPS' and AUTOMATIONS' names are in the PLAY group's colour.
 
   Each screen's name in the header is in its group's colour ([colours.md](colours.md)).
 - **HOME + black key:** go to that screen ([controls.md](controls.md#homes-combination): HOME tapped,
   then the key; or HOME held).
   - While HOME's combination is open, the screen keys light dim and the current one bright
     ([leds.md](leds.md)).
-  - A black key with no screen (OP6, the blank key) does nothing. FX has no black key: its own button
+  - A black key with no screen (the blank key) does nothing. FX has no black key: its own button
     opens it, and it is in the round.
 - **HOME + SELECT: the round,** a screen a click, wrapping both ways:
 
-  STATUS → SONGS → EDITOR → INSTRUMENTS → PLAYBACK → VISUAL → FX → LOOPS → DJ → SETTINGS → STATUS …
+  STATUS → SONGS → EDITOR → INSTRUMENTS → PLAYBACK → VISUAL → FX → LOOPS → DJ → SETTINGS → AUTOMATIONS → STATUS …
 
-  The start screen comes first and SETTINGS last; between them the order of making, playing and hearing
-  (FX beside LOOPS and DJ). It is the round's own order: the black keys keep theirs (above). A screen
-  given to OP6 or the blank key later takes a place in it.
+  The start screen comes first, SETTINGS then AUTOMATIONS last; between them the order of making, playing and
+  hearing (FX beside LOOPS and DJ). It is the round's own order: the black keys keep theirs (above). A screen
+  given to the blank key later takes a place in it.
 - **What plays plays on** from screen to screen, until something else starts
   ([transport.md](transport.md#play)): a song or the EDITOR's pattern loop plays on into LOOPS until the
   loops start there; the loops play on outside LOOPS, their stage with them, until a song or a pattern starts.

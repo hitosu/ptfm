@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Vasily Kazantsev */
-/* EDITOR [beta]'s look (specs/editor.md, The page): the pages' own, black, the FM-1 screen's EGA colours, the system's
+/* EDITOR's look (specs/editor.md, The page): the pages' own, black, the FM-1 screen's EGA colours, the system's
  * sans-serif, square boxes, keys' names yellow, labels cyan; no sidebar. A header with the tabs, the work area (FILES:
  * TABLE | the arrows | FM-1, or a tab), a footer with the mini player and the status line. */
 :root {
@@ -41,8 +41,6 @@ button, input, select { font: inherit; }
 .ptfm .l-s { color: var(--yellow); }
 .ptfm .l-f { color: var(--lgreen); }
 .ptfm .l-m { color: var(--lmagenta); }
-.chip { font: 700 10px/1 var(--sans); letter-spacing: .14em; padding: 3px 5px 2px; border: 1px solid currentColor; text-transform: uppercase; white-space: nowrap; }
-.chip.beta { color: var(--yellow); }
 .tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; align-items: flex-end; gap: 2px; }
 .tab { display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 10px; border: 1px solid transparent; border-bottom: 0;
   color: var(--lgrey); background: none; cursor: pointer; white-space: nowrap; font-size: 13px; position: relative; top: 1px; }
@@ -62,6 +60,7 @@ button, input, select { font: inherit; }
 .btn:active { background: var(--yellow-d); }
 .btn:disabled { color: var(--dgrey); border-color: var(--line); cursor: default; background: var(--ground); }
 .btn.primary { border-color: var(--yellow); }
+.btn.primary:disabled { border-color: var(--line); }
 .btn.danger { color: var(--lred); }
 .btn.on { background: var(--blue-d); color: var(--white); border-color: var(--lblue); }
 .btn .badge { background: var(--yellow); color: #000; padding: 2px 4px 1px; font-size: 10px; letter-spacing: 0; }
@@ -308,6 +307,9 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .fxname { font: 700 12px var(--sans); letter-spacing: .1em; color: var(--white); margin-bottom: 8px; }
 .mixrow { display: grid; grid-template-columns: 34px repeat(6, minmax(0, 1fr)); gap: 8px; align-items: center; min-height: 26px; font-size: 11px; }
 .mixrow input[type="number"] { width: 100%; }
+.lmixrow { display: grid; grid-template-columns: 40px 40px 40px repeat(6, minmax(0, 1fr)) 96px; gap: 8px; align-items: center; min-height: 26px; font-size: 11px; margin-bottom: 4px; }
+.lmixrow input[type="text"] { width: 100%; font-family: var(--mono); }
+.lmixbtns { display: flex; gap: 4px; }
 .mixhead { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); }
 
 /* the pattern */
@@ -341,6 +343,18 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .insp .grp { margin-bottom: 14px; }
 .insp select { width: 100%; }
 .cmdrow { display: grid; grid-template-columns: 1fr 66px; gap: 6px; margin-bottom: 4px; align-items: center; }
+/* LOOPS' notes across: the rows left to right, each lane three lines (notes, volumes, commands) */
+.hgrid { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.hrow { display: flex; width: max-content; min-width: 100%; }
+.hrow.hlane { border-top: 1px solid var(--line); }
+.hl { position: sticky; left: 0; z-index: 1; background: #000; width: 64px; flex: none; color: var(--lgrey); padding-right: 7px; text-align: right; }
+.hhead .hl, .hhead .hc { color: var(--dgrey); }
+.hc { flex: none; box-sizing: content-box; width: 3ch; padding: 0 4px; border-left: 1px solid #18181c; white-space: pre; }
+.hc.beat { background: #0b0b0e; }
+.hhead .hc.beat { color: var(--lgrey); }
+.hc .v { color: var(--cyan); }
+.hc .x { color: var(--lblue); }
+.hc .e { color: #333338; }
 .cmdrow .words { grid-column: 1 / -1; font-size: 11px; color: var(--lgrey); margin-bottom: 4px; }
 .piano { position: relative; height: 74px; display: flex; user-select: none; touch-action: none; }
 .piano .w { flex: 1; border: 1px solid #2a2a30; background: #d8d8d0; margin-right: -1px; position: relative; cursor: pointer; }
@@ -356,6 +370,9 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .dlg.rec .wavebox canvas { height: 120px; cursor: default; }
 .dlg.rec .meter { flex: 1; height: 16px; min-width: 0; background: #111; border: 1px solid var(--line); }
 .dlg.rec .clip { color: var(--lred); font: 700 12px/16px var(--sans); letter-spacing: .1em; padding: 0 6px; }
+.dlg.rec .tapeline { min-height: 20px; margin: 6px 0 0; color: var(--lcyan); font: 700 12px/20px var(--sans); letter-spacing: .06em; }
+.dlg.rec .tapeline.warn { color: var(--yellow); }
+.dlg.rec .saves { display: flex; gap: 6px; margin-left: auto; }
 .slicelist { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; }
 .slicelist .slice { white-space: nowrap; }
 .slicelist .slice.on .btn { border-color: var(--lblue); color: var(--lblue); }
@@ -373,7 +390,7 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .slotrow:hover { background: var(--hover); }
 .slotrow.on { background: var(--blue-d); }
 .slotrow .mono { font-size: 11px; color: var(--dgrey); }
-.slotrow.empty { color: var(--dgrey); }
+.slotrow.empty { color: var(--dgrey); padding: 0 8px; text-align: left; line-height: inherit; }   /* (not the panels' .empty) */
 .slotpage { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .optable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .optable th { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); text-align: left; padding: 3px 4px; white-space: nowrap; }
@@ -390,6 +407,29 @@ input[type="range"]::-moz-range-thumb { width: 10px; height: 16px; background: v
 .maprow { display: grid; grid-template-columns: 74px 74px 66px minmax(0, 1fr) minmax(0, 1.2fr) 28px; gap: 6px; align-items: center; margin-bottom: 4px; }
 .maprow.head { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); }
 .looprow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 90px 70px 80px 56px 28px; gap: 6px; align-items: center; margin-bottom: 4px; }
+/* AUTOMATIONS: the slots (number, screen, length, events; the one shown edged yellow), a slot's events as a table */
+.autoslot { grid-template-columns: 26px minmax(0, 1fr) 56px 60px; }
+.autoslot .r { text-align: right; font-size: 11px; color: var(--lgrey); }
+.autoslot.head { height: 20px; cursor: default; font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); }
+.autoslot.head:hover { background: none; }
+.slotrow.cur { box-shadow: inset 2px 0 0 var(--yellow); }
+.aedit { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 8px 0 10px; }
+.aedit label { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--lcyan); }
+.aedit input[type="text"] { width: 96px; font-family: var(--mono); }
+.aedit input[type="number"] { width: 96px; }
+.arow { display: grid; grid-template-columns: 96px 84px minmax(0, 1fr); gap: 10px; padding: 0 8px; color: var(--white); cursor: pointer; white-space: nowrap; }
+.arow > span:nth-child(2) { color: var(--cyan); }
+.arow:hover { background: var(--hover); }
+.arow.sel { background: var(--blue-d); }
+.arow.cur { box-shadow: inset 0 0 0 1px var(--yellow); }
+.arow.skip, .arow.skip > span { color: var(--dgrey); }
+.arow i { font-style: normal; color: var(--dgrey); margin-left: 10px; }
+.arow.ahead { font: 600 10px var(--sans); letter-spacing: .1em; color: var(--dgrey); cursor: default; padding-bottom: 4px; }
+.arow.ahead:hover { background: none; }
+.arow.ahead > span { color: var(--dgrey); }
+.atable { font: 12px/20px var(--mono); max-height: max(200px, calc(var(--edh, 70vh) - 300px)); overflow: auto; border: 1px solid var(--line); background: #000;
+  user-select: none; outline: none; }
+.atable:focus { border-color: var(--dgrey); }
 
 /* ---- narrow ---- */
 @media (max-width: 860px) {

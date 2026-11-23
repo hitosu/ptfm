@@ -236,28 +236,33 @@
             },
         });
     };
-    /* the cartridge list's panel (one for every list of cartridges): titled, its head, 13 lines of the cartridges given
+    /* the cartridge list's panel (one for every list of cartridges): titled, its head, 10 lines of the cartridges given
      * ([{ c, id }] or cartridges, in the order given), line sel boxed (afloat: yellow), kept in the middle while it can;
-     * more: a line after them (its draw(y, on), the cursor's box its own) */
+     * more: a line after them (its draw(y, on), the cursor's box its own). The ID and the name in F.S at 8 and 32, the
+     * type and the slots in F.T at 134 and 192 on the names' baseline; the column heads in F.T, each over its column;
+     * rows of 16 px from 51 */
+    U.CL_TYPE = 134; U.CL_SLOTS = 192;
+    /* the song list's and the cartridge list's lines in view, the highlight kept 4 down while it can: the first shown */
+    U.LIST_LINES = 10;
+    const listTop = (sel, n) => Math.max(0, Math.min(sel - 4, n - U.LIST_LINES));
     U.cartLines = function (title, list, sel, afloat, more) {
         const y = Y0 + 2;
-        U.panel(2, y, 236, 206, title);
-        D.text(8, y + 16, F.T, "ID NAME         TYPE      SLOTS", D.DGREY);
-        const all = list.length + (more ? 1 : 0);
-        const ROWS = 13, top = Math.max(0, Math.min(sel - 6, all - ROWS));   /* scrolls with the cursor */
-        if (more && list.length >= top && list.length < top + ROWS) more.draw(y + 30 + (list.length - top) * 13, !afloat && sel === list.length);
-        list.slice(top, top + ROWS).forEach((x, k) => {
+        U.panelS(2, y, 236, 206, title);
+        for (const [x, w] of [[8, "ID"], [32, "NAME"], [U.CL_TYPE, "TYPE"], [U.CL_SLOTS, "SLOTS"]]) D.text(x, y + 19, F.T, w, D.DGREY);
+        const all = list.length + (more ? 1 : 0), top = listTop(sel, all);   /* (scrolls with the cursor) */
+        if (more && list.length >= top && list.length < top + U.LIST_LINES) more.draw(y + 32 + (list.length - top) * U.ROW, !afloat && sel === list.length);
+        list.slice(top, top + U.LIST_LINES).forEach((x, k) => {
             const c = x.c || x, id = x.id;             /* ({ c, id }: listed under id; a cartridge: its own) */
-            const i = top + k, yy = y + 30 + k * 13, on = i === sel, used = c.slots.filter(Boolean).length;
-            if (on) D.box(4, yy - 1, 232, 13, afloat ? D.YELLOW : D.WHITE);
-            D.text(8, yy, F.T, M.hex(id), M.asBuilt("cart", c) ? D.BROWN : on ? D.WHITE : D.LGREY);    /* built in: brown */
-            D.text(26, yy, F.T, c.name, on ? D.WHITE : D.LGREY);
-            D.text(110, yy, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
-            D.text(170, yy, F.T, M.dec(used, 3) + "/" + M.dec(c.size, 3), D.LGREY);
+            const i = top + k, yy = y + 32 + k * U.ROW, on = i === sel, used = c.slots.filter(Boolean).length;
+            if (on) D.box(4, yy - 1, 232, U.ROW, afloat ? D.YELLOW : D.WHITE);
+            D.text(8, yy, F.S, M.hex(id), M.asBuilt("cart", c) ? D.BROWN : on ? D.WHITE : D.LGREY);    /* built in: brown */
+            D.text(32, yy, F.S, c.name, on ? D.WHITE : D.LGREY);
+            D.text(U.CL_TYPE, yy + U.T_ON_S, F.T, M.TYPE_NAMES[c.type], M.ENGINES[c.type].col);
+            D.text(U.CL_SLOTS, yy + U.T_ON_S, F.T, M.dec(used, 3) + "/" + M.dec(c.size, 3), D.LGREY);
         });
     };
     /* PRESETS' lists, big: a cartridge on a line at y, the ID at 6 and the name at 36 in F.B (twice F.T: 7 lines of 26 px
-     * where F.T's list has 13 of 13), the type in F.T right-aligned in its engine's colour, the name cut short only where
+     * where the ENV list has 10 of 16), the type in F.T right-aligned in its engine's colour, the name cut short only where
      * it would reach it */
     U.cartBig = function (c, y, on) {
         const ty = M.TYPE_NAMES[c.type], tx = 233 - D.tw(F.T, ty), fit = Math.floor((tx - 40) / 12);
@@ -291,19 +296,21 @@
             },
             cancel() { U.close(this); },
             draw() {
+                /* the number and the name in F.S at 8 and 32, the tempo (right-aligned to 196) and the length (at 202, hours
+                 * and minutes past 99:59) in F.T on the names' baseline; rows of 16 px from 51 */
                 const y = Y0 + 2, P = PTFM.player, playing = P.playing ? P.playingSong() : -1;
-                U.panel(2, y, 236, 206, this.title);
-                for (const [x, w] of [[8, "NR"], [26, "NAME"], [152 - D.tw(F.T, "BPM"), "BPM"], [164, "TIME"]])
-                    D.text(x, y + 16, F.T, w, D.DGREY);      /* (the column heads, each over its column) */
-                const ROWS = 13, top = Math.max(0, Math.min(this.sel - 6, ss().length - ROWS));
-                ss().slice(top, top + ROWS).forEach((s, k) => {
-                    const i = top + k, n = nums()[i], yy = y + 30 + k * 13, on = i === this.sel, col = on ? D.WHITE : n === playing ? D.GREEN : D.LGREY;
-                    if (on) D.box(4, yy - 1, 232, 13, D.WHITE);
-                    D.text(8, yy, F.T, M.hex(n), col);
-                    D.text(26, yy, F.T, s.name, col);
+                U.panelS(2, y, 236, 206, this.title);
+                for (const [x, w] of [[8, "NR"], [32, "NAME"], [196 - D.tw(F.T, "BPM"), "BPM"], [202, "TIME"]])
+                    D.text(x, y + 19, F.T, w, D.DGREY);      /* (the column heads, each over its column) */
+                const top = listTop(this.sel, ss().length);
+                ss().slice(top, top + U.LIST_LINES).forEach((s, k) => {
+                    const i = top + k, n = nums()[i], yy = y + 32 + k * U.ROW, on = i === this.sel, col = on ? D.WHITE : n === playing ? D.GREEN : D.LGREY;
+                    if (on) D.box(4, yy - 1, 232, U.ROW, D.WHITE);
+                    D.text(8, yy, F.S, M.hex(n), col);
+                    D.text(32, yy, F.S, s.name, col);
                     const bpm = String(M.bpm(s));
-                    D.text(152 - D.tw(F.T, bpm), yy, F.T, bpm, on ? D.WHITE : D.CYAN);
-                    D.text(164, yy, F.T, U.fmtTime(U.songSeconds(s)), col);
+                    D.text(196 - D.tw(F.T, bpm), yy + U.T_ON_S, F.T, bpm, on ? D.WHITE : D.CYAN);
+                    D.text(202, yy + U.T_ON_S, F.T, U.fmtListTime(U.songSeconds(s)), col);
                 });
             },
         });
@@ -326,7 +333,7 @@
             /* for a FUSION slot (opts.fusionKeys): the keys play the highlighted pattern as the FUSION would */
             key(n, down) {
                 if (!opts.fusionKeys) return false;
-                if (down) heard[n] = P.fusionRowOn("pl" + n, ns[this.sel], U.midi(n), U.set("KEYS VOLUME"));
+                if (down) heard[n] = P.fusionRowOn("pl" + n, ns[this.sel], U.midi(n), U.keyVol(n));
                 else if (heard[n]) { P.noteOff(heard[n]); delete heard[n]; }
                 return true;
             },
@@ -463,6 +470,11 @@
     };
 
     U.fmtTime = s => { s = Math.round(s); return M.dec(Math.floor(s / 60)) + ":" + M.dec(s % 60); };
+    /* the song list's TIME: `03:12`, past 99:59 hours and minutes, `1H41`, at most `99H59`, then `99H+` */
+    U.fmtListTime = s => {
+        s = Math.round(s);
+        return s < 6000 ? U.fmtTime(s) : Math.floor(s / 3600) > 99 ? "99H+" : Math.floor(s / 3600) + "H" + M.dec(Math.floor(s / 60) % 60);
+    };
     /* a song's length, at its own tempo and ticks (tempo commands left out) */
     U.songSeconds = s => s.order.reduce((a, n) => { const p = M.pattern(n); return a + (p ? p.rows : 0); }, 0) * s.ticks * 2.5 / s.tempo;
 })();

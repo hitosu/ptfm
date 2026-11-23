@@ -338,9 +338,9 @@ static void env_block(samp_voice_t *v)
     }
 }
 
-void samp_pitch(samp_voice_t *v, int note, int32_t bend64)
+/* the step samp_pitch gives a voice of s (a ghost's too, which has none) */
+uint32_t samp_step(const samp_t *s, int note, int32_t bend64)
 {
-    const samp_t *s = &v->s;
     int32_t n = (note - (int32_t)s->base) * 64 + bend64 + s->tune / 2;
     int32_t oct = n >= 0 ? n / 768 : -((767 - n) / 768), r = n - 768 * oct;
     uint32_t q = s->rate / 44100u;
@@ -348,25 +348,32 @@ void samp_pitch(samp_voice_t *v, int note, int32_t bend64)
     step = (step * SEMI_Q15[r >> 6]) >> 15;
     step = (step * FINE_Q15[r & 63]) >> 15;
     step = oct >= 0 ? (oct < 8 ? step << oct : STEP_MAX) : (oct > -24 ? step >> -oct : 0u);
-    v->step = step > STEP_MAX ? STEP_MAX : step ? (uint32_t)step : 1u;
+    return step > STEP_MAX ? STEP_MAX : step ? (uint32_t)step : 1u;
+}
+
+void samp_pitch(samp_voice_t *v, int note, int32_t bend64)
+{
+    v->step = samp_step(&v->s, note, bend64);
+}
+
+/* the loop's end as a voice plays it: the lesser of LOOP END and END at every moment (specs/files/commands.md: END is
+ * taken for LOOP END when it comes first). A command turns either one as it is, so END turned down past LOOP END and up
+ * again brings the loop's end back */
+static inline __attribute__((always_inline)) int32_t loop_end_of(const samp_t *s)
+{
+    return s->loop_end < s->end ? s->loop_end : s->end;
 }
 
 /* the loop's points as they stand: a loop with room (two samples at least) inside the sample and END */
 static int loop_room(const samp_voice_t *v)
 {
-    return v->s.loop != SAMP_LOOP_OFF && v->s.loop_end > v->s.loop_start + 1 && v->s.loop_start >= 0;
+    return v->s.loop != SAMP_LOOP_OFF && loop_end_of(&v->s) > v->s.loop_start + 1 && v->s.loop_start >= 0;
 }
 
 void samp_note_on(samp_voice_t *v, const samp_t *s, int note, int32_t offset)
 {
-    uint32_t i;
     v->s = *s;
-    if (v->s.end <= 0 || v->s.end > v->s.length)
-        v->s.end = v->s.length;
-    if (v->s.loop_end > v->s.end)
-        v->s.loop_end = v->s.end;
-    for (i = 0; i < 8u; i++)
-        v->s.env[i] = s->env[i] > 99u ? 99u : s->env[i];
+    samp_prep(&v->s);
     v->note = (uint8_t)note;
     samp_pitch(v, note, 0);
     v->pos = v->s.start + (offset > 0 ? offset : 0);
@@ -436,7 +443,7 @@ static void ensure(samp_voice_t *v, int32_t lo, int32_t hi)
 void samp_render(samp_voice_t *v, int32_t *out)
 {
     int32_t i, g, acc, da;
-    int32_t ls = v->s.loop_start, le = v->s.loop_end, end = v->s.end;
+    int32_t ls = v->s.loop_start, le = loop_end_of(&v->s), end = v->s.end;
     if (!v->on)
         return;
     env_block(v);
@@ -527,12 +534,13 @@ void samp_render(samp_voice_t *v, int32_t *out)
 /* the envelope's gain now, Q15 (1.0 full), without the engine's output scale: the screens' picture of it */
 PLAT_COLD int32_t samp_env_q15(const samp_voice_t *v) { return env_gain(ENV_FULL - v->level); }
 
-/* a block of a sounding voice's time without its sound (the player's parked voices): its envelope and its place
+/* a block of a sounding voice's time without its sound (what the forward work stands for): its envelope and its place
  * in the sample go on as samp_render's (the loop, a ping-pong's way, END); nothing is decoded: the window is
- * filled again where it plays when it sounds again */
-void samp_skip(samp_voice_t *v)
+ * filled again where it plays when it sounds again. Its one caller is the sampler screen's picture of a note at the
+ * BASE NOTE, traced a block at a time in the main loop */
+PLAT_COLD void samp_skip(samp_voice_t *v)
 {
-    int32_t i, ls = v->s.loop_start, le = v->s.loop_end, end = v->s.end;
+    int32_t i, ls = v->s.loop_start, le = loop_end_of(&v->s), end = v->s.end;
     if (!v->on)
         return;
     env_block(v);
@@ -580,4 +588,342 @@ void samp_skip(samp_voice_t *v)
             return;
         }
     }
+}
+
+/* ------------------------------------------------ a note without its voice --- */
+/* (specs/proposals/202611121830-ghost-notes.md, sections 2 and 5) A ghost keeps its place in the sample, moved on as
+ * samp_skip's frames move a voice's; it comes back into a fresh voice at that place, its envelope worked forward. */
+
+/* what samp_note_on makes of its own copy (its first step: a ghost's place walks by the same). LOOP END is kept as it
+ * is: the loop's end is taken as the lesser of it and END wherever it is read (loop_end_of) */
+PLAT_COLD void samp_prep(samp_t *s)
+{
+    uint32_t i;
+    if (s->end <= 0 || s->end > s->length)
+        s->end = s->length;
+    for (i = 0; i < 8u; i++)
+        s->env[i] = s->env[i] > 99u ? 99u : s->env[i];
+}
+
+/* the place from a position x (Q16) and its flags; an ended one keeps no position */
+static PLAT_COLD void place_put(samp_place_t *p, int64_t x, uint32_t flags)
+{
+    if (flags & SAMP_PL_END)
+        x = 0;
+    p->frac = (uint16_t)(x & 0xFFFF);
+    p->lo = (uint16_t)(x >> 16);
+    p->hi = (uint16_t)(((uint32_t)(x >> 32) & SAMP_PL_POS) | flags);
+}
+
+static PLAT_COLD int32_t place_pos(const samp_place_t *p)
+{
+    return (int32_t)((uint32_t)(p->hi & SAMP_PL_POS) << 16 | p->lo);
+}
+
+PLAT_COLD void samp_place_of(const samp_voice_t *v, samp_place_t *p)
+{
+    uint32_t f = (v->dir < 0 ? SAMP_PL_BACK : 0u) | (v->looping ? SAMP_PL_LOOP : 0u);
+    if (!v->on || v->pos < 0 || v->pos > SAMP_PL_MOST)   /* (a position run away that far: ended, samp.h) */
+        f |= SAMP_PL_END;
+    place_put(p, (int64_t)v->pos << 16 | v->frac, f);
+}
+
+/* as samp_note_on starts its voice: START and the offset within END, forward, in its loop if the loop has room */
+PLAT_COLD void samp_place_start(const samp_t *s, int32_t offset, samp_place_t *p)
+{
+    int32_t end = s->end <= 0 || s->end > s->length ? s->length : s->end;
+    int32_t le = s->loop_end > end ? end : s->loop_end, pos = s->start + (offset > 0 ? offset : 0);
+    uint32_t f;
+    if (pos > end - 1)
+        pos = end - 1;
+    f = s->loop != SAMP_LOOP_OFF && le > s->loop_start + 1 && s->loop_start >= 0 ? SAMP_PL_LOOP : 0u;
+    if (!(s->rec && end > 0 && pos >= 0))
+        f |= SAMP_PL_END;
+    place_put(p, (int64_t)pos << 16, f);
+}
+
+PLAT_COLD void samp_place_set(samp_voice_t *v, const samp_place_t *p)
+{
+    if (p->hi & SAMP_PL_END) {
+        v->on = 0;
+        return;
+    }
+    v->pos = place_pos(p);
+    v->frac = p->frac;
+    v->dir = (int8_t)(p->hi & SAMP_PL_BACK ? -1 : 1);
+    v->looping = (uint8_t)((p->hi & SAMP_PL_LOOP) != 0);
+}
+
+PLAT_COLD void samp_note_at(samp_voice_t *v, const samp_t *s, int note, const samp_place_t *p)
+{
+    samp_note_on(v, s, note, 0);
+    samp_place_set(v, p);
+}
+
+/* n / d (d > 0), or 0xFFFFFFFF when it is that or more: by halving, with no 64-bit division */
+static PLAT_COLD uint32_t qdiv(uint64_t n, uint64_t d)
+{
+    uint32_t q = 0;
+    int i;
+    if ((n >> 32) >= d)
+        return 0xFFFFFFFFu;
+    for (i = 31; i >= 0; i--)
+        if ((n >> i) >= d) {
+            n -= d << i;
+            q |= 1u << i;
+        }
+    return q;
+}
+
+/* (u + n x step) taken round a loop of len samples (u < len << 16, len < 2^22): its samples and its fraction apart,
+ * in 32 bits */
+static PLAT_COLD int64_t round_loop(int64_t u, uint32_t n, uint32_t step, uint32_t len)
+{
+    uint64_t t = (uint64_t)n * (step & 0xFFFFu) + (uint32_t)(u & 0xFFFF);
+    uint32_t w = (uint32_t)(u >> 16) + n % len * (step >> 16) % len + (uint32_t)(t >> 16) % len;
+    return (int64_t)(w % len) << 16 | (int64_t)(t & 0xFFFFu);
+}
+
+#define X_MOST ((int64_t)(SAMP_PL_MOST + 1) << 16)   /* (a position run away this far: the walk ends) */
+#define X_FAR ((int64_t)1 << 62)         /* (a threshold a fall crosses at its first frame) */
+#define A_END 1u                         /* at the crossing: the end */
+#define A_OUT 2u                         /* out of the loop, and past END then or not */
+#define A_LS 4u                          /* mirrored at the loop's start, forward from there */
+
+/* x moved on by v a frame, up to the frame at which it crosses T (v > 0: reaches T or passes it; v < 0: falls under
+ * it), that frame the last, or left frames if it does not cross in them (v 0: it never does); *hit: it crossed. The
+ * frames before the crossing: (T - x - 1) / v rising, (x - T) / -v falling, none when that is under 0 */
+static PLAT_COLD uint32_t run(int64_t *x, int64_t v, int64_t T, uint32_t left, int *hit)
+{
+    int64_t g = v > 0 ? T - *x - 1 : *x - T;
+    uint32_t k = !v ? 0xFFFFFFFFu : g < 0 ? 0u : qdiv((uint64_t)g, (uint64_t)(v > 0 ? v : -v));
+    *hit = k < left;
+    k = *hit ? k + 1u : left;
+    *x += (int64_t)k * v;
+    return k;
+}
+
+/* One stretch of the walk (walk): x (the position, Q16), its flags *f (SAMP_PL_*) and the frames left moved on to
+ * where its way changes. The positions in Q16, as samp_skip's frame moves them: on by the step S (back by it on a
+ * ping-pong's pass back); held in the loop, a FORWARD loop's end LE takes it back by the loop Lq = LE - LS, a
+ * PING-PONG's ends mirror it (x to 2 LE - 1 - x, 2 LS - 1 - x); let go, out of the loop at its end (or a pass back's
+ * turn); then past END (x >= E1) or before the sample's start, the end. LE is the lesser of LOOP END and END, as the
+ * render plays it (loop_end_of) */
+static PLAT_COLD void stretch(const samp_t *s, uint32_t step, int held, int64_t *px, uint32_t *f, uint32_t *pleft)
+{
+    int64_t x = *px, S = step, v = -S;
+    int64_t LS = (int64_t)s->loop_start << 16, LE = (int64_t)loop_end_of(s) << 16, Lq = LE - LS, T = LS;
+    int64_t E1 = ((int64_t)s->end - 1) << 16;     /* (pos >= end - 1: x >= E1) */
+    /* (the tests in whole samples, 32 bits: every threshold is a whole sample, so x >= T is xi >= t, and the step
+     * against one is the step rounded up (sc) or down (sf); xb, xf where the next frame back or forward lands) */
+    int32_t ls = s->loop_start, le = loop_end_of(s), lq = le - ls, le2 = 2 * le;
+    int32_t sc = (int32_t)((step + 0xFFFFu) >> 16), sf = (int32_t)(step >> 16), xi = (int32_t)(x >> 16);
+    int32_t xb = (int32_t)((x - S) >> 16), xf = (int32_t)((x + S) >> 16);
+    int in = sc <= lq;                   /* (S <= Lq: the step within the loop's length) */
+    uint32_t back = *f & SAMP_PL_BACK, loop = *f & SAMP_PL_LOOP, end = 0, left = *pleft, n = left, j, act = A_LS;
+    int pp = s->loop == SAMP_LOOP_PINGPONG, hit, two = 0;
+    if (!loop) {                         /* out of its loop: on past END; or back (its loop turned off on a pass back)
+                                          * before the sample's start, or past END at once if it stands there */
+        if (!back)
+            v = S, T = E1;
+        else
+            T = xb >= s->end - 1 ? X_FAR : 0;
+        act = A_END;
+    } else if (!pp && back) {            /* a FORWARD loop going back (LOOP turned from PING-PONG on a pass back): before
+                                          * the sample's start; past the loop's end, out of it (let go), or round it each
+                                          * frame, back by the step and the loop (or standing, or running away) */
+        if (xb < le)
+            T = 0, act = A_END;
+        else if (!held)
+            T = X_FAR, act = A_OUT;
+        else
+            v = -S - Lq, T = sc + lq > 0 ? LE + S : X_MOST, act = sf + lq < 0 ? A_END : 0u;
+    } else if (!held) {                  /* let go: on to the loop's end and out of it (a PING-PONG's pass back: to its
+                                          * start, turned there and out), then on to END */
+        if (!back)
+            v = S, T = LE, act = A_OUT;
+        else
+            act = A_LS | A_OUT;
+    } else if (in && xi >= ls && xi < le) {   /* held in it: round a FORWARD loop, to and fro in a PING-PONG one (its two
+                                                * ways one turn of 2 Lq): one sum */
+        int64_t u = back ? 2 * LE - 1 - LS - x : x - LS;   /* (a FORWARD loop's: never back here, u < Lq) */
+        u = round_loop(u, left, step, (uint32_t)(Lq >> 16) << pp);
+        back = u >= Lq ? SAMP_PL_BACK : 0u;
+        x = back ? 2 * LE - 1 - LS - u : LS + u;
+        *px = x;
+        *f = back | loop;
+        *pleft = 0;
+        return;
+    } else if (back) {
+        /* a PING-PONG's pass back (from past its end, or at a step past its length): to its start, turned there (the
+         * values set first) */
+    } else if (xf < le) {                /* on to the loop's end, up to the frame that passes it */
+        v = S, T = LE - S, act = 0;
+    } else if (!pp) {                    /* a FORWARD loop held, past its end (started there, or its end moved): round
+                                          * each frame, nearer by Lq - S, into it; at a step past its length (or its
+                                          * points turned over), round each frame running away by S - Lq */
+        v = S - Lq, T = in ? LE - S : X_MOST, act = in ? 0u : A_END;
+    } else {                             /* a PING-PONG's, past its end: mirrored there (before the sample's start: the
+                                          * end) into the loop; or before it, turned at its start, past its end again:
+                                          * turns of two frames, nearer by 2 (Lq - S) a turn, or at a step past its
+                                          * length (or its points turned over) farther out by 2 (S - Lq) until the
+                                          * mirror at its end lands before the sample's start; an odd frame left, that
+                                          * mirror */
+        two = 1;
+        v = 2 * (S - Lq), T = in ? LE + Lq - S : 2 * LE - S;
+        n = xf >= le2 || (in && xf < le2 - ls) ? 0u : left / 2u;
+    }
+    j = run(&x, v, T, n, &hit) << two;
+    if (two) {
+        if (j < left && (!hit || !in)) {
+            x = 2 * LE - 1 - x - S;
+            back = SAMP_PL_BACK;
+            end = x < 0;
+            j++;
+        }
+    } else if (hit) {
+        if (act & A_LS) {
+            x = 2 * LS - 1 - x;
+            back = 0;
+        }
+        if (act & A_OUT) {
+            loop = 0;
+            end = (int32_t)(x >> 16) >= s->end - 1;   /* (x >= E1) */
+        }
+        end |= act & A_END;
+    }
+    *px = x;
+    *f = back | loop | (end ? SAMP_PL_END : 0u);
+    *pleft = left - j;
+}
+
+/* the place walked as samp_skip's frames walk a voice's, a stretch at a time (each a sum up to where its way changes);
+ * *went: the frames walked (the last the one it ended at, when it ended). Returns the stretches */
+static PLAT_COLD uint32_t walk(const samp_t *s, samp_place_t *p, uint32_t step, uint32_t frames, int held,
+                               uint32_t *went)
+{
+    int64_t x = (int64_t)place_pos(p) << 16 | p->frac;
+    uint32_t f = p->hi & ~SAMP_PL_POS, n = 0, left = frames;
+    *went = 0;
+    if (f & SAMP_PL_END)
+        return 0;
+    while (left && !(f & SAMP_PL_END)) {
+        n++;
+        stretch(s, step, held, &x, &f, &left);
+    }
+    *went = frames - left;
+    place_put(p, x, (f & SAMP_PL_END) || x < 0 || x >= X_MOST ? f | SAMP_PL_END : f);
+    return n;
+}
+
+PLAT_COLD uint32_t samp_place_go(const samp_t *s, samp_place_t *p, uint32_t step, uint32_t frames, int held)
+{
+    uint32_t went;
+    return walk(s, p, step, frames, held, &went);
+}
+
+PLAT_COLD uint32_t samp_end_blocks(const samp_t *s, const samp_place_t *p, uint32_t step, int held)
+{
+    samp_place_t q = *p;
+    uint32_t went;
+    if (p->hi & SAMP_PL_END)
+        return 0;
+    walk(s, &q, step, 0xFFFFFFFFu, held, &went);
+    if (!(q.hi & SAMP_PL_END))
+        return SAMP_NEVER;
+    return went / SAMP_N + (went % SAMP_N != 0);
+}
+
+/* ----------------------------------------------------- the forward work --- */
+/* The envelope worked on over many blocks at once, to the state samp_skip's blocks leave it in: within a stretch the
+ * change a block is the same, so its blocks are one sum, and the block that may end it (a stage reaching its target, a
+ * rising level leaving its band, a static stage's frames running out) is env_block's own */
+#define ENV_JUMP (1716 << 16)            /* (env_block's: a rising stage starts here at the least) */
+
+/* the envelope moved on by up to n blocks (n > 0) of its stretch from its state now (the blocks to where its change a
+ * block ends, the last of them the one that may end it): those before that last one in one sum, the last by env_block
+ * itself. Returns the blocks gone: n, or the stretch's when it ends first; n when it stands (its sustain held, or
+ * done) */
+static PLAT_COLD uint32_t env_run(samp_voice_t *v, uint32_t n)
+{
+    int32_t l = v->level, m, d;
+    uint32_t span, band;
+    if (v->statics) {
+        d = 0;
+        span = (uint32_t)(v->statics + SAMP_N - 1) / SAMP_N;
+    } else if (!(v->stage < 3u || (v->stage == 3u && !v->down))) {
+        return n;
+    } else {
+        d = env_inc(v->s.env[v->stage]);
+        if (!v->rising) {
+            span = l > v->target ? (uint32_t)(l - v->target - 1) / (uint32_t)d + 1u : 1u;
+            d = -d;
+        } else {
+            l = l < ENV_JUMP ? ENV_JUMP : l;
+            m = ((17 << 24) - l) >> 24;  /* the band: m x inc a block (2 at least: the levels are 15 << 24 at most) */
+            d *= m;
+            span = v->target > l ? (uint32_t)(v->target - l - 1) / (uint32_t)d + 1u : 1u;
+            band = (uint32_t)(((17 - m) << 24) - l) / (uint32_t)d + 1u;   /* (the blocks that start within the band) */
+            span = span < band ? span : band;
+        }
+    }
+    band = n < span ? n : span - 1u;     /* (the blocks in the sum) */
+    if (v->statics)
+        v->statics -= (int32_t)band * SAMP_N;
+    else
+        v->level = l + (int32_t)band * d;
+    if (n < span)
+        return n;
+    env_block(v);
+    return span;
+}
+
+/* the envelope moved on by up to n blocks, a stretch a step, until the budget runs out (where a stretch ended); then
+ * amp, the last block's gain, as those blocks leave it. Returns the blocks gone */
+static PLAT_COLD uint32_t fwd_run(samp_voice_t *v, uint32_t n, int32_t *steps)
+{
+    uint32_t gone = 0;
+    do {
+        gone += env_run(v, n - gone);
+        --*steps;
+    } while (gone < n && *steps > 0);
+    v->amp = (int32_t)(((int64_t)env_gain(ENV_FULL - v->level) * SAMP_OUT_Q16) >> 16);
+    return gone;
+}
+
+/* samp.h: the held time, the note off, the release */
+PLAT_COLD int samp_forward(samp_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps)
+{
+    if (!v->on) {                        /* (it does not sound: nothing goes on) */
+        *on = 0;
+        if (*off != FWD_HELD)
+            *off = 0;
+        return 1;
+    }
+    for (;;) {
+        if (!*on && (*off == FWD_HELD || (!*off && !v->down)))
+            return 1;
+        if (*steps <= 0)
+            return 0;
+        if (*on) {
+            *on -= fwd_run(v, *on, steps);
+        } else if (v->down) {            /* the note off, once (its key up tells it was) */
+            samp_note_off(v);
+            --*steps;
+        } else {
+            *off -= fwd_run(v, *off, steps);
+        }
+    }
+}
+
+/* samp.h: the envelope's gain at its level, or at its target while a stage rises now (no static stage), and never
+ * under the last block's, where the next ramps from */
+PLAT_COLD int32_t samp_heard(const samp_voice_t *v)
+{
+    int up = v->rising && !v->statics && (v->stage < 3u || (v->stage == 3u && !v->down));
+    int32_t g;
+    if (!v->on)
+        return 0;
+    g = (int32_t)(((int64_t)env_gain(ENV_FULL - (up ? v->target : v->level)) * SAMP_OUT_Q16) >> 16);
+    return g > v->amp ? g : v->amp;
 }

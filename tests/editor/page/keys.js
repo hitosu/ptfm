@@ -52,8 +52,9 @@ module.exports = async api => {
     check(keys[0] === "53" && keys[1] === "" && keys[2] && keys[3] === 0, "keys: Z plays F3 in the tab shown only, lit, off at its key up: " + JSON.stringify(keys));
     await evaluate("ED.tabs.list.slice().forEach(t => ED.tabs.close(t)); KK.open(6); 1");
     check(await evaluate("KK.sel().value") === "pc", "keys: the choice kept with every tab closed");
+    await evaluate("window.__reloading = 1");   /* the old page's status may read BACK AS YOU LEFT IT already */
     await send("Page.reload", {});
-    await api.until("!!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
+    await api.until("!window.__reloading && !!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
     await evaluate(helpers);
     await evaluate("ED.tabs.list.slice().forEach(t => ED.tabs.close(t)); KK.open(3); 1");
     check(await evaluate("KK.sel().value") === "pc", "keys: the choice kept over a reload");

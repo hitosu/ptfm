@@ -12,6 +12,7 @@
 #include "ed_inst.h"
 #include "../play/player.h"
 #include "../play/rec.h"
+#include "../play/loops.h"
 #include "../store/store.h"
 
 /* -------------------------------------------------------------------------------- references --- */
@@ -40,8 +41,9 @@ static int fusion_uses(uint8_t pat)
 int ed_pattern_fusion(uint8_t pat) { return fusion_uses(pat) > 0; }
 int ed_pattern_uses(uint8_t pat) { return song_uses(pat, 0) + fusion_uses(pat); }
 static struct { int from, to, swap, cart; } rm;
-/* the favourites naming ref (specs/files/references.md: a use too); rewrite: instead each one the remap (rm) hits renamed,
- * a FAVORITES cartridge's record put once (a DELETE's, to < 0, leaves them: missing) */
+/* the favourites naming ref (specs/files/references.md: a use too); rewrite 1: instead each one the remap (rm) hits
+ * renamed, a FAVORITES cartridge's record put once (a DELETE's, to < 0, leaves them: missing); rewrite 2: only the edit
+ * memory those puts take at most (each piece rounded and listed) */
 static int fav_refs(uint16_t ref, int rewrite)
 {
     uint8_t carts[256], *b = ui_scratch;                /* (a FAVORITES cartridge copied to change it) */
@@ -61,14 +63,16 @@ static int fav_refs(uint16_t ref, int rewrite)
             else { sl[0] = (uint8_t)(nw >> 8); sl[1] = (uint8_t)nw; }
             hit = 1;
         }
-        if (hit) ui_edit_put(REC_FAV, carts[i], 0, 1, b, len);
+        if (hit && rewrite == 2) k += (int)len + 12 * (c.nslots + 1);
+        else if (hit) ui_edit_put(REC_FAV, carts[i], 0, 1, b, len);
     }
     return k;
 }
 int ed_inst_uses(uint16_t ref)
 {
     uint8_t nums[256];
-    int n = store_list(REC_PATTERN, nums, 256), k = fav_refs(ref, 0);
+    int n = store_list(REC_PATTERN, nums, 256), k = fav_refs(ref, 0) + loops_inst_uses(ref);   /* (the loops naming it:
+                                                         * LOOPS' and every set's, a use each) */
     for (int i = 0; i < n; i++) {
         rec_pat_t p;
         if (rec_pattern(nums[i], &p)) continue;
@@ -98,26 +102,37 @@ static void rm_fn(int t, int r, rec_cell_t *c, void *a)
     if (rm.cart) c->cart = (uint8_t)nw;
     else { c->cart = (uint8_t)(nw >> 8); c->slot = (uint8_t)nw; }
 }
-void ed_remap(int from, int to, int swap, int whole_cart)
+/* the remap's rewrites (write 1), or only the edit memory they take at most (write 0: nothing changed) */
+static uint32_t remap_run(int from, int to, int swap, int whole_cart, int write)
 {
     uint8_t nums[256];
+    uint32_t need = 0;
     int n = store_list(REC_PATTERN, nums, 256);
     rm.from = from; rm.to = to; rm.swap = swap; rm.cart = whole_cart;
-    for (int i = 0; i < n; i++) {                       /* only the patterns that name it */
+    for (int i = 0; i < n; i++) {                       /* only the patterns that name it, only their tracks from the
+                                                         * first to the last that names it (measured and written
+                                                         * alike: the others stay as they are, no room) */
         rec_pat_t p;
-        int hit = 0;
+        int lo = 16, hi = -1;
         if (rec_pattern(nums[i], &p)) continue;         /* (the built-in ones too: rewritten, they are edits) */
-        for (int t = 0; t < p.ntrk && !hit; t++) {
+        for (int t = 0; t < p.ntrk; t++) {
             if (!p.trk[t]) continue;
             rec_cur_t cur;
             rec_cell_t c;
             rec_cur_set(&cur, p.trk[t]);
-            for (int r = 0; r < p.rows && !hit; r++) if (rec_cur_at(&cur, r, &c) && rm_hit(&c)) hit = 1;
+            for (int r = 0; r < p.rows; r++)
+                if (rec_cur_at(&cur, r, &c) && rm_hit(&c)) { if (lo > t) lo = t; hi = t; break; }
         }
-        if (hit) ed_rewrite(nums[i], 0, 15, rm_fn, 0, -1, -1, -1);
+        ed_need = write ? 0 : &need;                    /* (need only: each rewrite adds its room, writes nothing) */
+        if (hi >= 0) ed_rewrite(nums[i], lo, hi, rm_fn, 0, -1, -1, -1);
+        ed_need = 0;
     }
-    fav_refs(0, 1);                                     /* (the favourites naming it too) */
+    need += (uint32_t)fav_refs(0, write ? 1 : 2);       /* (the favourites naming it too) */
+    return need + loops_remap(from, to, swap, whole_cart, write);   /* (and the loops: LOOPS' table, every set's; a
+                                                         * DELETE's, to < 0, leaves them naming the place) */
 }
+uint32_t ed_remap_need(int from, int to, int swap, int whole_cart) { return remap_run(from, to, swap, whole_cart, 0); }
+void ed_remap(int from, int to, int swap, int whole_cart) { remap_run(from, to, swap, whole_cart, 1); }
 
 /* a song's order with a pattern taken out (DELETE) or renumbered (MOVE), as an edit; a song every
  * position of which plays it keeps it */
@@ -198,7 +213,7 @@ void ed_own_ask(void (*go)(void))
     if (!ed_own_holds()) { go(); return; }
     const char *lines[2] = {T("EDITOR CHANGES WILL BE LOST"), T("DO YOU WANT TO CONTINUE?")};
     own_go = go;
-    ui_ask(lines, 2, T("YES"), T("NO"), own_answer);
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), own_answer);
 }
 
 /* ------------------------------------------------------------------------------ the list --- */
@@ -291,17 +306,17 @@ enum { PM_NEW = 1, PM_CLONE, PM_MOVE, PM_DELETE, PM_BUILTIN };
 static int ref_pat, ref_to, ref_uses;
 static void do_delete(int upd)
 {
+    uint16_t f0 = ui_edit_fails();      /* (an edit refused on the way: the references not saved) */
     if (upd) { song_refs((uint8_t)ref_pat, -1); fusion_refs((uint8_t)ref_pat, -1); }   /* (a song whose whole order is
                                                          * the pattern keeps it: never left with no positions) */
     ed_delete_pattern((uint8_t)ref_pat);
     refill();
-    char v[32];
-    ui_fmt(v, sizeof v, T("PATTERN %02X DELETED"), ref_pat);
-    ui_toast(v);
-    if (upd) ui_save_refs(ref_uses);
+    ui_toast(ui_txt_h(TX("PATTERN # DELETED"), ref_pat));
+    if (upd && ui_edit_fails() == f0) ui_save_refs(ref_uses);
 }
 static void do_move(int upd)
 {
+    uint16_t f0 = ui_edit_fails();      /* (as do_delete's) */
     if (ed_copy_pattern((uint8_t)ref_pat, (uint8_t)ref_to)) return;    /* (the edit memory full: it asked; not moved) */
     ed_delete_pattern((uint8_t)ref_pat);
     if (upd) { song_refs((uint8_t)ref_pat, ref_to); fusion_refs((uint8_t)ref_pat, ref_to); }
@@ -311,7 +326,7 @@ static void do_move(int upd)
     char v[40];
     ui_fmt(v, sizeof v, T("PATTERN %02X MOVED TO %02X"), ref_pat, ref_to);
     ui_toast(v);
-    if (upd) ui_save_refs(ref_uses);
+    if (upd && ui_edit_fails() == f0) ui_save_refs(ref_uses);
 }
 static void (*ref_change)(int);
 static void ref_answer(int a) { if (a >= 0) ref_change(a == 1); }
@@ -327,7 +342,7 @@ static void ref_ask(const char *label, int uses, void (*change)(int))
     lines[1] = T("UPDATE REFERENCES?");
     ref_change = change;
     ref_uses = uses;
-    ui_ask(lines, 2, T("YES"), T("NO"), ref_answer);
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), ref_answer);
 }
 static void put_down(void)
 {
@@ -342,30 +357,28 @@ static void put_down(void)
 static void menu_pick(int a)
 {
     int n = pl.act_pat, free = rec_free_pattern();
-    char v[40], label[16];
+    char label[16];
     ui_fmt(label, sizeof label, T("PATTERN %02X"), n);
-    if ((a == PM_NEW || a == PM_CLONE) && free < 0) { ui_toast(T("ALL 240 PATTERNS USED")); return; }
+    if ((a == PM_NEW || a == PM_CLONE) && free < 0) { ui_toast_t(TX("ALL 240 PATTERNS USED")); return; }
     if (a == PM_NEW) {
         if (ed_new_pattern((uint8_t)free, 8, 64, 1)) return;   /* (not made: the edit memory full) */
         refill(); select_num(free);
-        ui_fmt(v, sizeof v, T("PATTERN %02X MADE"), free);
-        ui_toast(v);
+        ui_toast(ui_txt_h(TX("PATTERN # MADE"), free));
     } else if (a == PM_CLONE) {                         /* a copy in the user area, editable */
         if (ed_copy_pattern((uint8_t)n, (uint8_t)free)) return;
         refill(); select_num(free);
-        ui_fmt(v, sizeof v, T("%02X CLONED TO %02X"), n, free);
-        ui_toast(v);
+        ui_toast(ui_txt_v(ui_txt_h(TX("# CLONED TO #"), n), ui_hex2(free)));
     } else if (a == PM_DELETE) {
         ref_pat = n;
         ref_ask(label, ed_pattern_uses((uint8_t)n), do_delete);   /* (songs' positions and FUSION slots) */
     } else if (a == PM_MOVE) {
-        if (free < 0) { ui_toast(T("NO FREE NUMBER")); return; }
+        if (free < 0) { ui_toast_t(TX("NO FREE NUMBER")); return; }
         pl.mv = 1; pl.mv_from = pl.mv_at = n;
-        ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
+        ui_toast_t(TX("SELECT MOVES IT, SEL PUTS IT DOWN"));
     } else if (a == PM_BUILTIN) {                       /* its change deleted: the firmware's own again */
         ed_delete_pattern((uint8_t)n);
         refill(); select_num(n);
-        ui_toast(ui_txt_v(T("# BUILT-IN AGAIN"), label));
+        ui_toast(ui_txt_t(TX("# BUILT-IN AGAIN"), label));
     }
 }
 static void menu(void)
@@ -374,7 +387,6 @@ static void menu(void)
     if (n < 0) return;
     pl.act_pat = n;
     ui_mitem_t m[4];                                    /* (the menu copies its items) */
-    char title[32];
     int k = 0;
     m[k++] = (ui_mitem_t){TX("NEW"), PM_NEW, 0, 0};
     m[k++] = (ui_mitem_t){TX("CLONE"), PM_CLONE, 0, 0};
@@ -384,8 +396,7 @@ static void menu(void)
         m[k++] = (ui_mitem_t){TX("MOVE"), PM_MOVE, 0, 0};
         m[k++] = (ui_mitem_t){TX("DELETE"), PM_DELETE, 0, 0};
     }
-    ui_fmt(title, sizeof title, T("PATTERN %02X"), n);
-    ui_menu("plist", title, m, k, menu_pick, B_SEL);
+    ui_menu("plist", ui_txt_h(TX("PATTERN #"), n), m, k, menu_pick, B_SEL);   /* (it copies its title) */
 }
 static int pl_tap(ui_overlay_t *o, int b)
 {
@@ -410,7 +421,7 @@ static int pl_lit(ui_overlay_t *o, int b)               /* ARP lit while the pre
 }
 static void pl_cancel(ui_overlay_t *o)
 {
-    if (pl.mv) { pl.mv = 0; ui_toast(T("NOT MOVED")); return; }
+    if (pl.mv) { pl.mv = 0; ui_toast_t(TX("NOT MOVED")); return; }
     hear_end();
     ui_close(o);
     pl_ov = 0;
@@ -423,7 +434,7 @@ static int pl_key(ui_overlay_t *o, int n, int down)
     if (pl.fusion < 0 || !ui_inst_name((uint16_t)pl.fusion, nm)) return 0;
     int m = ui_midi(n);
     if (m < 12 || m > 127) return 1;
-    if (down) { pl_inst_t in = {(uint8_t)(pl.fusion >> 8), (uint8_t)pl.fusion}; player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]); }
+    if (down) { pl_inst_t in = {(uint8_t)(pl.fusion >> 8), (uint8_t)pl.fusion}; player_key_on((uint8_t)m, in, (uint8_t)ui_key_vol(n)); }
     else player_key_off((uint8_t)m);
     return 1;
 }

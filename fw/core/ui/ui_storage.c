@@ -17,17 +17,20 @@ static int nprob, ptop;
 static void prob_text(const store_problem_t *p, char *s, int max)
 {
     char what[20];
+    const char *w = what, *f = 0;       /* (a numbered thing: its format, made into what) */
     switch (p->kind) {
-    case REC_SONG: ui_fmt(what, sizeof what, T("SONG %02X"), p->num); break;
-    case REC_PATTERN: ui_fmt(what, sizeof what, T("PATTERN %02X"), p->num); break;
-    case REC_SAMPLE: ui_fmt(what, sizeof what, T("SAMPLE %02X"), p->num); break;
-    case REC_LOOPS: ui_fmt(what, sizeof what, "%s", T("LOOPS")); break;
-    case REC_DJ: ui_fmt(what, sizeof what, "%s", T("DJ")); break;
-    case REC_SETTINGS: ui_fmt(what, sizeof what, "%s", T("SETTINGS")); break;
-    case REC_MIDIMAP: ui_fmt(what, sizeof what, "%s", T("MIDI MAPPINGS")); break;
-    default: ui_fmt(what, sizeof what, T("CARTRIDGE %02X"), p->num); break;
+    case REC_SONG: f = T("SONG %02X"); break;
+    case REC_PATTERN: f = T("PATTERN %02X"); break;
+    case REC_SAMPLE: f = T("SAMPLE %02X"); break;
+    case REC_LSET: f = T("SET %02X"); break;
+    case REC_LOOPS: w = T("LOOPS"); break;
+    case REC_DJ: w = T("DJ"); break;
+    case REC_SETTINGS: w = T("SETTINGS"); break;
+    case REC_MIDIMAP: w = T("MIDI MAPPINGS"); break;
+    default: f = T("CARTRIDGE %02X"); break;
     }
-    ui_fmt(s, max, "%s%s", what,
+    if (f) ui_fmt(what, sizeof what, f, p->num);
+    ui_fmt(s, max, "%s%s", w,
            p->what == STORE_FELL_BACK ? T(": AN OLDER VERSION") : p->what == STORE_MISSING ? T(": MISSING") :
            p->what == STORE_DIFFER ? T(": ENTRY AND AUDIO DIFFER") : T(": DAMAGED"));
 }
@@ -42,10 +45,8 @@ static int pl_tap(ui_overlay_t *o, int b) { (void)o; (void)b; return 0; }
 static void pl_draw(ui_overlay_t *o)
 {
     (void)o;
-    char t[40];
-    ui_fmt(t, sizeof t, "%s", ui_txt_v(T("STORAGE PROBLEMS: #"), ui_dec(nprob)));
     int y = BODY_Y + 2;
-    ui_panel(2, y, 236, 206, t, C_CYAN);
+    ui_panel(2, y, 236, 206, ui_txt_d(TX("STORAGE PROBLEMS: #"), nprob), C_CYAN);
     for (int i = 0; i < 14 && ptop + i < nprob && ptop + i < PROB_MAX; i++) {
         char s[48];
         prob_text(&prob[ptop + i], s, sizeof s);
@@ -56,7 +57,7 @@ static void pl_draw(ui_overlay_t *o)
 static void checked(void)
 {
     nprob = store_check(prob, PROB_MAX);
-    if (!nprob) { ui_toast(T("STORAGE OK")); return; }
+    if (!nprob) { ui_toast_t(TX("STORAGE OK")); return; }
     ptop = 0;
     ui_overlay_t o = {.kind = OV_LIST, .opener = -1, .knob = pl_knob, .tap = pl_tap, .draw = pl_draw};
     ui_open(&o);

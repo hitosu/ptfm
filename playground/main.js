@@ -63,6 +63,7 @@
         let last = 0, n = 0, t0 = performance.now();
         function frame(t) {
             requestAnimationFrame(frame);
+            if (U.pressTick) U.pressTick();             /* (the keys' pressure, in 5 ms steps: ui.c's keys_press) */
             if (t - last < 31) return;
             last = t;
             const b0 = lcd.stats.us;

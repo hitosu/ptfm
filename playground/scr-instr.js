@@ -314,39 +314,53 @@
             U.setInst(tref);
         });
     }
-    /* references (specs/files/references.md): the cells and the favourites naming from made to name to (swap: and back) */
+    /* references (specs/files/references.md): the cells, the favourites and the loops (LOOPS' own and every set's) naming
+     * from made to name to (swap: and back) */
     function remap(from, to, swap) {
         const one = o => { if (o.k === from) o.set(to); else if (swap && o.k === to) o.set(from); };
         for (const p of M.state.patterns) if (p) for (const c of p.cells) if (c) one({ k: c.inst, set: v => { c.inst = v; } });
         for (const ca of M.state.carts) if (ca.type === "FAVORITES") for (const f of ca.slots) if (f) one({ k: f.src, set: v => { f.src = v; } });
+        M.loopsRemap(from, to, swap, false);
     }
-    /* the FAVORITES cartridges, in the lists' order */
+    /* the FAVORITES cartridges, in the lists' order (every one's references follow a MOVE) */
     const favCarts = () => M.state.carts.filter(c => c.type === "FAVORITES");
-    const favName = c => M.hex(c.id) + " " + c.name;
-    /* ADD TO FAVORITES (specs/ui/screens/instruments.md#favorites): the slots' instruments, each into fc's first empty
-     * slot, those there already and the empty slots skipped; nothing added unless they all fit */
-    function favAdd(fc, r0, r1) {
-        const c = cart(), add = [];
-        let there = -1;
-        for (let k = r0; k <= r1; k++) {
-            if (!c.slots[k]) continue;
-            const src = c.id << 8 | k, j = fc.slots.findIndex(f => f && f.src === src);
-            if (j >= 0) { if (there < 0) there = j; continue; }
-            add.push(src);
-        }
-        if (!add.length) { if (there >= 0) U.toast("ALREADY IN " + M.refText(fc.id << 8 | there)); return; }
+    /* ADD TO FAVORITES and REMOVE FROM FAVORITES (specs/ui/screens/instruments.md#favorites): one item on the slots'
+     * (r0-r1) instruments, the empty slots left out, an action on FB, the FM-1's one FAVORITES: REMOVE while every one of
+     * them is in FB, else ADD; null not listed (no instrument there, or FB deleted) */
+    const inFb = src => M.fb().slots.some(f => f && f.src === src);
+    function favItem(r0, r1) {
+        const c = cart(), srcs = [];
+        if (!M.fb()) return null;
+        for (let k = r0; k <= r1; k++) if (c.slots[k]) srcs.push(c.id << 8 | k);
+        return !srcs.length ? null : srcs.every(inFb) ? "REMOVE FROM FAVORITES" : "ADD TO FAVORITES";
+    }
+    /* ADD: each slot's instrument not in FB yet into FB's first empty slot, in order (the empty slots and those in FB
+     * already skipped); nothing added unless they all fit */
+    function favAdd(r0, r1) {
+        const c = cart(), fc = M.fb(), add = [];
+        for (let k = r0; k <= r1; k++) if (c.slots[k] && !inFb(c.id << 8 | k)) add.push(c.id << 8 | k);
+        if (!add.length) return;
         const empty = fc.slots.map((f, j) => f ? -1 : j).filter(j => j >= 0);
         if (empty.length < add.length) { U.toast("FAVORITES FULL"); return; }
         U.edit(() => add.forEach((src, k) => { fc.slots[empty[k]] = { src }; }));
         U.toast("ADDED TO " + M.refText(fc.id << 8 | empty[0]));
     }
-    /* NEW's types (the menus' order) and a new one's name; a new cartridge at the smallest number free */
-    const TYPES = ["DX7", "JUNO-106", "TB-303", "CHIP", "SAMPLER", "FUSION", "FAVORITES"];
+    /* REMOVE: every slot of FB naming one of the slots' instruments emptied (FB emptied is the firmware's own again: SAVE
+     * keeps no copy) */
+    function favRemove(r0, r1) {
+        const c = cart(), fc = M.fb();
+        const gone = f => f && f.src >> 8 === c.id && (f.src & 255) >= r0 && (f.src & 255) <= r1 && c.slots[f.src & 255];
+        U.edit(() => fc.slots.forEach((f, j) => { if (gone(f)) fc.slots[j] = null; }));
+        U.toast("REMOVED FROM FAVORITES");
+    }
+    /* NEW's types (the menus' order: no FAVORITES, the FM-1 has one, FB) and a new one's name; a new cartridge at the
+     * smallest number free */
+    const TYPES = ["DX7", "JUNO-106", "TB-303", "CHIP", "SAMPLER", "FUSION"];
     function newCart(a) {
         const ty = { "JUNO-106": "JUNO", "TB-303": "TB303" }[a] || a, id = M.freeCart();
         if (id < 0) { U.toast("ALL CARTRIDGE NUMBERS USED"); return -1; }
         U.edit(() => {
-            const nc = { id, name: ty === "FAVORITES" ? "MY FAVORITES" : "NEW " + a, type: ty, size: M.SIZES[ty], slots: new Array(M.SIZES[ty]).fill(null) };
+            const nc = { id, name: "NEW " + a, type: ty, size: M.SIZES[ty], slots: new Array(M.SIZES[ty]).fill(null) };
             M.state.carts.push(nc);
             M.state.carts.sort(M.cartCmp);
         });
@@ -358,6 +372,19 @@
      * MARK, COPY, PASTE, MOVE, SWAP, REMOVE, NEW CARTRIDGE, REVERT. A sampler's (specs/ui/screens/instruments.md,
      * Sampler cartridges): REPLACE SAMPLE on one instrument, after PASTE; CREATE in INIT's place on one empty slot (an
      * instrument needs a sample); in edit mode DELETE too on a sample instrument (edit mode left first) */
+    /* a cartridge deleted (the cartridge list's DELETE, the slots' menu's DELETE CARTRIDGE): its uses asked about first
+     * (nothing refers to a FAVORITES one: it asks nothing, and the favourites naming what it deletes are missing); done:
+     * the caller's own after it; the place on a cartridge gone: the first in the list */
+    function cartDelete(c, done) {
+        let u = 0;
+        if (c.type !== "FAVORITES") for (let k = 0; k < c.size; k++) if (c.slots[k]) u += M.instUses(c.id << 8 | k);
+        U.refAsk("CARTRIDGE " + M.hex(c.id), u, upd => {
+            M.state.carts.splice(M.state.carts.indexOf(c), 1);
+            if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && cl.inst >> 8 === c.id) cl.inst = null;
+            if (done) done();
+            if (!M.cart(U.place >> 8)) U.setInst(M.state.carts[0].id << 8);
+        });
+    }
     function slotMenu() {
         const c = cart(), i = slot(), ins = inst(), ref = U.place, fav = c.type === "FAVORITES";
         const range = st.mark != null ? [Math.min(st.mark, i), Math.max(st.mark, i)] : [i, i];
@@ -367,24 +394,24 @@
         /* built in (specs/ui/screens/instruments.md): the same items, edited as any */
         /* REVERT while the slot has something unsaved; with slots marked, never */
         const unsaved = M.unsavedThing("slot", [c.id, i]);
-        /* ADD TO FAVORITES on an instrument, while a FAVORITES cartridge is there: one, an action; several, a group (the
-         * first six: the menu's room) */
-        const fcs = favCarts().slice(0, 6), canAdd = fcs.length && !fav && (ins || st.mark != null);
-        const add = canAdd && (fcs.length === 1 ? "ADD TO FAVORITES" : { group: "ADD TO FAVORITES", items: fcs.map(favName) });
+        /* ADD TO FAVORITES, or REMOVE FROM FAVORITES once FB holds them, on the instruments (not in a FAVORITES cartridge) */
+        const add = !fav && favItem(range[0], range[1]);
         const NEWC = { group: "NEW CARTRIDGE", items: TYPES };
+        const delc = st.mark == null && !c.builtin && "DELETE CARTRIDGE";   /* (the one on screen; a built-in one: none) */
         const items = st.edit ? [fusion && "EDIT PATTERN", add, "COPY", "PASTE", replace, init, "RENAME", "AUTO LEVEL",
                                  sampler && ins && "DELETE", unsaved && "REVERT"]
-                    : fav ? [st.mark == null && "MARK", "COPY", "PASTE", "MOVE", "SWAP", "REMOVE", NEWC, st.mark == null && unsaved && "REVERT"]
+                    : fav ? [st.mark == null && "MARK", "COPY", "PASTE", "MOVE", "SWAP", "REMOVE", NEWC, delc, st.mark == null && unsaved && "REVERT"]
                     : [st.mark == null && "MARK", add, "COPY", "PASTE", replace, "MOVE", "SWAP", "DELETE", init, "RENAME", "AUTO LEVEL", NEWC,
-                       st.mark == null && unsaved && "REVERT"];
+                       delc, st.mark == null && unsaved && "REVERT"];
         const title = st.mark != null ? "SLOTS " + (fav ? M.hex(c.id) + ":" : "") + M.hex(range[0]) + "-" + M.hex(range[1]) : "SLOT " + M.refText(ref);
         U.menu(st.edit ? "slot-edit" : "slots", title, items, a => {
             st.marking = false;
             /* MARK (specs/ui/screens/instruments.md): SELECT / ALGORITHM then stretch the slots from here, SEL their menu */
             if (a === "MARK") { st.marking = true; st.mark = i; U.toast("SELECT, ALG: MARK  SEL: ITS MENU"); return; }
-            const fc = a === "ADD TO FAVORITES" ? fcs[0] : fcs.find(x => favName(x) === a);
-            if (fc) favAdd(fc, range[0], range[1]);
+            if (a === "ADD TO FAVORITES") favAdd(range[0], range[1]);
+            if (a === "REMOVE FROM FAVORITES") favRemove(range[0], range[1]);
             if (TYPES.includes(a)) { const id = newCart(a); if (id >= 0) U.setInst(id << 8); }    /* NEW CARTRIDGE: made, opened */
+            if (a === "DELETE CARTRIDGE") cartDelete(c);
             /* REMOVE: the favourites go, their sources stay (FB emptied is the firmware's own again: SAVE keeps no copy) */
             if (a === "REMOVE") U.edit(() => { for (let k = range[0]; k <= range[1]; k++) c.slots[k] = null; });
             if (a === "EDIT PATTERN") openFusion();
@@ -436,16 +463,18 @@
     }
     /* the cartridges (ENV), and after them, while the FM-1 holds a sample, the samples' line (specs/ui/screens/
      * instruments.md#the-cartridges-env): ALL SAMPLES, their size as STATUS writes sizes and their count of 256; ENV on it
-     * opens THE SAMPLES list over the cartridge list, to look, listen and delete; SEL there opens nothing */
+     * opens THE SAMPLES list over the cartridge list, to look, listen and delete; SEL there opens nothing. ALL SAMPLES in
+     * F.S in the names' column, the figures in F.T in the type's and the slots' on its baseline */
     const allSamples = {
         shown: () => M.sampleRows().length > 0,
         open: () => sampleList(SM.ALL, -1),
         draw(y, on) {
-            const rows = M.sampleRows(), bytes = rows.reduce((a, r) => a + M.bytes.sample(r.s), 0);
-            if (on) D.box(4, y - 1, 232, 13, D.WHITE);
-            D.text(26, y, F.T, "ALL SAMPLES", on ? D.WHITE : D.YELLOW);
-            D.text(110, y, F.T, M.kb(bytes), D.LGREY);
-            D.text(170, y, F.T, M.dec(rows.length, 3) + "/" + M.SAMPLES_MAX, D.LGREY);
+            const rows = M.sampleRows(), bytes = rows.reduce((a, r) => a + M.bytes.sampleRec(r.s), 0);   /* (the records
+                                                         * themselves, as the FM-1's line counts them) */
+            if (on) D.box(4, y - 1, 232, U.ROW, D.WHITE);
+            D.text(32, y, F.S, "ALL SAMPLES", on ? D.WHITE : D.YELLOW);
+            D.text(U.CL_TYPE, y + U.T_ON_S, F.T, M.kb(bytes), D.LGREY);
+            D.text(U.CL_SLOTS, y + U.T_ON_S, F.T, M.dec(rows.length, 3) + "/" + M.SAMPLES_MAX, D.LGREY);
         },
     };
     function cartList() {
@@ -459,9 +488,9 @@
     function cartMenu(list) {
         const c = M.state.carts[list.sel], label = "CARTRIDGE " + M.hex(c.id), fav = c.type === "FAVORITES";
         const NEW = { group: "NEW", items: TYPES };
-        /* (FAVORITES: no AUTO LEVEL ALL, it has no sounds of its own) */
-        const items = c.builtin ? [NEW, "CLONE", "RENAME", !fav && "AUTO LEVEL ALL", M.builtinChanged("cart", c) && "BACK TO BUILT-IN"]
-                    : [NEW, "CLONE", "MOVE", "DELETE", "RENAME", !fav && "AUTO LEVEL ALL"];
+        /* (FAVORITES: no AUTO LEVEL ALL, it has no sounds of its own; no CLONE: nothing makes another FAVORITES) */
+        const items = c.builtin ? [NEW, !fav && "CLONE", "RENAME", !fav && "AUTO LEVEL ALL", M.builtinChanged("cart", c) && "BACK TO BUILT-IN"]
+                    : [NEW, !fav && "CLONE", "MOVE", "DELETE", "RENAME", !fav && "AUTO LEVEL ALL"];
         if (M.unsavedThing("cart", c.id)) items.push("REVERT");          /* (last, while the cartridge has something unsaved) */
         U.menu("carts", label, items, a => {
             if (TYPES.includes(a)) { const id = newCart(a); if (id >= 0) list.sel = M.cartIndex(id); }
@@ -491,19 +520,13 @@
             /* (nothing refers to a FAVORITES cartridge: its MOVE and DELETE ask nothing; a DELETE leaves the favourites
              * naming what it deletes: missing) */
             const cartUses = () => { let u = 0; if (!fav) for (let k = 0; k < c.size; k++) if (c.slots[k]) u += M.instUses(c.id << 8 | k); return u; };
-            if (a === "DELETE") {
-                U.refAsk("CARTRIDGE " + M.hex(c.id), cartUses(), upd => {
-                    M.state.carts.splice(M.state.carts.indexOf(c), 1);
-                    if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && cl.inst >> 8 === c.id) cl.inst = null;
-                    list.sel = U.clamp(list.sel, 0, M.state.carts.length - 1);
-                    if (!M.cart(U.place >> 8)) U.setInst(M.state.carts[0].id << 8);
-                });
-            }
+            if (a === "DELETE") cartDelete(c, () => { list.sel = U.clamp(list.sel, 0, M.state.carts.length - 1); });
             if (a === "MOVE") list.float(c.id, to => {        /* afloat in the list; SEL puts it down here */
                 const uses = cartUses();
                 const old = c.id, refs = upd => {
                     if (upd) for (const p of M.state.patterns) if (p) for (const cl of p.cells) if (cl && cl.inst >> 8 === old) cl.inst = to << 8 | (cl.inst & 255);
                     if (upd) for (const fc of favCarts()) for (const f of fc.slots) if (f && f.src >> 8 === old) f.src = to << 8 | (f.src & 255);
+                    if (upd) M.loopsRemap(old, to, false, true);   /* (the loops, LOOPS' own and every set's) */
                     if (U.inst >> 8 === old) U.inst = to << 8 | (U.inst & 255);
                     if (U.place >> 8 === old) U.place = to << 8 | (U.place & 255);
                     list.sel = M.cartIndex(to);
@@ -1397,11 +1420,12 @@
         /* an instrument afloat: the cartridge stays; else PRESETS as everywhere, empty slots skipped (SELECT and
          * ALGORITHM go over every slot) */
         presets(step) { if (st.fe) favStep(Math.sign(step)); return !!st.mv || st.fe; },   /* (a favourite's: its source) */
-        /* SEL + PRESETS in edit mode: the cartridges of the edit's own sort only (a favourite's the FAVORITES ones, an
-         * instrument's the others), so an edit never goes on in a slot of the other sort */
+        /* SEL + PRESETS in edit mode: an instrument's the cartridges but FAVORITES ones, so an edit never goes on in a
+         * slot of the other sort; a favourite's nothing (the FM-1 has one FAVORITES, FB) */
         presetsCart(step) {
             if (!st.edit) return false;
-            const cs = M.state.carts.filter(c => (c.type === "FAVORITES") === !!st.fe);
+            if (st.fe) return true;
+            const cs = M.state.carts.filter(c => c.type !== "FAVORITES");
             if (cs.length) {
                 const i = Math.max(0, cs.findIndex(c => c.id === U.place >> 8)), c = cs[((i + Math.sign(step)) % cs.length + cs.length) % cs.length];
                 U.setInst(c.id << 8 | U.cartFirst(c));
@@ -1492,7 +1516,7 @@
                         q.lines = say();
                     };
                     q.key = (kn, down) => {
-                        if (down) heard[kn] = P.noteOn("fill" + kn, U.midi(kn), src, U.set("KEYS VOLUME"), -1);
+                        if (down) heard[kn] = P.noteOn("fill" + kn, U.midi(kn), src, U.keyVol(kn), -1);
                         else if (heard[kn]) { P.noteOff(heard[kn]); delete heard[kn]; }
                         return true;
                     };

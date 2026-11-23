@@ -31,8 +31,9 @@ const dsp = {};
 dsp.window = dsp;
 vm.createContext(dsp);
 for (const f of ["dsp-core.js", "dsp-dx7.js", "dsp-synth.js", "dsp-chip-tables.js", "dsp-chip.js", "dsp-fx.js"]) vm.runInContext(fs.readFileSync(path.join(PG, f), "utf8"), dsp, { filename: f });
-vm.runInContext("const E = {};\n" + dsp.PTFM.dsp.map(f => "(" + f.toString() + ")(E);").join("\n") + "\nregisterProcessor('ptfm', E.Proc);\n",
+vm.runInContext("const E = {};\n" + dsp.PTFM.dsp.map(f => "(" + f.toString() + ")(E);").join("\n") + "\nregisterProcessor('ptfm', E.Proc); this.E = E;\n",
                 wk, { filename: "worklet.js" });
+const WE = wk.E;                                        /* (the worklet's engines, for stand-in voices that sound) */
 
 function fresh(setup) {
     wk.currentTime = 0;
@@ -60,6 +61,11 @@ function render(p, seconds) {
         wk.currentTime += 128 / SR;
     }
     return { L, R, K };
+}
+function rmsDb(x, a = 0, b = x.length) {                /* (x's RMS over frames a-b, dB; silence -200) */
+    let s = 0;
+    for (let i = a; i < b; i++) s += x[i] * x[i];
+    return 10 * Math.log10(s / (b - a) + 1e-20);
 }
 function f0(x, a, n) {                                  /* the fundamental, by autocorrelation */
     let best = 0, e = 0, fell = false, from = 0;
@@ -130,6 +136,91 @@ const fail = s => { console.log("FAIL " + s); failed++; };
         if (Math.abs(db + 20) > .5) fail(`${e}'s reference sound at ${db.toFixed(1)} dB, not -20 dB`);
     }
     console.log("the engines' reference sounds (dB):", out.join(", "));
+    /* a sampler loop left with no room (specs/files/commands.md, the sample instrument's): a held note looping FORWARD
+     * whose LOOP END is turned under LOOP START loops no more, even once the points have room again, as on the FM-1: it
+     * plays on to END (the sample's 1 s) and ends */
+    {
+        wk.currentTime = 0;
+        const p = new Proc(), send = m => p.port.onmessage({ data: m });
+        send({ t: "samples", list: [{ key: "ref", data: sine, rate: SR }] }); send({ t: "voices", n: 16 }); send({ t: "master", v: 1 });
+        send({ t: "fx", setup: null, mixer: [], base: 0, tempo: 120, gates: [] });
+        send({ t: "inst", ref: 1, engine: "SAMPLER", p: REFS.SAMPLER[1], level: 0 });
+        send({ t: "on", id: "s", time: 0, midi: 69, ref: 1, vol: 127, track: 0 });   /* (a track's note: its commands reach it) */
+        send({ t: "iparam", track: 0, code: 0x43, value: 128, time: .3 });     /* LOOP START half way */
+        send({ t: "iparam", track: 0, code: 0x44, value: 1, time: .3 });       /* LOOP END at the start: no room */
+        send({ t: "iparam", track: 0, code: 0x44, value: 255, time: .4 });     /* room again */
+        send({ t: "off", id: "s", time: 3 });
+        const L = render(p, 2).L, rms = (a, b) => rmsDb(L, a, b);
+        const early = rms(Math.round(.5 * SR), Math.round(.9 * SR)), late = rms(Math.round(1.5 * SR), L.length);
+        console.log("a sampler loop left with no room:", early.toFixed(1), "dB before END,", late.toFixed(1), "dB after");
+        if (!(early > -40 && late < -80)) fail(`a sampler loop left with no room loops on (${early.toFixed(1)} dB, then ${late.toFixed(1)} dB)`);
+    }
+    /* one loop rule, the FM-1's: a note's start takes its instrument's loop (with room), and its commands only take it out
+     * (LOOP OFF, END or a loop point leaving no room), never put it in: an instrument whose loop has no room, LOOP END
+     * turned to the sample's end before the note, plays on to END and ends. A held ghost whose instrument is edited while
+     * it waits to (a) LOOP OFF, (b) a loop with no room (specs/ui/screens/settings.md, its commands at its return: its
+     * instrument as it comes back) comes back out of its loop, plays on to END and ends there. The loop's end is the
+     * lesser of LOOP END and END at every moment (specs/files/commands.md): a sounding FORWARD and a PING-PONG note,
+     * LOOP START at the 16th, END at half the sample, then LOOP END past END: its place under END; END up again: past it */
+    {
+        const fresh1 = () => {
+            wk.currentTime = 0;
+            const p = new Proc(), send = m => p.port.onmessage({ data: m });
+            send({ t: "samples", list: [{ key: "ref", data: sine, rate: SR }] }); send({ t: "voices", n: 4 }); send({ t: "master", v: 1 });
+            send({ t: "fx", setup: null, mixer: [], base: 0, tempo: 120, gates: [] });
+            return { p, send };
+        };
+        const ref = Object.assign({}, REFS.SAMPLER[1], { loopEnd: 0 });
+        let { p, send } = fresh1();
+        send({ t: "inst", ref: 1, engine: "SAMPLER", p: ref, level: 0 });
+        send({ t: "iparam", track: 0, code: 0x44, value: 255, time: 0 });
+        send({ t: "on", id: "s", time: .001, midi: 69, ref: 1, vol: 127, track: 0 });
+        const L = render(p, 2).L, rms = (a, b) => rmsDb(L, a, b);
+        const early = rms(Math.round(.5 * SR), Math.round(.9 * SR)), late = rms(Math.round(1.5 * SR), L.length);
+        const edited = edit => {                         /* (the held ghost, its instrument edited while it waits) */
+            ({ p, send } = fresh1());
+            send({ t: "inst", ref: 1, engine: "SAMPLER", p: REFS.SAMPLER[1], level: 0 });
+            send({ t: "inst", ref: 2, engine: "DX7", p: REFS.DX7[1], level: 0 });
+            send({ t: "on", id: "a", time: 0, midi: 69, ref: 1, vol: 127, track: -1, key: true });
+            for (let k = 0; k < 4; k++) send({ t: "on", id: "b" + k, time: .3, midi: 60 + k, ref: 2, vol: 100, track: -1, key: true });
+            render(p, .5);
+            const ghost = p.gl.some(g => g.id === "a");
+            send({ t: "inst", ref: 1, engine: "SAMPLER", p: Object.assign({}, REFS.SAMPLER[1], edit), level: 0 });
+            send({ t: "cutp", prefix: "b", time: .6 }); send({ t: "killp", prefix: "b", time: .604 });
+            render(p, .15);
+            const a = p.vs.find(v => v.id === "a"), back = !!a && a.e >= 0 && a.held, looping = back && p.en[a.e].st.looping;
+            render(p, 1.5);
+            return { ghost, back, looping, ended: !p.vs.some(v => v.id === "a" && v.e >= 0 && !v.ended) };
+        };
+        const off = edited({ loop: "OFF" }), none = edited({ loopEnd: 1 });
+        /* the loop's end past END and back (a song's note, its commands by its track) */
+        const pastEnd = mode => {
+            ({ p, send } = fresh1());
+            send({ t: "inst", ref: 1, engine: "SAMPLER", p: REFS.SAMPLER[1], level: 0 });
+            send({ t: "iparam", track: 0, code: 0x42, value: mode, time: 0 });
+            send({ t: "iparam", track: 0, code: 0x43, value: 16, time: 0 });
+            send({ t: "iparam", track: 0, code: 0x41, value: 128, time: 0 });
+            send({ t: "on", id: "s", time: .001, midi: 69, ref: 1, vol: 127, track: 0 });
+            render(p, .01);
+            send({ t: "iparam", track: 0, code: 0x44, value: 255, time: wk.currentTime });
+            let top = 0, top2 = 0, half = SR / 2;
+            for (let b = 0; b < 2 * SR / 128; b++) { render(p, 128 / SR); const v = p.vs.find(x => x.id === "s"); if (v && v.e >= 0) top = Math.max(top, p.en[v.e].st.pos); }
+            send({ t: "iparam", track: 0, code: 0x41, value: 255, time: wk.currentTime });
+            for (let b = 0; b < 2 * SR / 128; b++) { render(p, 128 / SR); const v = p.vs.find(x => x.id === "s"); if (v && v.e >= 0) top2 = Math.max(top2, p.en[v.e].st.pos); }
+            const v = p.vs.find(x => x.id === "s");
+            return { top, top2, half, looping: !!v && v.e >= 0 && p.en[v.e].st.looping };
+        };
+        const fw = pastEnd(1), pp = pastEnd(2);
+        console.log(`one loop rule: no room in the instrument, LOOP END 255 before the note: ${early.toFixed(1)} dB before END, ${late.toFixed(1)} dB after; ` +
+                    `a held ghost (${off.ghost}, ${none.ghost}) whose instrument is edited to LOOP OFF / no room, back ${off.back} / ${none.back}, ` +
+                    `looping ${off.looping} / ${none.looping}, 1.5 s on ended ${off.ended} / ${none.ended}; LOOP END past END (END at ${fw.half}): ` +
+                    `FORWARD at most ${Math.floor(fw.top)}, then ${Math.floor(fw.top2)}; PING-PONG ${Math.floor(pp.top)}, then ${Math.floor(pp.top2)}`);
+        if (!(early > -40 && late < -80)) fail(`a command giving an instrument's loop room before the note puts the note in it (${early.toFixed(1)} dB, then ${late.toFixed(1)} dB)`);
+        if (!off.ghost || !none.ghost || !off.back || !none.back || off.looping || none.looping || !off.ended || !none.ended)
+            fail("a held ghost whose instrument's loop is edited while it waits (LOOP OFF, no room) does not come back out of its loop and end at END");
+        for (const [name, r] of [["FORWARD", fw], ["PING-PONG", pp]])
+            if (!(r.top < r.half && r.top2 >= r.half && r.looping)) fail(`${name}: LOOP END past END does not end the loop at END, or the loop does not follow END back up`);
+    }
     /* LINE GAIN (specs/ui/screens/settings.md): the analog out's level with MASTER, under the soft ceiling */
     const gains = [];
     for (const g of [-6, 6]) {
@@ -187,6 +278,32 @@ const fail = s => { console.log("FAIL " + s); failed++; };
     if (!(ks["REV 7F"].tail > 0 && ks["REV 7F"].tail > ks["REV 00"].tail * 100 && ks["REV 7F"].tail > ks.DRY.tail * 100))
         fail("KEYS in SENDS: REV 7F does not give the note a reverb's tail, or REV 00 / DRY do");
     if (!(ks["PAN 00"].l > 0 && ks["PAN 00"].r < ks["PAN 00"].l * 1e-6)) fail("KEYS PAN 00: not on the left alone");
+    /* LOOPS shown (specs/ui/screens/loops.md#the-instrument-and-mono-or-poly): the keys through a loop's mix in place of KEYS
+     * GAIN, the KEYS column and DRY: its LEVEL 7F with KEYS GAIN -12 dB (not heard) as their own at 0 dB, its LEVEL 20 12 dB
+     * under (x 20 / 7F), its REVERB SEND a tail with DRY on, none at 00 */
+    const kl = {}, PLAIN = { lvl: 127, pan: 128, dck: 0, cho: 0, dly: 0, rev: 0 };
+    for (const [name, loop, gain, dryOn] of [["OWN", null, 1, false], ["LOOP 7F", PLAIN, Math.pow(10, -12 / 20), false],
+                                              ["LOOP 20", { ...PLAIN, lvl: 0x20 }, 1, false], ["REV 7F DRY", { ...PLAIN, rev: 127 }, 1, true],
+                                              ["REV 00 DRY", PLAIN, 1, true]]) {
+        wk.currentTime = 0;
+        const p = new Proc(), send = m => p.port.onmessage({ data: m }), fxs = M.newFx();
+        fxs.routing = "SENDS"; fxs.on.REVERB = true;
+        send({ t: "voices", n: 16 }); send({ t: "master", v: 1 });
+        send({ t: "fx", setup: fxs, mixer: [], base: 0, tempo: 120, gates: [] });
+        send({ t: "keysdry", on: dryOn }); send({ t: "keysmix", m: { ...KM, rev: 0 } }); send({ t: "keysgain", g: gain });
+        send({ t: "keysloop", m: loop });
+        send({ t: "inst", ref: 1, engine: "TB303", p: REFS.TB303[1], level: 0 });
+        send({ t: "on", id: "k", time: 0, midi: REFS.TB303[0], ref: 1, vol: 127, track: -1 });
+        send({ t: "off", id: "k", time: .3 });
+        const o = render(p, 2.5);
+        kl[name] = { db: loudest(o.L), tail: sq(o.L, Math.round(1.2 * SR)) };
+    }
+    console.log(`KEYS on LOOPS through a loop's mix: their own ${kl.OWN.db.toFixed(1)} dB, a loop's LEVEL 7F at KEYS GAIN -12 dB ` +
+                `${kl["LOOP 7F"].db.toFixed(1)} dB, LEVEL 20 ${kl["LOOP 20"].db.toFixed(1)} dB; its REVERB SEND with DRY on: 7F ` +
+                `${kl["REV 7F DRY"].tail.toExponential(2)}, 00 ${kl["REV 00 DRY"].tail.toExponential(2)}`);
+    if (Math.abs(kl["LOOP 7F"].db - kl.OWN.db) > .1) fail("KEYS on LOOPS: KEYS GAIN heard through a loop's mix");
+    if (Math.abs(kl["LOOP 20"].db - kl["LOOP 7F"].db - 20 * Math.log10(0x20 / 127)) > .3) fail("KEYS on LOOPS: a loop's LEVEL 20 not 12 dB under");
+    if (!(kl["REV 7F DRY"].tail > kl["REV 00 DRY"].tail * 100)) fail("KEYS on LOOPS: DRY heard (no reverb tail through the loop's send)");
     /* FILTER's envelope (specs/ui/screens/fx.md#filters-envelope): the same low-pass, ENV 100 %, SUSTAIN 100 %; SOURCE
      * KEYS opens it while the key is held (the keys' hit as the player posts it), SOURCE BEAT on the beat with no
      * note to fire it; ENV 0 % the filter as it was */
@@ -270,146 +387,28 @@ if (pk > 1) fail("the output passes full scale");
 wav("full_chain", out.L);
 
 /* a sample instrument naming a sample that is not there (specs/files/instruments.md#samples: deleted, its instrument
- * pasted back after): it plays nothing, as an empty slot does, whatever audio the worklet still holds under the number */
+ * pasted back after): it plays nothing, as an empty slot does, whatever audio the worklet still holds under the number;
+ * a command on it at its start, and a note of it let go 100 frames on (its engine still its own then), change nothing
+ * and stop nothing else */
 {
     const ref = 0xA000, n = M.inst(ref).p.sample, was = M.state.samples[n];
     const { p, send } = fresh(dry);
     M.state.samples[n] = null;
     send(inst(ref));
     M.state.samples[n] = was;
-    send({ t: "on", id: "k", time: .01, midi: 60, ref, vol: 127, track: -1 });
-    send({ t: "off", id: "k", time: 1.01 });
-    let pk = 0;
-    for (const v of render(p, 1.2).L) pk = Math.max(pk, Math.abs(v));
-    console.log(`a sample instrument naming a missing sample (${M.refText(ref)} on ${M.hex(n)}): peak ${pk}`);
+    send({ t: "on", id: "s0.1", time: .01, midi: 60, ref, vol: 127, track: 0 });
+    send({ t: "iparam", track: 0, code: 0x41, value: 128, time: .01 });
+    send({ t: "on", id: "s0.2", time: .5, midi: 62, ref, vol: 127, track: 0 });
+    send({ t: "off", id: "s0.2", time: .5 + 100 / SR });
+    let pk = 0, err = null;
+    try { for (const v of render(p, 1.2).L) pk = Math.max(pk, Math.abs(v)); } catch (e) { err = e.message; }
+    console.log(`a sample instrument naming a missing sample (${M.refText(ref)} on ${M.hex(n)}), a command at its start, a note let go ` +
+                `100 frames on: peak ${pk}${err ? ", the worklet threw: " + err : ""}`);
+    if (err) fail(`a sample instrument naming a missing sample stops the worklet (${err})`);
     if (pk !== 0) fail(`a sample instrument naming a missing sample sounds (peak ${pk})`);
 }
 
-/* the pool past VOICES (specs/ui/screens/settings.md#voices), as the firmware's voices_test: at 8 voices, note 60
- * held, then 8 more keys at 0.5 s let go at 1 s: 60 is parked, unheard, and comes back once a voice is free, where
- * its envelope would be (within 1 dB of 60 alone over 2.5-3 s); let go while parked (0.8 s), it is gone */
-{
-    const rms = (x, a) => { let s = 0; for (let i = a; i < x.length; i++) s += x[i] * x[i]; return 10 * Math.log10(s / (x.length - a) + 1e-20); };
-    const take = (ref, others, letGo) => {
-        const { p, send } = fresh(dry);
-        send({ t: "voices", n: 8 });
-        send(inst(ref));
-        send({ t: "on", id: "a", time: .01, midi: 60, ref, vol: 100, track: -1 });
-        for (let k = 0; k < others; k++) send({ t: "on", id: "b" + k, time: .5, midi: 62 + k, ref, vol: 100, track: -1 });
-        if (letGo) send({ t: "off", id: "a", time: .8 });
-        for (let k = 0; k < others; k++) send({ t: "off", id: "b" + k, time: 1 });
-        render(p, .9);
-        p.post();
-        const parked = p.stats.parked === (letGo ? 0 : 1) && !p.stats.voices.some(v => v.id === "a");
-        const end = render(p, 2.1);
-        p.post();
-        const back = p.stats.parked === 0 && p.stats.voices.length === 1 && p.stats.voices[0].id === "a";
-        return { db: rms(end.K, Math.round(1.6 * SR)), parked, back };
-    };
-    for (const type of ["DX7", "JUNO", "SAMPLER"]) {
-        let ref = -1, alone = null;
-        for (const c of M.state.carts) {
-            if (c.type !== type || ref >= 0) continue;
-            c.slots.forEach((s, i) => { if (s && ref < 0) { const r = take(c.id << 8 | i, 0, false); if (r.db > -45) { ref = c.id << 8 | i; alone = r; } } });
-        }
-        if (ref < 0) { fail(`${type}: no instrument that sustains, for the pool's check`); continue; }
-        const taken = take(ref, 8, false), gone = take(ref, 8, true);
-        console.log(`the pool at 8 voices, ${type} ${M.refText(ref)}: alone ${alone.db.toFixed(2)} dB, parked and back ${taken.db.toFixed(2)} dB, ` +
-                    `let go while parked ${gone.db.toFixed(1)} dB`);
-        if (!taken.parked) fail(`${type}: a 9th key does not park the oldest`);
-        if (!taken.back) fail(`${type}: the parked note does not come back once a voice is free`);
-        if (Math.abs(taken.db - alone.db) > 1) fail(`${type}: back from parking at ${taken.db.toFixed(2)} dB, not where its envelope would be`);
-        if (!gone.parked || gone.db > -80) fail(`${type}: let go while parked, it is not gone`);
-    }
-    /* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live): a note marked `tap` losing its voice is told once, one
-     * given no voice is told, a parked note coming back tells nothing, and a note off a voice's own tells nothing */
-    {
-        let ref = -1;
-        for (const c of M.state.carts) if (c.type === "JUNO" && ref < 0) ref = c.id << 8 | c.slots.findIndex(Boolean);
-        const session = () => {
-            const s = fresh(dry), said = [], post0 = s.p.port.postMessage;
-            s.p.port.postMessage = m => { if (m.t === "tap") said.push(m); else post0.call(s.p.port, m); };
-            s.send({ t: "voices", n: 2 });
-            s.send(inst(ref));
-            return Object.assign(s, { said });
-        };
-        const a = session();
-        a.send({ t: "on", id: "s1", time: .01, midi: 60, ref, vol: 100, track: 16, tap: true });
-        a.send({ t: "on", id: "s2", time: .02, midi: 62, ref, vol: 100, track: 16, tap: true });
-        render(a.p, .1);
-        if (a.said.length) fail("the tap: a note with a voice tells nothing");
-        a.send({ t: "on", id: "s3", time: .2, midi: 64, ref, vol: 100, track: 16, tap: true });
-        render(a.p, .2);
-        if (a.said.length !== 1 || !a.said[0].lost || !/^s[12]$/.test(a.said[0].id) || Math.abs(a.said[0].time - .2) > .01) fail("the tap: a note taken by another is told, once, at its time");
-        a.send({ t: "off", id: "s3", time: .5 });
-        render(a.p, 3);
-        a.p.post();
-        if (a.said.length !== 1 || a.p.stats.parked !== 0) fail("the tap: a parked note coming back tells nothing");
-        const b = session();
-        b.send({ t: "on", id: "k1", time: .01, midi: 60, ref, vol: 100, track: -1 });
-        b.send({ t: "on", id: "k2", time: .02, midi: 62, ref, vol: 100, track: -1 });
-        b.send({ t: "on", id: "s1", time: .1, midi: 64, ref, vol: 100, track: 16, tap: true });
-        render(b.p, .2);
-        if (b.said.length !== 1 || !b.said[0].none || b.said[0].id !== "s1") fail("the tap: a song's note finding every voice a key's is told as given none");
-        const c = session();
-        c.send({ t: "on", id: "s1", time: .01, midi: 60, ref, vol: 100, track: 16, tap: true });
-        c.send({ t: "on", id: "s2", time: .02, midi: 62, ref, vol: 100, track: 16, tap: true });
-        render(c.p, .1);
-        c.send({ t: "voices", n: 1 });
-        render(c.p, .1);
-        if (c.said.length !== 1 || !c.said[0].lost) fail("the tap: a note parked past a smaller count is told");
-        console.log("the tap: a note taken, a note given no voice, a note parked past the count told; one coming back not");
-    }
-    /* 20 keys held, as voices_test: below VOICES 16 the pool holds 16 notes, parked ones included (4 wait at 12, 8 at
-     * 8) */
-    {
-        let ref = -1;
-        for (const c of M.state.carts) if (c.type === "JUNO" && ref < 0) ref = c.id << 8 | c.slots.findIndex(Boolean);
-        const held = n => {
-            const { p, send } = fresh(dry);
-            send({ t: "voices", n });
-            send(inst(ref));
-            for (let k = 0; k < 20; k++) send({ t: "on", id: "k" + k, time: .01 + k * .05, midi: 48 + 2 * k, ref, vol: 100, track: -1 });
-            render(p, 1.5); p.post();
-            return { heard: p.stats.voices.length, parked: p.stats.parked };
-        };
-        const a = held(12), b = held(8);
-        console.log(`20 keys held: VOICES 12: ${a.heard} heard, ${a.parked} parked; VOICES 8: ${b.heard} heard, ${b.parked} parked`);
-        if (a.heard !== 12 || a.parked !== 4) fail("20 keys at VOICES 12: not 12 heard and 4 parked");
-        if (b.heard !== 8 || b.parked !== 8) fail("20 keys at VOICES 8: not 8 heard and 8 parked");
-    }
-    /* the keys first, however quiet: 8 quiet keys held at 8 voices, then a loud song note: it starts parked, every key
-     * heard; 2 more keys park the 2 oldest keys; one heard key let go: a parked key comes back, not the song's note;
-     * all let go, the song's note comes in */
-    {
-        let ref = -1;
-        for (const c of M.state.carts) if (c.type === "JUNO" && ref < 0) ref = c.id << 8 | c.slots.findIndex(Boolean);
-        const { p, send } = fresh(dry);
-        send({ t: "voices", n: 8 });
-        send(inst(ref));
-        for (let k = 0; k < 8; k++) send({ t: "on", id: "k" + k, time: .01 + k * .01, midi: 48 + 2 * k, ref, vol: 20, track: -1 });
-        send({ t: "on", id: "s", time: .3, midi: 60, ref, vol: 127, track: 0 });
-        render(p, .5); p.post();
-        const keysOn = () => p.stats.voices.filter(v => v.track === -1).length, songOn = () => p.stats.voices.some(v => v.id === "s");
-        const a = { keys: keysOn(), song: songOn(), parked: p.stats.parked };
-        send({ t: "on", id: "k8", time: .6, midi: 80, ref, vol: 20, track: -1 });
-        send({ t: "on", id: "k9", time: .6, midi: 82, ref, vol: 20, track: -1 });
-        render(p, .3); p.post();
-        const b = { keys: keysOn(), oldest: p.stats.voices.some(v => v.id === "k0" || v.id === "k1") };
-        send({ t: "off", id: "k5", time: wk.currentTime });
-        render(p, 2.5); p.post();
-        const c = { keys: keysOn(), song: songOn(), back: p.stats.voices.some(v => v.id === "k0" || v.id === "k1") };
-        for (let k = 0; k < 10; k++) send({ t: "off", id: "k" + k, time: wk.currentTime });
-        render(p, 3); p.post();
-        const d = songOn();
-        console.log(`the keys first at 8 voices: 8 keys and a song note: ${a.keys} keys heard, song ${a.song ? "heard" : "parked"}; ` +
-                    `10 keys: ${b.keys} heard; one let go: ${c.keys} keys heard, song ${c.song ? "heard" : "parked"}; all let go: song ${d ? "heard" : "not heard"}`);
-        if (a.keys !== 8 || a.song || a.parked !== 1) fail("the keys first: a song note took a voice from a held key");
-        if (b.keys !== 8 || b.oldest) fail("the keys first: 2 more keys do not park the 2 oldest");
-        if (c.keys !== 8 || c.song || !c.back) fail("the keys first: a voice free, the song's note came back before the keys'");
-        if (!d) fail("the keys first: all keys let go, the song's note does not come in");
-    }
-}
+/* (the pool past VOICES, its ghosts and their returns: tests/playground/ghosts.js) */
 
 /* ----------------------------------------------- the songs and the loops, through the replay --- */
 let cur = null;
@@ -420,15 +419,18 @@ const A = {
     noteOn(id, time, midi, ref, vol, track, o) {
         if (M.instType(ref) !== "FUSION") cur.send(inst(ref));
         post({ t: "on", id, time, midi, ref, vol, track, accent: !!o.accent, glide: !!o.glide, offset: o.offset || 0, params: o.params && o.params.length ? o.params : null,
-               key: !o.song });
+               key: !o.song, lane: !!o.lane, fcell: o.fcell || null, retrig: !!o.retrig });
     },
     fire: (track, time, idp) => post({ t: "fire", track, time, id: idp ? idp + "~f" : undefined }),
-    noteOff: (id, time) => post({ t: "off", id, time }), ctl: (id, time, bend, vol) => post({ t: "ctl", id, time, bend, vol }),
+    noteOff: (id, time) => post({ t: "off", id, time }), ctl: (id, time, bend, vol, track) => post({ t: "ctl", id, time, bend, vol, track }),
+    trackBend: (track, time, bend) => post({ t: "tbend", track, time, bend }),
     flush: (prefix, time, at) => post({ t: "flush", prefix, time, at }), allOff: () => post({ t: "alloff" }),
     flushIds: (ids, time) => post({ t: "flushids", ids, time }), stageCol: track => post({ t: "stagecol", track }),
     retrack: (ids, track) => post({ t: "retrack", ids, track }),
     cutAt: (prefix, time) => { post({ t: "cutp", prefix, time }); post({ t: "killp", prefix, time: time + .004 }); },
-    iparam: (track, code, value, time) => post({ t: "iparam", track, code, value, time }), iclear: (track, time) => post({ t: "iclear", track, time }),
+    iparam: (track, code, value, time) => post({ t: "iparam", track, code, value, time }),
+    iclear: (track, time, ref) => post({ t: "iclear", track, time, ref, fpat: ref != null && M.instType(ref) === "FUSION" ? M.inst(ref).p.pattern : null }),
+    cut: (id, time) => post({ t: "cut", id, time }),
     trackMix: (track, key, value, time) => post({ t: "tmix", track, key, value, time }), trackMute() {},
     click: (time, accent, sound, level) => post({ t: "click", time, accent, sound, level }),
     fxCmd: (code, value, time, deck) => post({ t: "fxcmd", code, value, time, deck }), fxReset: () => post({ t: "fxreset" }),
@@ -440,7 +442,7 @@ const A = {
     voices: n => post({ t: "voices", n }), dj: m => post(Object.assign({ t: "dj" }, m)), hush: on => post({ t: "hush", on }),
     djDeck: (deck, setup, mixer) => post({ t: "djdeck", deck, setup, mixer }), djReset: deck => post({ t: "djreset", deck }),
     djEcho: (deck, on) => post({ t: "djecho", deck, on }),
-    djBrake: (deck, time, up, clear) => post({ t: "brake", deck, time, up: !!up, clear: !!clear }),
+    djBrake: (deck, time, up, clear, fast = 1, dur = .5) => post({ t: "brake", deck, time, up: !!up, clear: !!clear, fast, dur }),
     /* PLAYBACK's K3 on the song's voices, SETTINGS' KEYS GAIN on the keys', as audio.js sends them */
     songGain: g => post({ t: "songgain", g }), keysGain: g => post({ t: "keysgain", g }), keysDry: on => post({ t: "keysdry", on }),
 };
@@ -553,6 +555,76 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
     M.state.patterns[tp] = M.state.patterns[tp2] = null;
 }
 
+/* ------------- a note naming an instrument that is gone (its cartridge deleted): the track's note let go there --- */
+/* a held Juno-106 note at row 0, a note of a cartridge no longer there at row 16 (2 s on at 120 BPM): the held note is
+ * let go at row 16, as on the FM-1 (a track's note lets the one before go before it looks for what to start) */
+{
+    const jc = M.state.carts.find(c => c && c.type === "JUNO");
+    let gone = 0x10;
+    while (M.cart(gone)) gone++;
+    M.state.patterns[tp] = M.newPattern(tp, 1, 32);
+    M.state.patterns[tp].cells[0] = M.newCell(57, jc.id << 8, 100);
+    M.state.patterns[tp].cells[16 * 16] = M.newCell(60, gone << 8, 100);
+    M.state.songs.push(Object.assign(M.newSong(), { name: "GONE", tempo: 120, ticks: 6, rpb: 4, swing: 50, order: [tp] }));
+    const i = M.state.songs.length - 1, ons = [], offs = [], on0 = A.noteOn, off0 = A.noteOff;
+    P.kept.song[i] = { pos: 0, row: 0 };
+    A.noteOn = (id, time, ...a) => { ons.push({ id, time }); return on0(id, time, ...a); };
+    A.noteOff = (id, time) => { offs.push({ id, time }); return off0(id, time); };
+    play("GONE", () => { page.PTFM.ui.song = i; P.playSong(i); }, 2.5);
+    A.noteOn = on0; A.noteOff = off0;
+    const off = ons.length ? offs.find(o => o.id === ons[0].id) : null, at = off && off.time - ons[0].time;
+    console.log(`a note of a cartridge gone at row 16: the track's held note let go ${off ? at.toFixed(3) + " s after its start" : "never"} (row 16: 2 s)`);
+    if (!off || Math.abs(at - 2) > .01) fail("a note naming an instrument that is gone does not let its track's held note go");
+    M.state.songs.pop();
+    M.state.patterns[tp] = null;
+}
+
+/* ---------- a FUSION note held at a STOP: the track's later notes are their own, its layers followed no more --- */
+/* a FUSION note on track 0, the song stopped while it is held; then 1,280 plain notes on track 0, each with a volume
+ * slide (its level each tick): every tick of theirs goes to them, none to the old FUSION note's layers (a track's
+ * notes keep their own ids, and a replay's tracks dropped take their followed layers along) */
+{
+    const fus = M.state.carts.find(c => c.type === "FUSION"), jref = M.state.carts.find(c => c.type === "JUNO").id << 8;
+    let fref = -1, frow = -1;
+    fus.slots.forEach((s, i) => {
+        if (!s || fref >= 0) return;
+        const p = M.pattern(s.p.pattern);
+        for (let r = 0; p && r < p.rows && frow < 0; r++)
+            for (let k = 0; k < p.tracks; k++) { const c = p.cells[r * 16 + k]; if (c && c.note != null && c.note !== M.OFF && (c.inst != null || M.trackInst(p, r, k) != null)) { frow = r; break; } }
+        if (frow >= 0) fref = fus.id << 8 | i;
+    });
+    const tq = M.state.patterns.indexOf(null, tp + 1);
+    M.state.patterns[tp] = M.newPattern(tp, 1, 64);
+    M.state.patterns[tp].cells[0] = M.newCell(frow, fref, 100);
+    M.state.patterns[tq] = M.newPattern(tq, 1, 128);
+    for (let r = 0; r < 128; r++) { const c = M.newCell(48 + (r % 12), jref, 100); c.cmds.push({ c: 0x0A, v: 0x01 }); M.state.patterns[tq].cells[r * 16] = c; }
+    M.state.songs.push(Object.assign(M.newSong(), { name: "FUS", tempo: 120, ticks: 6, rpb: 4, swing: 50, order: [tp] }),
+                       Object.assign(M.newSong(), { name: "MANY", tempo: 255, ticks: 2, rpb: 4, swing: 50, order: Array(10).fill(tq) }));
+    const s2 = M.state.songs.length - 1, s1 = s2 - 1, ons = [], ctls = [], on0 = A.noteOn, ctl0 = A.ctl;
+    A.noteOn = (id, time, ...a) => { ons.push({ id, time }); return on0(id, time, ...a); };
+    A.ctl = (id, time, ...a) => { ctls.push({ id, time }); return ctl0(id, time, ...a); };
+    const ticks = s => { for (const end = wk.currentTime + s; wk.currentTime < end; wk.currentTime += .02) tickFn(); };
+    cur = fresh(M.newFx());
+    P.kept.song[s1] = { pos: 0, row: 0 };
+    page.PTFM.ui.song = s1; P.playSong(s1);
+    ticks(.5);
+    P.pause();
+    const layer = ons.find(o => o.id.includes("/")), fid = layer ? layer.id.split("/")[0] : null;
+    ons.length = ctls.length = 0;
+    P.kept.song[s2] = { pos: 0, row: 0 };
+    page.PTFM.ui.song = s2; P.playSong(s2);
+    ticks(30);
+    P.pause();
+    A.noteOn = on0; A.ctl = ctl0;
+    const plain = ons.filter(o => !o.id.includes("/")), stray = fid ? ctls.filter(c => c.id.startsWith(fid + "/")).length : -1;
+    const own = plain.slice(-200).filter(o => ctls.some(c => c.id === o.id)).length;
+    console.log(`a FUSION note held at a STOP (${fid}), then ${plain.length} plain notes on its track: ${stray} of their ticks to its layers, ` +
+                `the last 200 with ticks of their own ${own}`);
+    if (!fid || plain.length < 1200 || stray !== 0 || own < 200) fail("a FUSION note held at a STOP has the track's later notes' ticks sent to its layers");
+    M.state.songs.splice(s1, 2);
+    M.state.patterns[tp] = M.state.patterns[tq] = null;
+}
+
 /* ---------------------------- GATE locked to the bar, FX LIVE's BYPASS (specs/ui/screens/fx.md) --- */
 {
     const setup = M.newFx();
@@ -632,21 +704,31 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
 
 /* ------------------------------------- DJ: two decks, one pool, one mix (specs/ui/screens/dj.md) --- */
 {
-    /* the pool's priority, alone: a full pool, a note from either deck */
-    const p = new Proc(), deckVoices = (left, right) => {
-        p.pool = [];
+    /* the pool's priority, alone: a full pool, a note from either deck (each a Juno-106 note started in its engine, its
+     * last block heard: a take fades it out as any) */
+    const p = new Proc(), jref = M.state.carts.find(c => c.type === "JUNO").id << 8, jp = inst(jref).p;
+    const deckVoices = (left, right) => {                  /* (every engine of the count a held note of a deck's) */
+        p.vs = []; p.gl = []; p.fds = []; p.byId = new Map();
+        for (const e of p.en) { e.voice = e.wait = e.st = e.kind = e.last = null; e.fading = 0; }
         let age = 0;
-        for (let k = 0; k < left; k++) p.pool.push({ on: true, track: k, age: ++age, rel: false, id: "s" + k });
-        for (let k = 0; k < right; k++) p.pool.push({ on: true, track: 16 + k, age: ++age, rel: false, id: "d" + k });
+        const add = (track, id) => {
+            const c = p.vs.length, eng = WE.engines.JUNO, st = { midi: 60, bend: 0 };
+            eng.start(st, jp, 60, {}, p);
+            const v = { track, age: ++age, held: true, id, ref: jref, peak: 0, pk: 0, e: c, gh: 0, engine: "JUNO", eng, own: track, gain: 1, vol: 1,
+                        heard: true, gLast: 1, gMix: 1, tOn: 0, tEnd: Infinity, tOff: -1, par: [], p: jp };
+            p.vs.push(v); p.en[c].voice = v; p.en[c].st = st; p.en[c].kind = "JUNO";
+        };
+        for (let k = 0; k < left; k++) add(k, "s" + k);
+        for (let k = 0; k < right; k++) add(16 + k, "d" + k);
         p.max = left + right;
+        p.ageSeen = age;
     };
-    const take = (track, xf, left, right) => {          /* (the voice taken fades out where it is: park "out") */
+    const take = (track, xf, left, right) => {          /* (the note taken goes on as a ghost) */
         deckVoices(left, right);
         p.dj = { left: 0, xf, sharp: false };
-        const v = p.alloc({ track });
-        if (!v) return "-";
-        const t = p.pool.find(x => x.park === "out") || v;
-        return t.track < 16 ? "L" : "R";
+        if (!p.alloc({ track }, "JUNO")) return "-";
+        const t = p.gl[0];
+        return !t ? "?" : t.track < 16 ? "L" : "R";
     };
     const a = take(0, 16, 4, 4), b = take(16, 16, 4, 4);
     const c = take(16, 0, 8, 0), d = take(16, 32, 8, 0);
@@ -676,12 +758,12 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
             out.L.set(l, b * 128); out.R.set(r, b * 128);
             for (let i = 0; i < 128; i++) { if (!isFinite(l[i]) || !isFinite(r[i])) out.nan++; out.peak = Math.max(out.peak, Math.abs(l[i]), Math.abs(r[i])); }
             wk.currentTime += 128 / SR;
-            for (const v of cur.p.pool) if (v.on && v.track < 32) out.decks[v.track >> 4] = 1;
+            for (const v of cur.p.vs) if (v.e >= 0 && v.track < 32) out.decks[v.track >> 4] = 1;
             if (cur.p.stats) out.most = Math.max(out.most, cur.p.stats.voices.length);
         }
         return out;
     };
-    const rms = (x, a = 0, b = x.length) => { let s = 0; for (let i = a; i < b; i++) s += x[i] * x[i]; return 20 * Math.log10(Math.sqrt(s / (b - a)) + 1e-9); };
+    const rms = rmsDb;
     P.djPlay(L);
     const lStart = L.r.t;
     let rStart = -1;
@@ -713,16 +795,21 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
     console.log(`DJ: the crossfader at the left's end, the left paused: ${rms(gone.L, Math.round(1.5 * SR)).toFixed(1)} dB`);
     if (rms(gone.L, Math.round(1.5 * SR)) > -70) fail("DJ: a deck faded out is still heard");
     /* BRAKE, held: the deck slows to a stop in 0.5 s and stands there silent, its place counting on; let go, it
-     * plays on where it would have been */
+     * plays on where it would have been. As it slows its voices fade with it, as the FM-1's do: a quarter second in,
+     * at half their gain (the record at half its speed) */
     P.djXf(16);
     run(.5);
     P.djBrake(R);
-    const br = run(1.5), standing = R.playing && !!R.brake && !!R.brake.held;
+    run(.25);
+    const braking = cur.p.vs.filter(v => v.e >= 0 && !v.ended && v.track < 32 && v.track >> 4 === R.i),
+          sgains = braking.map(v => v.gLast / (v.gain * v.vol * (v.track < 16 ? cur.p.songGain : 1)));
+    const br = run(1.25), standing = R.playing && !!R.brake && !!R.brake.held;
     P.djStopUp(R);
     const up = run(1);
-    console.log(`DJ: BRAKE held, the right deck ${standing ? "stopped and standing" : "not standing"}, the last second ${rms(br.L, Math.round(.7 * SR)).toFixed(1)} dB; ` +
-                `let go, ${rms(up.L, Math.round(.3 * SR)).toFixed(1)} dB`);
-    if (!standing || rms(br.L, Math.round(.7 * SR)) > -50) fail("DJ: BRAKE held does not stop the deck and keep it silent there");
+    console.log(`DJ: BRAKE held, the right deck ${standing ? "stopped and standing" : "not standing"}, the last second ${rms(br.L, Math.round(.45 * SR)).toFixed(1)} dB; ` +
+                `let go, ${rms(up.L, Math.round(.3 * SR)).toFixed(1)} dB; its ${braking.length} voices 0.25 s in at x${sgains.map(g => g.toFixed(2)).join(" x")}`);
+    if (!braking.length || sgains.some(g => Math.abs(g - .5) > .05)) fail("DJ: BRAKE's voices do not fade as the deck slows (half their gain at half its speed)");
+    if (!standing || rms(br.L, Math.round(.45 * SR)) > -50) fail("DJ: BRAKE held does not stop the deck and keep it silent there");
     if (!R.playing || R.brake || rms(up.L, Math.round(.3 * SR)) < -45) fail("DJ: BRAKE let go does not play on");
     P.djPause(L); P.djPause(R);
     /* SYNC at double: an 86 BPM main, a 172 BPM song on the right plays at 172, its beats on the main's halves */
@@ -826,7 +913,7 @@ if (Math.abs(back) > 1) fail("TAPE STOP !08: the mix does not come back after it
         P.djPlay(R); run(1);
         const where = () => { const a = P.djState(R).at; return a.pos * 256 + a.row; }, pos0 = where();
         P.djHush(true);
-        const hush = run(.5), voices = cur.p.pool.filter(v => v.on).length, moved = R.playing && where() > pos0;
+        const hush = run(.5), voices = cur.p.vs.filter(v => v.e >= 0).length, moved = R.playing && where() > pos0;
         P.djHush(false);
         const heard = run(.5);
         /* (the decks' notes cut, the effects left ringing: all sound off would empty their tails too) */

@@ -653,8 +653,9 @@ async function main() {
     check(L.records.length === 0 && L.lastSave === 0, "an empty device: no records");
     check(L.regions.length === 2 && L.regions[0].start === 0x093000 && L.regions[1].start === 0x0E5000 &&
           L.regions.every(g => g.area !== "rom"), "two regions, the user area's (FWS is never written)");
-    check(L.reserve === 16 && L.maxData === 512 && L.accepts.length === 14 && L.accepts.some(a => a.kind === 0x07 && a.ver === 1),
-          "the reserve, the message size, the kinds (FAVORITES among them)");
+    check(L.reserve === 16 && L.maxData === 512 && L.accepts.length === 16 && L.accepts.some(a => a.kind === 0x07 && a.ver === 1) &&
+          L.accepts.some(a => a.kind === 0x24 && a.ver === 1) && L.accepts.some(a => a.kind === 0x32 && a.ver === 1),
+          "the reserve, the message size, the kinds (FAVORITES, LOOPS sets and AUTOMATIONS among them)");
     check(L.mapRoom === 560, "the records the store can list (the map's room): " + L.mapRoom);
     check(L.builtins.length === 6 && [0x20, 0x21].every(k => L.builtins.some(b => b.kind === k && b.num === 0xFE)) &&
           L.builtins.some(b => b.kind === 0x07 && b.num === 0xFB),
@@ -730,6 +731,10 @@ async function main() {
     /* a disk made again from the demo disk's own files: byte for byte the packer's */
     const again = S.makeDisk(read.files, read.notes);
     check(again.length === disk.length && again.every((x, i) => x === disk[i]), "makeDisk gives the packer's bytes for the same files");
+    /* the disk's order (specs/files/disk.md): a deleted built-in's mark (0x0F) after the cartridges, before the songs */
+    const rec = (kind, num) => ({ kind, num, sub: 0, ver: 1, payload: new Uint8Array(4) });
+    const order = S.parseData(S.makeDisk([rec(0x21, 0), rec(0x0F, 0xF3), rec(0x11, 1), rec(0x01, 0x10)])).files.map(f => f.kind);
+    check(order.join() === [0x01, 0x0F, 0x21, 0x11].join(), "a disk's order: the cartridges, the deleted built-ins' marks, the songs, the samples (" + order + ")");
 
     /* power cuts while seeding: the library before stays whole (the new records went into free blocks) */
     const five = changed(data, 5);

@@ -7,7 +7,8 @@ proposal](../proposals/202611030330-loops-redesign.md), section 16 (the length a
 
 LOOPS is a loop station ([../ui/screens/loops.md](../ui/screens/loops.md)). Kind 0x22, number `00`: the loops, kept
 by SAVE like any change, so a power cycle brings back the same LOOPS: everything kept and the whole setup, packed
-as tightly as the rest of the store allows.
+as tightly as the rest of the store allows. Kind 0x24 is a set: a copy of that record under a number of its own, with
+the solos ([below](#sets)).
 
 ## What is kept
 
@@ -18,7 +19,9 @@ as tightly as the rest of the store allows.
 - **The loops,** 16 at most, in the order they were made: each its instrument (one a loop), its colour, MONO or
   POLY, its lanes (1-4: the most notes it holds at once), its base (the rows its notes cover, from the loops' start)
   and repeat count, its SHIFT, muted, and its mix (a track's). **A solo is never saved:** solos live in RAM until a
-  power-off (a REVERT keeps them), so after a power-on no loop is soloed and the mutes are heard as saved.
+  power-off (a REVERT keeps them, but one undoing a load since the last SAVE: then none,
+  [../ui/screens/loops.md](../ui/screens/loops.md#sets)), so after a power-on no loop is soloed and the mutes are heard as saved. A set keeps
+  them ([below](#sets)).
 - **Each loop's notes, once:** its base's cells, a lane at a time interleaved into one stream, a pattern track's
   ([below](#a-loops-stream)). The base plays from the loops' start as many times as the repeat count says, then the
   loop rests until the length's end; a repeat the length's end falls in is cut there.
@@ -29,15 +32,23 @@ as tightly as the rest of the store allows.
   by another firmware after a shorter LENGTH) is read modulo the length. Whatever reads a loop reads it as it is heard,
   written out over the length and then turned SHIFT rows: the player, SAVE TO PATTERN, EDIT's copy onto the stage, the
   loop's QUANTIZE, LENGTH ([below](#storing-and-loading)). RECORD LIVE's song takes what the player plays.
-- **What the cells hold is notes:** their volumes and note offs; with QUANTIZE REAL TIME, note delays (`EDx`) and
+- **A loop's cut** ([../ui/screens/loops.md](../ui/screens/loops.md#cut)), none or 1 to the length − 1 rows: a window
+  the loops' rows, counted from their start across the length's end, go round; at each of its rows the loop plays what
+  it plays at that row with no cut (its SHIFT included), and what it holds ends at each wrap. A cut loop's base is the
+  length, played once. SAVE TO PATTERN writes its first pass round the window; EDIT's copy is the loop as heard with
+  no cut.
+- **What the cells hold is notes:** their volumes and note offs; a held key's pressure as volumes alone (a lane's
+  sounding note glides to such a volume over its row, a share every 64 frames, there as the row ends: not a pattern's
+  rule, where a volume sets it at the row); with QUANTIZE REAL TIME, note delays (`EDx`) and
   key offs (`Kxx`); a MONO loop's glides and legatos (a TB-303's `SLD`, elsewhere `3xx` or `LEG`). No other command
   ([commands.md](commands.md)): a loop holds no knob turns, FX or punch-ins (RECORD LIVE writes those into its song).
 - **The setup:** TEMPO, TICKS A ROW, the grid, SWING, QUANTIZE, MONO LEGATO, COUNT-IN, the keys' mode (MONO or
-  POLY: how the keys play on LOOPS and how REC keeps the stage), VIEW, K1-K4's jobs, the next loop's mix, LOOPS' own FX
-  setup (METRONOME included), the selected loop, so LOOPS comes back as it was left.
+  POLY: how the keys play on LOOPS and how REC keeps the stage), VIEW, K1-K4's jobs, a new loop's defaults (the mix NEW
+  starts from), LOOPS' own FX setup (METRONOME included), the selected loop, so LOOPS comes back as it was left.
 - **Not stored:** what is playing and the play position (the loops come back paused at the start); the stage (a piece
-  of its own in the edit memory, never saved: [ram.md](ram.md#the-stage-in-the-edit-memory)); an arm or a song armed;
-  ADJUST; a planned LENGTH; OVERWRITE; the keys' CONTROL mode; the pattern recorder's steps.
+  of its own in the edit memory, never saved: [ram.md](ram.md#the-stage-in-the-edit-memory)); NEW, the next loop's own
+  mix (RAM's alone: the defaults again after a power-on, [../ui/screens/loops.md](../ui/screens/loops.md#the-loops)); an
+  arm or a song armed; ADJUST; a planned LENGTH; OVERWRITE; the keys' CONTROL mode; the pattern recorder's steps.
 
 ## Recording on the grid
 
@@ -48,6 +59,8 @@ QUANTIZE places what the keys write onto the stage:
   the ticks since that row started; its end goes in as a key off at its tick (`Kxx`). A note played just before a
   row goes on the row before, delayed. At 6 ticks a row a tick is 1/24 of a beat. Each takes one of the cell's four
   commands. `EDx` reaches 15 ticks, so with more than 16 ticks a row a note late in its row lands on the 15th.
+- **Put in while the loops stop** (the insert, [../ui/screens/loops.md](../ui/screens/loops.md#the-insert)): on the
+  play position's row, whatever QUANTIZE says.
 
 A note off goes on the nearest row, at least a row after its note (with the grid's values; REAL TIME: the key off at
 its tick). Nothing wraps over the length's end: a note still held there ends at the line, a note off at row 0 (its
@@ -66,8 +79,8 @@ the stage is sent.
   as needed.
 - **No instrument in the cells:** every cell's instrument bits are 00; a note plays its loop's instrument, which
   the player gives it (a loop has one instrument, so nothing is lost).
-- **A cell:** a note with its volume, 3 B (head, note, volume); a note off 2 B; a note delay or a glide 2 B more; a
-  key off alone 3 B. A stream is at most 3,800 B, so it fits any part with the head before it. The stage's notes are
+- **A cell:** a note with its volume, 3 B (head, note, volume); a note off 2 B; a volume alone 2 B; a note delay or a
+  glide 2 B more; a key off alone 3 B. A stream is at most 3,800 B, so it fits any part with the head before it. The stage's notes are
   a loop's stream too, under the same limit: a note that would take it past is neither heard nor written, and EDIT,
   DOUBLE or REC (the ends at the line it adds) that would is refused, nothing changed (`THE STAGE IS FULL`).
 - **Lanes:** a POLY loop's notes on up to 4 lanes, as the keys took them on the stage (a key a lane, the first no
@@ -96,7 +109,7 @@ the stage is sent.
 
 ## The record
 
-The head (an 8-byte header, the FX setup, the next loop's mix, two bytes of the setup, the loop table), then the
+The head (an 8-byte header, the FX setup, a new loop's defaults, two bytes of the setup, the loop table), then the
 loops' streams as a pattern's tracks: packed, nothing stored twice.
 
 | Bytes | Field |
@@ -109,9 +122,9 @@ loops' streams as a pattern's tracks: packed, nothing stored twice.
 | 6 | the loop selected, 0-15; the loops' count: the placeholder, `+ NEW LOOP` |
 | 7 | the length in rows, 1-128, always, with loops or none; 0 (a record from before with no loops) read as 4 bars, or the most whole bars that fit 128 rows where 4 do not ([above](#what-is-kept)) |
 | 8-71 | the FX setup ([songs.md](songs.md#the-fx-setup)): LOOPS has its own, METRONOME included. With no record yet, or a record whose 64 bytes here are all 0, it is a new song's (only LIMITER on) with ROUTING SENDS, so FX can switch any effect on and the loops' sends act. A chain that names an effect twice (bytes 1-6 all 0 read as twelve GATEs) takes that chain and routing, the rest kept |
-| 72-77 | the next loop's mix: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND, as a song track's ([songs.md](songs.md#a-tracks-mixer-bytes)); all 0 read as a new song's track. Its three sends are kept as written and not read: the next loop's sends are FX MIXER's KEYS column's (the settings record's, [settings.md](settings.md)), heard on the stage on `+ NEW LOOP` and written into the loop REC makes there ([../ui/screens/loops.md](../ui/screens/loops.md#the-loops)) |
+| 72-77 | a new loop's defaults, the mix NEW starts from ([../ui/screens/loops.md](../ui/screens/loops.md#the-loops)): LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND, as a song track's ([songs.md](songs.md#a-tracks-mixer-bytes)); LOOPS' properties set the LEVEL and the three sends, PAN and DUCK are kept as written (centre and off), read only while byte 79's bit 7 is 1. With no record yet a plain mix (a new song's track's, bit 7 0) |
 | 78 | bits 2-0 K1's job, bits 5-3 K2's (the jobs, by number: 0 LEVEL, 1 PAN, 2 DUCK, 3 CHORUS SEND, 4 DELAY SEND, 5 REVERB SEND, 6 TEMPO, 7 VIEW); bits 7-6 VIEW (0 2 BARS, 1 1 BAR, 2 4 BARS; 3 not written, read as 2 BARS) |
-| 79 | bits 2-0 K3's job, bits 5-3 K4's; bit 6 the jobs are stored (0: K1-K4 LEVEL, PAN, REVERB SEND, TEMPO, whatever bits 2-0 and 5-3 of bytes 78 and 79 hold; written 1); bit 7 0 |
+| 79 | bits 2-0 K3's job, bits 5-3 K4's; bit 6 the jobs are stored (0: K1-K4 LEVEL, PAN, REVERB SEND, TEMPO, whatever bits 2-0 and 5-3 of bytes 78 and 79 hold; written 1); bit 7 a new loop's defaults are stored (0: LEVEL 40, PAN 80, DUCK 0, the sends 7F, whatever bytes 72-77 hold; written 1, with the six, when the properties change one) |
 | 80- | the loop table, 12 B a loop, in the order they were made |
 | then | with loops, the streams: a pattern payload's bytes ([patterns.md](patterns.md#size)): byte 0 the loops' count, byte 1 the length's rows − 1, byte 2 0, bytes 3-4 the streams stored in this part (bit *i*: loop *i*'s), then each stored loop's stream in loop order |
 
@@ -120,10 +133,10 @@ loops' streams as a pattern's tracks: packed, nothing stored twice.
 | Bytes | Field |
 |---|---|
 | 0-1 | its instrument: cartridge, slot |
-| 2 | bits 3-0 its colour (0-11: light red, yellow, light green, light cyan, light blue, light magenta, brown, green, cyan, red, magenta, light grey); bit 4 MONO; bit 5 muted; bit 6 0 (a solo once: written 0, never read); bit 7 its SHIFT's bit 6 |
+| 2 | bits 3-0 its colour (0-11: light red, yellow, light green, light cyan, light blue, light magenta, brown, green, cyan, red, magenta, light grey); bit 4 MONO; bit 5 muted; bit 6 cut (byte 5 the cut; 0: byte 5 its repeat count); bit 7 its SHIFT's bit 6 |
 | 3 | bits 1-0 its lanes − 1 (1-4); bits 7-2 its SHIFT's bits 5-0 |
 | 4 | its base: rows − 1 (1-128) |
-| 5 | its repeat count, 1-255 (the base × the count may pass the length: the last repeat is cut there) |
+| 5 | its repeat count, 1-255 (the base × the count may pass the length: the last repeat is cut there); with byte 2's bit 6, its cut instead: 1 to the length − 1 ([../ui/screens/loops.md](../ui/screens/loops.md#cut)), its base then the length, played once. Bit 6 with a base that is not the length, or byte 5 not under the length, reads as no cut, byte 5 the repeat count |
 | 6-11 | its mix: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND, as a song track's ([songs.md](songs.md#a-tracks-mixer-bytes)) |
 
 - **Parts,** as a pattern's ([patterns.md](patterns.md#parts-sizes-and-reading)): part 0 holds the head and the
@@ -138,12 +151,18 @@ loops' streams as a pattern's tracks: packed, nothing stored twice.
 
 **Versions:** this is version 4 of the record (2026-10-24: the loop station). Its spare bits and bytes took meanings
 on 2026-11-03, each with 0 as before ([README.md](README.md#extending)): the length with no loops (byte 7), VIEW and
-K1-K4's jobs (bytes 78-79), each loop's SHIFT (its bytes 2-3). So the version stays 4 and nothing is converted: a
-record written before reads with the defaults (4 bars with no loops, VIEW 2 BARS, K1-K4 LEVEL, PAN, REVERB SEND,
-TEMPO, SHIFT 0). **An older PT/FM** reading a record written since plays every loop unshifted (SHIFT is lost to it),
-keeps its own K1-K4 and view, and takes no length while there are no loops (its first loop sets one; it writes 0 there
-itself when it rewrites the head with no loops, which reads as 4 bars here). Its edits keep the bits it does not know
-(a mute, a lane count), but a loop it makes or re-records starts with SHIFT 0.
+K1-K4's jobs (bytes 78-79), each loop's SHIFT (its bytes 2-3); on 2026-11-12 byte 79's bit 7, making bytes 72-77 a
+new loop's defaults (before, the next loop's mix, its sends then FX MIXER's KEYS column's); and on 2026-11-18 a
+loop's byte 2 bit 6, its cut (byte 5 then the cut over a base of the length). So the version stays 4 and
+nothing is converted: a record written before reads with the defaults (4 bars with no loops, VIEW 2 BARS, K1-K4 LEVEL,
+PAN, REVERB SEND, TEMPO, SHIFT 0, a new loop at LEVEL 40 with every send full; its old next loop's mix kept in bytes
+72-77 as written, not read). **An older PT/FM** reading a record written since plays every loop unshifted (SHIFT is lost
+to it), a cut loop uncut (byte 5 a repeat count over a base of the length: played once; an edit of it there that
+rewrites its base reads back with no cut), keeps its own K1-K4 and view, takes no length while there are no loops (its first loop sets one; it writes 0
+there itself when it rewrites the head with no loops, which reads as 4 bars here), and takes bytes 72-77 as its next
+loop's mix (the defaults' LEVEL, PAN and DUCK; its sends its KEYS column's; what it sets there reads here as the
+defaults'). Its edits keep the bits it does not know
+(a mute, a lane count, the defaults' bit), but a loop it makes or re-records starts with SHIFT 0.
 
 Version 3 (2026-10-11) held a loop a track: its header (byte 2's bits 6-5 COUNT-IN with 3 KEY, byte 4's bits 3-2
 QUANTIZE: 0 STEP, 1 1/8, 2 OFF, and bit 4 ALGORITHM WHILE PLAYING; byte 7 the cursor's row), the FX setup, 10 B a loop
@@ -155,18 +174,59 @@ converts it ([disk.md](disk.md#versions)):
   length and its repeat count 1, SHIFT 0, its colour by its place; its cells kept but for commands other than note
   delays and key offs, which are left out; with no loops the length is 4 bars (or the most whole bars that fit);
 - QUANTIZE STEP becomes ROW, 1/8 the line of a half beat (2, 3 or 4 ROWS by the grid), OFF REAL TIME; COUNT-IN KEY
-  becomes OFF; ALGORITHM WHILE PLAYING and the cursor go; the next loop's mix is a new song's track's; VIEW and K1-K4's
-  jobs the defaults.
+  becomes OFF; ALGORITHM WHILE PLAYING and the cursor go; bytes 72-77 a new song's track's mix, not stored (a new loop's
+  defaults then LEVEL 40, the sends full); VIEW and K1-K4's jobs the defaults.
 
 For an FM-1 that reads only version 3, the editor's WRITE converts version 4 down ([disk.md](disk.md#versions)):
 each lane of a loop becomes a loop of its own (16 at most), with the loop's sound, mute and mixer, its base written
 out over the length as it is heard (its repeats, a note off where it goes to rest, the cut at the wrap, then nothing,
-turned its SHIFT rows), so it plays the same; QUANTIZE ROW
+turned its SHIFT rows; a cut loop its first pass round its cut, as SAVE TO PATTERN writes it), so it plays the same; QUANTIZE ROW
 becomes STEP, REAL TIME OFF, the others 1/8; the selection follows its loop. What version 3 cannot hold is named
-before writing: MONO (played POLY), MONO LEGATO JUMP or LEGATO, the next loop's mix, a QUANTIZE that is not the half
-beat's, loops past 16, VIEW and K1-K4's jobs when they are not the defaults, and with no loops the length when it is not
+before writing: MONO (played POLY), MONO LEGATO JUMP or LEGATO, a new loop's defaults when they are stored and not the
+ones a record without them reads (`A NEW LOOP'S MIX`), a QUANTIZE that is not the half
+beat's, loops past 16, a loop's cut (`A LOOP'S CUT (PLAYED AS ITS FIRST PASS)`: version 3 plays that pass again at every
+length, so the loop no longer drifts against the others, and its notes past the mark go), VIEW and K1-K4's jobs when
+they are not the defaults, and with no loops the length when it is not
 the one version 3 brings back (4 bars, or the most whole bars that fit) (`NOT KEPT: VIEW, K1-K4'S JOBS, THE LENGTH`). A
 version 4 record made from version 3 goes down and back up byte for byte.
 
 Version 2 had 14 B a loop (its tracks as bits, at most 8, the flags, its mixer, its layers), version 1 11 B: the PC
 side takes them to version 3 first, each of a loop's tracks a loop of its own.
+
+## Sets
+
+**A set** ([../ui/screens/loops.md](../ui/screens/loops.md#sets)) is a copy of LOOPS' record kept under a number of its
+own: kind 0x24, numbers `00`-`EF` (`F0`-`FF` kept for built-in sets, none yet), version 1. It holds everything the
+loops' record keeps ([above](#what-is-kept)), **and the solos**; not the stage, nor NEW.
+
+| Bytes | Field |
+|---|---|
+| 0-11 | the name, 16 characters, as a song's ([songs.md](songs.md#the-record)) |
+| 12-13 | the solos: bit *i* loop *i* soloed (none past the loops) |
+| 14-15 | 0 |
+| 16- | the loops' record ([above](#the-record)) as it is, version 4: its head (the selected loop in its byte 6), its table, its streams |
+
+- **Parts,** as the loops' record's: part 0 holds bytes 0-15 and the loops' record's part 0 (its head, then every
+  stream that fits after it, in loop order, those that do not left to the next parts), the other parts the loops'
+  record's own, the streams left in loop order, each part taking what fits. The 16 bytes before the head leave less
+  room in part 0 than the loops' record has there: the build checks that the head with them fits a part, and that a
+  stream always fits a part of its own, so a set takes 16 parts at most but where all 16 loops' streams pass 3,787 B
+  each (none fits part 0 then): such loops are too big for a set, and STORE AS A SET refuses them (`THE LOOPS ARE TOO
+  BIG FOR A SET`), nothing stored. A set made elsewhere in 17 parts (such loops, each in a part of its own) is kept as it
+  is: its rename is refused the same way, and a MOVE leaves its references (its loops still count as uses), as a save
+  would lose its last part, which no read reaches. Each part is a record of the store's list of 560
+  ([store.md](store.md#the-list-of-records)), as each part of the loops' record is.
+- **The edit memory** keeps a set as it keeps the loops ([ram.md](ram.md#editing-and-saving)): its head (bytes 0 to the
+  loop table's end) whole, the streams' head, each loop's stream. STORE AS A SET copies the working area's pieces (or
+  the flash's) into the set's, the room for the whole new copy made first (the old one still there while it copies);
+  LOAD A SET copies a set's into the working area's, the room made first the same way. A piece the same as the
+  flash's goes, as ever.
+- **SAVE writes a set whole:** a set stored is written in all its parts; so is a set renamed, or one whose loops name
+  an instrument that moved, though only its head changed: SAVE lays its parts out again from its pieces and the
+  flash's.
+- **A set refers** as the loops' record does: each loop's instrument by cartridge and slot
+  ([references.md](references.md)). MOVE, SWAP and DELETE of an instrument or a cartridge count a set's loops as uses,
+  as the working area's, and every reference follows on YES, every set's or none (the room for all their heads made
+  first). Nothing refers to a set.
+- **Versions:** a new version of the loops' record (a later one than 4) makes a new version of the set's with it; the
+  PC side converts both ([disk.md](disk.md#versions)).

@@ -104,6 +104,7 @@ static void old_read(uint8_t pat)       /* the pattern as it stands, read for th
     if (rec_pattern(pat, &old)) old.ntrk = 0;
     for (int t = 0; t < 16; t++) rec_cur_set_end(&old_cur[t], t < old.ntrk ? old.trk[t] : 0, t < old.ntrk ? old.trk_end[t] : 0);
 }
+uint32_t *ed_need;
 int ed_rewrite(uint8_t pat, int t0, int t1, ed_fn fn, void *a, int ntrk, int rows, int step)
 {
     if (rec_pattern(pat, &old)) return -1;
@@ -121,10 +122,11 @@ int ed_rewrite(uint8_t pat, int t0, int t1, ed_fn fn, void *a, int ntrk, int row
     for (int t = 0; t < 16; t++) {                      /* each one's new length first (built, then dropped) */
         if (!(todo >> t & 1u)) continue;
         int n = track_out(t, ui_scratch, 0, PART_MAX - 5);
-        if (n < 0) { ui_toast(T("TOO BIG FOR ONE RECORD")); return -1; }
+        if (n < 0) { ui_edit_too_big(); return -1; }   /* (a measure's too: the change it is for refused whole) */
         need += (((uint32_t)n + 3u) & ~3u) + 8u;
         n_todo++;
     }
+    if (ed_need) { *ed_need += need; return 0; }        /* (its room alone) */
     if (ui_edit_reserve(need)) return -1;               /* all of it or nothing */
     old_read(pat);                                      /* (made room: pieces may have moved) */
     /* then each, built in the scratch and put as its track's piece; with several, the old ones stay where they lay

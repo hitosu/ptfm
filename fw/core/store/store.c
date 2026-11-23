@@ -7,6 +7,9 @@
  * record (a power cut while saving or seeding) is the newest at the next power-on, which spoils its records
  * so that no later mount takes them (store_mount); its number is never used again.
  *
+ * The map lists what a mount would list, every record a key: a save it cannot list is refused (make_room: the list
+ * of records, its deleted records reclaimed first).
+ *
  * Only the user area is read and written (specs/files/store.md#where-things-go): FWS holds the firmware and its
  * built-in things, never written while running; its free part is never read.
  *
@@ -64,6 +67,8 @@ static uint8_t blk_live[NBLK];          /* live bytes in each block (headers, pa
 static uint8_t blk_audio[NBLK / 8];     /* a block holding live audio: never compacted nor appended to */
 static uint8_t taken[NBLK / 8];         /* blocks a save being placed has opened (only while placing) */
 static uint32_t last_save;              /* the newest complete save */
+static uint32_t last_rec;               /* its last record (the header's address): never spoilt (reclaim), as a power-on
+                                           would take that save as cut short without it */
 static uint32_t next_save;              /* the number the next save takes */
 static uint32_t head;                   /* where the next record goes; 0: open the next free block */
 static uint32_t head_from;              /* the block the search for a free one starts after */
@@ -79,7 +84,7 @@ static int npend;
 
 const uint8_t store_kinds[STORE_NKINDS] = {
     REC_DX7, REC_JUNO, REC_TB303, REC_SAMPLER, REC_FUSION, REC_CHIP, REC_AUDIO_OLD, REC_PATTERN, REC_SONG, REC_LOOPS,
-    REC_DJ, REC_SETTINGS, REC_MIDIMAP, REC_FAV, REC_SAMPLE
+    REC_DJ, REC_SETTINGS, REC_MIDIMAP, REC_FAV, REC_SAMPLE, REC_LSET
 };
 
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
@@ -361,7 +366,7 @@ static void on_mount(uint32_t pos, const uint8_t *h, uint32_t len)
     if (save > m_seen) m_seen = save;
     if (ignored(save)) return;
     if (save > m_max) { m_max = save; m_has_last = 0; }
-    if (save == m_max && (h[7] & F_LAST)) { m_has_last = 1; m_last_end = pos + STORE_HDR + ALIGN4(len); }
+    if (save == m_max && (h[7] & F_LAST)) { m_has_last = 1; m_last_end = pos + STORE_HDR + ALIGN4(len); last_rec = pos; }
     /* (F0-FF too: a built-in thing changed and saved, found before the firmware's own; but a cartridge of a kind
      * the firmware has no built-in of under its number, an earlier build's, is left out: dead, so the compaction
      * drops it) */
@@ -369,13 +374,16 @@ static void on_mount(uint32_t pos, const uint8_t *h, uint32_t len)
     map_put(key_of(h[0], h[1], h[2]), pos, len, (h[7] & F_DEL) != 0, save, scratch32);
 }
 
+/* a record spoilt: its kind byte programmed to 0, so its CRC fails for good (0 done) */
+static int spoil(uint32_t pos)
+{
+    static const uint8_t zero = 0;
+    return plat_flash_prog(pos, &zero, 1);
+}
 static void on_spoil(uint32_t pos, const uint8_t *h, uint32_t len)
 {
     (void)len;
-    if (le32(h + 8) == m_spoil) {
-        static const uint8_t zero = 0;
-        plat_flash_prog(pos, &zero, 1);
-    }
+    if (le32(h + 8) == m_spoil) spoil(pos);
 }
 
 static void fav_give_way(void);
@@ -390,7 +398,7 @@ void store_mount(void)
     for (;;) {
         gen_n++;                                        /* (the map is built anew) */
         map_n = 0; n_bad = 0; n_lost = 0;
-        m_max = 0; m_seen = 0; m_has_last = 0; m_last_end = 0;
+        m_max = 0; m_seen = 0; m_has_last = 0; m_last_end = 0; last_rec = 0;
         walk_count_bad = 1;
         walk_all(on_mount);
         walk_count_bad = 0;
@@ -508,7 +516,8 @@ static int pc_find(uint32_t key)
     int i = pc_lower(key);
     return i < npc() && pc_key(&pcs()[i]) == key ? i : -1;
 }
-static int piece_kind(uint8_t k) { return k == REC_PATTERN || k == REC_LOOPS || is_cart(k); }
+static int lp_kind(uint8_t k) { return k == REC_LOOPS || k == REC_LSET; }      /* the loops' record, or a set of it */
+static int piece_kind(uint8_t k) { return k == REC_PATTERN || lp_kind(k) || is_cart(k); }
 static int is_sess(uint32_t key) { return (int)(key >> 24 & 1u); }      /* (kind bit 7) */
 static int sess_wants(uint32_t key)             /* an edit mode keeps a copy of this entry */
 {
@@ -894,6 +903,14 @@ static const uint16_t NAME_AT[REC_CART_LAST + 1] = {0, 784, 123, 42, 176, 8, 121
 #define LOOPS_TABLE 80u
 #define LOOPS_ENTRY 12u
 static uint32_t loops_head(uint32_t n) { return LOOPS_TABLE + LOOPS_ENTRY * n; }    /* its bytes before the streams */
+/* a LOOPS set (specs/files/loops.md#sets): its 16 bytes, then the loops' record as it is, in parts as the loops'. The
+ * loops' record's kinds: the bytes before its head in part 0 (a set's 16), the version read */
+static uint32_t lp_pre(uint8_t kind) { return kind == REC_LSET ? REC_LSET_PRE : 0u; }
+static uint8_t lp_ver(uint8_t kind) { return kind == REC_LSET ? REC_LSET_VER : LOOPS_VER; }
+/* (the build's check: a set's head, its 16 bytes first, fits a part, and a stream a part of its own, so a set's parts are
+ * 16 at most but where no stream fits part 0: specs/files/loops.md#sets) */
+typedef char lset_head_fits[REC_LSET_PRE + LOOPS_TABLE + LOOPS_ENTRY * 16u + 5u <= STORE_MAX_REC - STORE_HDR ? 1 : -1];
+typedef char lset_stream_fits[5u + STORE_LOOP_STREAM_MAX <= STORE_MAX_REC - STORE_HDR ? 1 : -1];
 #define CART_HEAD 10u                   /* a cartridge's bytes before its slots: its name, its slots' count (a sampler's
                                          * too: instruments only) */
 static uint32_t empty_mark(uint8_t kind) { return kind == REC_FAV ? 255u : 63u; }
@@ -955,12 +972,13 @@ static int track_in(const uint8_t *q, const uint8_t *e, uint32_t bits, uint32_t 
     return 0;
 }
 
-/* LOOPS' part sub in the flash, in the version read (another is as none here, and kept in the flash as it is) */
-static const uint8_t *loops_part(uint8_t num, uint32_t sub, uint32_t *len)
+/* LOOPS' (or a set's) part sub in the flash, in the version read (another is as none here, and kept in the flash as it
+ * is) */
+static const uint8_t *loops_part(uint8_t kind, uint8_t num, uint32_t sub, uint32_t *len)
 {
     uint8_t v = 0;
-    const uint8_t *q = flash_get(REC_LOOPS, num, (uint8_t)sub, len, &v);
-    return q && v == LOOPS_VER ? q : 0;
+    const uint8_t *q = flash_get(kind, num, (uint8_t)sub, len, &v);
+    return q && v == lp_ver(kind) ? q : 0;
 }
 /* The flash's piece (what an edit's piece lies over): 1 with its bytes (a track with no stream: a lone 0x00; a slot not
  * stored: none, len 0), 0 when the flash has no such thing (or it cannot be read now) */
@@ -981,15 +999,17 @@ static int flash_piece(uint8_t kind, uint8_t num, uint32_t id, const uint8_t **p
         if (got && id < 16u) { *p = ZERO1; *len = 1; }
         return got;
     }
-    if (kind == REC_LOOPS) {                            /* (part 0: the head, then the payload; the others the payload) */
-        if (!(q = loops_part(num, 0, &l))) return 0;
-        uint32_t n = l > 5u ? q[5] : 0u, h = loops_head(n);
-        if (ver) *ver = LOOPS_VER;
+    if (lp_kind(kind)) {                                /* (part 0: the head, then the payload; the others the payload;
+                                                         * a set's head its 16 bytes first) */
+        uint32_t pre = lp_pre(kind);
+        if (!(q = loops_part(kind, num, 0, &l))) return 0;
+        uint32_t n = l > pre + 5u ? q[pre + 5u] : 0u, h = pre + loops_head(n);
+        if (ver) *ver = lp_ver(kind);
         if (id == STORE_PC_HEAD) { *p = q; *len = h < l ? h : l; return 1; }
         if (n && h + 5u <= l) {
             if (id == STORE_PC_PHEAD) { *p = q + h; *len = 3; return 1; }
             for (uint32_t s = 0; id < 16u && s < 16u; s++) {   /* (a loop's stream: in whichever part holds it) */
-                if (s && !(q = loops_part(num, s, &l))) continue;
+                if (s && !(q = loops_part(kind, num, s, &l))) continue;
                 if (s) h = 0;
                 if (h + 5u <= l && track_in(q + h + 5u, q + l, q[h + 3u] | (uint32_t)q[h + 4u] << 8, id, p, len)) return 1;
             }
@@ -1036,7 +1056,7 @@ int store_edit_piece(uint8_t kind, uint8_t num, uint16_t id, uint8_t ver, const 
 {
     if (locked || edit_saving || !piece_kind(kind) || id >= PC_OBJ) return STORE_ERR_STATE;
     if (is_cart(kind) && (ver != cart_ver(kind) || cart_old(num))) return STORE_ERR_STATE;  /* (the old form untouched) */
-    if (STORE_HDR + len > STORE_MAX_REC || (kind == REC_LOOPS && id < 16u && len > STORE_LOOP_STREAM_MAX))
+    if (STORE_HDR + len > STORE_MAX_REC || (lp_kind(kind) && id < 16u && len > STORE_LOOP_STREAM_MAX))
         return STORE_ERR_BIG;
     p = outside(p, len);
     if (as_flash(kind, num, id, ver, p, len)) {
@@ -1153,7 +1173,7 @@ static int split_init(split_t *s, uint8_t kind, uint8_t ver, const uint8_t *b, u
         s->n = b[9];
         return s->h + SLOT_SZ[kind] * s->n == len ? 0 : -1;
     }
-    if (kind == REC_LOOPS) {
+    if (kind == REC_LOOPS) {            /* (LOOPS alone: a set is only ever written as pieces, put_split refuses it) */
         if (ver != LOOPS_VER || len < loops_head(0)) return -1;
         s->n = b[5];
         s->h = loops_head(s->n);
@@ -1205,7 +1225,7 @@ static int put_split(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, const 
     split_t s;
     uint32_t need = 0, id, l, j;
     const uint8_t *p;
-    if (sub || split_init(&s, kind, ver, b, len)) return STORE_ERR_STATE;
+    if (sub || kind == REC_LSET || split_init(&s, kind, ver, b, len)) return STORE_ERR_STATE;   /* (a set: pieces alone) */
     for (j = 0; kind == REC_LOOPS && j < 16u; j++) if (s.tl[j] > STORE_LOOP_STREAM_MAX) return STORE_ERR_BIG;
     int claim = is_cart(kind) && cart_other(kind, num);
     for (j = 0; split_at(&s, j, &id, &p, &l); j++) {    /* the room for every piece kept, first: all or nothing */
@@ -1490,6 +1510,7 @@ static int wr_record(uint8_t kind, uint8_t num, uint8_t sub, uint8_t ver, int de
     if (len) c = crc32_update(c, payload, len);
     put32(h + 12, c);
     if (wr_bytes(addr, h, STORE_HDR) || (len && wr_bytes(addr + STORE_HDR, payload, len))) return -1;
+    if (last) last_rec = addr;                  /* (should the save fail, the remount finds it again) */
     return pend_add(key_of(kind, num, sub), addr, len, del);
 }
 
@@ -1548,12 +1569,13 @@ static uint8_t obj_ver(uint8_t kind, uint8_t num)       /* the version its piece
     if (i >= 0) return (uint8_t)(pcs()[i].kv >> 25);
     return flash_get(kind, num, 0, 0, &v) ? v : 1u;
 }
-/* a pattern's or LOOPS' parts (sv.kind, sv.num): the flash's (LOOPS' in the version read alone: another is as none,
- * left in the flash unless LOOPS is saved or deleted), the pieces over them, the streams laid into parts in order */
+/* a pattern's, LOOPS' or a set's parts (sv.kind, sv.num): the flash's (LOOPS' in the version read alone: another is as
+ * none, left in the flash unless LOOPS is saved or deleted), the pieces over them, the streams laid into parts in order
+ * (a set's: part 0 takes every stream that fits it, the others follow in order: specs/files/loops.md#sets) */
 static void sv_parts(void)
 {
-    int lp = sv.kind == REC_LOOPS;
-    uint32_t hl, l, a, s, t, w, n = 0, used, part = 0;
+    int lp = lp_kind(sv.kind), lset = sv.kind == REC_LSET;
+    uint32_t hl, l, a, s, t, w, n = 0, used, part = 0, pre = lp_pre(sv.kind);
     const uint8_t *h = store_piece(sv.kind, sv.num, STORE_PC_HEAD, &hl), *p, *q, *e;
     int got = 0, hid = obj_hidden(sv.kind, sv.num);
     memset(sv.tlen, 0, sizeof sv.tlen);
@@ -1574,11 +1596,11 @@ static void sv_parts(void)
         }
         a = live && !hid ? ent_addr(&map[mi]) + STORE_HDR : 0u;
         w = 0;                                      /* (where the pattern payload's bytes start) */
-        if (lp) {                                   /* (LOOPS: part 0 its head first) */
-            if (v != LOOPS_VER || (s && !sv.hl)) continue;
+        if (lp) {                                   /* (LOOPS: part 0 its head first; a set's, its 16 bytes before) */
+            if (v != lp_ver(sv.kind) || (s && !sv.hl)) continue;
             if (!s) {
-                n = l > 5u ? p[5] : 0u;
-                if ((w = loops_head(n)) > l) continue;
+                n = l > pre + 5u ? p[pre + 5u] : 0u;
+                if ((w = pre + loops_head(n)) > l) continue;
                 sv.hl = (uint16_t)w;
                 sv.hfrom = a ? FROM_FLASH : FROM_PTR;
                 sv.haddr = a;
@@ -1599,18 +1621,18 @@ static void sv_parts(void)
         }
     }
     if (lp) {                                       /* LOOPS: its head, its streams' head (the pieces first), its loops */
-        const uint8_t *ph = store_piece(REC_LOOPS, sv.num, STORE_PC_PHEAD, &l);
-        if (h && hl >= loops_head(0)) {
+        const uint8_t *ph = store_piece(sv.kind, sv.num, STORE_PC_PHEAD, &l);
+        if (h && hl >= pre + loops_head(0)) {
             sv.hl = (uint16_t)hl;
             sv.hfrom = FROM_PTR;
             sv.hptr = h;
-            n = h[5];
+            n = h[pre + 5u];
         }
         if (ph && l >= 3u) { sv.ntrk = ph[0]; sv.rows1 = ph[1]; sv.step = ph[2]; }
-        else if (!got && sv.hl) sv.rows1 = (uint8_t)(sv.hptr[7] ? sv.hptr[7] - 1u : 0u);   /* (none: its length) */
+        else if (!got && sv.hl) sv.rows1 = (uint8_t)(sv.hptr[pre + 7u] ? sv.hptr[pre + 7u] - 1u : 0u);   /* (none: its length) */
         got = sv.hl != 0;
         sv.ntrk = (uint8_t)(n > 16u ? 16u : n);    /* (a stream a loop) */
-        sv.ver = LOOPS_VER;
+        sv.ver = lp_ver(sv.kind);
         if (!got && !hid) sv.dels = 0;              /* (none in the version read: another left as it is) */
     } else {
         if (h && hl >= 3u) { got = 1; sv.ntrk = h[0]; sv.rows1 = h[1]; sv.step = h[2]; }
@@ -1632,7 +1654,18 @@ static void sv_parts(void)
     if (got) {
         for (t = 0, used = sv.hl + 5u; t < sv.ntrk; t++) {
             if (!sv.tlen[t]) continue;
+            if (lset) {                             /* (a set's part 0: the streams that fit it, the others left) */
+                sv.part[t] = used + sv.tlen[t] <= PART_MAX ? 0u : 0xFFu;
+                if (!sv.part[t]) used += sv.tlen[t];
+                continue;
+            }
             if (used + sv.tlen[t] > PART_MAX && used > (part ? 5u : sv.hl + 5u)) { part++; used = 5; }
+            sv.part[t] = (uint8_t)part;
+            used += sv.tlen[t];
+        }
+        for (t = 0, used = PART_MAX; lset && t < sv.ntrk; t++) {   /* (... those left from part 1 on, in order) */
+            if (!sv.tlen[t] || sv.part[t] != 0xFFu) continue;
+            if (used + sv.tlen[t] > PART_MAX) { part++; used = 5; }
             sv.part[t] = (uint8_t)part;
             used += sv.tlen[t];
         }
@@ -1649,7 +1682,7 @@ static uint32_t sv_part(uint8_t *b, uint32_t k, int build)  /* part k of the pat
         if (sv.hfrom == FROM_FLASH) { if (rd(sv.haddr, b, w)) return 0; }
         else memcpy(b, sv.hptr, w);
     }
-    if (sv.kind == REC_LOOPS && !sv.ntrk) return w;            /* (no loops: its head alone) */
+    if (lp_kind(sv.kind) && !sv.ntrk) return w;                /* (no loops: its head alone) */
     for (t = 0; t < sv.ntrk; t++) {
         if (!sv.tlen[t] || sv.part[t] != k) continue;
         if (build) {
@@ -1692,19 +1725,22 @@ static void sv_enter(int obj)
     if (!piece_kind(sv.kind)) { sv.end = obj + 1; sv.n = 1; return; }
     while (j < c && pc_key(&e[j]) >> 9 == key >> 9) j++;
     sv.end = j;
-    if (sv.kind == REC_PATTERN || sv.kind == REC_LOOPS) sv_parts();
+    if (sv.kind == REC_PATTERN || lp_kind(sv.kind)) sv_parts();
     else sv_one();
 }
 /* ---- deletions first (store.md#the-room-for-the-editors-pattern) ----
  * An edits' SAVE that does not fit writes its deletions first, as a save of their own, then the rest once
- * compaction has freed their blocks. Only deletions no edit could be made from go first: a thing deleted whole whose
- * kind (patterns; songs; the cartridges' kinds, one; the samples) has no new thing among the edits (one the flash does
+ * compaction has freed their blocks (or the list of records reclaimed their keys). Only deletions no edit could be made
+ * from go first: a thing deleted whole whose kind (patterns; songs; the cartridges' kinds, one; the samples; LOOPS'
+ * sets) has no new thing among the edits (one the flash does
  * not hold, or one made anew: what a MOVE or a CLONE makes), the EDITOR's pattern and the keys' song apart (never
  * moved). A sample's deletion always qualifies (the FM-1 makes no samples): it goes first, the samplers whose
  * instruments it deleted after it. A power cut between the two leaves the deletions saved and the rest not. */
 static int sv_dels;                     /* the save under way: those deletions only */
 static int then_rest;                   /* ... and the edits' save follows it */
-static void saving_none(void) { edit_saving = 0; sv_dels = 0; then_rest = 0; }   /* (power-on: no save under way) */
+static int sv_stop;                     /* the save under way a part: the things of the list's entries before this (0: all) */
+static int p_done, p_all;               /* an edits' SAVE's records written in its saves before this one, and all it had */
+static void saving_none(void) { edit_saving = 0; sv_dels = 0; then_rest = 0; sv_stop = 0; }   /* (power-on: no save under way) */
 static int fam(uint8_t kind) { return is_cart(kind) ? 1 : (int)kind; }
 static int saved_live(uint8_t kind, uint8_t num, uint8_t sub)
 {
@@ -1746,11 +1782,30 @@ static void dels_drop(void)             /* written: the deletion edits of what t
     }
 }
 
+static void parts_drop(int stop)        /* a part written: its things' entries (the list's first stop) go, but a deletion
+                                         * it left out (the flash holds the thing); the edit mode's copies no longer kept,
+                                         * as a SAVE leaves them */
+{
+    sess_on = 0;
+    sess_of = 0;
+    for (int i = 0; i < stop; ) {
+        uint32_t k = pc_key(&pcs()[i]);
+        uint8_t ki = (uint8_t)(k >> 17);
+        int end = i + 1;
+        while (piece_kind(ki) && end < npc() && pc_key(&pcs()[end]) >> 9 == k >> 9) end++;
+        if (whole_del(i, end) && saved_live(ki, (uint8_t)(k >> 9), piece_kind(ki) ? 0 : (uint8_t)k)) { i = end; continue; }
+        stop -= end - i;
+        while (end-- > i) pc_drop(pc_key(&pcs()[i]));
+    }
+}
+
 static void sv_first(int obj)           /* the first thing from obj that makes a record (none: sv.obj = npc()) */
 {
-    while (obj < npc() && !is_sess(pc_key(&pcs()[obj]))) {
+    while (obj < npc() && (!sv_stop || obj < sv_stop) && !is_sess(pc_key(&pcs()[obj]))) {
         sv_enter(obj);
-        if (sv.n && (!sv_dels || (whole_del(sv.obj, sv.end) && no_new_of(sv.kind)))) return;
+        if (sv.n && (!sv_dels || (whole_del(sv.obj, sv.end) && no_new_of(sv.kind))) &&
+            (!sv_stop || !whole_del(sv.obj, sv.end) || no_new_of(sv.kind))) return;   /* (a part: never a deletion an
+                                                         * edit could be made from, as a MOVE's; it waits for the new) */
         obj = sv.end;
     }
     sv.obj = npc();
@@ -1787,7 +1842,7 @@ static void sv_rec(rec_t *r, int build)
         r->p = pc_at(e);
         return;
     }
-    int parts = sv.kind == REC_PATTERN || sv.kind == REC_LOOPS;
+    int parts = sv.kind == REC_PATTERN || lp_kind(sv.kind);
     if (parts && sv.exists && sv.k < sv.np) {
         r->sub = (uint8_t)sv.k;
         r->len = sv_part(b, sv.k, 0);
@@ -1827,7 +1882,7 @@ int store_edit_build(uint8_t kind, uint8_t num, uint8_t sub, uint8_t *dst, uint3
     }
     if (!obj_live(kind, num) || (is_cart(kind) && cart_old(num))) return -1;   /* (an old cartridge: not in the layout
                                                                              * built here) */
-    if (kind == REC_PATTERN || kind == REC_LOOPS) {
+    if (kind == REC_PATTERN || lp_kind(kind)) {
         sv.kind = kind;
         sv.num = num;
         sv_parts();
@@ -1921,21 +1976,75 @@ void store_save_cancel(void)
 }
 
 /* ---- compaction (store.md#garbage-and-compaction) ---- */
-/* A deleted record of the block being compacted goes along only while an older copy of its object is left
- * somewhere: one walk finds that out for all of them. While it runs, such an entry carries C_ASK (bit 31 of
- * al, unused otherwise); an older copy found clears it. */
+/* A deleted record of the block being compacted goes along while another record of its object is left in the flash
+ * outside that block (an older copy, deleted or not): one walk finds that out for all of them. While it runs, such an
+ * entry carries C_ASK (bit 31 of al, unused otherwise); another record found clears it. One that goes is spoilt with
+ * the older copies in its block, so that no power-on lists it again: the map lists what a mount would
+ * (store.md#the-list-of-records). */
 #define C_ASK 0x80000000u
 static uint32_t c_block;
-static void on_older(uint32_t pos, const uint8_t *h, uint32_t len)
+static uint8_t c_spoil;                 /* (reclaim's walk: the other records spoilt) */
+/* another record of a marked object: one in the block being compacted (or any, reclaiming) is spoilt, the mark cleared
+ * only when that fails (the deleted one kept); one elsewhere keeps the deleted one in compaction (its mark cleared) */
+static void on_other(uint32_t pos, const uint8_t *h, uint32_t len)
 {
     (void)len;
-    if (BLK(pos) == c_block || (h[7] & F_DEL)) return;
     int i = map_find(key_of(h[0], h[1], h[2]), 0);
-    if (i >= 0 && (map[i].al & C_ASK) && ent_addr(&map[i]) != pos) map[i].al &= ~C_ASK;
+    if (i >= 0 && (map[i].al & C_ASK) && ent_addr(&map[i]) != pos && (c_spoil || BLK(pos) == c_block ? spoil(pos) : 1))
+        map[i].al &= ~C_ASK;
+}
+/* The deleted entries marked (C_ASK; block c_block's, or reclaim's lim: that many at most, anywhere, the other records
+ * spoilt), the newest save's last record apart; one walk over the flash (on_other); then each still marked spoilt and
+ * gone (a spoil failing: kept), every mark cleared. */
+static void drop_deleted(int lim)
+{
+    int asks = 0;
+    for (int i = 0; i < map_n; i++)
+        if ((lim ? asks < lim : BLK(ent_addr(&map[i])) == c_block) && ent_del(&map[i]) && ent_addr(&map[i]) != last_rec) {
+            map[i].al |= C_ASK;
+            asks++;
+        }
+    if (!asks) return;
+    c_spoil = (uint8_t)(lim != 0);
+    walk_all(on_other);                                 /* (one walk, however many deleted records) */
+    for (int i = map_n - 1; i >= 0; i--) {
+        ent_t *e = &map[i];
+        if ((e->al & C_ASK) && !spoil(ent_addr(e))) map_drop(i);     /* nothing else of it left: gone */
+        else e->al &= ~C_ASK;
+    }
+}
+
+/* Map entries written again at the head as a save of their own, the last flagged: the n of block c_block, or entry
+ * `one` alone (n 1). 1 done, 0 a write failed (the store mounted again: rw_failed). */
+static int rw_failed;                   /* a rewrite failed since make_room began: the mount took the scratch */
+static int rewrite(int n, int one)
+{
+    place_start();
+    uint32_t save = next_save++;
+    int k = 0;
+    for (int i = 0; i < map_n && k < n; i++) {
+        ent_t *e = &map[i];
+        uint32_t a = ent_addr(e);
+        if (one >= 0 ? i != one : BLK(a) != c_block) continue;
+        uint8_t h[4];
+        rd(a, h, 4);
+        k++;
+        if (wr_record(h[0], h[1], h[2], h[3], ent_del(e), k == n, save,
+                      ent_del(e) ? 0 : plat_flash_ptr(a + STORE_HDR), ent_len(e))) {
+            pg_addr = 1; store_mount(); rw_failed = 1; return 0;
+        }
+    }
+    if (wr_flush()) { store_mount(); rw_failed = 1; return 0; }
+    last_save = save;
+    head = pl_head; head_from = pl_from;
+    memset(taken, 0, sizeof taken);
+    blocks_count();
+    return 1;
 }
 
 /* The live records of the user block with the fewest live bytes, written again at the head as a save of
- * their own; the block is then free. A deleted record goes along only while an older copy is left. */
+ * their own; the block is then free. A deleted record goes along while another record of its object is left (and
+ * always the newest save's last record: last_rec). */
 static int compact_one(void)
 {
     uint32_t best = 0, best_live = 256;
@@ -1946,40 +2055,53 @@ static int compact_one(void)
     }
     if (!best || best_live > 252) return 0;             /* nothing with room to gain (4,032 B live or more) */
     c_block = BLK(best);
-    int asks = 0;
-    for (int i = 0; i < map_n; i++)
-        if (BLK(ent_addr(&map[i])) == c_block && ent_del(&map[i])) { map[i].al |= C_ASK; asks++; }
-    if (asks) walk_all(on_older);                       /* (one walk, however many deleted records) */
+    drop_deleted(0);
     int n = 0;
-    for (int i = map_n - 1; i >= 0; i--) {
-        ent_t *e = &map[i];
+    for (int i = 0; i < map_n; i++) {
+        const ent_t *e = &map[i];
         if (BLK(ent_addr(e)) != c_block) continue;
-        if (e->al & C_ASK) { map_drop(i); continue; }   /* no older copy left: no need for it */
         if (!ent_del(e) && !plat_flash_ptr(ent_addr(e) + STORE_HDR)) return 0;   /* the user area reads in place */
         n++;
     }
     if (!n) { blocks_count(); return 1; }               /* only deleted records no longer needed */
-    place_start();
-    uint32_t save = next_save++;
-    int k = 0;
-    for (int i = 0; i < map_n && k < n; i++) {
-        ent_t *e = &map[i];
-        uint32_t a = ent_addr(e);
-        if (BLK(a) != c_block) continue;
-        uint8_t h[4];
-        rd(a, h, 4);
-        k++;
-        if (wr_record(h[0], h[1], h[2], h[3], ent_del(e), k == n, save,
-                      ent_del(e) ? 0 : plat_flash_ptr(a + STORE_HDR), ent_len(e))) {
-            pg_addr = 1; store_mount(); return 0;
-        }
+    return rewrite(n, -1);
+}
+
+/* ---- the list of records (store.md#the-list-of-records) ----
+ * A save the map cannot list is refused, before anything of it is written. First as many deleted records are
+ * reclaimed as it is over (map_over), the rest staying listed till a later save at the limit: every other record of
+ * their objects spoilt, then they themselves, their entries gone (drop_deleted(over)). The newest save's last record is never spoilt
+ * (a power-on would take that save as cut short): when the others are too few and it is a deleted one, the smallest
+ * live record is written again first, as a save of its own (its last), if compaction keeps more than its STORE_MIN_FREE
+ * free blocks; else that deleted record stays listed. */
+static void reclaim(int over)
+{
+    int b = -1, seal = 0, d = 0;
+    for (int i = 0; i < map_n; i++) {
+        const ent_t *e = &map[i];
+        if (ent_del(e)) { d++; seal |= ent_addr(e) == last_rec; }
+        else if (!store_is_audio(ent_kind(e)) && (b < 0 || ent_len(e) < ent_len(&map[b]))) b = i;
     }
-    if (wr_flush()) { store_mount(); return 0; }
-    last_save = save;
-    head = pl_head; head_from = pl_from;
-    memset(taken, 0, sizeof taken);
+    if (seal && d <= over && b >= 0 && count_free() > STORE_MIN_FREE) rewrite(1, b);
+    drop_deleted(over);
     blocks_count();
-    return 1;
+}
+static int save_over;                   /* the last save refused for the list: the records it would list too many */
+int store_save_over(void) { return save_over; }
+/* the records the map would list past its room with the save's n in it, a key it lists deleted counted as new: reclaimed,
+ * it comes back (and while it is not, its entry is reclaimable); but the deleted record ending the newest save, which
+ * nothing reclaims (last_rec, unless a seal writes another after it: then counted again), keeps its entry: saved again,
+ * it adds no key */
+static int map_over(int n)
+{
+    int k = map_n - MAP_MAX;
+    rec_t r;
+    for (int i = 0; i < n; i++) {
+        src_rec(i, &r);
+        int e = map_find(key_of(r.kind, r.num, r.sub), 0);
+        k += e < 0 || (ent_del(&map[e]) && ent_addr(&map[e]) != last_rec);
+    }
+    return k;
 }
 
 static uint32_t save_short;             /* the last save that did not fit: the bytes it was short by */
@@ -2003,14 +2125,50 @@ static int room_lack(int n)
     int other = no ? no + STORE_MIN_FREE + (int)STORE_EDITOR_ROOM - f : 0;
     return all > other ? all : other;
 }
+/* ---- a save in parts (store.md#a-save-in-parts) ----
+ * An edits' SAVE that does not fit at once, compaction done and its deletions first, saves in parts: the most whole
+ * things from the list's first that fit as room_lack counts them, a save of their own; then their edits go (the flash
+ * holds them), the next save's compaction frees the records they replaced, and the rest is saved again, at once or in
+ * parts. A thing changed costs room only until its part is written; a thing added keeps it. Only when not even the
+ * first thing fits does the save stop, short by what that thing lacks. A power cut between parts leaves the parts
+ * before it saved and the rest not. */
+static int part_stop(void)              /* the list's entry the part ends at (0: not even the first thing fits) */
+{
+    int stop = 0, end, lack;
+    for (;;) {
+        sv_stop = 0x7FFF;                               /* (a part's things: the next past stop) */
+        sv_first(stop);
+        if (sv.obj >= npc()) break;
+        sv_stop = end = sv.end;
+        if ((lack = room_lack(sv_count())) > 0) {
+            if (!stop) save_short = (uint32_t)lack * STORE_BLOCK;
+            break;
+        }
+        stop = end;
+    }
+    sv_stop = 0;
+    sv_at = -1;
+    return stop;
+}
+/* A rewrite failing (the seal's, compaction's) mounts the store again, which takes the scratch the save API's list lies in:
+ * that save is refused there as the flash error it is, never counted or written from what the mount left (the edits'
+ * SAVE builds its records from the edit memory: it goes on) */
+#define RW_LOST() (rw_failed && !edit_saving)
 static int make_room(int n)
 {
-    int stuck = 0, lack;
+    int stuck = 0, lack, over = map_over(n);
+    rw_failed = 0;
+    if (over > 0) reclaim(over);                        /* (the list first: refused, nothing is compacted) */
+    if (RW_LOST()) return STORE_ERR_FLASH;
+    if ((save_over = map_over(n)) > 0) return STORE_ERR_FULL;
+    save_over = 0;
     for (int tries = 0; tries < 64; tries++) {
         int before = count_free();
         if (room_lack(n) <= 0) return STORE_OK;
         plat_idle();                                    /* (compaction takes a while: the main loop lives) */
-        if (!compact_one()) break;
+        int ok = compact_one();
+        if (RW_LOST()) return STORE_ERR_FLASH;
+        if (!ok) break;
         if (count_free() <= before) { if (++stuck >= 4) break; } else stuck = 0;
     }
     if ((lack = room_lack(n)) <= 0) return STORE_OK;
@@ -2056,6 +2214,7 @@ static void save_step(void)
         blocks_count();
         s_state = S_RESULT; s_result = STORE_OK; n_stg = 0;
         if (edit_saving && sv_dels) {                   /* the deletions written: theirs go, then the rest */
+            p_done += s_n;
             dels_drop();
             sv_dels = 0;
             edit_saving = 0;
@@ -2064,6 +2223,13 @@ static void save_step(void)
                 int r = edits_commit();                 /* (compaction runs first: make_room) */
                 if (r) { s_state = S_RESULT; s_result = r; }
             }
+        } else if (edit_saving && sv_stop) {            /* a part written: its things' edits go, then the rest */
+            p_done += s_n;
+            parts_drop(sv_stop);
+            sv_stop = 0;
+            edit_saving = 0;
+            int r = edits_commit();
+            if (r) { s_state = S_RESULT; s_result = r; }
         } else if (edit_saving) { edits_none(); edit_saving = 0; }  /* saved: the flash holds them now */
         return;
     }
@@ -2074,6 +2240,7 @@ static void save_step(void)
         edit_saving = 0;                                /* the edits stay, to be saved again */
         sv_dels = 0;
         then_rest = 0;
+        sv_stop = 0;
     }
 }
 
@@ -2082,13 +2249,24 @@ static int edits_commit(void)                   /* the edits' save started (or n
     edit_saving = 1;
     int n = sv_count();
     if (sv_bad) { edit_saving = 0; return STORE_ERR_STATE; }
+    if (!p_all) p_all = n;
     int r = commit(n);
-    if (r == STORE_ERR_FULL) {                          /* (deletions first: their own save, then this again) */
+    if (r == STORE_ERR_FULL) {                          /* (deletions first: their own save, then this again; the
+                                                         * user area's room or the list's, as the reason) */
         uint32_t short_by = save_short;
+        int over_by = save_over;
         sv_dels = 1;
         int nd = sv_count();
         if (nd && commit(nd) == STORE_OK) { then_rest = 1; r = STORE_OK; }
-        else { sv_dels = 0; save_short = short_by; }
+        else { sv_dels = 0; save_short = short_by; save_over = over_by; }
+    }
+    if (r == STORE_ERR_FULL && !save_over) {           /* (in parts: the room the reason, not the list) */
+        int stop = part_stop();
+        if (stop) {
+            sv_stop = stop;
+            if (commit(sv_count()) == STORE_OK) r = STORE_OK;
+            else sv_stop = 0;
+        }
     }
     sv_at = -1;                                        /* (enumerated again as they are written) */
     if (r || s_state != S_WRITING) {
@@ -2103,6 +2281,8 @@ int store_edit_save(void)
     if (s_state == S_STAGING) store_save_cancel();
     sv_dels = 0;
     then_rest = 0;
+    sv_stop = 0;
+    p_done = p_all = 0;
     return edits_commit();
 }
 
@@ -2113,8 +2293,9 @@ void store_poll(void)
 
 int store_save_status(uint8_t *percent)
 {
-    if (s_state == S_WRITING) {
-        if (percent) *percent = (uint8_t)(s_n ? s_next * 100 / s_n : 100);
+    if (s_state == S_WRITING) {                        /* (an edits' SAVE: across its saves) */
+        int d = edit_saving ? p_done : 0, a = d + s_n > p_all || !edit_saving ? d + s_n : p_all;
+        if (percent) *percent = (uint8_t)(a ? (d + s_next) * 100 / a : 100);
         return STORE_BUSY;
     }
     if (percent) *percent = 100;
@@ -2181,7 +2362,7 @@ int store_thing(uint8_t kind, uint8_t num, uint8_t sub, store_key_t *keys, int m
     if (is_cart(kind)) {
         for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++)
             if (live_at(key_of(k, num, 0), 0)) n = add_key(keys, n, max, k, num, 0);
-    } else if (kind == REC_PATTERN || kind == REC_LOOPS) {     /* (every part) */
+    } else if (kind == REC_PATTERN || lp_kind(kind)) {         /* (every part) */
         map_find(key_of(kind, num, 0), &at);
         for (int i = at; i < map_n && ent_kind(&map[i]) == kind && ent_num(&map[i]) == num; i++)
             if (!ent_del(&map[i])) n = add_key(keys, n, max, kind, num, ent_sub(&map[i]));
@@ -2271,7 +2452,7 @@ static int kb_of(const ent_t *e)
 {
     uint8_t k = ent_kind(e);
     return ent_del(e) ? STORE_KB_OTHER : k == REC_SAMPLE ? STORE_KB_SAMPLES : is_cart(k) ? STORE_KB_INSTRUMENTS :
-           k == REC_PATTERN ? STORE_KB_PATTERNS : k == REC_SONG ? STORE_KB_SONGS : k == REC_LOOPS ? STORE_KB_LOOPS :
+           k == REC_PATTERN ? STORE_KB_PATTERNS : k == REC_SONG ? STORE_KB_SONGS : lp_kind(k) ? STORE_KB_LOOPS :
            STORE_KB_OTHER;
 }
 int store_kb_map(uint8_t *kb, int max)

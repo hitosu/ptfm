@@ -206,7 +206,9 @@
          * DCK), the curve after one loud hit hanging from the top over a bar; the source inverted */
         DUCK(c) {
             const { x, y, w, h, col, k } = c, src = k[0], depth = k[1] / 100, rel = k[2], top = y + 13, gh = h - 26;
-            const s = PTFM.audio.fxSong(), mixer = s.mixer, ntrk = s === M.state.loops ? 16 : Math.max(...s.order.map(n => (M.pattern(n) || { tracks: 1 }).tracks), 1);
+            const s = PTFM.audio.fxSong(), ntrk = s === M.state.loops ? 16 : Math.max(...s.order.map(n => (M.pattern(n) || { tracks: 1 }).tracks), 1);
+            const mixer = s === M.state.loops ? M.loopsMixer(s).map((m, k) => k <= s.list.length ? m : null) : s.mixer;   /* (the loops':
+                                                         * theirs, then NEW's at its place, the stage on + NEW LOOP's) */
             const span = 4 * 60 / P.tempo(), hd = d => Math.round(Math.min(24, -d) / 24 * (gh - 1));
             const n = Math.max(ntrk, 8), cw = Math.floor(w / n), bot = top + gh - 1;
             let any = false;

@@ -23,12 +23,13 @@ function editorOf(it) {
     if (it.kind === K.SAMPLE) return "sample";
     if (it.kind === K.FAVORITES) return "favorites";
     if (M.isCart(it.kind)) return "cart";
-    return { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.DJ]: "dj" }[it.kind] || null;
+    return { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.LSET]: "loops", [K.DJ]: "dj", [K.AUTO]: "auto" }[it.kind] || null;
 }
 /* a system item at its default: the records it starts from, the firmware's own (its keys' song and EDITOR's pattern
  * FE as its store answers them, DJ's setup and the loops' head as a new store makes them; the settings as SETTINGS
- * makes a new record, the MIDI map empty) */
+ * makes a new record, the MIDI map empty; AUTOMATIONS no record: its 16 slots empty) */
 function defaultRecs(it) {
+    if (it.kind === K.AUTO) return [];
     const v = R.VERSION[it.kind], fw = ED.pics && ED.pics.fw;
     const fromFw = n => n < 0 ? null : fw.mem().slice(fw.ex.ed_edit_buf(), fw.ex.ed_edit_buf() + (n & 0xFFFFFF));
     let b = null;
@@ -62,7 +63,7 @@ function open(it) {
 }
 function build(t) {
     const it = t.draft, items = app.st[t.side];
-    const SYSW = { [K.SETTINGS]: "SETTINGS", [K.MIDIMAP]: "MIDI MAP", [K.LOOPS]: "LOOPS", [K.DJ]: "DJ SETUP" };
+    const SYSW = { [K.SETTINGS]: "SETTINGS", [K.MIDIMAP]: "MIDI MAP", [K.LOOPS]: "LOOPS", [K.DJ]: "DJ SETUP", [K.AUTO]: "AUTOMATIONS" };
     const kindWord = SYSW[it.kind] || (it.kind === K.PATTERN ? "PATTERN" : it.kind === K.SONG ? "SONG" : it.kind === K.SAMPLE ? "SAMPLE" : M.ENGINE[it.kind] || "");
     t.kindWord = kindWord;
     t.kindEl = h("div", { class: "edkind" });
@@ -145,7 +146,7 @@ function save(t, anyway) {
         delete it.fw; delete it.isDefault;
         if (t.base.fw) it.builtin = true;
         /* the panel holds one at that key meanwhile (a move, UPLOAD DISK): this takes its place */
-        const SYS = [K.SETTINGS, K.MIDIMAP, K.LOOPS, K.DJ];
+        const SYS = M.SYSTEM;
         const there = items.find(i => i.kind === it.kind && (SYS.includes(it.kind) || i.num === it.num));
         if (there) it.id = there.id;
         next = there ? M.replaceItem(st, t.side, M.pruned(it)) : Object.assign({}, st, { [t.side]: items.concat([M.pruned(it)]) });
@@ -156,7 +157,8 @@ function save(t, anyway) {
         if (r.refuse) { U.status(r.refuse, { err: true }); return false; }     /* (the tab stays, its changes kept) */
         next = r.st; more = r.what ? " · " + r.what : "";
     }
-    if (t.side === "R") next = Object.assign({}, next, { R: M.linkChanged(next.R) });
+    /* (on the FM-1 panel a system item saved with no record, AUTOMATIONS with every slot empty, is its default again) */
+    if (t.side === "R") next = Object.assign({}, next, { R: M.linkChanged(next.R.filter(i => !M.noRecords(i))) });
     app.commit(next, "SAVED " + ED.files.label(t.draft, items) + more + (t.side === "R" ? " · THE FM-1 CHANGES WITH WRITE" : ""));
     drop(t);
     return true;

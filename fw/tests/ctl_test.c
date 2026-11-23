@@ -3,6 +3,7 @@
 /* Host test of fw/core/ctl.h, MIDI CONTROLLER's protocol: its table (fw/tests/vectors.json, shared with the page's
  * test, tests/controller_page.js), then scripted sessions: what each mode sends, byte for byte; the page's LEDs.
  *   fw/tests/run_ctl.sh builds it with the sanitizers. */
+#define PRESS_DEFINE                    /* (press.h's press_step: its copy here) */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,6 +19,11 @@ static int ctl_emit(const ctl_ev_t *e)
         got[ngot++] = *e;
     return 1;
 }
+/* the platform's side: each key's velocity (0 none) and its driven reading now (0 none) */
+static uint8_t vel_of[CTL_NKEY];
+static uint16_t reading_of[CTL_NKEY];
+static uint32_t ctl_vel(uint32_t k) { return vel_of[k]; }
+static uint32_t ctl_reading(uint32_t k) { return reading_of[k]; }
 
 #define CHECK(cond, ...)                                                                                               \
     do {                                                                                                               \
@@ -385,11 +391,130 @@ static void test_general(void)
     CHECK(ngot == 0, "general: nothing follows an answer");
 }
 
+/* the keys' velocity: a key's Note On carries it (KEYS VELOCITY's), the mode's own without one */
+static void test_velocity(void)
+{
+    ctl_t c;
+    reset(&c, CTL_MIRROR);
+    vel_of[3] = 87;
+    keys = 1u << 3;
+    tick(&c);
+    CHECK(ngot == 1 && is_msg(&got[0], 3, 0x9F, 56, 87), "mirror: a key's velocity in its Note On (87)");
+    keys |= 1u << 4;
+    tick(&c);
+    CHECK(ngot == 1 && is_msg(&got[0], 3, 0x9F, 57, 127), "mirror: a key without one at 127, as before");
+    c.resync = 1;
+    tick(&c);
+    CHECK(ngot >= 2 && is_msg(&got[0], 3, 0x9F, 56, 87) && is_msg(&got[1], 3, 0x9F, 57, 127), "mirror: the state again: the keys at their velocities");
+    reset(&c, CTL_GENERAL);
+    vel_of[3] = 60;
+    keys = 1u << 3 | 1u << 4;
+    tick(&c);
+    CHECK(ngot == 2 && is_msg(&got[0], 3, 0x90, 56, 60) && is_msg(&got[1], 3, 0x90, 57, 100), "general: 60 its own, 100 without one, as before");
+    memset(vel_of, 0, sizeof vel_of);
+    keys = 0;
+    tick(&c);
+}
+
+/* general mode's aftertouch: the held keys' pressure from their readings, every 5 ms; CHANNEL, POLY, OFF; mirror none */
+static uint32_t at_ms;
+static void at_run(ctl_t *c, uint32_t ms, int *nmsg, int *last, uint8_t st)   /* ms of time: the poll and the 1 kHz tick */
+{
+    while (ms--) {
+        at_ms++;
+        ctl_at_poll(c, at_ms);
+        ngot = 0;
+        ctl_tick(c, at_ms, keys, btns, steps, m10);
+        for (int i = 0; i < ngot; i++)
+            if ((got[i].b[0] & 0xF0u) == st) { (*nmsg)++; *last = got[i].n == 2u ? got[i].b[1] : got[i].b[2]; }
+    }
+}
+static void test_aftertouch(void)
+{
+    ctl_t c;
+    int n = 0, last = -1, n2 = 0, last2 = -1;
+    /* CHANNEL: a key lands at 600 and rests; 300 ms on, pressed harder (480) */
+    reset(&c, CTL_GENERAL);
+    c.at_mode = CTL_AT_CHANNEL;
+    keys = 1u << 5;
+    reading_of[5] = 600;
+    at_run(&c, 300, &n, &last, 0xD0);
+    CHECK(n == 0, "CHANNEL: a key resting where it landed: no pressure sent");
+    reading_of[5] = 480;
+    at_run(&c, 200, &n, &last, 0xD0);
+    CHECK(n > 0 && last > 40 && c.ch_sent == last, "CHANNEL: pressed harder than it rests: Channel Pressure (Dn, 2 bytes) rising");
+    printf("  (pressed harder: %d messages, the last %d)\n", n, last);
+    CHECK(got[0].n == 2u || ngot == 0, "... the message 2 bytes");
+    reading_of[5] = 620;
+    at_run(&c, 200, &n, &last, 0xD0);
+    CHECK(last == 0, "CHANNEL: eased: back to 0, sent once");
+    /* two keys: the higher pressure */
+    keys |= 1u << 7;
+    reading_of[7] = 560;
+    at_run(&c, 300, &n, &last, 0xD0);
+    reading_of[7] = 430;
+    at_run(&c, 200, &n, &last, 0xD0);
+    int both = last;
+    keys &= ~(1u << 7);
+    reading_of[7] = 0;
+    at_run(&c, 2, &n, &last, 0xD0);
+    CHECK(both > 40 && last == 0, "CHANNEL: two keys, the harder one's; let go: 0 (the other rests)");
+    /* POLY: each key's note, 0 before its Note Off */
+    reset(&c, CTL_GENERAL);
+    c.at_mode = CTL_AT_POLY;
+    keys = 1u << 2;
+    reading_of[2] = 600;
+    at_run(&c, 300, &n2, &last2, 0xA0);
+    reading_of[2] = 470;
+    at_run(&c, 200, &n2, &last2, 0xA0);
+    CHECK((n2 > 0 && last2 > 40 && c.at_sent[2] == last2) ||
+          (printf("  (POLY: %d messages, the last %d, sent %d)\n", n2, last2, c.at_sent[2]), 0),
+          "POLY: Polyphonic Key Pressure (An) on the key's note, rising");
+    keys = 0;
+    reading_of[2] = 0;
+    ngot = 0;
+    ctl_tick(&c, ++at_ms, keys, btns, steps, m10);
+    CHECK(ngot == 2 && is_msg(&got[0], 3, 0xA0, 55, 0) && is_msg(&got[1], 3, 0x80, 55, 0), "POLY: let go: its pressure 0, then its Note Off");
+    /* OFF, CONSTANT (no readings), mirror mode: nothing */
+    int n3 = 0, l3 = -1;
+    reset(&c, CTL_GENERAL);
+    c.at_mode = CTL_AT_OFF;
+    keys = 1u << 5;
+    reading_of[5] = 600;
+    at_run(&c, 300, &n3, &l3, 0xD0);
+    reading_of[5] = 450;
+    at_run(&c, 200, &n3, &l3, 0xD0);
+    c.at_mode = CTL_AT_CHANNEL;
+    reading_of[5] = 0;
+    at_run(&c, 500, &n3, &l3, 0xD0);
+    reset(&c, CTL_MIRROR);
+    c.at_mode = CTL_AT_CHANNEL;
+    keys = 1u << 5;
+    reading_of[5] = 600;
+    at_run(&c, 300, &n3, &l3, 0xD0);
+    reading_of[5] = 450;
+    at_run(&c, 200, &n3, &l3, 0xD0);
+    CHECK(n3 == 0, "none: OFF, no readings (KEYS VELOCITY CONSTANT), mirror mode");
+    keys = 0;
+    memset(reading_of, 0, sizeof reading_of);
+    /* the pressure's steps on a canned key: the playground's twin (ctl.js) gives the same */
+    {
+        uint32_t a = 0, t, sum = 0;
+        for (t = 0; t < 2000u; t += 5u) {
+            uint32_t d = t < 1500u ? 600u - (t > 400u ? (t - 400u) / 8u : 0u) + (t > 1000u ? (t - 1000u) / 3u : 0u) : 0u;
+            sum = sum * 31u + press_step(&a, d, 5u);
+        }
+        CHECK(sum == 0xE1148EDFu || (printf("  (the twin's sum 0x%08X)\n", sum), 0), "the pressure's steps on a canned key: the sum the playground's twin gives");
+    }
+}
+
 int main(void)
 {
     test_vectors();
     test_mirror();
     test_general();
+    test_velocity();
+    test_aftertouch();
     printf("ctl_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

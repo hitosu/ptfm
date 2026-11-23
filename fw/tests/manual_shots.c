@@ -282,7 +282,149 @@ static void s_loops_adjust(void)
           "LOOPS: ADJUST on loop 01, K2 a bar and K1 a row: SHIFT 17, ADJUST still open");
 }
 
+/* LOOPS with a DJ loop of the demo disk in it (SEL's LOAD FROM PATTERN on the pattern the song loops: a loop an
+ * instrument, 8 bars at the song's tempo), stopped at the start, the toast gone. ELECTRO LOOP's (B0): 00 808 KICK, 01 HAT
+ * CLOSED, 02 SEQ BASS, 03 TIMPANI, 04 808 SNARE, 05 CLAVE, 06 SEQ LEAD, 07 LASER ZAP */
+static void loops_dj(uint8_t song)
+{
+    ui_song_t s;
+    lp_fresh(64, 120);
+    check(ui_song(song, &s), "a DJ loop of the demo disk");
+    menu_pick("LOAD FROM PATTERN");
+    plist_to(s.order[s.npos - 1], 0);
+    tap(B_SEL);
+    run(2100);
+    check(screen_is("LOOPS") && !ui_top() && loops_n() >= 4 && loops_rows() == 128 && !lp_cur(5),
+          "LOOPS: the DJ loop's pattern loaded, a loop an instrument, 8 bars, stopped at the start");
+}
+/* CUT (specs/ui/screens/loops.md#cut): the SEQ BASS (02) cut at 2.3.1 by SEL held + EDIT, the play position back at the
+ * start: its strip the whole loop, its notes past the mark dimmed, CUT on its line */
+static void s_loops_cut(void)
+{
+    loops_dj(0xB0);
+    lp_select(2);
+    turn(K_ALG, 24);
+    combo(B_SEL, B_EDIT);
+    turn(K_ALG, -24);
+    run(2100);
+    check(screen_is("LOOPS") && !ui_top() && loops_cut(2) == 24 && !loops_cut(1) && !loops_cut(3) && !lp_cur(5),
+          "LOOPS: loop 02 cut at 2.3.1 (row 24), no other cut, the play position back at the start");
+}
+/* MOVE (specs/ui/screens/loops.md#moving-a-loop): SEL's MOVE on the TIMPANI (03), SELECT two clicks down: loop 05 now, the
+ * top line LOOP 05: MOVED FROM 03, the hint line SELECT MOVE  SEL KEEP  HOME CANCEL; the readout gone */
+static void s_loops_move(void)
+{
+    loops_dj(0xB0);
+    lp_select(3);
+    uint16_t in = loops_inst(3);
+    menu_pick("MOVE");
+    turn(K_SELECT, 2);
+    run(1300);
+    check(screen_is("LOOPS") && sub_is("MOVE") && ui_top() && loops_sel() == 5 && loops_inst(5) == in && !ui_knob_now(),
+          "LOOPS: MOVE open, loop 03 moved two places down (loop 05 now), the readout gone");
+}
+/* LFO held + ALGORITHM, stopped (specs/ui/screens/loops.md#lfo-held-erasing): the TIMPANI (03) on the stage by EDIT, the
+ * play position at 1.1.3, LFO held and ALGORITHM 8 clicks to 1.3.3: the stage's notes on rows 3 to 9 erased (two of
+ * them, the loop's notes ending on their offs, so a gap), the loop (STAGED) as it was; ERASING 1.3.3 in the header, LFO
+ * still held */
+static void s_loops_erasing(void)
+{
+    loops_dj(0xB0);
+    lp_select(3);
+    tap(B_EDIT);
+    turn(K_ALG, 2);
+    run(2100);
+    press(B_LFO);
+    turn(K_ALG, 8);
+    run(100);
+    int gone = 1, kept = 0, had = 0;
+    for (int r = 3; r <= 9; r++)
+        for (int l = 0; l < 4; l++) gone &= !sg_is_note(r, l);
+    for (int r = 0; r < 32; r++) kept += (r < 3 || r > 9) && sg_is_note(r, 0);
+    for (int r = 3; r <= 9; r++) had += lp_note(3, r, 0) >= 0 && lp_note(3, r, 0) != REC_NOTE_OFF;
+    check(screen_is("LOOPS") && staged() && lp_cur(5) == 10 && gone && kept && had && ui_knob_now() &&
+          !strncmp(ui_knob_now(), "ERASING", 7),
+          "LOOPS: loop 03 on the stage, LFO held + ALGORITHM from row 2 to 10: the stage's rows 3 to 9 erased, its notes "
+          "around kept, the loop's own there; ERASING in the header");
+}
+
+/* VISUAL's LEVELS while LOOPS plays (specs/ui/screens/visual.md): DNB LOOP's loops (AD: 00 KICK, 01 HAT, 02 DNB BASS,
+ * 03 WOBBLE 140, 04 SHAKER, 05 SNARE, 06 HAT OPEN, 07 SPACE PAD) playing a while, the bass muted on LOOPS by HOME + white
+ * key 3: a meter a loop, 02's empty and its number dark grey; taken at a moment most loops sound in */
+static void s_visual_levels_loops(void)
+{
+    const int y = BODY_Y + BODY_H - 13;                 /* (the meters' numbers) */
+    player_state_t st;
+    loops_dj(0xAD);
+    tap(B_PLAY);
+    run(2000);
+    home_key(UI_WHITE[2]);
+    check(loops_muted(2) && lp_toast("LOOP 02 MUTED"), "LOOPS: HOME + white key 3, loop 02 muted");
+    run(2000);
+    go_to(K_PIT, "VISUAL");
+    for (int i = 0; i < 4; i++) tap(B_SEQ);
+    run(5360);
+    ui_render();
+    player_state(&st, 0);
+    check(sub_is("LEVELS") && st.what == PL_LOOPS && st.playing && (loops_silent_mask() >> 2 & 1u) &&
+          !count_px(32, BODY_Y, 43, y, C_GREEN) && count_px(30, y, 45, y + 12, C_DGREY) && !count_px(30, y, 45, y + 12, C_CYAN) &&
+          count_px(15, y, 30, y + 12, C_CYAN),
+          "VISUAL's LEVELS, the loops playing on: loop 02 silent, its meter empty and its number dark grey (01's cyan)");
+    whole_frame = 1;
+}
+
+/* AUTOMATIONS (specs/ui/screens/automations.md): three slots recorded, from SONGS, LOOPS and PLAYBACK, a turn of SELECT
+ * at each one's start and end; slot 02 highlighted, the toast gone */
+static void s_automations(void)
+{
+    static const struct { uint8_t screen, slot; uint32_t ms; } R[3] = {{1, 0, 7300}, {22, 2, 64200}, {8, 5, 21400}};
+    player_stop(); run(100);
+    for (int i = 0; i < 3; i++) {
+        home_key(R[i].screen);
+        home_key(UI_BLACK[5]);
+        key(UI_WHITE[R[i].slot], 1); key(UI_WHITE[R[i].slot], 0);
+        tap(B_REC);
+        turn(K_SELECT, 1);
+        run(R[i].ms);
+        turn(K_SELECT, -1);
+        home_key(UI_BLACK[5]);
+    }
+    key(UI_WHITE[2], 1); key(UI_WHITE[2], 0);
+    run(2100);
+    check(screen_is("AUTOMATIONS"), "AUTOMATIONS with three slots recorded");
+}
+
+/* AUTOMATIONS' menu (SEL) with COMPACT picked, over the three slots */
+static void s_automations_menu(void)
+{
+    s_automations();
+    tap(B_SEL);
+    check(menu_open() && menu_to("COMPACT"), "AUTOMATIONS' menu, COMPACT picked");
+}
+/* COMPACT's list of limits for slot 02 */
+static void s_automations_compact(void)
+{
+    s_automations();
+    tap(B_SEL); menu_to("COMPACT"); tap(B_SEL);
+    check(menu_open() && menu_to("1 S"), "COMPACT AUTOMATION 02: its list, 1 S picked");
+}
+/* HOME's combination on SONGS after ARP: the white keys play the automations */
+static void s_home_automations(void)
+{
+    s_automations();
+    go_to(K_OP1, "SONGS");
+    run(2100);
+    tap(B_HOME);
+    tap(B_ARP);
+    check(ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: PLAY ITS AUTOMATION") &&
+          home_has("SEQ: SOLO INSTEAD  ARP: MUTE INSTEAD"), "HOME, ARP on SONGS: WHITE KEY: PLAY ITS AUTOMATION");
+}
+
 static const mshot_t SHOTS[] = {
+    {"automations", s_automations, 0, 0},
+    {"automations-menu", s_automations_menu, 0, 0},
+    {"automations-compact", s_automations_compact, 0, 0},
+    {"home-automations", s_home_automations, 0, 0},
     {"fx-live", 0, test_fx, "23_fx_live"},
     {"fx-edit", 0, test_fx, "23b_fx_edit"},
     {"fx-mixer", s_fx_mixer, 0, 0},
@@ -318,8 +460,12 @@ static const mshot_t SHOTS[] = {
     {"loops-overwrite", 0, loops_as_playground, "28k_loops_overwrite"},
     {"loops-stage-off", 0, loops_as_playground, "28s_loops_stage_off"},
     {"loops-adjust", s_loops_adjust, 0, 0},
+    {"loops-cut", s_loops_cut, 0, 0},
+    {"loops-move", s_loops_move, 0, 0},
+    {"loops-erasing", s_loops_erasing, 0, 0},
     {"loops-tie", 0, test_loops, "ui3_loops_pattern_ties"},
     {"loops-save-to", 0, test_loops, "ui3_loops_save_to"},
+    {"loops-sets", 0, test_loops, "ui3_loops_sets_load"},
     {"loops-record-live", 0, test_loops, "ui3_loops_record_live"},
     {"loops-repeats", 0, test_loops, "ui3_loops_repeats"},
     {"visual-voices", s_visual_voices, 0, 0},
@@ -327,6 +473,7 @@ static const mshot_t SHOTS[] = {
     {"visual-wave", s_visual_wave, 0, 0},
     {"visual-spectrum", s_visual_spectrum, 0, 0},
     {"visual-levels", s_visual_levels, 0, 0},
+    {"visual-levels-loops", s_visual_levels_loops, 0, 0},
     {"visual-foma", s_visual_foma, 0, 0},
     {"visual-options", s_visual_options, 0, 0},
     {"status-ptfm", s_status_ptfm, 0, 0},

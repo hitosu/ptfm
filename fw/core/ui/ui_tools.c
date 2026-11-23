@@ -9,6 +9,7 @@
 #include "ui_data.h"
 #include "ed_inst.h"
 #include "../play/rec.h"
+#include "../play/loops.h"
 #include "../store/store.h"
 
 /* ------------------------------------------------------------- a checklist --- */
@@ -47,9 +48,9 @@ static void ck_draw(ui_overlay_t *o)
     int n = ck.n, sy = ck.sub ? 12 : 0, ex = sy + (ck.foot ? 13 : 0), h = n * 13 + 94 + ex, y = BODY_Y + (BODY_H - h) / 2;
     ui_panel(8, y, 224, h, 0, C_CYAN);
     const char *title = ck.title_of ? ck.title_of(ck.rows, ck.n) : ck.title;
-    g_text(g_centre(&FONT_T, title, 8, 224), y + 8, &FONT_T, title, C_WHITE);
-    if (ck.sub) g_text(g_centre(&FONT_T, ck.sub, 8, 224), y + 20, &FONT_T, ck.sub, C_LGREY);
-    if (ck.foot) g_text(g_centre(&FONT_T, ck.foot, 8, 224), y + 24 + sy + n * 13, &FONT_T, ck.foot, C_DGREY);
+    g_text_c(8, 224, y + 8, &FONT_T, title, C_WHITE);
+    if (ck.sub) g_text_c(8, 224, y + 20, &FONT_T, ck.sub, C_LGREY);
+    if (ck.foot) g_text_c(8, 224, y + 24 + sy + n * 13, &FONT_T, ck.foot, C_DGREY);
     for (int i = 0; i < n; i++) {
         const ui_check_t *r = &ck.rows[i];
         int ry = y + 24 + sy + i * 13, on = i == ck.sel, col = r->count ? C_LGREY : C_DGREY;
@@ -57,13 +58,13 @@ static void ck_draw(ui_overlay_t *o)
         g_box(16, ry + 1, 9, 9, col);
         if (r->on) g_rect(18, ry + 3, 5, 5, C_WHITE);
         g_text(32, ry, &FONT_T, r->name, r->count ? (on ? C_WHITE : C_LGREY) : C_DGREY);
-        g_text(220 - g_tw(&FONT_T, r->note), ry, &FONT_T, r->note, col);
+        g_text_r(220, ry, &FONT_T, r->note, col);
     }
     int ay = y + 30 + n * 13 + ex;
     const char *nm[2] = {T("OCT-"), T("OCT+")}, *an[2] = {ck.no, ck.yes};
     for (int i = 0; i < 2; i++) {
         int x = i ? 120 : 8;
-        g_text(g_centre(&FONT_T, nm[i], x, 112), ay, &FONT_T, nm[i], C_YELLOW);
+        g_text_c(x, 112, ay, &FONT_T, nm[i], C_YELLOW);
         g_text_crop(g_centre(&FONT_S, an[i], x, 112), ay + 13, &FONT_S, an[i], C_WHITE, 0, 16);
     }
     g_run_t k[6] = {{T("SELECT"), C_YELLOW}, {T(": PICK  "), C_LGREY}, {T("K1"), C_YELLOW}, {T(": TICK  "), C_LGREY},
@@ -113,6 +114,7 @@ static void inst_used(uint8_t cart, uint8_t *used)
         if (rec_cart(nums[i], &c)) continue;
         for (int s = 0; s < c.nslots; s++) { const uint8_t *f = rec_fav(&c, (uint8_t)s); if (f && f[0] == cart) set_bit(used, f[1]); }
     }
+    loops_cart_used(cart, used);                        /* (and the loops: LOOPS' own and every set's) */
 }
 static void scan_uses(int skip)                         /* (skip: a song left out, or -1) */
 {
@@ -133,7 +135,7 @@ static void scan_uses(int skip)                         /* (skip: a song left ou
 
 /* -------------------------------------------------------- CHECK REFERENCES --- */
 /* each missing reference kept as its numbers, worded as it is drawn */
-enum { MS_CELL, MS_POS, MS_FUSION, MS_FAV, MS_SAMPLER };
+enum { MS_CELL, MS_POS, MS_FUSION, MS_FAV, MS_SAMPLER, MS_LOOP, MS_SET };
 typedef struct { uint8_t kind, a, b, c, d, e; } miss_t;
 #define MISS_MAX 64
 static miss_t miss[MISS_MAX];
@@ -152,6 +154,8 @@ static void miss_text(const miss_t *m, char *s)
     else if (m->kind == MS_POS) ui_fmt(s, 48, T("SONG %02X POSITION %02X: PATTERN %02X"), m->a, m->b, m->c);
     else if (m->kind == MS_FAV) ui_fmt(s, 48, T("FAVORITE %02X:%02X: %02X:%02X"), m->a, m->b, m->c, m->d);
     else if (m->kind == MS_SAMPLER) ui_fmt(s, 48, T("SAMPLER %02X:%02X: SAMPLE %02X"), m->a, m->b, m->c);
+    else if (m->kind == MS_LOOP) ui_fmt(s, 48, T("LOOP %02X: %02X:%02X"), m->b, m->c, m->d);
+    else if (m->kind == MS_SET) ui_fmt(s, 48, T("SET %02X LOOP %02X: %02X:%02X"), m->a, m->b, m->c, m->d);
     else ui_fmt(s, 48, T("FUSION %02X:%02X: PATTERN %02X"), m->a, m->b, m->c);
 }
 /* the old-form samplers (a sampler record in a version this firmware does not read, specs/files/instruments.md#the-old-form):
@@ -182,10 +186,8 @@ static int ml_tap(ui_overlay_t *o, int b) { (void)o; (void)b; return 0; }
 static void ml_draw(ui_overlay_t *o)
 {
     (void)o;
-    char t[40];
-    ui_fmt(t, sizeof t, "%s", ui_txt_v(T("MISSING REFERENCES: #"), ui_dec(nmiss)));
     int y = BODY_Y + 2;
-    ui_panel(2, y, 236, 206, t, C_CYAN);
+    ui_panel(2, y, 236, 206, ui_txt_d(TX("MISSING REFERENCES: #"), nmiss), C_CYAN);
     uint8_t old[256];
     int kept = nmiss < MISS_MAX ? nmiss : MISS_MAX, nold = old_samplers(old);
     for (int i = 0; i < 14 && miss_top + i < kept + nold; i++) {
@@ -199,10 +201,16 @@ static void ml_draw(ui_overlay_t *o)
 static void checked(void)
 {
     uint8_t old[256];
-    if (!nmiss && !old_samplers(old)) { ui_toast(T("NO MISSING REFERENCES")); return; }
+    if (!nmiss && !old_samplers(old)) { ui_toast_t(TX("NO MISSING REFERENCES")); return; }
     miss_top = 0;
     ui_overlay_t o = {.kind = OV_LIST, .opener = -1, .knob = ml_knob, .tap = ml_tap, .draw = ml_draw};
     ui_open(&o);
+}
+/* a loop naming nothing, as a cell (an old sampler's instrument: none): LOOP 03: 0B:05, a set's SET 02 LOOP 03: 0B:05 */
+static void loop_miss(int set, int i, uint16_t ref)
+{
+    char nm[12];
+    if (!ui_inst_name(ref, nm) && !old_sampler(ref >> 8)) add_miss(set < 0 ? MS_LOOP : MS_SET, set, i, ref >> 8, ref & 255, 0);
 }
 void ui_check_references(void)
 {
@@ -247,6 +255,7 @@ void ui_check_references(void)
             }
         }
     }
+    loops_each_inst(loop_miss);                         /* (LOOPS' loops, then each set's) */
     ui_progress(T("CHECKING"), 600, checked);
 }
 
@@ -309,7 +318,7 @@ static const char *clean_title(const ui_check_t *rows, int n)
     char k[12];
     for (int i = 0; i < n; i++) if (rows[i].on) b += bytes[i];
     kb(k, b);
-    ui_fmt(ck_title, sizeof ck_title, "%s", ui_txt_v(T("CLEAN UP: FREES #"), k));
+    ui_fmt(ck_title, sizeof ck_title, "%s", ui_txt_t(TX("CLEAN UP: FREES #"), k));
     return ck_title;
 }
 static void (*clean_after)(void);
@@ -358,14 +367,14 @@ static void cleaned(int a, ui_check_t *rows)
         }
         if (changed) ui_edit_put(c.kind, nums[i], 0, cver, rec, clen);
     }
-    ui_toast(ui_txt_v(T("CLEANED UP: # DELETED"), ui_dec(deleted)));
+    ui_toast(ui_txt_d(TX("CLEANED UP: # DELETED"), deleted));
     if (clean_after) clean_after();
 }
 uint32_t ui_clean_up_frees(void) { measure(); return bytes[0] + bytes[1]; }   /* (the rows it starts with ticked) */
 void ui_clean_up(void (*after)(void))
 {
     measure();
-    if (!counts[0] && !counts[1] && !counts[2]) { ui_toast(T("NOTHING TO CLEAN UP")); return; }
+    if (!counts[0] && !counts[1] && !counts[2]) { ui_toast_t(TX("NOTHING TO CLEAN UP")); return; }
     ui_check_t rows[3];
     static const txt_t NAMES[3] = {TX("UNUSED PATTERNS"), TX("UNUSED SAMPLES"), TX("UNUSED INSTRUMENTS")};
     static char names[3][20], notes[3][20];              /* (kept: the list draws them later) */

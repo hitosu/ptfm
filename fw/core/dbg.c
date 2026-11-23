@@ -19,6 +19,7 @@ uint32_t dbg_half[DS_N];
 uint32_t dbg2_half[DS_N];
 uint16_t dbg_blocks_half[4];
 uint8_t dbg_notes_half;
+uint32_t dbg_gh_half;
 volatile uint8_t dbg_usb_tone;
 static uint32_t tone_resets;            /* plat_usb_resets when the tone went on */
 static const int32_t *tone_sin;         /* the DX7's sine table (dx7_table(0)): the tone's code, in core 2's room,
@@ -31,6 +32,8 @@ typedef struct {
     uint16_t blocks[4];
     uint8_t voices_most;
     dbg_worst_t worst;                                 /* its worst half */
+    uint32_t gh_sum;                                   /* GHOSTS (FIGURES 2's): summed, the longest in a half, the */
+    uint16_t gh_max, gh_worst;                         /* worst half's */
 } win_t;
 static win_t win;
 static struct { uint16_t frames; uint32_t frame_sum, frame_max; } fwin;   /* the main loop's own */
@@ -65,7 +68,15 @@ void dbg_half_end(uint8_t voices)
     }
     for (int s = 0; s < DS_N; s++)
         if (DS_TOP >> s & 1u) us += dbg_half[s];
-    dbg_worst_take(&win.worst, dbg_half, dbg_blocks_half, voices, dbg_notes_half, us);
+    {
+        uint16_t w0 = win.worst.us;
+        dbg_worst_take(&win.worst, dbg_half, dbg_blocks_half, voices, dbg_notes_half, us);
+        if (win.worst.us != w0)
+            win.gh_worst = cap16(dbg_gh_half);         /* (the worst half's GHOSTS) */
+    }
+    win.gh_sum += dbg_gh_half;
+    if (dbg_gh_half > win.gh_max) win.gh_max = cap16(dbg_gh_half);
+    dbg_gh_half = 0;
     dbg_notes_half = 0;
     for (int s = 0; s < DS_N; s++) {
         uint32_t t = dbg_half[s];
@@ -106,20 +117,23 @@ PLAT_DBG void dbg_worst_put(uint8_t *p, const dbg_worst_t *w)
 typedef char dj_len_ok[DBG_DJ_LEN == REMOTE_DJ_LEN ? 1 : -1];
 #define dj_put remote_dj_put
 
-/* core 2's window (specs/debug.md, Core 2's bytes): 37 FIGURES 2, sent right after its 31 */
-static PLAT_DBG void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
+/* core 2's window (specs/debug.md, Core 2's bytes): 37 FIGURES 2, sent right after its 31; then the ghosts' (the GHOSTS
+ * stage from w, the window's, then the player's figures) */
+static PLAT_DBG void dbg_figures2(uint8_t *f, const plat_dbg_t *d, const win_t *w)
 {
     plat_cpu_t c;
+    player_v2_t v;
     plat_cpu(&c, 0);
+    player_v2_figures(&v);
     memset(f, 0, DBG_FIGURES2_LEN);
     f[0] = DBG_FIGURES2_VERSION;
     f[1] = win_no;
     f[2] = c.c2_state;
     f[3] = c.c2_why;
-    f[4] = (uint8_t)((ui_set[S_SECOND_CORE] ? 0u : 1u) |  /* SETTINGS' SECOND CORE on; (bit 1 spare); its start
-                                                           * needed the clock-divider bit; the blocks on core 2 all the
-                                                           * window */
-                     (d->c2.clk ? 4u : 0u) | (d->halves && d->c2.halves >= d->halves ? 8u : 0u));
+    f[4] = (uint8_t)((ui_set[S_SECOND_CORE] ? 0u : 1u) |  /* SETTINGS' SECOND CORE on; the debug switch's fixed split;
+                                                           * its start needed the clock-divider bit; the blocks on core
+                                                           * 2 all the window */
+                     (v.fixed ? 2u : 0u) | (d->c2.clk ? 4u : 0u) | (d->halves && d->c2.halves >= d->halves ? 8u : 0u));
     put16(f + 6, d->c2.start_10ns);
     put32(f + 8, d->c2.sum_us);
     put16(f + 12, d->c2.max_us);
@@ -133,17 +147,66 @@ static PLAT_DBG void dbg_figures2(uint8_t *f, const plat_dbg_t *d)
     put16(f + 30, d->c2.stack_size);
     put32(f + 32, d->c2.fault_vec);
     put32(f + 36, d->c2.fault_pc);
-    {                                   /* its voice jobs (the voices in its places) */
-        player_v2_t v;
-        player_v2_figures(&v);
-        put32(f + 40, v.us);
-        put16(f + 44, (uint16_t)(v.jobs > 0xFFFFu ? 0xFFFFu : v.jobs));
-        f[46] = v.most;
-        put32(f + 48, v.wait_sum);
-        put16(f + 52, (uint16_t)(v.wait_max > 0xFFFFu ? 0xFFFFu : v.wait_max));
-    }
+    put32(f + 40, v.us);                /* its voice jobs (the voices from each block's split on) */
+    put16(f + 44, cap16(v.jobs));
+    f[46] = v.most;
+    put32(f + 48, v.wait_sum);
+    put16(f + 52, cap16(v.wait_max));
     f[54] = (uint8_t)(d->sx_lost[0] > 255u ? 255u : d->sx_lost[0]);   /* SysEx lost on the way in, this window */
     f[55] = (uint8_t)(d->sx_lost[1] > 255u ? 255u : d->sx_lost[1]);
+    put32(f + 56, w->gh_sum);                          /* the ghosts: the GHOSTS stage, then the player's */
+    put16(f + 60, w->gh_max);
+    put16(f + 62, w->gh_worst);
+    player_gh_figures(f + 56);
+    for (int k = 0; k < 2; k++) {                      /* the stacks' bottoms (the platform's: specs/debug.md) */
+        put16(f + 56 + DBG_GHOSTS_LEN + 4 * k, d->stack_island[k]);
+        put16(f + 58 + DBG_GHOSTS_LEN + 4 * k, d->stack_paint[k]);
+    }
+    {                                                  /* the voices' split: where it stood, core 2's voices a job, core
+                                                        * 1's waits at the join, the margin now */
+        uint8_t *s = f + 64 + DBG_GHOSTS_LEN;
+        put32(s, v.k_sum);
+        put16(s + 4, cap16(v.k_blocks));
+        s[6] = v.low;
+        put16(s + 8, (uint16_t)v.margin);
+        put32(s + 10, v.v_sum);
+        put16(s + 14, cap16(v.waited));
+    }
+    {                                                  /* the keys' readings (specs/debug.md#the-keys-bytes) */
+        plat_keys_t k;
+        uint8_t *s = f + 64 + DBG_GHOSTS_LEN + DBG_SPLIT_LEN;
+        plat_keys(&k, 8);                              /* (the window's: its longest tick, the keys' lowest readings) */
+        s[0] = k.curve;
+        s[1] = k.wait;
+        s[2] = k.key;
+        s[3] = k.vel;
+        put16(s + 4, k.touch);
+        put16(s + 6, k.d1);
+        put16(s + 8, k.d2);
+        put16(s + 10, k.land);
+        put16(s + 12, k.presses);
+        put16(s + 14, k.grazes);
+        put16(s + 16, k.lates);
+        put16(s + 18, k.lost);
+        put16(s + 20, k.tick_10ns);
+        put16(s + 22, k.tick_most_10ns);
+        s[24] = k.flags;                               /* (at rest: each key's lowest; MASTER both ways; the battery) */
+        memcpy(s + 25, k.rest, 20);
+        put16(s + 45, k.m_slot);
+        put16(s + 47, k.m_direct);
+        put16(s + 49, k.batt);
+        put16(s + 51, k.batt_n);
+        s[53] = k.landed;                              /* (the last landings, the newest first: a RUN's presses) */
+        for (int i = 0; i < PLAT_KEYS_RING; i++) {
+            uint8_t *r = s + 54 + 9 * i;
+            r[0] = k.ring[i].key;
+            r[1] = k.ring[i].vel;
+            r[2] = k.ring[i].wait;
+            put16(r + 3, k.ring[i].touch);
+            put16(r + 5, k.ring[i].d1);
+            put16(r + 7, k.ring[i].d2);
+        }
+    }
 }
 
 PLAT_DBG int dbg_figures(uint8_t *f, uint8_t *f2)
@@ -170,7 +233,7 @@ PLAT_DBG int dbg_figures(uint8_t *f, uint8_t *f2)
     put16(f + 14, 5804);
     f[16] = DS_N;
     f[17] = win_no;                                    /* (its 37 carries the same) */
-    dbg_figures2(f2, &d);
+    dbg_figures2(f2, &d, &w);
     win_no++;
     uint8_t *p = f + 18;                               /* (the stages, then the rest: specs/debug.md) */
     for (int s = 0; s < DS_N; s++, p += 6) {
@@ -223,8 +286,43 @@ PLAT_DBG int dbg_figures(uint8_t *f, uint8_t *f2)
     return DBG_FIGURES_LEN;
 }
 
+/* 32 KEYS FEED (specs/debug.md#keys-feed): F0 7D 50 54 32 key ops.. F7, key's readings fed as the scan would bring
+ * them (plat_key_feed), answered 33 KEYS FED: what the platform made of them, the volume the keys play the key at */
+#define DBG_FED_LEN 24
+static PLAT_DBG void dbg_key_feed(const uint8_t *msg, uint32_t n)
+{
+    plat_feed_t r;
+    uint8_t a[DBG_FED_LEN];
+    int key = msg[5];
+    plat_key_feed(key, msg + 6, (int)n - 7, &r);
+    memset(a, 0, sizeof a);
+    a[0] = 1;                                          /* (its version) */
+    a[1] = (uint8_t)key;
+    a[2] = (uint8_t)ui_set[S_KEYS_VELOCITY];
+    a[3] = r.flags;
+    put32(a + 4, r.state);
+    put16(a + 8, r.land);
+    a[10] = r.vel[0];
+    a[11] = r.vel[1];
+    a[12] = r.vel[2];
+    a[13] = r.taken;
+    a[14] = (uint8_t)(key < 27 ? ui_key_vol(key) : 0);  /* (the note's volume as the keys play it) */
+    a[15] = (uint8_t)ui_set[S_KEYS_VOLUME];
+    a[16] = (uint8_t)ui_midi_set[S_MIDI_OUT];
+    a[17] = r.wait;
+    put16(a + 18, r.presses);
+    put16(a + 20, r.grazes);
+    put16(a + 22, r.lates);
+    dbg_send(0x33, a, sizeof a);
+}
+
 PLAT_DBG int dbg_sysex(const uint8_t *msg, uint32_t n)
 {
+    if (n >= 7 && n <= 6 + 2 * 64 && msg[0] == 0xF0 && msg[1] == 0x7D && msg[2] == 0x50 && msg[3] == 0x54 &&
+        msg[4] == 0x32 && msg[n - 1] == 0xF7) {
+        dbg_key_feed(msg, n);
+        return 1;
+    }
     if (n != 7 || msg[0] != 0xF0 || msg[1] != 0x7D || msg[2] != 0x50 || msg[3] != 0x54 || msg[6] != 0xF7)
         return 0;
     if (msg[4] == 0x34) {                              /* F0 7D 50 54 34 on F7: the USB test tone */
@@ -238,6 +336,8 @@ PLAT_DBG int dbg_sysex(const uint8_t *msg, uint32_t n)
     uint8_t fl = msg[5];
     if (fl & 2) { frozen = 1; ui_toast(T("FROZEN FOR MEASURING")); }
     if (fl & 4) thaw = 1;                              /* (after this answer: the window it closes was frozen) */
+    if (fl & 24) player_split_fixed(fl & 8);           /* (the voices' split fixed as before it moved, or moving again:
+                                                        * AUTOTEST's "before") */
     asked = 1;
     return 1;
 }

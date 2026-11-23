@@ -11,7 +11,7 @@ OUT=build/fw/dj
 mkdir -p "$OUT"
 python3 -I fw/tools/gen.py "$GEN" >/dev/null
 [ -f dist/firmware/demo.ptfmdsk ] || { echo "run_dj: no dist/firmware/demo.ptfmdsk (tools/pack.py makes it)"; exit 1; }
-CORE="fw/core/play/player.c fw/core/play/dj.c fw/core/play/rec.c fw/core/play/ibxm/ibxm.c fw/core/fx/fx.c
+CORE="fw/core/plat_weak.c fw/core/play/player.c fw/core/play/dj.c fw/core/play/rec.c fw/core/play/ibxm/ibxm.c fw/core/fx/fx.c
       fw/core/eng/dx7/dx7.c fw/core/eng/juno/juno.c fw/core/eng/tb303/tb303.c fw/core/eng/samp/samp.c
       fw/core/eng/chip/chip.c fw/core/spare.c fw/tests/sound/disk_store.c $GEN/builtin.c"
 CF="-std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-type-limits -I$GEN -Ifw/core -Ifw/core/play -Ifw/core/play/ibxm"

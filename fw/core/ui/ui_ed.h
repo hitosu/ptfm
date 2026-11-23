@@ -30,6 +30,8 @@ int ed_inst_uses(uint16_t ref);         /* cells that name the instrument */
 /* references updated: every cell of the user's patterns naming `from` made to name `to` (-1: no
  * instrument), the two swapped when swap; whole_cart: from and to are cartridges, the slots kept */
 void ed_remap(int from, int to, int swap, int whole_cart);
+uint32_t ed_remap_need(int from, int to, int swap, int whole_cart);   /* the edit memory ed_remap takes at most: made
+                                                         * first, with the change's own puts, so all of it or nothing */
 
 /* the EDITOR's own pattern (UI_EDITOR_PATTERN; specs/ui/screens/editor.md#the-editors-own-pattern) */
 int ed_pattern_holds(uint8_t pat);      /* 1 a cell holds anything (note, instrument, volume or command) */

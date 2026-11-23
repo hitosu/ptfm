@@ -17,9 +17,11 @@ CHANNEL</td></tr>
 <tr><th>Mode</th><td>Mode 3</td><td>Mode 1 (ALL), mode 3 (1-16)</td><td></td></tr>
 <tr><th>Note number</th><td>12-127</td><td>0-127</td><td>C-0 to G-9 sent. Notes past the keys' range play the
 current instrument</td></tr>
-<tr><th>Velocity: note on</th><td>O</td><td>O</td><td>The keys send KEYS VOLUME; a track's note its volume</td></tr>
+<tr><th>Velocity: note on</th><td>O</td><td>O</td><td>The keys send their velocity (KEYS VELOCITY; KEYS VOLUME at
+CONSTANT); a track's note its volume</td></tr>
 <tr><th>Velocity: note off</th><td>X</td><td>X</td><td>Sent as 8n, velocity 0</td></tr>
-<tr><th>After touch: keys, channel</th><td>X</td><td>X</td><td></td></tr>
+<tr><th>After touch: keys, channel</th><td>X</td><td>X</td><td>MIDI CONTROLLER's GENERAL mode sends either (CONTROLLER
+AFTERTOUCH)</td></tr>
 <tr><th>Pitch bend</th><td>X</td><td>O</td><td>The keys' notes, plus or minus 2 semitones</td></tr>
 <tr><th>Control change 0</th><td>X</td><td>O</td><td>Bank select: the n-th cartridge in the list, from 0</td></tr>
 <tr><th>Control change 64</th><td>X</td><td>O</td><td>Sustain: holds the notes played from MIDI</td></tr>

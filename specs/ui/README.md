@@ -50,6 +50,7 @@ texts here are taken from it.
 | [screens/visual.md](screens/visual.md) | VISUAL: the visualisers |
 | [screens/status.md](screens/status.md) | STATUS: the start screen and the figures |
 | [screens/settings.md](screens/settings.md) | SETTINGS: global settings and tools |
+| [screens/automations.md](screens/automations.md) | AUTOMATIONS: the FM-1's controls as worked, recorded and played back, 16 slots |
 
 ## The hardware the UI works with
 
@@ -77,7 +78,7 @@ texts here are taken from it.
   | ENV | envelope | `EXPLORE NAMED VAULTS` | the lists of patterns, cartridges and samples |
   | SEQ | sequencer | `SHOW ELSE, QUICK` | the next subview |
   | ARP | arpeggiator | `AUTOMATIC REPEAT PROCEDURE` | the arpeggiator, as printed; on the EDITOR the row preview, on LOOPS the stage's switch (tapped), the pattern recorder (held + REC); with a punch-in's key held, the punch-in held on |
-  | OP1-OP6 | FM operators | `OPEN PAGE 1` … `OPEN PAGE 6` | SONGS, EDITOR, INSTRUMENTS, PLAYBACK, DJ (OP6 reserved) |
+  | OP1-OP6 | FM operators | `OPEN PAGE 1` … `OPEN PAGE 6` | SONGS, EDITOR, INSTRUMENTS, PLAYBACK, DJ, AUTOMATIONS |
   | PIT | pitch | `PICTURES IN TIME` | VISUAL |
   | MONO | mono | `MY OWN NERDY OPTIONS` | SETTINGS |
   | POLY | polyphonic | `PARTY ON, LOOP YOURSELF` | LOOPS |
@@ -101,13 +102,16 @@ texts here are taken from it.
 | Rows in a pattern | 1-128 | numbered `00`-`7F`: 8 bars at 4 rows a beat ([../files/patterns.md](../files/patterns.md#size)) |
 | Patterns | 240 of the user's | `00`-`EF`; the firmware's `F0`-`FE`, `FE` the EDITOR's own ([../files/patterns.md](../files/patterns.md#numbers)) |
 | Cartridges | numbered `00`-`FF` | the first half of an instrument ID (`0B:05`); flash space allows far fewer |
-| Voices | 8, 12 or 16 heard (16: 4 of them on the second core) | shared by everything; notes past them parked ([screens/settings.md](screens/settings.md#voices)) |
+| Voices | 8, 12 or 16 heard (16: 6 of them on the second core) | shared by everything; notes past them wait as ghosts, 24 at most, and come back where they would be ([screens/settings.md](screens/settings.md#voices)) |
 | Notes | C-0 to G-9 (MIDI 12-127) | in patterns and from the keys (OCT −4 to +4) |
 | Commands in a cell | 1-4 | the grid shows one, the note editor all |
 | Instrument names | 10 characters | the DX7's own limit; it also fits the two-column list |
 | Characters in names | `A`-`Z`, `0`-`9`, space, `: . - ? \| / \ * # $ @ %` | capitals only |
 | Cartridge names | 12 characters | |
 | Song names | 16 characters | |
+| LOOPS sets | 240, `00`-`EF`, names of 16 characters | `F0`-`FF` kept for built-in sets, none yet ([../files/loops.md](../files/loops.md#sets)) |
+| Records in the user area | 560 | the store's map ([../files/store.md](../files/store.md#the-list-of-records)): a record each song, sample, cartridge, pattern or set part and so on; a SAVE past 560 is refused, nothing written (`TOO MANY RECORDS TO SAVE`, [saving.md](saving.md#storage-full)), and deleting things makes room; a store filled past it some other way loses records at power-on (its walk of the blocks in address order keeps the first 560 it meets) |
+| Menu items | 26 characters | in S across the body, a group's mark after them ([dialogs.md](dialogs.md#menus)); a menu's title 28 |
 
 **What fits on a screen:** the header takes 17 px and the footer 13 px, leaving a body of 210 px
 ([frame.md](frame.md)).

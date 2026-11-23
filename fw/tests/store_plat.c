@@ -15,6 +15,7 @@ uint32_t fake_ms;
 long fake_ops, fake_erases;
 long cut_at = -1;
 int cut_torn;
+long fail_at = -1;
 jmp_buf cut_env;
 void (*fake_sysex)(const uint8_t *msg, uint32_t n);
 
@@ -24,6 +25,7 @@ void fake_reset(void)
     fake_ops = fake_erases = 0;
     cut_at = -1;
     cut_torn = 0;
+    fail_at = -1;
 }
 
 static int in_user(uint32_t a, uint32_t n)
@@ -57,6 +59,7 @@ int plat_flash_read(uint32_t addr, void *dst, uint32_t n)
 int plat_flash_erase(uint32_t addr)
 {
     if (addr & 0xFFF || !writable(addr, 4096)) { fprintf(stderr, "erase refused at %06X\n", addr); return -1; }
+    if (fail_at >= 0 && fake_ops == fail_at) { fail_at = -1; return -1; }
     if (cut_at >= 0 && fake_ops >= cut_at) {
         if (cut_torn) {                                 /* an erase cut short: almost all 0xFF */
             memset(&fake_flash[addr], 0xFF, 4096);
@@ -76,6 +79,7 @@ int plat_flash_prog(uint32_t addr, const void *src, uint32_t n)
         fprintf(stderr, "program refused at %06X (%u B)\n", addr, n);
         return -1;
     }
+    if (fail_at >= 0 && fake_ops == fail_at) { fail_at = -1; return -1; }
     if (cut_at >= 0 && fake_ops >= cut_at) {
         if (cut_torn) for (uint32_t i = 0; i < n / 2; i++) fake_flash[addr + i] &= s[i];
         longjmp(cut_env, 1);

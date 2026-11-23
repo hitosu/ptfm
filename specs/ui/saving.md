@@ -35,6 +35,12 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
   first. A song RECORD LIVE records ends before a save that does not wait, and before REVERT ALL
   ([screens/loops.md](screens/loops.md#record-live)).
 - **A save** shows a progress bar (`SAVING 3 CHANGES`), then `SAVED`.
+- **A save is made in silence:** at its start all sound stops as [CUT](controls.md#cut) stops it (every note,
+  the keys' too, and the effects' tails), the output fading out over about 12 ms; the writing begins once that
+  fade is over (25 ms after SAVE), and the sound is back when the save ends, whatever came of it (`SAVED`, its
+  question, `SAVE FAILED`): heard again from the next notes, the effects starting dry. Each flash step of a save
+  stops the flash for a moment, the interrupts off; with nothing sounding no voice, effect or second core's work
+  runs between them. A CUT held by hand stays on after a save until REC is let go.
 - **REVERT takes a change back** ([below](#revert)): REVERT in a screen's SEL menu the thing it shows,
   REVERT ALL everything.
 - **REVERT ALL, after a question:** every change is dropped and everything is reloaded from flash. By
@@ -43,6 +49,8 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
   ([dialogs.md](dialogs.md#hold-layers)): let go then, it saves nothing; **SAVE + OCT+** saves (a
   SAVE's tap, held or not), so a SAVE held too long still saves by choice.
   - Playback pauses first; a progress bar (`RELOADING`), then `REVERTED TO SAVED`.
+  - An automation recording or playing ends (`AUTOMATION STOPPED`, [screens/automations.md](screens/automations.md)),
+    a recording's changes dropped with the others.
   - With nothing unsaved: `NOTHING TO REVERT`, and no question.
 - **Switching off loses unsaved changes.**
 
@@ -76,16 +84,29 @@ all is in [../files/store.md](../files/store.md) and [../files/ram.md](../files/
 
 ## Storage full
 
-A SAVE that does not fit in the user area writes nothing (but the deletions it can write first, below), and
-asks.
+A SAVE that does not fit in the user area at once is saved in parts
+([../files/store.md](../files/store.md#a-save-in-parts)): as many whole things as fit, each part a save of its own, the
+room of what a part replaced freed for the next. Only when not even one thing fits does it stop, the deletions it could
+write first and the parts before saved, and ask.
 - The changes stay in RAM, so nothing is lost while the FM-1 is on.
 - OCT+ runs SETTINGS → TOOLS → CLEAN UP (its checklist included), then saves if it now fits.
 - Otherwise deleting a pattern, an instrument or a cartridge makes room, the demo disk's things among
   them; the free storage is on STATUS. The next SAVE writes those deletions first, then the rest
-  ([../files/store.md](../files/store.md#the-room-for-the-editors-pattern)); if the rest still does not fit,
-  it asks again.
+  ([../files/store.md](../files/store.md#the-room-for-the-editors-pattern)), in parts if need be; if not even one
+  thing fits, it asks again.
 - **Its figures count the user area,** with the room kept for the EDITOR's own pattern counted as used
-  ([../files/store.md](../files/store.md#the-room-for-the-editors-pattern)).
+  ([../files/store.md](../files/store.md#the-room-for-the-editors-pattern)); `# KB MORE NEEDED` is what the thing
+  that did not fit lacks.
+
+**The list of records:** the FM-1 lists 560 records at most, a record each song, sample, cartridge, pattern part, set
+part and so on ([../files/store.md](../files/store.md#the-list-of-records)). A save that would list more is refused
+the same way, before the user area's room is counted: nothing written (but the deletions it can write first), the
+changes kept in RAM, and it asks `TOO MANY RECORDS TO SAVE`, how many records more than the FM-1 lists, `DELETE
+SOMETHING, THEN SAVE`.
+- Deleting makes room once the deletion is saved: a SAVE writes first the deletions it can (not one of a kind something
+  new in the same SAVE has: [../files/store.md](../files/store.md#the-list-of-records)), and a SAVE at the limit reclaims
+  what was deleted before it counts.
+- OCT+ runs CLEAN UP, as above, then saves (asking again if it still does not fit); OCT- or HOME goes back.
 
 ## FWS
 
@@ -118,7 +139,9 @@ never writes it; only an install does. The rest of the flash is **the user area*
 - a sample instrument refers to a sample, by its number, in any sampler;
 - a favourite (a FAVORITES slot) refers to an instrument ([../files/instruments.md](../files/instruments.md#favorites)).
   Nothing refers to a FAVORITES cartridge or a favourite: moving, swapping or deleting them asks nothing. A
-  favourite counts as a use of the instrument it names; a DELETE leaves it naming the place (`MISSING`).
+  favourite counts as a use of the instrument it names; a DELETE leaves it naming the place (`MISSING`);
+- a loop refers to its instrument, LOOPS' own and every LOOPS set's ([screens/loops.md](screens/loops.md#sets)): each
+  loop a use; a DELETE leaves it naming the place (silent). Nothing refers to a set.
 
 **Actions that change what a reference points at** ask first: MOVE, SWAP or DELETE of an instrument, a
 cartridge or a pattern (`PATTERN 1A IS USED 3 TIMES`, `UPDATE REFERENCES?`); a sample's DELETE has its own warning
@@ -129,6 +152,10 @@ cartridge or a pattern (`PATTERN 1A IS USED 3 TIMES`, `UPDATE REFERENCES?`); a s
      order, except a song whose whole order it is (kept, so no song is left with no positions; it plays
      nothing), and sets every FUSION slot that played it to `--`, no pattern (`FF`,
      [../files/instruments.md](../files/instruments.md)).
+     The room for all of it is found first: an edit memory too small for the change and every reference it touches
+     refuses it whole (the full question: [the edit memory](#the-edit-memory)), and so does a pattern whose rewrite
+     would no longer fit one record (`TOO BIG FOR ONE RECORD`); nothing changes. Should a write still be refused on
+     the way, what was made stays as unsaved changes and nothing is saved.
   2. Playback pauses, as for a SAVE.
   3. Everything pending, the change with it, is written to flash as one save, with a progress bar
      (`UPDATING 3 REFERENCES`), then `REFERENCES UPDATED, SAVED` once it is written. A save that does not fit
@@ -234,6 +261,19 @@ centred in the body, the lines centred, the answers in S over OCT- and OCT+.
 
 ```
  +-------------------------------------+
+ |      TOO MANY RECORDS TO SAVE       |
+ |     1 MORE THAN THE FM-1 LISTS      |
+ |     DELETE SOMETHING, THEN SAVE     |
+ |                                     |
+ |         OCT-              OCT+      |
+ |         BACK            CLEAN UP    |
+ |                                     |
+ |            HOME: CANCEL             |
+ +-------------------------------------+
+```
+
+```
+ +-------------------------------------+
  |       PATTERN 1A IS USED 3 TIMES    |
  |          UPDATE REFERENCES?         |
  |                                     |
@@ -267,6 +307,7 @@ ID (`0B:05`), a cartridge.
 | `SAVE CHANGES TO FREE MEMORY` (`SAVE` yellow) | toast | an edit grows the edit memory, and under 25 % of it is free ([above](#the-edit-memory)) |
 | `MEMORY FOR EDITS IS FULL`, `SAVE BEFORE MAKING MORE EDITS`, `23 UNSAVED CHANGES` | question; `SAVE NOW` / `BACK` | an edit that does not fit |
 | `NOT ENOUGH STORAGE TO SAVE`, `12 KB MORE NEEDED`, `CLEAN UP FREES 30 KB` | question; `CLEAN UP` / `BACK` | a save that does not fit |
+| `TOO MANY RECORDS TO SAVE`, `1 MORE THAN THE FM-1 LISTS`, `DELETE SOMETHING, THEN SAVE` | question; `CLEAN UP` / `BACK` | a save the FM-1 could not list ([above](#storage-full)) |
 | `CARTRIDGE F0 BUILT-IN AGAIN`, `PATTERN F0 BUILT-IN AGAIN` | toast | BACK TO BUILT-IN |
 | `PATTERN 1A IS USED 3 TIMES`, `UPDATE REFERENCES?` | question; `YES` / `NO` | MOVE, SWAP, DELETE of something used |
 | `UPDATING 3 REFERENCES` | progress | YES |

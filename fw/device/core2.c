@@ -69,12 +69,25 @@ static void c2_boot(int power_on)
     c2_banned = c2_ban.ban == 1u;
 }
 
-/* before a restart of ours (an update's, the chip's USB update mode, the debug build's watchdog test): core 2 held,
- * and not running at it for the next start (a crash's restart holds it alone: crash_wait_reboot) */
+/* before a restart of ours (an update's, the chip's USB update mode, FACTORY RESET's, the debug build's watchdog
+ * test): core 2 held, and not running at it for the next start (a crash's restart holds it alone: crash_wait_reboot);
+ * the freeze record disarmed, so the next start shows no PT/FM FROZE (an update's restarts read as the watchdog's) */
 static void c2_hold_reset(void)
 {
     fm1_cpu1_halt();
     c2_ban.runs = 0;
+    fz.magic = 0;
+}
+
+/* core 2 stopped by a fallback in this run, the first time: why, when, where it stood (the HAL paused it and read its
+ * PC), into the freeze record, which a watchdog restart keeps: PT/FM FROZE names it (main.c's freeze_check) */
+static void c2_stop_note(void)
+{
+    if (!fz.c2_why && fm1_c1.why && (fm1_c1.state == FM1_C1_HELD || fm1_c1.state == FM1_C1_FAILED)) {
+        fz.c2_ms = fm1_ms;
+        fz.c2_pc = fm1_c1.state == FM1_C1_HELD ? fm1_c1.stop_pc : 0u;
+        fz.c2_why = fm1_c1.why;
+    }
 }
 
 /* the main loop, `up` ms into this start: core 2 started once wanted, 2 s in */
@@ -85,8 +98,10 @@ static void c2_poll(uint32_t up)
         return;
     f = irq_save();
     c2_ban.runs = C2_RUNS;               /* (before its first try: a crash on core 1 while it starts bans it too) */
-    if (fm1_cpu1_start())                /* (no answer: held, its why NO_ANSWER) */
+    if (fm1_cpu1_start()) {              /* (no answer: held, its why NO_ANSWER) */
         c2_ban.runs = 0;
+        c2_stop_note();
+    }
     irq_restore(f);
 }
 
@@ -102,6 +117,7 @@ static int c2_wait(uint32_t us)
     if (rc) {
         c2_used = 0;                     /* (its time not taken: core 1 runs the effects from here) */
         c2_ban.runs = 0;                 /* (held by a fallback: a restart from here owes it nothing) */
+        c2_stop_note();
     }
     return rc;
 }
@@ -149,6 +165,7 @@ static void c2_half_start(void)
         fm1_cpu1_hold(FM1_C1_WHY_FAULT);
         c2_used = 0;
         c2_ban.runs = 0;
+        c2_stop_note();
     }
     if (c2_used) {
         c2_used = 0;
@@ -178,8 +195,13 @@ int plat_c2_half(void)
 void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 {
     int taken = c2_half_on && fm1_cpu1_post(job, j);
-    if (c2_half_on && !taken && !c2_wait(C2_WAIT_LONG))
-        taken = fm1_cpu1_post(job, j);
+    if (c2_half_on && !taken) {
+        uint8_t was = fz.astep;          /* (the freeze record: waiting for core 2, its queue full) */
+        fz.astep = FA_C2_FULL;
+        if (!c2_wait(C2_WAIT_LONG))
+            taken = fm1_cpu1_post(job, j);
+        fz.astep = was;
+    }
     if (taken) {
         c2_pend = c2_used = 1;
 #ifdef PTFM_DEBUG
@@ -191,8 +213,16 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
     job(j);
 }
 
-/* (at once when nothing is handed over: always after the half's start, which waited) */
-void plat_c2_wait(void) { c2_quiet(); }
+/* (at once when nothing is handed over: always after the half's start, which waited. 1: core 2 was not idle yet) */
+int plat_c2_wait(void)
+{
+    uint8_t was = fz.astep;              /* (the freeze record: waiting for core 2 to be done) */
+    int busy = c2_pend && fm1_c1.state == FM1_C1_RUNS && !fm1_cpu1_idle();
+    fz.astep = FA_C2_WAIT;
+    c2_quiet();
+    fz.astep = was;
+    return busy;
+}
 
 void plat_c2_enable(int on) { c2_want = on ? 1u : 0u; }   /* (a repeat changes nothing) */
 
@@ -208,6 +238,14 @@ static void c2_cpu(plat_cpu_t *c, int reset)
                 st == FM1_C1_HELD || st == FM1_C1_FAILED ? fm1_c1.why : PLAT_C2_WHY_NONE;
     c->c2_state = c->c2_why ? PLAT_C2_STOPPED : !c2_want ? PLAT_C2_OFF :
                   st == FM1_C1_RUNS ? PLAT_C2_ON : PLAT_C2_STARTING;
+    if (fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC && fm1_c1_fault.vec >= FM1_C1_BAD_FILL &&
+        fm1_c1_fault.vec <= FM1_C1_BAD_COPY + 2u && fm1_c1_fault.count != fm1_c1.faults) {   /* (a bad write refused
+                                         * in this run: fm1_cpu1.h) */
+        c->c2_bad = (uint8_t)(1u + (fm1_c1_fault.vec & 1u));
+        c->c2_bad_d = fm1_c1_fault.bad_d;
+        c->c2_bad_n = fm1_c1_fault.bad_n;
+        c->c2_bad_from = fm1_c1_fault.pc;
+    }
     if (reset) {
         c2_max = 0;
         c2_late = 0;

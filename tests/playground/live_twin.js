@@ -52,7 +52,7 @@ module.exports = async t => {
         U.edit(() => {
             const j = LS();
             j.list = []; j.rows = rows; j.tempo = tempo; j.quantize = "ROW"; j.legato = "GLIDE"; j.countIn = "OFF"; j.nextMono = false;
-            for (let k = 0; k < 16; k++) j.mixer[k] = Object.assign({}, j.nextMix);
+            for (let k = 0; k < 16; k++) j.mixer[k] = { lvl: 127, pan: 128, dck: 0, cho: 0, dly: 0, rev: 0 };
         });
         P.mutesChanged();
     };
@@ -84,7 +84,13 @@ module.exports = async t => {
         else if (v === "turn") await t.turn(a, +b);
         else if (v === "menu") { const m = U.top(), it = w.slice(1).join(" "); m.sel = m.items.indexOf(it); }
         else if (v === "heard" || v === "unheard") {
-            t.ok(t.PTFM.audio.stats.voices.some(x => x.midi === +a && !x.rel) === (v === "heard"), "the session: note " + a + " " + v);
+            /* (as the worklet has it a few blocks on: a ghost back into a tail's engine begins a block after the tail's
+             * fade, and its figures reach the page with the next post, every 40 ms) */
+            const A = t.PTFM.audio, t0 = A.time();
+            while (A.time() < t0 + .01) await t.sleep(1);
+            for (const v0 = A.stats.voices; A.stats.voices === v0 && A.time() < t0 + .2;) await t.sleep(1);
+            t.ok(A.time() < t0 + .2, "the session: the worklet's figures within 200 ms");
+            t.ok(A.stats.voices.some(x => x.midi === +a && !x.rel) === (v === "heard"), "the session: note " + a + " " + v);
         } else if (v === "end") {
             fs.writeFileSync(path.join(ROOT, "build/playground/live_twin.txt"), dump(t, n));
             P.pause();

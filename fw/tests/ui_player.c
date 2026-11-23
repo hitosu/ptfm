@@ -132,6 +132,7 @@ void player_cue_loops(const pl_source_t *src) { (void)src; }
 void player_keys_gain(int db) { (void)db; }
 void player_keys_dry(int on) { (void)on; }
 void player_keys_mix(const uint8_t *mix) { (void)mix; }
+void player_keys_loop(const uint8_t *mix) { (void)mix; }
 int32_t player_duck_env(void) { return 0; }
 void player_click(int accent) { (void)accent; }
 void player_costs(player_costs_t *c, int reset) { (void)reset; memset(c, 0, sizeof *c); }
@@ -182,6 +183,7 @@ uint32_t fx_env_t10(int decay, int step)
 }
 void player_key_on(uint8_t note, pl_inst_t inst, uint8_t vel) { (void)note; (void)inst; (void)vel; }
 void player_key_off(uint8_t note) { (void)note; }
+void player_key_press(uint8_t note, uint32_t g8) { (void)note; (void)g8; }
 void player_keys_off(void) {}
 void player_keys_sample(const uint8_t *slot) { (void)slot; }
 void player_ext_tempo(uint16_t bpm10) { (void)bpm10; }
@@ -197,7 +199,7 @@ int player_scope(int voice, int16_t *dst, int n) { (void)voice; memset(dst, 0, (
 void player_dj(int on, const uint8_t *fx_setup) { (void)on; (void)fx_setup; }
 uint32_t player_dj_mem_size(void) { return 16; }
 /* (STATUS' RAM MAP: the sound's buffers as the FM-1's release build has them) */
-uint32_t player_ram(void) { return 22144u; }
+uint32_t player_ram(void) { return 24824u; }
 unsigned int ibxm_arena_size(void) { return 6400u; }
 uint32_t fx_ram(void) { return 150050u; }
 uint32_t dx7_ram(void) { return 28676u; }

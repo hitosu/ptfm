@@ -11,7 +11,10 @@
  * below, run in the worklet's scope.
  *
  * Messages in:  {t: "load", wasm, flash, master}   the WebAssembly; the kept flash (1 MiB) or null
- *               {t: "btn", id, down} {t: "note", id, down} {t: "knob", id, step} {t: "master", v 0-1}
+ *               {t: "btn", id, down} {t: "note", id, down, d, v} {t: "knob", id, step} {t: "master", v 0-1}
+ *                                                   (a note's d: the landing its press point stands for; v: a
+ *                                                   velocity given, an FM-1's as the controller; either or none)
+ *               {t: "touch", id, d}                 a held key's reading now (dragged on: MIDI CONTROLLER's aftertouch)
  *               {t: "sysex", bytes}                 a message F0 ... F7 for the device
  *               {t: "midi", b, src}                 a MIDI message in (notes, CCs, the clock): b its bytes
  *               {t: "flash?"}                       the flash now, whatever its writes
@@ -85,7 +88,12 @@ PTFM.emuWorklet = function () {
             if (!ex) return;
             try {
                 if (m.t === "btn") ex.web_button(m.id, m.down ? 1 : 0);
-                else if (m.t === "note") ex.web_note(m.id, m.down ? 1 : 0);
+                else if (m.t === "note") {
+                    if (m.down && m.d && ex.web_key_reading) ex.web_key_reading(m.id, m.d);
+                    if (m.down && m.v && ex.web_key_vel) ex.web_key_vel(m.id, m.v);
+                    ex.web_note(m.id, m.down ? 1 : 0);
+                }
+                else if (m.t === "touch" && ex.web_key_reading) ex.web_key_reading(m.id, m.d);
                 else if (m.t === "knob") ex.web_knob(m.id, m.step);
                 else if (m.t === "master") ex.web_master(Math.round(m.v * 1023));
                 else if (m.t === "sysex") { this.pending.push(m.bytes); this.flushSysex(); }

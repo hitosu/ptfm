@@ -1146,14 +1146,15 @@ def unpack_song(b):
 # -------------------------------------------------------------------------------------- the disk ---
 DISK_MAGIC = b"PTFMDISK"
 DISK_LAYOUT = 1
-DISK_ORDER = {0x30: 0, 0x31: 0, KIND_DX7: 1, KIND_JUNO: 1, KIND_TB303: 1, KIND_SAMPLER: 1, KIND_FUSION: 1,
-              KIND_CHIP: 1, KIND_FAVORITES: 1, KIND_SONG: 2, KIND_PATTERN: 3, 0x22: 4, 0x23: 4, KIND_NOTES: 5, KIND_AUDIO: 6, KIND_SAMPLE: 6}
+DISK_ORDER = {0x30: 0, 0x31: 0, 0x32: 0, KIND_DX7: 1, KIND_JUNO: 1, KIND_TB303: 1, KIND_SAMPLER: 1, KIND_FUSION: 1,
+              KIND_CHIP: 1, KIND_FAVORITES: 1, 0x0F: 2, KIND_SONG: 3, KIND_PATTERN: 4, 0x22: 5, 0x23: 5, 0x24: 6, KIND_NOTES: 7,
+              KIND_AUDIO: 8, KIND_SAMPLE: 8}
 
 
 def disk_sort_key(f):
-    """the disk's order: settings, cartridges, songs, patterns, the loops, notes, then the audio; each by
-    number and sub"""
-    return DISK_ORDER.get(f[0], 7), f[1], f[2], f[0]
+    """the disk's order: settings, cartridges, the marks of deleted built-ins (0x0F), songs, patterns, the loops and DJ's
+    setup, LOOPS' sets, notes, then the audio; each by number and sub"""
+    return DISK_ORDER.get(f[0], 9), f[1], f[2], f[0]
 
 
 def pack_disk(files):

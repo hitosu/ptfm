@@ -56,7 +56,8 @@ function icon(it, big) {
     const fe = it.side === "R" && it.num === M.FE;
     const k = it.kind === K.SAMPLER ? "sampler" : M.isCart(it.kind) ? "cart" : it.kind === K.SAMPLE || it.kind === K.AUDIO ? "sample" :
         it.kind === K.SONG ? (fe ? "keysong" : "song") : it.kind === K.PATTERN ? "pattern" :
-        { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.DJ]: "dj" }[it.kind];
+        { [K.SETTINGS]: "settings", [K.MIDIMAP]: "midimap", [K.LOOPS]: "loops", [K.LSET]: "loops", [K.DJ]: "dj", [K.AUTO]: "auto" }[it.kind];   /* (a
+                                                         * LOOPS set LOOPS' icon) */
     switch (k) {
         case "song": return `<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="2" fill="${c}"/><rect x="2" y="7" width="8" height="2" fill="${c}"/><rect x="2" y="11" width="10" height="2" fill="${c}"/></svg>`;
         case "pattern": return `<svg viewBox="0 0 16 16"><g fill="${c}">${[3, 7, 11].map(y => [2, 7, 12].map(x => `<rect x="${x}" y="${y}" width="3" height="2"/>`).join("")).join("")}</g></svg>`;
@@ -67,6 +68,7 @@ function icon(it, big) {
         case "midimap": return `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="${c}" stroke-width="1.5"/><g fill="${c}"><rect x="4" y="7" width="2" height="2"/><rect x="10" y="7" width="2" height="2"/><rect x="5" y="4.5" width="2" height="2"/><rect x="9" y="4.5" width="2" height="2"/><rect x="7" y="3.5" width="2" height="2"/></g></svg>`;
         case "loops": return `<svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-2-4" fill="none" stroke="${c}" stroke-width="1.5"/><path d="M9.5 2.5h3.5V6" fill="none" stroke="${c}" stroke-width="1.5"/></svg>`;
         case "dj": return `<svg viewBox="0 0 16 16"><circle cx="4.5" cy="8" r="3.2" fill="none" stroke="${c}" stroke-width="1.5"/><circle cx="11.5" cy="8" r="3.2" fill="none" stroke="${c}" stroke-width="1.5"/><rect x="4" y="7.5" width="1" height="1" fill="${c}"/><rect x="11" y="7.5" width="1" height="1" fill="${c}"/></svg>`;
+        case "auto": return `<svg viewBox="0 0 16 16"><circle cx="4.5" cy="8" r="2.6" fill="${c}"/><path d="M9 3.5l5.5 4.5L9 12.5z" fill="none" stroke="${c}" stroke-width="${w}"/></svg>`;
         case "keysong": return `<svg viewBox="0 0 16 16"><g fill="${c}"><rect x="2" y="3" width="2" height="10"/><rect x="5" y="3" width="2" height="10"/><rect x="8" y="3" width="2" height="10"/><rect x="11" y="3" width="2" height="10"/></g></svg>`;
     }
     return "";
@@ -95,12 +97,13 @@ function toast(msg) {
     clearTimeout(toastT);
     toastT = setTimeout(() => t.remove(), 3200);
 }
-/* buttons: [{ label, cls, onClick, keep }] (keep: the dialog stays open) */
+/* buttons: [{ label, cls, onClick, keep, off }] (keep: the dialog stays open; off: greyed) */
 function dialog(o) {
     const wrap = $("#dlg");
     wrap.textContent = "";
     const box = h("div", { class: "dlg", role: "dialog", "aria-modal": "true", "aria-label": o.title }, h("h3", null, o.title), o.body || null,
-        h("div", { class: "acts" }, o.buttons.map(b => h("button", { class: "btn " + (b.cls || ""), onclick: () => { if (!b.keep) closeDialog(); if (b.onClick) b.onClick(); } }, b.label))));
+        h("div", { class: "acts" }, o.buttons.map(b => h("button", { class: "btn " + (b.cls || ""), disabled: !!b.off,
+            onclick: () => { if (!b.keep) closeDialog(); if (b.onClick) b.onClick(); } }, b.label))));
     wrap.append(box);
     wrap.hidden = false;
     wrap.onkeydown = e => { if (e.key === "Escape") { closeDialog(); if (o.onCancel) o.onCancel(); } e.stopPropagation(); };

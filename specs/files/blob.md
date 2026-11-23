@@ -57,8 +57,8 @@ number.
    user area's regions ([store.md](store.md#where-things-go)); the reserve; the
    built-in things it holds (in `F0`-`FF`: the instruments, any built-in patterns, the EDITOR's own pattern `FE`,
    the keys' song `FE`); the (kind, version) pairs it accepts; the
-   largest message it takes; how many records its store can list (its map's room, 560: past it a start would drop
-   records and count their blocks free, [store.md](store.md#power-on)); and its records: kind, number, sub,
+   largest message it takes; how many records its store can list (its map's room, 560: a save past it is refused, and
+   past it a start would drop records and count their blocks free, [store.md](store.md#the-list-of-records)); and its records: kind, number, sub,
    version, CRC, place, save number.
 2. **The uploader plans:** a record already on the device with the same CRC stays where it is; new and
    changed ones go into free blocks of the user area, records packed together, audio in
@@ -215,5 +215,6 @@ text).
   firmware instead, made by the firmware's build from the same sources. Other data sets are
   made into blobs by the same tool, outside this repository.
 - **Converters** turn other formats into these records: MOD, S3M and XM into a song, its patterns, its samples
-  and sampler cartridges of up to 64 instruments naming them; `.syx` into DX7 cartridges and back; Juno-106 dumps
-  into Juno-106 cartridges and back; WAV and FLAC into a sample (and an instrument playing it).
+  and sampler cartridges of up to 64 instruments naming them; `.syx` into DX7 cartridges and back; Juno-106 patch
+  messages, libraries, patch lists and tape recordings, and Juno-60 tape recordings converted, into Juno-106
+  cartridges ([../editor.md](../editor.md#juno-106-banks)); WAV and FLAC into a sample (and an instrument playing it).

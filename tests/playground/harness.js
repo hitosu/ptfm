@@ -6,7 +6,9 @@
  *   node tests/playground/harness.js <scenario.js> [out dir, default build/playground]
  *
  * A scenario is a module: async function (t) with t.down / up / tap(button), t.combo(a, b),
- * t.turn(knob, clicks), t.key / keyDown / keyUp(note 0-26), t.homeKey(note), t.shot(name), t.sleep,
+ * t.turn(knob, clicks), t.knob(knob, clicks) (one event of several clicks, as MIDI's), t.key / keyDown / keyUp(note
+ * 0-26; keyDown's touch, {reading} or {vel}, as the panel's), t.pressure(note, reading) (a held key dragged),
+ * t.homeKey(note), t.shot(name), t.sleep,
  * t.ok(condition, what), and t.U, t.M, t.P (the UI, the model, the player). Its exit code is the
  * number of failed checks.
  *
@@ -72,7 +74,7 @@ const FILES = ["panel/layout.js", "playground/fonts.js", "playground/lcd.js", "p
                "playground/model.js", "playground/cmds.js", "playground/help.js", "playground/dsp-core.js", "playground/dsp-dx7.js", "playground/dsp-synth.js",
                "playground/dsp-chip-tables.js", "playground/dsp-chip.js", "playground/dsp-fx.js", "playground/audio.js", "playground/player.js", "playground/ui.js", "playground/ctl.js", "playground/scr-grid.js",
                "playground/scr-songs.js", "playground/scr-editor.js", "playground/scr-instr.js", "playground/fx-pics.js", "playground/scr-play.js", "playground/scr-loops.js", "playground/scr-dj.js",
-               "playground/scr-hear.js"];
+               "playground/scr-hear.js", "playground/scr-auto.js"];
 for (const f of FILES) vm.runInContext(fs.readFileSync(path.join(ROOT, f), "utf8"), ctx, { filename: f });
 
 const listeners = {}, leds = {};
@@ -125,7 +127,9 @@ const t = {
     async tap(b) { t.down(b); await sleep(20); t.up(b); await sleep(160); },
     async combo(a, b) { t.down(a); await sleep(30); t.down(b); await sleep(30); t.up(b); await sleep(20); t.up(a); await sleep(160); },
     async turn(e, n) { for (let i = 0; i < Math.abs(n); i++) { emit("encoder", { id: ENC[e], name: e, step: Math.sign(n) }); await sleep(120); } },
-    keyDown: n => emit("note", { note: n, down: true }),
+    knob: (e, n) => emit("encoder", { id: ENC[e], name: e, step: n }),
+    keyDown: (n, touch) => emit("note", Object.assign({ note: n, down: true }, touch || {})),   /* (touch: {reading} or {vel}) */
+    pressure: (n, reading) => emit("pressure", { note: n, reading }),
     keyUp: n => emit("note", { note: n, down: false }),
     async key(n, ms = 60) { t.keyDown(n); await sleep(ms); t.keyUp(n); await sleep(40); },
     async homeKey(n) { t.down("HOME"); await sleep(30); t.keyDown(n); await sleep(30); t.keyUp(n); await sleep(20); t.up("HOME"); await sleep(160); },

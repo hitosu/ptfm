@@ -60,15 +60,20 @@ Both ports feed one queue and behave the same.
 
 - **Notes act as the FM-1's keys,** on every screen as its keys do: they play the current instrument,
   write in the EDITOR with REC on, overdub LOOPS' stage, feed the arpeggiator. Velocity sets the note's
-  volume (1-127 as `01`-`7F`); the FM-1's own keys, which have none, keep KEYS VOLUME. Every note plays,
-  not only the 27 keys' range.
+  volume (1-127 as `01`-`7F`), as the FM-1's own keys' velocity does (SETTINGS' KEYS VELOCITY:
+  [hardware.md](hardware.md#the-keys-velocity); CONSTANT, KEYS VOLUME), and a DX7's modulators: harder, brighter
+  ([files/instruments.md](files/instruments.md#dx7)). Every note plays, not only the 27 keys' range.
+- **A note played again at once is not lost:** a held note's off and its next on (a sequencer's repeated notes,
+  back to back), or an on again without its off, coming between two main loop passes: the key is let go in the
+  next pass and pressed again in the one after. So for a learned control.
 - **MIDI IN CHANNEL:** ALL (the default) or 1-16; messages on other channels are ignored.
 - **Program change** picks the instrument in the current cartridge, as PRESETS does (program *n* the
   cartridge's *n*-th used slot, counted from 0; in a FAVORITES cartridge its *n*-th used favourite, a missing one
   counted and keeping the current instrument); **bank select** (CC 0) picks the cartridge, as SEL + PRESETS
   does (bank *n* the *n*-th cartridge in the cartridge lists' one order, the FAVORITES cartridges first: bank 0 the
-  built-in FAVORITES, [ui/dialogs.md](ui/dialogs.md#the-cartridge-list); in INSTRUMENTS' edit mode only a cartridge
-  of the edit's own sort, as SEL + PRESETS there: [ui/screens/instruments.md](ui/screens/instruments.md)).
+  built-in FAVORITES, [ui/dialogs.md](ui/dialogs.md#the-cartridge-list); in INSTRUMENTS' edit mode as SEL + PRESETS
+  there: an instrument's edit a cartridge but a FAVORITES one, a favourite's edit none,
+  [ui/screens/instruments.md](ui/screens/instruments.md)).
 - **Pitch bend** bends the keys' notes, ±2 semitones, those sounding and those to come: the FM-1's own keys'
   too, as they share the keys' voices.
 - **The sustain pedal** (CC 64) holds the notes played from MIDI while it is down; their note offs come
@@ -104,6 +109,8 @@ combinations, holds and layers. MIDI notes need no learning: they play as the ke
     second of its press is taken as one.
 - **What learns what:** the knobs and MASTER learn CCs only; pads and buttons a note or a CC.
 - **A learned control answers on its own channel,** whatever MIDI IN CHANNEL says.
+- **AUTOMATIONS records it,** and MIDI's notes, as the FM-1's control it stands for, MASTER never
+  ([ui/screens/automations.md](ui/screens/automations.md)).
 - **How:** SETTINGS' MIDI page, EDIT on LEARN ([ui/screens/settings.md](ui/screens/settings.md#learn)):
   `TOUCH AN FM-1 CONTROL`; the FM-1's control turned or pressed (it does nothing else then),
   `MOVE THE MIDI CONTROL`; the outside one moved: its first message names it, and what comes within a
@@ -122,7 +129,7 @@ press from MIDI is a press, with every combination, hold and layer the FM-1's ow
 
 | Message, on MIRROR's channel, from USB | Is |
 |---|---|
-| Note On 53 + k, velocity above 0; Note Off 53 + k, or Note On at velocity 0 | key k (0-26, F3-G5) held; let go |
+| Note On 53 + k, velocity above 0; Note Off 53 + k, or Note On at velocity 0 | key k (0-26, F3-G5) held, its Note On's velocity the key's own (heard as the FM-1's key's, KEYS VELOCITY not CONSTANT; at CONSTANT, KEYS VOLUME); let go |
 | CC 102 + id, 127 / 0 | button id (OCT- 0, OCT+ 1, FX 2, SEL 3, ENV 4, LFO 5, EDIT 6, GLO 7, HOME 8, SAVE 9, ARP 10, SEQ 11, PLAY 12, REC 13) held; let go |
 | CC 20 + id | knob id (SELECT 0, ALGORITHM 1, K1-K4 2-5, PRESETS 6) turned: 1-63 that many clicks clockwise, 65-127 (128 minus it) clicks back |
 | CC 7 | MASTER, 0-127 |
@@ -136,7 +143,7 @@ press from MIDI is a press, with every combination, hold and layer the FM-1's ow
 - **Only the panel:** MIRROR's messages are not notes, not learned controls (MIRROR comes first on its channel,
   before any mapping) and not MIDI OUT's; MIDI IN CHANNEL does not apply to them.
 - **A press shorter than a main loop pass is not lost:** a press and its release that come between two passes
-  are seen as a press, then a release.
+  are seen as a press, then a release; a release and a press again, as a release, then a press a pass later.
 - **The FM-1's own panel stays live,** both hands count.
 - **No LEDs go back,** and the controller's question (`43 01`) gets no answer: PT/FM is not a controller.
 
@@ -176,7 +183,7 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
 | 329 | u16 | the edit memory's size, in 4-byte units (17,152: 68,608 B; nothing borrows from it) |
 | 331 | u16 | LOOPS: the notes the stage starts (0 with the stage empty). LOOPS' bytes (331-334) are given on every screen: the stage plays on outside LOOPS |
 | 333 | u8 | LOOPS: the selected loop's SHIFT, 0-127 (0 on `+ NEW LOOP`) |
-| 334 | u8 | LOOPS: bit 0 ADJUST open; bit 1 OVERWRITE on where it acts: on LOOPS, not in ADJUST, the pattern recorder or with the stage off; bit 2 OVERWRITE on (LFO's press), on every screen; bit 3 the stage off (ARP's switch, [ui/screens/loops.md](ui/screens/loops.md#the-stage)) |
+| 334 | u8 | LOOPS: bit 0 ADJUST open; bit 1 OVERWRITE on where it acts: on LOOPS, not in ADJUST, the pattern recorder or with the stage off; bit 2 OVERWRITE on (LFO's press), on every screen; bit 3 the stage off (ARP's switch, [ui/screens/loops.md](ui/screens/loops.md#the-stage)); bit 4 MOVE open ([ui/screens/loops.md](ui/screens/loops.md#moving-a-loop)) |
 | 335 | | the end (335 B; 389 on the wire). A reader takes a shorter answer of version 1 as older (331 B: no LOOPS bytes; 325 B: no edit memory) |
 
 **The screen's cursor,** as each screen gives it (zeros elsewhere):
@@ -194,8 +201,8 @@ In every build; only a page asks, and it costs nothing until then. Little-endian
 ## MIDI out: USB
 
 - **MIDI OUT:** OFF, KEYS (the default) or ALL.
-  - **KEYS:** the FM-1's keys as played, with KEYS VOLUME as velocity, on MIDI OUT CHANNEL (1 at
-    first).
+  - **KEYS:** the FM-1's keys as played, each with its velocity (KEYS VELOCITY's; KEYS VOLUME at CONSTANT, and for a
+    press without one), on MIDI OUT CHANNEL (1 at first).
   - **ALL:** the keys, and everything that plays (songs, the loops, the arpeggio, the EDITOR's row
     preview): track 0 on channel 1 … track 15 on channel 16, a note's volume as its velocity; the keys
     on MIDI OUT CHANNEL.

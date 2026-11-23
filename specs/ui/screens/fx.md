@@ -191,10 +191,10 @@ setup, saying so): `THROUGH FX` (at first) or `DRY`.
   ceiling (peaks above −1.9 dB rounded off) take them with the rest; USB audio and VISUAL get the whole mix, keys
   included. What the effects work on is then what plays in the background alone.
 - **What is recorded** is never touched: a take or a loop's notes play back through the effects as any notes.
-- **LOOPS' stage** ([loops.md](loops.md#the-stage)): while the loops play on LOOPS, the keys overdub the stage and
-  sound as it does, through the mix REC would put it in (the selected loop's MIXER column, on `+ NEW LOOP` the next
-  loop's mix, its sends the KEYS column's) and LOOPS' effects, never through KEYS GAIN or DRY, so a loop sounds as it
-  was played; stopped, the keys play as everywhere.
+- **On LOOPS** ([loops.md](loops.md#the-instrument-and-mono-or-poly)): the keys sound through the mix REC would put the
+  stage in (the selected loop's MIXER column, on `+ NEW LOOP` NEW's) and LOOPS' effects, never through KEYS GAIN, the
+  KEYS column or DRY: overdubbing the stage while the loops play, so a loop sounds as it was played, and played freely
+  while they stop too. On FX and on every other screen the keys have their own strip.
 - **Cost:** 4,640 B of RAM (the keys' own mix, a block's slot each, 2,048 B; their own Juno-106 chorus lines and
   buses, 2,592 B); about 5 µs a half while keys sound dry (a chorused Juno-106 patch: its chorus too, as it would
   cost anyway), nothing otherwise.
@@ -274,8 +274,17 @@ DUCK works on the tracks before they are mixed, so its source is never lowered w
 - **Every other track** is lowered by that level × DEPTH × the track's own amount, the MIXER's DCK
   row (none by default, as [../../files/songs.md](../../files/songs.md) keeps the mixer). The bass and
   the pad can duck fully while the hats do not. The keys duck the same by the KEYS column's DCK (none
-  at first), through the effects only (not DRY), unless they are the source: a source never ducks itself.
+  at first; on LOOPS the DCK of the loop's mix they sound through), through the effects only (not DRY), unless they are
+  the source: a source never ducks itself.
 - **The sends** take a track's sound after ducking, so a ducked pad's reverb ducks with it.
+- **A muted source still ducks:** a muted track's notes are ghosts, without engines
+  ([settings.md](settings.md#muted-tracks)), but the source's keep theirs, rendered unheard and measured before their
+  mute, so DUCK follows the source muted or not; they rank as heard when an engine is taken, and its ghosts as unmuted.
+  A change of the source in force (SOURCE by the knob or an FX command, DUCK on or off, BYPASS, a song's setup at its
+  start, a DJ deck's own DUCK and its LOAD) acts from the next block as a mute on the old source's muted notes (they
+  become ghosts) and as an unmute on the new source's muted ghosts (they come back). A muted note taken gives its
+  engine up with no fade, so DUCK misses at most one block of its source's peak there; and a note started in the
+  ticks of the block the source changed in starts as the source stood before, the change reaching it a block later.
 - **The cost:** following the source adds one addition a frame for each of its voices, and each
   track's gain is updated once a block, eased over the block so it never clicks: well under 1 % CPU.
 
@@ -332,7 +341,9 @@ to eighth: page 1 K1 CUT, K2 RESO, K3 ENV, K4 SOURCE; page 2 (ALGORITHM) K1 ATTA
   - **The keys DRY** ([The keys, DRY](#the-keys-dry)) still fire it: the keys play the filter on the background
     alone.
   - **A track fires it heard or not:** a muted track's notes fire it too, so a silent track can carry a rhythm for
-    the filter.
+    the filter; **a held note holds it heard or not,** a ghost too (a note taken from its engine, or a muted track's:
+    [settings.md](settings.md#ghosts)), until its note ends as it would sounding (a one-shot sample's ghost at its
+    END).
   - **The beat** is what plays's music clock (the song's, the loops', a DJ deck's), as GATE's steps and the DELAY's
     note lengths follow it. A hit comes in the block the clock reaches it; a clock that jumps (a start, a skip back)
     counts from where it lands, so a song's start on a beat fires at once. With nothing playing it runs on from the
@@ -472,8 +483,9 @@ pattern, so the mixer always has all 16; a track no pattern of the song uses is 
 - **Muted tracks** are drawn dark. Muting is HOME + white key, as everywhere.
 - **KEYS, the last column:** the keys' own strip (the FM-1's keys, MIDI's notes, the arpeggiator's, the
   previews, as heard; what is recorded plays on its tracks), **one for every setup**, kept with the
-  settings ([../../files/settings.md](../../files/settings.md)): the same in every song's MIXER, the loops'
-  and the keys' song's; DJ has no MIXER (the keys play no notes there).
+  settings ([../../files/settings.md](../../files/settings.md)): the same in every song's MIXER and the keys'
+  song's; the loops' MIXER has NEW in its place ([below](#mixer)), as on LOOPS the keys sound through a loop's mix; DJ
+  has no MIXER (the keys play no notes there).
   - **LVL is SETTINGS' KEYS GAIN** ([settings.md](settings.md)), −24 to +12 dB, set from either place; its
     bar fills by (dB + 24) / 36. K1 turns it by 1 dB, with SEL held by 6.
   - **PAN** `00`-`FF` (`80` at first), live on the keys' notes; **DCK** `00`-`7F` (`00` at first): DUCK's
@@ -485,18 +497,20 @@ pattern, so the mixer always has all 16; a track no pattern of the song uses is 
     words line ends in `  DRY`.
   - It is a setting: changed, it is unsaved until SAVE (SEL's REVERT on SETTINGS takes it back), and
     no command sets it.
-  - **Its CHO, DLY and REV are LOOPS' next loop's sends** ([loops.md](loops.md#the-loops)): the stage on `+ NEW LOOP`
-    (and the pattern recorder's preview there) sounds with them, a change heard from the next block, and REC writes
-    them into the loop it makes there; K1-K4 with a send's job on `+ NEW LOOP` turn them, as this column does.
-  - The columns go 8 a page: `00`-`07`, `08`-`0F`, then KEYS alone on the third; the loops' MIXER has
-    KEYS after the last loop, and alone before the first; the keys' song's has KEYS alone.
+  - The columns go 8 a page: `00`-`07`, `08`-`0F`, then KEYS alone on the third; the keys' song's has KEYS alone.
 - **The loops' mixer** is shown in LOOPS: `MIXER: THE LOOPS`. Its columns are the loops, up to 16, a
-  column a loop (`00`-`0F`; a muted or silenced loop's dark), then KEYS, a loop being one track with
+  column a loop (`00`-`0F`; a muted or silenced loop's dark), then NEW, a loop being one track with
   its mix ([../../files/loops.md](../../files/loops.md#the-record)): LEVEL, PAN, DUCK and the three SENDS, here
-  and by K1-K4 on LOOPS, each knob the job GLO gives it ([loops.md](loops.md#k1-k4-view-and-adjust)). The next
-  loop's LEVEL, PAN and DUCK are set on LOOPS, by K1-K4 on `+ NEW LOOP`; its sends are the KEYS column's. The footer
-  and the words line name it `LOOP 03`. **The stage** sounds through the selected loop's column (on `+ NEW LOOP` the
-  next loop's mix, its sends the KEYS column's), whatever its mute or the solos ([loops.md](loops.md#the-stage)).
+  and by K1-K4 on LOOPS, each knob the job GLO gives it ([loops.md](loops.md#k1-k4-view-and-adjust)). The footer
+  and the words line name it `LOOP 03`. **The stage** sounds through the selected loop's column (on `+ NEW LOOP`
+  NEW's), whatever its mute or the solos ([loops.md](loops.md#the-stage)), and so do the keys on LOOPS.
+  - **NEW, the last column,** in KEYS' place: the next loop's own mix ([loops.md](loops.md#the-loops)), the one REC
+    gives the loop it makes on `+ NEW LOOP`, the stage there and the pattern recorder's preview heard through it. Its six
+    values are a loop's (LVL `00`-`7F`, a bar `v / 7F`), from a new loop's defaults (LOOPS' properties: LVL `40`, the
+    sends `7F`), turned here or by K1-K4 on `+ NEW LOOP` for that one loop, never the defaults: RAM's alone, no edit
+    and never saved, the defaults again after REC makes a loop from it. LFO puts a value back to its default; KEYS'
+    DRY never darkens it. The words line `NEW LOOP  LVL 40 50%`, the footer `NEW LOOP`.
+  - Its columns go 8 a page as a song's, NEW after the last loop; with no loops, NEW alone.
 
 ## Layout
 
@@ -679,8 +693,9 @@ names light grey, yours light blue; a step on light blue, off deep grey; the box
 
 ### FX PROPERTIES (GLO)
 
-The properties dialog ([../dialogs.md](../dialogs.md)), titled on two lines: `FX PROPERTIES FOR` (cyan), then
-whose setup it is (white): the song's name, `THE LOOPS`, `DJ` or `THE KEYS`.
+The properties dialog ([../dialogs.md](../dialogs.md#properties)), titled on two lines: `FX PROPERTIES FOR` (cyan), then
+whose setup it is (white): the song's name, `THE LOOPS`, `DJ` or `THE KEYS`. KEYS, EVERYWHERE takes two lines while it
+says `THROUGH FX` (its value under its name), one with `DRY`.
 
 | Item | Shows | K1 |
 |---|---|---|
@@ -735,16 +750,17 @@ KEYS, EVERYWHERE  LVL 0 DB
 | the title | 2, 19 | | T | `MIXER`, or `MIXER: THE LOOPS` |
 | track *k*'s number (of 8 on show) | `33 + 26 k`, 33 | | T | `00`-`07`, `08`-`0F`, by the page the selected column is on (8 a page) |
 | the KEYS column's name | `28 + 26 k`, 33 | | T | `KEYS` |
+| the NEW column's name (the loops') | `31 + 26 k`, 33 | | T | `NEW` |
 | row *j*'s name | 2, `52 + 26 j` | | T | `LVL`, `PAN`, `DCK`, `CHO`, `DLY`, `REV`: the rows on show |
 | a cell | `30 + 26 k`, `47 + 26 j` | 20 × 20 | | the value |
 | a bar (LVL, DCK, the sends) | cell x + 6, cell y + 2 | 8 × 18 | | its track, then its fill from the bottom, `v / 7F` of 18 px; KEYS' LVL `(dB + 24) / 36` |
 | PAN | a line at cell x + 1, cell y + 10, 18 px; a mark 2 × 11 at cell x + 9 + `(v − 80) / 80 × 9`, cell y + 5 | | | the pan |
 | DUCK's source | cell x + 7, cell y + 5 | | T | `S` in its DCK cell, instead of a bar |
 | the selected cell's box | cell x − 2, cell y − 2 | 24 × 24 | | |
-| the value in words | 2, 213 | | T | `TRACK 00  LVL 7A 96%`, `PAN 80 MIDDLE` / `LEFT` / `RIGHT`; then `  BY THE SONG` while a command holds it, `  MUTED` for a muted track. KEYS: `KEYS, EVERYWHERE  LVL +3 DB` (`0 DB`, `-6 DB`), `KEYS, EVERYWHERE  PAN 80 MIDDLE`, `KEYS, EVERYWHERE  REV 7F 100%`; then `  DRY` while SETTINGS' KEYS is DRY |
-| the footer's right | | | T | `TRACK 00`, `LOOP 03`, or `KEYS` |
+| the value in words | 2, 213 | | T | `TRACK 00  LVL 7A 96%`, `PAN 80 MIDDLE` / `LEFT` / `RIGHT`; then `  BY THE SONG` while a command holds it, `  MUTED` for a muted track. KEYS: `KEYS, EVERYWHERE  LVL +3 DB` (`0 DB`, `-6 DB`), `KEYS, EVERYWHERE  PAN 80 MIDDLE`, `KEYS, EVERYWHERE  REV 7F 100%`; then `  DRY` while SETTINGS' KEYS is DRY. NEW: `NEW LOOP  LVL 40 50%` |
+| the footer's right | | | T | `TRACK 00`, `LOOP 03`, `KEYS`, or `NEW LOOP` |
 
-Colours: the title cyan; track numbers and `KEYS` cyan, the selected one white, a track dim (unused or muted) dark
+Colours: the title cyan; track numbers, `KEYS` and `NEW` cyan, the selected one white, a track dim (unused or muted) dark
 grey; row names cyan, the selected row white; with DRY, KEYS' DCK and sends dark grey. Bars: LVL green, DCK brown, the sends light blue, over a
 deep grey track; PAN's line dark grey, its mark light grey; `S` brown; a dim track's values dark grey,
 a value a command holds white. The box white. The words line light grey, white while a command holds
@@ -773,9 +789,9 @@ the value.
   `140 BPM`; and `◆ SENDS`'s four lines.
 - **ARP held** ([../dialogs.md](../dialogs.md)): every screen's: `HOLD ARP +`, `SELECT: THE RHYTHM, # A
   NOTE, _ A REST`, `ALGORITHM: THE PATTERN`, `K1: HOW MANY NOTES LATCH`, `LFO: LET THE LATCHED NOTES GO`.
-- **MIXER:** `MIXER`, `MIXER: THE LOOPS`, `KEYS`, `LVL`, `PAN`, `DCK`, `CHO`, `DLY`, `REV`, `S`, the words line
+- **MIXER:** `MIXER`, `MIXER: THE LOOPS`, `KEYS`, `NEW`, `LVL`, `PAN`, `DCK`, `CHO`, `DLY`, `REV`, `S`, the words line
   (`TRACK 00  LVL 7A 96%`, `MIDDLE`, `LEFT`, `RIGHT`, `BY THE SONG`, `MUTED`; `KEYS, EVERYWHERE  LVL +3 DB`,
-  `DRY`); SEL held: `K1: BY 16`, on KEYS' LVL `K1: BY 6 DB`.
+  `DRY`; `NEW LOOP  LVL 40 50%`); the footer's `NEW LOOP`; SEL held: `K1: BY 16`, on KEYS' LVL `K1: BY 6 DB`.
 - **Menus and dialogs:** the SEL menu (the item's name; MOVE, RESET, REVERT); REVERT's question
   (`REVERT THE EFFECTS TO SAVED?`, `FOR CITY LIGHTS`, `FOR THE LOOPS`, `FOR DJ`; OCT+ `REVERT`, OCT-
   `KEEP`); `FX PROPERTIES FOR` and whose (`THE LOOPS`, `DJ`, `THE KEYS`, a song's name); its items (TEMPO, `120 BPM`;

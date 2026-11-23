@@ -4,8 +4,8 @@
  * measured as their LEVEL is defined (specs/files/instruments.md, LEVEL; the player's player_measure) and their
  * LEVEL set: -20 dB less the loudest 300 ms, at most 30 dB either way, its peak kept under -6 dB, in half-dB
  * steps. A silent one keeps its LEVEL. An instrument a pass of the main loop under a progress bar (~50 ms each
- * on the FM-1); all of a run one edit. TOOLS' run measures the user area's cartridges; a built-in one is measured
- * from its own menu. */
+ * on the FM-1); all of a run one edit. TOOLS' run measures the user area's cartridges; a built-in one, changed or
+ * not, is measured from its own menu. */
 #include <string.h>
 #include "plat.h"
 #include "ui_core.h"
@@ -77,7 +77,8 @@ static int set_level(uint8_t cart, int slot, int8_t lv)
     return ins_put_slot(cart, slot, s);
 }
 
-static int user_cart(uint8_t c) { int k = ins_kind(c); return k && k != REC_FAV && !ins_builtin(c); }   /* (FAVORITES:
+static int user_cart(uint8_t c) { int k = ins_kind(c); return c < 0xF0u && k && k != REC_FAV; }   /* (F0-FF built in,
+                                                         * changed or not: their own menus measure them; FAVORITES:
                                                          * no sounds of their own) */
 static int next_cart(int c)                             /* the user area's next cartridge after c, -1 none */
 {
@@ -116,14 +117,13 @@ static void start(const char *text)
 /* one instrument: MEASURING ITS NAME, then LEVEL SET TO -1.5 DB */
 void ui_auto_level(uint8_t cart, int slot, void (*after)(int set))
 {
-    char nm[16], t[32];
+    char nm[16];
     if (!ui_inst_name((uint16_t)(cart << 8 | slot), nm)) return;
     memset(&al, 0, sizeof al);
     al.cart = cart; al.slot = (int16_t)slot; al.one = (int16_t)slot;
     al.after = after;
     al.total = 1;
-    ui_fmt(t, sizeof t, "%s", ui_txt_v(T("MEASURING #"), nm));
-    start(t);
+    start(ui_txt_t(TX("MEASURING #"), nm));             /* (the progress copies its text) */
 }
 /* every instrument of a cartridge (cart >= 0) or of the user area (-1), after a question (it changes every LEVEL
  * at once, and nothing takes a step back): MEASURING 32 SOUNDS, MEASURING EVERY SOUND, then LEVELS SET */
@@ -140,14 +140,10 @@ static int ask_cart;
 static void (*ask_after)(int set);
 static void all_go(int a)
 {
-    char t[32];
     if (a != 1) return;
     all_set(ask_cart, ask_after);
-    if (ask_cart >= 0)
-        ui_fmt(t, sizeof t, "%s", ui_txt_v(al.total == 1 ? T("MEASURING # SOUND") : T("MEASURING # SOUNDS"),
-                                           ui_dec(al.total)));
-    else ui_fmt(t, sizeof t, "%s", T("MEASURING EVERY SOUND"));
-    start(t);
+    start(ask_cart < 0 ? T("MEASURING EVERY SOUND")    /* (the progress copies its text) */
+                       : ui_txt_d(al.total == 1 ? TX("MEASURING # SOUND") : TX("MEASURING # SOUNDS"), al.total));
 }
 void ui_auto_level_all(int cart, void (*after)(int set))
 {
@@ -159,7 +155,7 @@ void ui_auto_level_all(int cart, void (*after)(int set))
     ui_fmt(l0, sizeof l0, al.total == 1 ? T("AUTO LEVEL %d SOUND?") : T("AUTO LEVEL %d SOUNDS?"), al.total);
     l[0] = l0;
     l[1] = T("EACH ONE'S LEVEL SET AGAIN");
-    ui_ask(l, 2, T("LEVEL"), T("KEEP"), all_go);
+    ui_ask_t(l, 2, TX("LEVEL"), TX("KEEP"), all_go);
 }
 
 /* a pass of the main loop: the next instrument (after the bar has been drawn) */
@@ -182,7 +178,7 @@ void ui_level_poll(void)
         char v[16];
         int h = al.last;                                /* (as the LEVEL's value is written: -1.5 DB, 0 DB, +3 DB) */
         ui_fmt(v, sizeof v, "%s%d%s DB", h > 0 ? "+" : h < 0 ? "-" : "", (h < 0 ? -h : h) / 2, (h & 1) ? ".5" : "");
-        ui_toast(al.set ? ui_txt_v(T("LEVEL SET TO #"), v) : T("NO SOUND TO MEASURE"));
-    } else ui_toast(T("LEVELS SET"));
+        ui_toast(al.set ? ui_txt_t(TX("LEVEL SET TO #"), v) : T("NO SOUND TO MEASURE"));
+    } else ui_toast_t(TX("LEVELS SET"));
     if (al.after) al.after(al.set);
 }

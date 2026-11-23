@@ -4,9 +4,10 @@
 the host tests') runs this first. Each step is a tool of its own; a step whose tool is not there yet
 is skipped with a note.
 
-    python3 -I fw/tools/gen.py [DIR]      (from ptfm/; DIR defaults to build/fw/gen)
+    python3 -I fw/tools/gen.py [DIR] [--no-help]      (from ptfm/; DIR defaults to build/fw/gen)
 
-A build or a test that runs while others do may pass a directory of its own.
+A build or a test that runs while others do may pass a directory of its own. --no-help leaves the help's pages
+out of the texts, every screen's help one line saying so (the FM-1's debug build: specs/debug.md).
 """
 import os
 import subprocess
@@ -16,13 +17,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 
 def main():
-    gen = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(ROOT, "build", "fw", "gen")
+    args = [a for a in sys.argv[1:] if a != "--no-help"]
+    gen = os.path.abspath(args[0]) if args else os.path.join(ROOT, "build", "fw", "gen")
+    no_help = ["--no-help"] if "--no-help" in sys.argv[1:] else []
     steps = [
         # (tool, its arguments): run from ptfm/ with -I
         ("tools/pack.py", ["--builtin", gen]),      # the built-in instruments (builtin.c)
         ("tools/gen_fonts.py", ["--fw", gen]),      # the fonts T, S, B, L (fonts.c, fonts.h)
         ("fw/tools/gen_tables.py", [gen]),          # the engines' and effects' tables
-        ("fw/tools/gen_texts.py", [gen]),           # the fixed texts and the help, packed
+        ("fw/tools/gen_texts.py", [gen] + no_help), # the fixed texts and the help, packed
     ]
     os.makedirs(gen, exist_ok=True)
     for tool, args in steps:

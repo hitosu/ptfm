@@ -142,6 +142,63 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         return p.level;
     }
 
+    /* the forward work (a ghost's return, dsp-core.js; the firmware's dx7_forward): an envelope worked on many blocks
+     * at once, a stretch at a time. Within a stretch its change a block is the same (a hold's count, a falling stage's
+     * step, a rising stage's step within one of the 17 bands of its level), so its blocks are one sum, and the block
+     * that may end it is envStep's own. The levels are whole numbers here as in MSFA, so the sums are exact */
+    const JUMP = 1716 * 65536, U24 = 16777216;
+    const RUN_AT = new Float64Array(7), RUN_SPAN = new Float64Array(7);   /* (run's: each envelope's place and stretch) */
+    /* the blocks of e's stretch from where it is, the last of them the one that may end it; 0: it stands for good (a
+     * sustain held, a release ended) */
+    function envSpan(e) {
+        if (e.st) return Math.floor((e.st + N - 1) / N);
+        if (!(e.ix < 3 || (e.ix < 4 && !e.down))) return 0;
+        if (!e.rising) return e.level > e.target ? Math.floor((e.level - e.target - 1) / e.inc) + 1 : 1;
+        const l = e.level < JUMP ? JUMP : e.level, m = Math.floor((17 * U24 - l) / U24);
+        if (m <= 0) {                                   /* (above the patches' ranges: standing, or down a band at a time) */
+            if (!m) return l < e.target ? 0 : 1;
+            return Math.floor((l - (16 - m) * U24 - 1) / (-m * e.inc)) + 1;
+        }
+        const d = m * e.inc, to = e.target > l ? Math.floor((e.target - l - 1) / d) + 1 : 1;
+        return Math.min(to, Math.floor(((17 - m) * U24 - l) / d) + 1);   /* (to its target, or out of its band) */
+    }
+    /* e moved on n blocks of its stretch (span: envSpan's, n <= span): those before the last in one sum, the last by
+     * envStep itself */
+    function envGo(e, n, span) {
+        if (!span) return;
+        const last = n === span;
+        if (last) n--;
+        if (n) {
+            if (e.st) e.st -= n * N;
+            else if (e.rising) { const l = e.level < JUMP ? JUMP : e.level; e.level = l + n * Math.floor((17 * U24 - l) / U24) * e.inc; }
+            else e.level -= n * e.inc;
+        }
+        if (last) envStep(e);
+    }
+    /* the pitch envelope's stretch: a stage to its target */
+    function peSpan(p) {
+        if (!(p.ix < 3 || (p.ix < 4 && !p.down))) return 0;
+        const gap = p.rising ? p.target - p.level : p.level - p.target;
+        return gap <= 0 ? 1 : Math.max(1, Math.ceil(gap / p.inc));
+    }
+    function peGo(p, n, span) {
+        if (!span) return;
+        const last = n === span;
+        if (last) n--;
+        p.level += (p.rising ? 1 : -1) * n * p.inc;
+        if (last) peStep(p);
+    }
+    /* the LFO moved on n blocks: its time and phase in one sum; the sample-and-hold a new value once a cycle crossed */
+    function lfoGo(L, n) {
+        const ph0 = L.ph;
+        L.t += n * N / SR;
+        L.ph += n * L.hz * N / SR;
+        if (L.wave === 5)                /* (the FM-1's generator, a step each cycle crossed; it comes round in 128) */
+            for (let k = (Math.floor(L.ph) - Math.floor(ph0)) % 128; k > 0; k--) L.rs = (L.rs * 179 + 17) & 255;
+    }
+    /* an envelope's gain at its most from now on: a stage rising now (no hold) counted at its target */
+    const envTop = e => (e.rising && !e.st && (e.ix < 3 || (e.ix < 4 && !e.down)) ? e.target : e.level);
+
     /* an operator's envelope on its own, for the sampler's (specs/files/instruments.md: "as a
      * DX7 operator's"): its gain 0-1, moved every 64 samples */
     E.opEnv = {
@@ -154,6 +211,9 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         release(e) { e.down = false; envAdvance(e, 3); },
         retune(e, rates, levels) { e.rates = rates.map(x => Math.min(99, x)); e.levels = levels.map(x => Math.min(99, x)); envAdvance(e, e.ix); },
         done: e => !e.down && e.ix >= 4 && e.level < 1716 * 65536 * 1.6,
+        span: envSpan, go: envGo,                       /* (the forward work's, as the DX7's) */
+        gain: l => Math.pow(2, Math.min(l, 20 * U24) / U24 - 15),   /* (step's, at a level) */
+        top: envTop,
     };
 
     /* the DX7's parameter commands (specs/files/commands.md): eight codes an operator from 0x40, OP1
@@ -192,46 +252,115 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     function lfoOf(p, ph) {
         return { hz: LFO_HZ[p.lfo.speed], ph, wave: WAVES.indexOf(p.lfo.wave),
                  pmd: (p.lfo.pm_depth * 165 >> 6) / 255 * PMS[p.lfo.pitch_mod_sens & 7] / 255,
-                 amd: (p.lfo.am_depth * 165 >> 6) / 256, delay: p.lfo.delay, t: 0, sh: 0 };
+                 amd: (p.lfo.am_depth * 165 >> 6) / 256, delay: p.lfo.delay, t: 0, rs: 0 };   /* (rs: the sample-and-hold's
+                                                         * 8-bit generator, as a fresh engine's on the FM-1) */
     }
 
     E.engines.DX7 = {
-        start(v, p, midi, m) {
-            const vel = m.accent ? 127 : 100;
+        /* (last: its engine's last DX7 note, as the FM-1's dx7_note_on finds it there: the operators' phases go on unless
+         * OSC KEY SYNC, the LFO's phase unless its KEY SYNC, its sample-and-hold's generator always; none: a fresh
+         * engine's zeros) */
+        /* (m.vol: its volume at its start, 0-127, its modulators' velocity: harder, brighter; the carriers' (the
+         * operators on the output) 100, the FM-1's PL_VEL, its loudness its volume's gain) */
+        start(v, p, midi, m, proc, last) {
+            const vel = m.vel !== undefined ? m.vel : m.vol === undefined ? 100 : m.vol, was = last ? last.st : null,
+                  ph = was && !p.osc_key_sync,
+                  alg = ALG[p.algorithm - 1];
             v.p = p;
             v.vel = vel;
             v.ops = [];
             for (let i = 0; i < 6; i++) {
                 const op = p.ops[5 - i];                     /* MSFA's order: OP6 first */
                 const e = { rates: op.eg.rates.map(x => Math.min(99, x)), levels: op.eg.levels.map(x => Math.min(99, x)),
-                            out: opOut(op, midi, vel), rs: scaleRate(midi, op.rate_scaling), level: 0, down: true };
+                            out: opOut(op, midi, (alg[i] & 7) === 4 ? 100 : vel), rs: scaleRate(midi, op.rate_scaling),
+                            level: 0, down: true };
                 envAdvance(e, 0);
-                v.ops.push({ e, lf: logfreq(midi, op), fixed: op.mode !== "ratio", ph: 0, g0: 0, g1: 0, y: 0, ams: AMS[op.amp_mod_sens & 3] });
+                v.ops.push({ e, lf: logfreq(midi, op), fixed: op.mode !== "ratio", ph: ph ? was.ops[i].ph : 0, g0: 0, g1: 0, y: 0, ams: AMS[op.amp_mod_sens & 3] });
             }
             v.alg = ALG[p.algorithm - 1];
             v.fbs = p.feedback ? Math.pow(2, -(8 - p.feedback)) : 0;
             v.fb0 = 0; v.fb1 = 0;
             v.pe = { rates: p.pitch_eg.rates, levels: p.pitch_eg.levels, level: PE_TAB[p.pitch_eg.levels[3]] / 32, down: true };
             peAdvance(v.pe, 0);
-            v.lfo = lfoOf(p, p.lfo.key_sync ? .5 : Math.random());   /* (MSFA's key sync: half a cycle in) */
+            v.lfo = lfoOf(p, p.lfo.key_sync ? .5 : was ? was.lfo.ph : 0);   /* (MSFA's key sync: half a cycle in; else on
+                                                         * from its engine's last DX7 note there, a fresh engine's 0) */
+            if (was) v.lfo.rs = was.lfo.rs;
             v.transpose = p.transpose || 0;
             v.n = 0;
             v.bus = [new Float32Array(N), new Float32Array(N)];
             v.out = new Float32Array(N);
             v.left = 0;
             v.quiet = 0;
+            v.rel = false;                               /* (let go: its own, its quiet count's) */
             v.midi0 = midi;
         },
         release(v) {
             for (const o of v.ops) { o.e.down = false; envAdvance(o.e, 3); }
             v.pe.down = false; peAdvance(v.pe, 3);
+            v.rel = true;
+        },
+        /* the forward work (dsp-core.js: a ghost coming back, as the firmware's dx7_forward): a note just started worked
+         * on without its sound, in its own 64-frame blocks, w.on blocks held, then (w.off >= 0) its note off and w.off
+         * blocks more, spending steps.n (a stretch a step; its note off 7). True when done; false when the budget ran
+         * out first, called again it goes on from where it is. Its six envelopes, its pitch envelope and its LFO come
+         * out as those blocks leave them; the operators' phases are not kept */
+        forward(v, w, steps) {
+            for (;;) {
+                if (!w.on && (w.off < 0 || (!w.off && !v.pe.down))) return true;
+                if (steps.n <= 0) return false;
+                if (w.on) w.on -= this.run(v, w.on, steps);
+                else if (v.pe.down) { this.release(v); steps.n -= 7; }
+                else w.off -= this.run(v, w.off, steps);
+            }
+        },
+        /* the envelopes moved on together by up to n blocks, their stretches taken in the order they end (a step
+         * each), so that when the budget runs out they all stand at one block; then the LFO as far (a step). The
+         * blocks gone */
+        run(v, n, steps) {
+            const at = RUN_AT, span = RUN_SPAN, ops = v.ops;   /* (kept arrays: a return's work makes nothing) */
+            let to = n;
+            at.fill(0);
+            for (let i = 0; i < 7; i++) { span[i] = i < 6 ? envSpan(ops[i].e) : peSpan(v.pe); if (span[i]) steps.n--; }
+            for (;;) {
+                let c = -1, end = n;
+                for (let i = 0; i < 7; i++) if (span[i] && span[i] < end - at[i]) { end = at[i] + span[i]; c = i; }
+                if (c < 0) break;
+                if (c < 6) { envGo(ops[c].e, span[c], span[c]); span[c] = envSpan(ops[c].e); }
+                else { peGo(v.pe, span[c], span[c]); span[c] = peSpan(v.pe); }
+                at[c] = end;
+                if (--steps.n <= 0) { to = end; break; }
+            }
+            for (let i = 0; i < 6; i++) envGo(ops[i].e, to - at[i], span[i]);
+            peGo(v.pe, to - at[6], span[6]);
+            lfoGo(v.lfo, to);
+            steps.n--;
+            return to;
+        },
+        /* the most the note still reaches (its carriers' envelopes, a stage rising counted at its target), on its
+         * render's scale */
+        heard(v) {
+            let g = 0;
+            for (let k = 0; k < 6; k++) if ((v.alg[k] & 3) === 0) g += Math.pow(2, Math.min(envTop(v.ops[k].e), 20 * U24) / U24 - 14);
+            return g;
+        },
+        units: (f, up) => up ? Math.ceil(f / N) : Math.floor(f / N),   /* (its blocks in f frames from its start) */
+        active: v => v.quiet < 8,                       /* (it still sounds: render's) */
+        /* worked forward over the blocks before frame f of its note (its own 64-frame grid from its start): the block f
+         * falls in made now (its step, its sound), read from f's place in it, so its next steps fall where the note never
+         * taken's do; let go within that block (rel), its note off after it, as the note never taken's came between
+         * its steps. Its operators' gains ramp up from 0 in that block, as a fresh engine's */
+        resume(v, f, rel) {
+            const r = f % N;
+            v.left = 0;
+            if (r) { this.block(v); v.left = N - r; }
+            if (rel) this.release(v);
         },
         /* a parameter command under a sounding note: what it changes, again */
         refresh(v, c) {
             const p = v.p, midi = v.midi0;
             if (c >= 0x40 && c < 0x70) {
                 const n = (c - 0x40) >> 3, op = p.ops[n], o = v.ops[5 - n];
-                o.e.out = opOut(op, midi, v.vel);
+                o.e.out = opOut(op, midi, (v.alg[5 - n] & 7) === 4 ? 100 : v.vel);
                 o.e.rates = op.eg.rates.map(x => Math.min(99, x));
                 o.lf = logfreq(midi, op);
                 envAdvance(o.e, o.e.ix);
@@ -268,7 +397,9 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 case 2: lv = ph < .5 ? ph + .5 : ph - .5; break;
                 case 3: lv = ph < .5 ? 1 : 0; break;
                 case 4: lv = .5 + .5 * Math.sin(ph * 2 * Math.PI); break;
-                default: if (ph < L.hz * N / SR) L.sh = Math.random(); lv = L.sh;
+                default:                      /* sample and hold: 179x + 17 on 8 bits, a step as a cycle begins */
+                    if (ph < L.hz * N / SR) L.rs = (L.rs * 179 + 17) & 255;
+                    lv = ((L.rs ^ 0x80) + 1) / 256;
             }
             const dly = L.delay ? Math.min(1, Math.max(0, (L.t - L.delay * .02) / (L.delay * .03 + .01))) : 1;
             const pitch = peStep(v.pe) + L.pmd * dly * (lv - .5) + ((v.bend || 0) + v.transpose) / 12;

@@ -333,6 +333,44 @@ const other = num => ({ kind: K.TB303, num, sub: 0, ver: 1, payload: R.packCart(
     const L6 = R.unpackLoops(R.loopsV3(R.loopsV4to3(R.packLoops(one([cut]))).parts));
     check(rows(L6.loops[0]) === "0,10,22" && L6.loops[0].cells.get("0,0").note === R.NOTE_OFF,
         "a repeat the length cuts: its note sounding there stopped at the wrap, a note off at row 0 (" + rows(L6.loops[0]) + ")");
+    /* a cut loop (loops.md, the record: byte 2's bit 6, byte 5 the cut over a base of the length, once): read, packed back
+     * byte for byte; written down as its first pass, its rows below the cut again and again, a note sounding at the cut
+     * ended at each wrap; SHIFT under the window */
+    const ct = { cart: 1, slot: 2, colour: 0, mono: 0, muted: false, lanes: 1, base: 16, repeat: 1, shift: 0, cut: 6, mixer: R.MIX_DEFAULT.slice(),
+        cells: new Map([[R.cellKey(1, 0), cell(60, 0x7F)], [R.cellKey(5, 0), cell(62, 0x7F)], [R.cellKey(9, 0), cell(64, 0x7F)]]) };
+    const pc = R.packLoops(one([ct], { length: 16 }));
+    const uc = R.unpackLoops(pc);
+    check((pc[0][82] & 0x40) && pc[0][84] === 15 && pc[0][85] === 6 && uc.loops[0].cut === 6 && uc.loops[0].repeat === 1 &&
+        eq(R.packLoops(uc)[0], pc[0]), "a cut at 6: byte 2's bit 6, byte 4 the length - 1, byte 5 the cut; read back, packed byte for byte");
+    let bad = "";
+    try { R.packLoops(one([Object.assign({}, ct, { base: 12 })], { length: 16 })); } catch (e) { bad = e.message; }
+    check(/a cut at 6/.test(bad), "a cut over a base that is not the length refused (" + bad + ")");
+    const Lc = R.unpackLoops(R.loopsV3(R.loopsV4to3(pc).parts));
+    check(rows(Lc.loops[0]) === "0,1,5,6,7,11,12,13" && Lc.loops[0].cells.get("6,0").note === R.NOTE_OFF && Lc.loops[0].cells.get("7,0").note === 60 &&
+        Lc.loops[0].cells.get("11,0").note === 62 && !Lc.loops[0].cells.get("9,0"),
+        "written down: the first pass round the cut (its notes at 1 and 5 again at 7, 11, 13), its note at 9 not written, a note off at " +
+        "each wrap (" + rows(Lc.loops[0]) + ")");
+    const cutLost = R.loopsV4to3(pc).lost.join(", ");
+    check(cutLost === "A LOOP'S CUT (PLAYED AS ITS FIRST PASS)", "... the cut named: version 3 plays the first pass at every length, " +
+        "its drift gone (" + cutLost + ")");
+    /* a LOOPS set (loops.md#sets): read and packed back byte for byte; its solos, a mute and a loop deleted written */
+    {
+        const two = R.packLoops(one([ct, Object.assign({}, ct, { cart: 2, cut: 0, cells: new Map([[R.cellKey(3, 0), cell(67, 0x7F)]]) })], { length: 16 }), R.LSET_PRE);
+        const p0 = new Uint8Array(R.LSET_PRE + two[0].length);
+        p0.set(R.packName("SUNDAY JAM", 16), 0); p0[12] = 2; p0[15] = 0x5A;   /* (loop 01 soloed; byte 15 as written) */
+        p0.set(two[0], R.LSET_PRE);
+        const set = [p0].concat(two.slice(1)), S = R.unpackLSet(set);
+        check(S.name === "SUNDAY JAM" && S.solos === 2 && R.packLSet(S).every((b, k) => eq(b, set[k])), "a set read and packed back byte for byte");
+        S.loops.loops[0].muted = true;
+        S.loops.loops.splice(0, 1);
+        S.solos = 1;
+        const S2 = R.unpackLSet(R.packLSet(S));
+        check(S2.loops.loops.length === 1 && S2.loops.loops[0].cart === 2 && S2.loops.loops[0].cells.get("3,0").note === 67 && S2.solos === 1 &&
+              S2.name === "SUNDAY JAM" && S2.pre[15] === 0x5A, "... loop 00 deleted (loop 01 moved up with its notes, its solo), the name and byte 15 kept");
+    }
+    const Ls = R.unpackLoops(R.loopsV3(R.loopsV4to3(R.packLoops(one([Object.assign({}, ct, { shift: 2 })], { length: 16 }))).parts));
+    check(Ls.loops[0].cells.get("3,0") && Ls.loops[0].cells.get("3,0").note === 60 && !(Ls.loops[0].cells.get("1,0") || {}).note,
+        "SHIFT 2 under the window: its note at 1 heard at 3 (" + rows(Ls.loops[0]) + ")");
     /* VIEW, K1-K4's jobs, with no loops the length: named when they are not the defaults */
     const named = extra => R.loopsV4to3(R.packLoops(one([cut], extra))).lost.join(", ");
     check(named({ view: 4 }) === "VIEW" && named({ jobs: [0, 1, 5, 7] }) === "K1-K4'S JOBS" && named({ view: 2, jobs: [0, 1, 5, 6] }) === "",
@@ -341,6 +379,12 @@ const other = num => ({ kind: K.TB303, num, sub: 0, ver: 1, payload: R.packCart(
     /* (at 1/16T, 16 beats a bar: a bar of 96 rows, 1 fits) */
     check(empty({ view: 1, jobs: [6, 1, 5, 6], length: 32 }) === "VIEW, K1-K4'S JOBS, THE LENGTH" && empty({ length: 96 }) === "",
         "with no loops the length too, when it is not the default (" + empty({ view: 1, jobs: [6, 1, 5, 6], length: 32 }) + "; 96 rows: none)");
+    /* a new loop's defaults (bytes 72-77, stored by byte 79's bit 7): named when stored and not the ones a record without
+     * them reads (LEVEL 40, PAN 80, DUCK 0, the sends 7F); not stored, whatever 72-77 hold, nothing */
+    const withDef = (mix, on) => { const L = one([cut], { mix }); L.head = L.head.slice(); L.head[79] = on ? 0x80 : 0; return R.loopsV4to3(R.packLoops(L)).lost.join(", "); };
+    check(withDef([0x30, 0x80, 0, 0x7F, 0x7F, 0x7F], 1) === "A NEW LOOP'S MIX" && withDef([0x40, 0x80, 0, 0x7F, 0x7F, 0x7F], 1) === "" &&
+        withDef([0x30, 0x80, 0, 0, 0, 0], 0) === "", "a new loop's defaults named going down when stored and not the defaults (" +
+        withDef([0x30, 0x80, 0, 0x7F, 0x7F, 0x7F], 1) + "), else nothing");
     /* the records of an object: down a step at a time; no way down: null */
     const dg = R.downgrade(R.packLoops(L4).map((payload, sub) => ({ kind: K.LOOPS, num: 0, sub, ver: 4, payload })), 3);
     check(dg && dg.recs.every(r => r.ver === 3 && r.kind === K.LOOPS) && dg.lost.length === 1 && R.canDowngrade(K.LOOPS, 4, 3) &&

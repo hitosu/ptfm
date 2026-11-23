@@ -76,4 +76,5 @@ ${CC:-cc} -std=gnu11 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-paramete
     $INC -I"$GEN" $SRC "$GEN"/builtin.c "$GEN"/fonts.c "$GEN"/texts.c fw/tests/ui3_test.c -o "$OUT/ui3_debug" -lm
 "$OUT/ui3_debug" dist/firmware/demo.ptfmdsk "$OUT/debug"
 node fw/tests/figures_test.js "$OUT/debug/figures1.syx" "$OUT/debug/figures2.syx" \
-    "$OUT/debug/figures3.syx" "$OUT/debug/figures1c2.syx" "$OUT/debug/figures3c2.syx"
+    "$OUT/debug/figures3.syx" "$OUT/debug/figures1c2.syx" "$OUT/debug/figures3c2.syx" \
+    "$OUT/debug/figures4.syx" "$OUT/debug/figures4c2.syx" "$OUT/debug/figures5.syx" "$OUT/debug/figures5c2.syx"

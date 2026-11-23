@@ -23,11 +23,17 @@ show the tracks: dim while a track plays, dark while it is muted, bright while i
 something that is gone (an instrument, a pattern, a sample deleted or moved). SETTINGS, TOOLS, CHECK REFERENCES lists
 every such place (<a href="#basics-references">chapter 4</a>).</td></tr>
 <tr><td>The keys are too quiet or too loud against a song.</td><td>SETTINGS' KEYS GAIN sets how loud the keys sound;
-KEYS VOLUME sets the volume of the notes they write (<a href="#settings-keys-items">chapter 13</a>).</td></tr>
+KEYS VELOCITY how hard you must press for the loudest (SOFT the least), or CONSTANT, every key at KEYS VOLUME
+(<a href="#settings-keys-items">chapter 13</a>).</td></tr>
+<tr><td>A key plays softer than you pressed it.</td><td>Press its middle: near an edge a key reads softer. The top seven
+keys (C#5-G5) are not read at all and play at the mean of the last four keys that were.</td></tr>
 <tr><td>Crackles or clicks in a busy part.</td><td>Too much is asked of the FM-1 at once: many notes on heavy
 instruments with several effects on. Set SETTINGS' VOICES to 12 or 8, keep SECOND CORE on, or switch off an effect
 you do not need (<a href="#settings-sound">chapter 13</a>). STATUS shows how busy each processor is
 (<a href="#status-pages">chapter 12</a>).</td></tr>
+<tr><td>A held note drops out in a busy part, then comes back.</td><td>Every voice was busy: the note went on unheard,
+a ghost note, and came back as soon as a voice was free. Set SETTINGS' VOICES to 16 with SECOND CORE on, or let fewer
+notes ring at once (<a href="#settings-sound">chapter 13</a>).</td></tr>
 <tr><td>A computer records the FM-1 too quietly or too loud.</td><td>SETTINGS' USB GAIN sets USB audio's level;
 MASTER does not touch it (<a href="#usb-audio">chapter 16</a>).</td></tr>
 </tbody>
@@ -44,6 +50,17 @@ photo is easiest): they say what went wrong where, and the version and the BUILD
 firmware it was, so send them all when you report it. Then press any button: the FM-1 restarts. What was saved is kept, edits not saved are lost. Until
 you switch the FM-1 off and on, it runs on one processor (VOICES 16 plays 12 voices at most; STATUS' DEVICE says
 STOPPED: AFTER A CRASH).</td></tr>
+<tr><td>The FM-1 froze, then started again on its own, and the screen says <b>PT/FM FROZE</b>.</td><td>PT/FM stopped
+answering and the FM-1's watchdog restarted it after a few seconds. The blue screen says where it got stuck: note its
+lines (a photo is easiest) with the version and the BUILD code, and send them when you report it. Then press any
+button and PT/FM starts as usual. What was saved is kept, edits not saved are lost. If the second processor was
+running, it stays off until you switch the FM-1 off and on, as after a crash. If it froze under a heavy load with its
+SUPPLIES line saying NOT RAISED, set SETTINGS' CORE SUPPLIES back to STOCK (<a href="#settings-sound">chapter
+13</a>).</td></tr>
+<tr><td>At a start, a red screen says <b>CORE 2 FAULTED</b>.</td><td>The second processor stopped on an error in an
+earlier run (or refused a write aimed outside the memory: <b>A BAD FILL STOPPED IT</b>, <b>A BAD COPY STOPPED IT</b>),
+and no screen had shown it yet. It shows once: note its lines with the version and the BUILD code, and send them when
+you report it. Then press any button and PT/FM starts as usual.</td></tr>
 <tr><td>The FM-1 does not start, or starts in <b>UPDATE MODE</b>.</td><td>After two failed starts in a row, or with
 the firmware not whole, the FM-1 waits in UPDATE MODE for an install; its screen says why. Install the firmware again
 from the install page (<a href="#install-rescue">chapter 2</a>). To reach UPDATE MODE yourself, hold <kbd>OCT-</kbd>
@@ -75,6 +92,11 @@ NOW (<kbd>OCT+</kbd>), then make the edit again. STATUS' EDITS FREE shows the ro
 <tr><td><samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp></td><td>The flash is full. Answer CLEAN UP
 (<kbd>OCT+</kbd>) to delete what nothing uses, or delete songs, patterns or samples yourself, then save again;
 nothing is lost meanwhile. STATUS' FLASH FREE shows the room left (<a href="#settings-tools">chapter 13</a>).</td></tr>
+<tr><td><samp class="msg">TOO MANY RECORDS TO SAVE</samp></td><td>The FM-1 lists 560 records at most, and this save would
+pass them. Answer CLEAN UP (<kbd>OCT+</kbd>), or delete songs, patterns, samples or LOOPS sets yourself, then save
+again; nothing is lost meanwhile. If it still asks, what you deleted is of the same kind as something new in the save
+(a pattern deleted while another is made): delete something of another kind, or save the deletion before you make the
+new thing (<a href="#basics-saving">chapter 4</a>).</td></tr>
 <tr><td>The install page was converting the samplers and stopped (a cable pulled, the power lost, the FM-1 stopped
 answering).</td><td>Press INSTALL FIRMWARE again (if the FM-1 does not answer, switch it off and on first): the conversion
 goes on from where it stopped and the samplers converted so far and the rest are both whole (<a href="#install-firmware">chapter 2</a>).</td></tr>

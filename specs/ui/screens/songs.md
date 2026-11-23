@@ -244,50 +244,55 @@ the song afloat is boxed in yellow. SEL is lit. The order below shows the song a
 
 ### The properties (GLO)
 
+The dialogs' properties ([../dialogs.md](../dialogs.md#properties)), in S (a character here one of S's, a line a
+16-px row):
+
 ```
- +------------------------------------+
- |SONG 00 PROPERTIES                  |
- |[NAME                     PUNCH IN] |   the selected item, boxed
- | TEMPO                7C (124 BPM)  |
- | TICKS A ROW                     6  |
- | ROWS A BEAT                     4  |
- | SWING                        50 %  |
- | AT THE END                   STOP  |
- | LOOP FROM             POSITION 00  |
- +------------------------------------+
++----------------------------+
+|SONG 00 PROPERTIES          |
+|[NAME             PUNCH IN ]|   the selected item, boxed
+| TEMPO         7C (124 BPM) |
+| TICKS A ROW              6 |
+| ROWS A BEAT              4 |
+| SWING                 50 % |
+| AT THE END            STOP |
+| LOOP FROM      POSITION 00 |
++----------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| the panel | 6, 21 | 228 × 122 | | |
-| title | 10, 24 | | T | `SONG 00 PROPERTIES` |
-| item *i* = 0-6 | 12, 40 + 14 *i* | | T | its name |
-| – value | right-aligned to x 228 | | T | |
-| – the selected item's box | 8, item − 2 | 224 × 14 | | |
+| the panel | 4, 19 | 232 × 136 | | |
+| title | 8, 22 | | S | `SONG 00 PROPERTIES` |
+| item *i* = 0-6 | 10, 40 + 16 *i* | | S | its name |
+| – value | right-aligned to x 230 | | S | |
+| – the selected item's box | 6, item − 1 | 228 × 16 | | |
 
 Colours: the panel's border light grey, the title cyan; item names cyan, values light grey; the
 selected item's name and value white, its box white.
 
 ### The SEL menus
 
+The dialogs' menu ([../dialogs.md](../dialogs.md#menus)), the body's width, in S (a character here one of S's):
+
 ```
-              +------------------------+
-              |SONG 00                 |
-              |NEW                     |
-              |[CLONE                 ]|   the last one used, preselected
-              |MOVE                    |
-              |DELETE                  |
-              |RENAME                  |
-              |REVERT                  |   while the song has something unsaved
-              +------------------------+
++----------------------------+
+| SONG 00                    |
+|  NEW                       |
+|[CLONE                     ]|   the last one used, preselected
+|  MOVE                      |
+|  DELETE                    |
+|  RENAME                    |
+|  REVERT                    |   while the song has something unsaved
++----------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| the panel | 84, 21 | 150 × (12 × items + 22) | | |
-| title | 88, 24 | | T | `SONG 00`; in the order `POSITION 03` |
-| item *i* | 90, 39 + 12 *i* | | T | |
-| – the selected item's band | 86, item − 1 | 146 × 12 | | filled, and boxed |
+| the panel | 2, 19 | 236 × (16 × items + 22) | | |
+| title | 8, 22 | | S | `SONG 00`; in the order `POSITION 03` |
+| item *i* | 10, 39 + 16 *i* | | S | |
+| – the selected item's band | 4, item − 1 | 232 × 16 | | filled, and boxed |
 
 The order's menu has up to 8 items: EDIT PATTERN, NEW PATTERN, INSERT, DELETE, COPY, PASTE, CLONE
 PATTERN, REVERT.

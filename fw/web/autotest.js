@@ -22,7 +22,8 @@
  *   PTFM_autotest.hello(on), btn(id, down), key(k, down), knob(id, clicks), ASK, TONE(on): the messages
  *
  * The io: send(bytes) a MIDI message or SysEx to the FM-1; sleep(ms) the time passing; ask() -> Promise of the
- * state (null: no answer); measure(name) starts a measured stretch, measured() ends it -> its FIGURES windows;
+ * state (null: no answer); measure(name) starts a measured stretch, measured() ends it -> its FIGURES windows, peek()
+ * how many it has so far (optional);
  * prompt(text) -> Promise, CONTINUE;
  * log(text) what is under way; stopped() STOP was pressed; usbIn(on) -> Promise of {ok, why, name, check}: the FM-1's
  * USB audio input taken (so the FM-1 sends it) or let go, at every scenario's start but an input one's (optional:
@@ -31,7 +32,9 @@
  * recording is skipped); now() the time in ms (optional: Date.now; the tests' own clock); sendAt(bytes, ms) sends
  * it ms from now, timed by the MIDI port (optional: a press's release; without it the page's own wait times it);
  * freeze(on) FREEZE THE SCREEN on or off with the next FIGURES' question (optional: without it a scenario needing
- * it is skipped); heard() the ms since the FM-1's last FIGURES answer (optional: a state left unanswered says it);
+ * it is skipped); split(fixed) the voices' split fixed as before it moved, or moving again, with the next FIGURES'
+ * question (optional: the same); heard() the ms since the FM-1's last FIGURES answer (optional: a state left unanswered
+ * says it);
  * answers() -> {lost, late}: the state answers counted so far that the FM-1 sent and the page never got (by their
  * numbers), and those that came after their question's time-out (optional: a state answered after a silence says it).
  * The io's sleep and ask's time-out should keep their time with the page out of sight (debug.html: a worker's).
@@ -52,8 +55,8 @@ const SCREEN_KEY = { SONGS: 1, EDITOR: 3, INSTRUMENTS: 5, PLAYBACK: 8, DJ: 10, V
 const FXKEY = { GATE: 1, FILTER: 3, DRIVE: 5, "LO-FI": 8, CHORUS: 10, DELAY: 13, REVERB: 15, LIMITER: 17, DUCK: 20, METRONOME: 22 };
 const FXNUM = { GATE: 0, FILTER: 1, DRIVE: 2, "LO-FI": 3, CHORUS: 4, DELAY: 5, REVERB: 6, LIMITER: 7, DUCK: 8, METRONOME: 9 };
 /* SETTINGS' lines (specs/ui/screens/settings.md: the list's order), the MIDI page's */
-const SET = { VOICES: 3, SECOND_CORE: 4, KEYS_OCTAVE: 9, COUNT_IN: 15, TOOLS: 22 };
-const MIDI_SET = { SYNC: 3 };
+const SET = { VOICES: 3, SECOND_CORE: 4, KEYS_VELOCITY: 7, KEYS_OCTAVE: 11, COUNT_IN: 17, TOOLS: 24 };
+const MIDI_SET = { MIDI_OUT: 1, SYNC: 3 };
 const TOOL = { CHECK_REFERENCES: 0, CHECK_STORAGE: 1, AUTO_LEVEL_ALL: 3 };
 
 const hello = (on) => [0xF0, 0x7D, 0x50, 0x54, 0x43, 0x02, on ? 0 : 1, 0x02, CH, 0xF7];
@@ -102,8 +105,7 @@ const fxOn = (s, name) => !!(s.fx >> FXNUM[name] & 1);                     /* at
 const fxSwitched = (s, name) => !!((s.cursor[2] | s.cursor[3] << 8) >> FXNUM[name] & 1);   /* on FX: switched on */
 
 /* ---- the timing, as a hand's (specs/debug.md: A scenario) ---- */
-const TAP = 60, GAP = 60, CLICK = 50;
-const SLICE = 200;                      /* the longest sleep between looks at STOP */
+const TAP = 60, GAP = 60, CLICK = 50;const SLICE = 200;                      /* the longest sleep between looks at STOP */
 const WATCH = 2000;                     /* a measured stretch looks at the state this often */
 const SEEK_CLICK = 120;                 /* seeking's clicks: slower than the knobs' acceleration (under 90 ms a click
                                          * can count twice), so a click is one step */
@@ -271,12 +273,13 @@ function steps(io, ctx) {
      * length by the run's clock (late timers make it no longer). With until: it ends as soon as a look finds
      * until(state) true, else fails after ms (what: what it waited for; look: how often it looks, for what shows less
      * than WATCH). The scenario's first one starts its test: the counter's time from there (ctx.begin) */
-    const stretch = async (name, ms, until, what, look = WATCH) => {
+    const stretch = async (name, ms, until, what, look = WATCH, full = false) => {
+        const sc = full ? 1 : ctx.scale;                /* (full: the sound's own time, never shortened) */
         if (ctx.begin) ctx.begin();
-        io.log(`${ctx.name}: ${name}${until ? "" : `, ${Math.round(ms * ctx.scale / 1000)} s`}`);
+        io.log(`${ctx.name}: ${name}${until ? "" : `, ${Math.round(ms * sc / 1000)} s`}`);
         const s0 = await io.ask();
         io.measure(name);
-        const from = now(), end = from + Math.max(200, ms * ctx.scale);
+        const from = now(), end = from + Math.max(200, ms * sc);
         try {
             for (let left = end - now(); left > 0; left = end - now()) {
                 await wait(Math.min(left, look));
@@ -299,8 +302,22 @@ function steps(io, ctx) {
     t.begin = () => { if (ctx.begin) ctx.begin(); };    /* the test starts here (a scenario whose steps are its test) */
     t.measure = (name, ms) => stretch(name, ms);
     t.measureUntil = (name, until, ms, what, look) => stretch(name, ms, until, what, look);
+    /* a stretch whose time is the sound's (a note's age, a bar's notes), whatever the tests' scale */
+    t.measureFull = (name, ms) => stretch(name, ms, null, null, WATCH, true);
+    t.measureUntilFull = (name, until, ms, what, look) => stretch(name, ms, until, what, look, true);   /* (both) */
+    /* the windows the stretch under way has so far (-1: the page cannot tell): a step's mark, so its windows are told
+     * apart from those before it (each window's figures end after the mark when its index is at least the mark) */
+    t.peek = () => (io.peek ? io.peek() : -1);
+    /* KEYS FEED (the debug build's, specs/debug.md#keys-feed): key's readings fed, the answer (null: none); the FM-1's
+     * Note On / Off out since the last look (null: this page hears none) */
+    t.feed = async (k, ops) => (io.keysFeed ? io.keysFeed(FG.feedMsg(k, ops)) : null);
+    t.notesOut = () => (io.notesOut ? io.notesOut() : null);
+    t.canFeed = !!io.keysFeed;
     t.freeze = (on) => { if (io.freeze) io.freeze(on); };   /* FREEZE THE SCREEN, with the next FIGURES' question */
     t.canFreeze = !!io.freeze;
+    t.split = (fixed) => { if (io.split) io.split(fixed); };   /* the voices' split fixed as before it moved, or moving
+                                                              * again, with the next FIGURES' question */
+    t.canSplit = !!io.split;
     /* a SEL menu's action by its name (the state's words: the highlighted item), opened and picked by opener */
     t.menuPick = async (opener, name) => {
         await t.tap(opener);
@@ -432,7 +449,7 @@ const LOOPS = ["TRANCE LOOP", "BREAKS LOOP", "TECHNO LOOP", "ACID LOOP", "DISCO 
                "DNB LOOP", "ROCK LOOP", "METAL LOOP", "ELECTRO LOOP", "WORLD LOOP"];
 const HEAVY = { "PUNCH IN": 2, "SPICE ROAD": 3, "MIDNIGHT RUN": 3, "CITY LIGHTS": 3, "ACID TEST": 3, "ADVENTURE": 3 };
 const LAST = "LAST";                     /* playSong's position: the song's last (a loop's heaviest, usually) */
-const KEYS_N = [1, 4, 8, 12, 16];                       /* (past 10: core 2's voices) */
+const KEYS_N = [1, 4, 8, 12, 16];                       /* (the top places core 2's, as each block's split has them) */
 const SPREAD = [0, 4, 7, 11, 14, 2, 9, 16, 5, 12, 19, 21, 24, 18, 23, 26];  /* the keys held, in the order added */
 /* each engine on the keys: its cartridge and slot, the keys held (the TB-303 plays one note at a time, legato: one
  * key, then 4, 8 and 12 voices as loops, tb303Voices; the sampler's instrument loops, so it sounds the whole time it
@@ -607,6 +624,24 @@ async function djHeavy(t, left, right) {
     return t.waitFor((x) => x.dj.decks[0].playing && x.dj.decks[1].playing, 8000, "BOTH DECKS PLAYING");
 }
 
+/* DJ HEAVY at VOICES n with the voices' split fixed as before it moved (the debug build's switch, with the next FIGURES'
+ * question), every window checked fixed, the switch back after (done, failed or stopped) */
+async function djHeavyFixed(t, n, name) {
+    if (!t.canSplit) t.skip("THIS PAGE CANNOT FIX THE SPLIT");
+    await voicesSetting(t, n);
+    await djHeavy(t, "PUNCH IN", "MIDNIGHT RUN");
+    t.split(true);
+    try {
+        await t.sleep(1200);                            /* (the switch goes with the next FIGURES' question, once a second) */
+        await t.measure(name, 30000);
+        const w = t.windows(name).filter((f) => f.c2);
+        t.check(w.length && w.every((f) => f.c2.fixed), `THE SPLIT NOT FIXED IN ${w.filter((f) => !f.c2.fixed).length} ` +
+                `OF ITS ${w.length} WINDOWS`);
+        const s = await t.ask();
+        t.check(s.dj.decks[0].playing && s.dj.decks[1].playing, "BOTH DECKS STILL PLAYING");
+    } finally { t.split(false); }
+}
+
 /* DJ plain, whatever stand REVERT brought back: no DJ FILTER, no LFO, DJ's DELAY and REVERB on (its CHORUS off); back
  * on DJ with the PLAY pads (s: the state on DJ) */
 async function djPlain(t, s) {
@@ -741,7 +776,19 @@ function loopsKit(t) {
      * the length `bars` (LOOPS PROPERTIES' fourth item and third: GRID K1 to its first; LENGTH K1 down to 1 BAR, then up,
      * a shorter length cut as GLO closes); QUANTIZE ROW, the white keys MUTE, the keys in PLAY mode, POLY */
     k.clear = async (bars = 1) => {
-        let s = await t.screen("LOOPS");
+        let s = await t.ask();
+        if (s.what === 4) {                             /* (DJ played last: LOOPS shown does not take the keys from it,
+                                                         * its setup and tempo held until something else plays, and the
+                                                         * state's tempo is DJ's; UNLOAD SONG lets it go, and LOOPS then
+                                                         * holds the loops for the keys, the state's tempo theirs, which
+                                                         * k.tempo, k.timing and k.first read) */
+            await t.screen("SONGS");
+            await t.menuPick(B.SEL, "UNLOAD SONG");
+            await t.waitFor((x) => x.what !== 4, 2000, "DJ LET GO (UNLOAD SONG)");
+            await t.screen("LOOPS");
+            s = await t.waitFor((x) => x.what === 3, 2000, "THE LOOPS HELD FOR THE KEYS ON LOOPS");
+        } else
+            s = await t.screen("LOOPS");
         if (lps(s).n) s = await k.clearLoops();
         if (s.playing) { await t.tap(B.PLAY); s = await t.waitFor((x) => !x.playing, 2000, "NOTHING PLAYING"); }
         if (lps(s).off) {                               /* (the stage switched off: ARP's tap, on again) */
@@ -776,6 +823,28 @@ function loopsKit(t) {
                 `${l.stage} NOTES, ${l.armed ? "" : "NOT "}ARMED, OVERWRITE ${l.over ? "ON" : "OFF"}, AT ROW ${l.row})`);
         return s;
     };
+    /* LOOPS' TEMPO at bpm (LOOPS PROPERTIES' first item, K1 a step a click, SEL held 10), nothing playing: the state's
+     * BPM (LOOPS' own on LOOPS) checked. A user's TEMPO is kept with the loops' setup: a scenario timed by the bar sets it */
+    k.tempo = async (bpm) => {
+        const want = bpm * 10, far = (x) => Math.abs(x.bpm10 - want) >= 100;
+        await t.tap(B.GLO);
+        await t.waitFor((x) => x.overlay === 3, 1000, "LOOPS PROPERTIES");
+        await t.clicks(K.SELECT, -12);                  /* (TEMPO, on top) */
+        let s = await t.ask();
+        if (far(s))
+            await t.combo(B.SEL, async () => {          /* (by 10 while far) */
+                for (let i = 0; i < 80 && far(s); i++) {
+                    t.send(knob(K.K1, s.bpm10 < want ? 1 : -1));
+                    await t.sleep(SEEK_CLICK);
+                    s = await t.ask();
+                }
+            });
+        await t.seek(K.K1, (x) => x.bpm10, want, `LOOPS' TEMPO ${bpm} BPM`, 40);
+        await t.tap(B.GLO);
+        s = await t.waitFor((x) => !x.overlay, 1000, "LOOPS PROPERTIES CLOSED");
+        t.check(s.bpm10 === want, `LOOPS' TEMPO ${s.bpm10 / 10} BPM, NOT ${bpm}`);
+        return s;
+    };
     /* the selection: loop i, or + NEW LOOP (-1: at the bottom, clockwise going down) */
     k.select = async (i, what) => {
         for (let n = 0; n < 24; n++) {
@@ -802,15 +871,21 @@ function loopsKit(t) {
         k.lenRows = k.barRows * bars;
         return s;
     };
-    /* the time the loops' pass under way started (the playhead seen going back to their start), so steps land on their
-     * rows */
+    /* the time the loops' next pass starts, so steps land on their rows. A row is seen some time after it began (a pass
+     * of the FM-1's main loop, the answer's way), so each look bounds the start from above: the earliest bound over half
+     * a pass or more, returned some 150 ms before that start. (The first look at the playhead gone back could be most
+     * of a row late: with passes of 50 ms every other chord landed a row late, on the one before it) */
     k.nextPass = async () => {
-        let last = (await L()).row;
+        const len = k.lenRows * k.rowMs;
+        let last = -1, s = Infinity, first = -1;
         for (let i = 0; i < 800; i++) {
-            await t.sleep(15);
-            const r = (await L()).row;
-            if (r < last) return t.now() - r * k.rowMs;
+            const r = (await L()).row, tn = t.now();
+            if (first < 0) first = tn;
+            if (r < last) s += len;                     /* (gone round: the bound carried on to the new pass) */
+            s = Math.min(s, tn - r * k.rowMs);
             last = r;
+            if (tn - first >= len / 2 && s + len - tn < 150) return s + len;
+            await t.sleep(15);
         }
         throw new Failed("THE LOOPS DO NOT GO ROUND");
     };
@@ -1045,7 +1120,7 @@ async function loopBeat(t) {
     s = await t.waitFor((x) => lps(x).muted, 1000, "LOOP 00 MUTED AT ONCE");
     t.check(s.toast === "LOOP 00 MUTED", `WHITE KEY 1: "${s.toast}"`);
     await select(1, "LOOP 01");
-    const t0 = await k.nextPass();                      /* (a bar line just gone: the next a bar away) */
+    const t0 = await k.nextPass();                      /* (a bar line just ahead: the next a bar after it) */
     await t.keyHold(WHITE[1], s.holdDelay + 300);
     s = await t.ask();
     t.check(/^LOOP 01 MUTED AT THE B/.test(s.toast), `WHITE KEY 2 HELD: "${s.toast}"`);   /* (cut at 23 characters) */
@@ -1069,9 +1144,439 @@ async function loopBeat(t) {
     t.note(`at the end ${lps(s).n} loops, ${lps(s).all} notes, ${s.voices} voices sounding`);
 }
 
+/* GHOST NOTES (specs/debug.md: the notes far past VOICES, so ghosts are made and come back all the time; the figures'
+ * ghosts, FIGURES 2's): VOICES 8, the loops cleared, 1 BAR, QUANTIZE ROW, POLY; five loops of 4 lanes, each a chord of
+ * four held over the whole bar (two JUNO-106 pads, a DX7 pad, the sampler instrument the KEYS scenario plays, which
+ * loops, or a CHIP pad without it, a CHIP pad), then MONO and a sixth, a TB-303 line in sixteenths (never a ghost, one
+ * engine): 20 held notes against the 7 engines left. Then seven stretches, each measured at the sound's own times, its
+ * checks on its windows' ghosts (the debug build's: without it the steps run, checked through the state, and its
+ * figures are left out) */
+const GH_PADS = [[0xF8, 0x31], [0xF8, 0x35], [0xF4, 0x06], [0xA2, 0x08], [0xF9, 0x43]];   /* Warm Pad, Space Pad, WARM
+                                          * PAD, VIOLINS, 8BIT PAD */
+const GH_NO_SAMPLER = [0xF9, 0x46];      /* (WAVE PAD: the sampler's loop's sound when the user area has no A2) */
+const GH_CHORDS = [[0, 4, 7, 11], [2, 5, 9, 12], [4, 7, 11, 14], [5, 9, 12, 16], [7, 11, 14, 18]];
+const GH_LINE = Array.from({ length: 16 }, (_, r) => [r, [r % 4 === 2 ? 12 : 0], 0]);   /* F3 / F4 sixteenths */
+const GH_LOOP0 = 16;                     /* (loop L's notes: its 4 lanes on the loops' track 16 + L) */
+const GH_DX7 = [0xF4, 0x00];             /* THE KEYS ON TOP's DX7 (KEYS' own) */
+/* A LONG NOTE's: the built-in DX7 electric piano whose release ends soonest (EL PIANO: on the PC, F3 to C5 let go, its
+ * voice free 17-46 ms later; the other electric pianos 29-700 ms) */
+const GH_EP = EL_PIANO;
+const GH_STEPS = [8, 1, 0, 0];           /* each forward work's overshoot, steps (eng/fwd.h), by FG.GH_ENGINE_AT */
+const GH_BPM = 120;                      /* LOOPS' TEMPO the scenario sets (a bar 2 s, a sixteenth 125 ms) */
+const GH_WINDOW = 1000;                  /* a figures window, ms (a stretch ends a window after its steps' last) */
+async function ghostNotes(t) {
+    const k = loopsKit(t), dbg = t.debug, tr = (i) => 1 << (GH_LOOP0 + i);
+    const marks = {};                     /* (the stretch's windows at its steps: t.peek) */
+    const mark = (name) => { marks[name] = t.peek(); };
+    const from = (w, a, b) => w.slice(Math.max(0, marks[a] || 0), b === undefined ? w.length : Math.max(0, marks[b]));
+    const G = (w) => FG.ghostStats(w);    /* (a list's ghosts; null without them) */
+    const blk = (n) => `${n} block${n === 1 ? "" : "s"}`;
+    /* the stretch's marks in order and inside it (a mark taken after its end reads 0, one the page cannot take -1):
+     * else its figures' checks would read the wrong windows, so the scenario fails, never skips them */
+    const inOrder = (what, names, strict = []) => {
+        const bad = names.find((n, i) => !(marks[n] >= 0) || (i && (marks[n] < marks[names[i - 1]] ||
+                                         (strict.includes(n) && marks[n] === marks[names[i - 1]]))));
+        t.check(!bad, `${what}: ITS STEP "${bad}" NOT MARKED IN ORDER INSIDE THE STRETCH (` +
+                names.map((n) => `${n} ${marks[n]}`).join(", ") + ")");
+    };
+    /* a stretch, its steps in the background; its windows. With cap: it ends at the later of ms and its steps' end and a
+     * window more (a slow step moves its end, never its marks past it), failing past cap; steps that fail end it at once,
+     * failing with their why */
+    const S = async (name, ms, act, cap) => {
+        let done = null, failed = false;
+        const t0 = t.now(), b = act ? t.background(async () => {
+            try { await act(); } catch (e) { failed = true; throw e; } finally { done = t.now(); }
+        }) : null;
+        if (cap) await t.measureUntilFull(name, () => failed || (done !== null && t.now() >= Math.max(t0 + ms, done + GH_WINDOW)),
+                                          cap, "ITS STEPS' END AND A FIGURES WINDOW MORE", 500);
+        else await t.measureFull(name, ms);
+        if (b) await b;
+        return t.windows(name);
+    };
+    await voicesSetting(t, 8);
+    await k.clear(1);
+    await k.tempo(GH_BPM);                /* (the stretches' times count the bars at it) */
+    let l, sampler = true;
+    for (let i = 0; i < 5; i++) {
+        try { await k.sound(...GH_PADS[i]); } catch (e) {
+            if (!(e instanceof Skipped) || i !== 3) throw e;
+            sampler = false;
+            t.note(`no sampler instrument ${hex2(GH_PADS[3][0])}:${hex2(GH_PADS[3][1])} on the FM-1: a CHIP pad instead`);
+            await k.sound(...GH_NO_SAMPLER);
+        }
+        l = i ? await k.overdub([[0, GH_CHORDS[i], k.lenRows]]) : await k.first([[0, GH_CHORDS[0], k.lenRows]]);
+        t.check(l.staged === 4 && l.added === 4, `LOOP ${hex2(i)}: ITS CHORD OF 4 (${l.staged} ON THE STAGE, ${l.added} SENT)`);
+    }
+    await k.mode("MONO");
+    await k.sound(...TB303);
+    l = await k.overdub(GH_LINE);
+    t.check(l.n === 6 && l.staged === 16 && l.added === 16, `THE TB-303'S LINE: LOOP 05, 16 NOTES (${l.n} LOOPS, ` +
+            `${l.staged} ON THE STAGE, ${l.added} SENT)`);
+    await k.mode("POLY");
+    t.note(`${l.n} loops of a bar of ${k.barRows} rows, ${l.all} notes${sampler ? "" : " (no sampler)"}; 20 held, VOICES 8`);
+    const late = (w, name) => { const n = w.reduce((a, f) => a + f.late, 0); if (n) t.note(`${name}: ${n} late halves`); };
+    const noteGone = (g, name) => {       /* (the drops of a stretch, by kind: noted) */
+        const d = g.gone.map((v, i) => [FG.GH_GONE[i], v[0] + v[1]]).filter(([, n], i) => n && i >= FG.GH_ENDS)
+            .map(([n, v]) => `${n} ${v}`).concat(g.fullNew.map((n, i) => (n ? `not kept (${FG.GH_RANKS[i]}) ${n}` : ""))
+            .filter(Boolean));
+        if (d.length) t.note(`${name}: dropped ${d.join(", ")}`);
+    };
+
+    /* 2. OVER THE COUNT: all six playing */
+    let w = await S("OVER THE COUNT", 20000), g;
+    late(w, "OVER THE COUNT");
+    if (dbg && (g = G(w))) {
+        const gw = w.filter((f) => f.c2 && f.c2.gh);   /* (the windows with their 37: one lost is no window's figures) */
+        const made = gw.filter((f) => f.c2.gh.made.some(Boolean)).length, tails = gw.filter((f) => f.c2.gh.backTail).length;
+        t.check(gw.length >= 15 && gw.length >= w.length - 1, `OVER THE COUNT: ${gw.length} WINDOWS WITH THEIR GHOSTS ` +
+                `OF ${w.length}`);
+        t.check(made === gw.length, `OVER THE COUNT: GHOSTS MADE IN EVERY WINDOW (${made} OF ${gw.length})`);
+        t.check(!g.heldDropped, `OVER THE COUNT: ${g.heldDropped} HELD GHOSTS DROPPED`);
+        t.check(!g.madeTb, `OVER THE COUNT: ${g.madeTb} TB-303 NOTES MADE GHOSTS`);
+        t.check(tails === gw.length, `OVER THE COUNT: RETURNS INTO TAILS' ENGINES IN EVERY WINDOW (${tails} OF ${gw.length})`);
+        noteGone(g, "OVER THE COUNT");
+        t.note(`OVER THE COUNT: the longest wait ${blk(g.waitMost)}, the most ghosts ${g.most}, back ${g.backFree} into ` +
+               `free engines and ${g.backTail} into tails'`);
+    }
+
+    /* 3. MUTES: CONTROL mode, each pad loop muted in turn (its white key tapped), 1.5 s (so a whole figures window,
+     * about a second, falls inside each mute), then on again, 4 s apart; the stretch sized by the bar: the last loop's
+     * slot (16 s on), its steps (3 s at most), its next bar line and a window after it (its last mark), and a window
+     * more (23 s at 120 BPM); longer when its steps end later (slow ones: a window after the last mark), failing past
+     * 40 s */
+    await k.keys(true);
+    await k.muteMode();
+    const barMs = k.barRows * k.rowMs, mutesMs = Math.max(22000, 16000 + 3000 + barMs + 1000 + 1000);
+    w = await S("MUTES", mutesMs, async () => {
+        const pend = [];
+        for (let i = 0; i < 5; i++) {        /* (marks: the windows from muted to off end while it is muted, those
+                                              * from on to bar after it, by its next bar line and a window more; pre
+                                              * and off before the taps) */
+            const t0 = t.now();
+            await k.select(i, `LOOP ${hex2(i)}`);
+            mark(`pre${i}`);
+            await t.keyTap(WHITE[i]);
+            await t.waitFor((x) => lps(x).muted, 1000, `LOOP ${hex2(i)} MUTED`);
+            mark(`muted${i}`);
+            await t.sleep(1500);
+            mark(`off${i}`);
+            await t.keyTap(WHITE[i]);
+            await t.waitFor((x) => !lps(x).muted, 1000, `LOOP ${hex2(i)} ON AGAIN`);
+            mark(`on${i}`);
+            const tOn = t.now();
+            pend.push(t.background(async () => { await t.until(tOn + barMs + 1000); mark(`bar${i}`); }));
+            await t.until(t0 + 4000);
+        }
+        await Promise.all(pend);
+    }, Math.max(40000, mutesMs + 10000));
+    late(w, "MUTES");
+    if (dbg && (g = G(w))) {
+        for (let i = 0; i < 5; i++)          /* (bar after on strictly: a window at least between them) */
+            inOrder(`MUTES, LOOP ${hex2(i)}`, [`pre${i}`, `muted${i}`, `off${i}`, `on${i}`, `bar${i}`], [`bar${i}`]);
+        const on = (f, i) => f.c2 && f.c2.gh && f.c2.gh.now.tracksOn & tr(i), heard = [];
+        for (let i = 0; i < 5; i++) {
+            const before = from(w, i ? `on${i - 1}` : "", `pre${i}`), o = from(w, `on${i}`, `bar${i}`);
+            const m = from(w, `muted${i}`, `off${i}`).filter((f) => f.c2 && f.c2.gh);
+            t.check(m.length && m.every((f) => !on(f, i) && f.c2.gh.now.tracks & tr(i)),
+                    `MUTES: LOOP ${hex2(i)} MUTED, ITS NOTES NOT ALL GHOSTS (${m.length} WINDOWS WHILE MUTED)`);
+            t.check(m.every((f) => f.c2.gh.now.songsOn >= 7 && f.c2.gh.backFree + f.c2.gh.backTail > 0),
+                    `MUTES: LOOP ${hex2(i)} MUTED, ENGINES IT FREED NOT TAKEN BY THE OTHER LOOPS' GHOSTS ` +
+                    `(${m.map((f) => f.c2.gh.now.songsOn).join(" ")} NOTES IN ENGINES)`);
+            if (!before.some((f) => on(f, i))) continue;   /* (none of it heard before: its notes ghosts throughout) */
+            heard.push(hex2(i));
+            t.check(o.some((f) => on(f, i)), `MUTES: LOOP ${hex2(i)} ON AGAIN, NO NOTE OF IT BACK IN AN ENGINE BY THE ` +
+                    `NEXT BAR LINE AND A FIGURES WINDOW MORE (${o.length} WINDOWS)`);
+        }
+        const byMute = g.made[FG.GH_MADE_AT.MUTED];
+        t.check(byMute > 0 && !g.backMuted, `MUTES: GHOSTS MADE BY THE MUTES ${byMute}, BACK WHILE MUTED ${g.backMuted}`);
+        t.note(`MUTES: made by a mute ${byMute}, back ${g.backFree + g.backTail} ` +
+               `(${g.backMute} of them after a mute); loops heard before their mute and again after: ` +
+               `${heard.join(" ") || "none"} (the others' notes ghosts throughout)` + (heard.length && !g.backMute ?
+               "; those heard again came back by their next notes at the bar line, no muted ghost by a return" : ""));
+    }
+
+    /* 4. SOLO AND BACK: GLO's black key to SOLO, loop 00 soloed 5 s, PIT */
+    await k.black(CTL.GLO, "SEQ: SOLO");
+    await k.select(0, "LOOP 00");
+    w = await S("SOLO AND BACK", 10000, async () => {
+        await t.keyTap(WHITE[0]);
+        await t.waitFor((x) => lps(x).soloed, 1000, "LOOP 00 SOLOED");
+        mark("solo");
+        await t.sleep(5000);
+        mark("pit");                          /* (before it: the windows till here end soloed) */
+        await k.black(CTL.PIT, "ALL LOOPS ON");
+    });
+    await k.black(CTL.GLO, "SEQ: MUTE");
+    await k.keys(false);
+    late(w, "SOLO AND BACK");
+    if (dbg && (g = G(w))) {
+        inOrder("SOLO AND BACK", ["solo", "pit"], ["pit"]);
+        const m = from(w, "solo", "pit").filter((f) => f.c2 && f.c2.gh).slice(1);   /* (the first may end before it) */
+        const others = (f) => f.c2.gh.now.tracksOn & (tr(1) | tr(2) | tr(3) | tr(4));
+        t.check(m.length && m.every((f) => !others(f) && f.c2.gh.now.tracksOn & tr(0)) && !g.madeTb,
+                `SOLO AND BACK: LOOP 00 SOLOED, ANOTHER PAD LOOP'S NOTE IN AN ENGINE, NONE OF ITS OWN, OR A TB-303'S ` +
+                `GHOST (${m.length} WINDOWS)`);
+        const bad = g.gone[FG.GH_GONE_AT.FULL_SONG][0] + g.gone[FG.GH_GONE_AT.FULL_KEY][0] +
+                    g.fullNew[FG.GH_RANK_AT.SONG] + g.fullNew[FG.GH_RANK_AT.KEY];
+        t.check(!bad, `SOLO AND BACK: ${bad} HELD GHOSTS DROPPED BEFORE THE LET-GO AND THE MUTED ONES`);
+        const c = g.cost, samp = (i) => i === FG.GH_ENGINE_AT.SAMPLER;   /* (a sampler's checks their own weight, when
+                                                         * the firmware gives one) */
+        const over = Math.max(...FG.GH_ENGINES.map((e, i) => (samp(i) && g.readyS ? g.readyS : g.readyW) + c[i][0] + c[i][1] -
+                                                       1 + GH_STEPS[i] * c[i][1] + (samp(i) ? g.seekW : 0)));
+        t.check(g.unitsMost <= g.budget - 1 + over, `SOLO AND BACK: THE BUDGET'S MOST IN A BLOCK ${g.unitsMost} ` +
+                `PAST ITS LIMIT ${g.budget - 1 + over}`);
+        noteGone(g, "SOLO AND BACK");
+    }
+
+    /* 5. VOICES CHANGED: VOICES 16, 8, 12, 16 as edits, 4 s each, the loops playing; the stretch ends a window after
+     * the last's 4 s (later when a change was slow), failing past 30 s */
+    w = await S("VOICES CHANGED", 16000, async () => {
+        for (const n of [16, 8, 12, 16]) {   /* (marks before each: the windows from v8 to v12 hold the change to 8) */
+            const t0 = t.now();
+            mark(`v${n}${marks[`v${n}`] === undefined ? "" : "b"}`);
+            await voicesSetting(t, n);
+            await t.until(t0 + 4000);
+        }
+    }, 30000);
+    late(w, "VOICES CHANGED");
+    if (dbg && (g = G(w))) {
+        inOrder("VOICES CHANGED", ["v16", "v8", "v12", "v16b"], ["v8", "v12", "v16b"]);
+        const smaller = G(from(w, "v8", "v12"));
+        t.check(smaller && smaller.made[FG.GH_MADE_AT.COUNT] > 0,
+                `VOICES CHANGED: AT 8 NO GHOST MADE PAST THE COUNT`);
+        /* each larger count by its own windows: ghosts back into the engines it adds, PL_RETURNS a block at most; at 16
+         * core 2's places taken too (more of the songs' notes in the count's engines than 12) */
+        const larger = [["8 TO 16", "v16", "v8", 16], ["8 TO 12", "v12", "v16b", 12], ["12 TO 16", "v16b", undefined, 16]];
+        const backs = [];
+        for (const [what, a, b, n] of larger) {
+            const lw = from(w, a, b), x = G(lw), most = Math.max(0, ...lw.map((f) => (f.c2 && f.c2.gh ? f.c2.gh.now.songsOn : 0)));
+            t.check(x && x.backFree > 0 && x.backMost <= x.returns, `VOICES CHANGED: ${what}, ${x ? x.backFree : 0} BACK ` +
+                    `INTO FREE ENGINES, THE MOST IN A BLOCK ${x ? x.backMost : 0} (${x ? x.returns : 4} AT MOST)`);
+            if (n === 16) t.check(most > 12, `VOICES CHANGED: ${what}, CORE 2'S PLACES NOT TAKEN (THE SONGS' NOTES IN THE ` +
+                                  `ENGINES ${most} AT MOST)`);
+            backs.push(`${what.toLowerCase()} ${x ? x.backFree : 0}` + (n === 16 ? ` (${most} in the engines)` : ""));
+        }
+        t.note(`VOICES CHANGED: made past a smaller count ${smaller.made[FG.GH_MADE_AT.COUNT]}, back ` +
+               `${backs.join(", ")}, the most ${g.backMost} in a block, the longest wait ${blk(g.waitMost)}`);
+    }
+
+    /* 6. THE KEYS ON TOP: on SONGS (the loops stopped: on LOOPS the keys play through the stage's lanes), VOICES 8,
+     * MIDNIGHT RUN from position 03, twelve keys held 5 s on a DX7, then let go */
+    let s = await t.screen("LOOPS");
+    if (s.playing) { await t.tap(B.PLAY); await t.waitFor((x) => !x.playing, 2000, "THE LOOPS STOPPED"); }
+    await voicesSetting(t, 8);
+    await t.screen("INSTRUMENTS");
+    s = await t.pickCart((x) => x.cursor[0], GH_DX7[0]);
+    s = await t.seek(K.PRESETS, (x) => x.cursor[1], GH_DX7[1], `THE SLOT ${hex2(GH_DX7[1])}`, 140);
+    t.check(s.cart === GH_DX7[0] && s.slot === GH_DX7[1], `THE KEYS PLAY ${hex2(s.cart)}:${hex2(s.slot)}, NOT ` +
+            `${hex2(GH_DX7[0])}:${hex2(GH_DX7[1])}`);
+    await t.playSong("MIDNIGHT RUN", 3);
+    await t.sleep(1000);
+    const twelve = SPREAD.slice(0, 12);
+    w = await S("THE KEYS ON TOP", 10000, async () => {
+        t.keysDown(twelve);
+        mark("held");
+        await t.sleep(5000);
+        mark("up");
+        t.keysUp(twelve);
+    });
+    late(w, "THE KEYS ON TOP");
+    s = await t.ask();
+    t.check(s.playing && s.what === 1, "MIDNIGHT RUN PLAYS ON");
+    if (dbg && (g = G(w))) {
+        inOrder("THE KEYS ON TOP", ["held", "up"], ["up"]);
+        const held = from(w, "held", "up").filter((f) => f.c2 && f.c2.gh).slice(1), after = from(w, "up");
+        t.check(held.length && held.every((f) => f.c2.gh.now.keysOn === 8 && f.c2.gh.now.keys === 4 && !f.c2.gh.now.songsOn),
+                `THE KEYS ON TOP: WHILE HELD, NOT THE KEYS' 8 IN THE ENGINES AND 4 GHOSTS, THE SONG'S NONE (` +
+                held.map((f) => `${f.c2.gh.now.keysOn}/${f.c2.gh.now.keys}/${f.c2.gh.now.songsOn}`).join(" ") + ")");
+        const a = G(after);
+        t.check(a && a.backFree + a.backTail > 0 && a.backMost <= a.returns && after.some((f) => f.c2 && f.c2.gh &&
+                f.c2.gh.now.songsOn), `THE KEYS ON TOP: LET GO, THE SONG'S GHOSTS NOT BACK (${a ? a.backFree + a.backTail : 0}),` +
+                ` OR MORE THAN ${a ? a.returns : 4} A BLOCK`);
+    }
+
+    /* 7. A LONG NOTE: SONGS, nothing playing, VOICES 8, the keys on EL PIANO: one key held; at 20 s eight more, 3 s; the
+     * first let go at 28 s */
+    s = await t.screen("SONGS");
+    if (s.playing) { await t.tap(B.PLAY); await t.waitFor((x) => !x.playing, 2000, "THE SONG STOPPED"); }
+    await t.allSoundOff();
+    await t.screen("INSTRUMENTS");
+    s = await t.pickCart((x) => x.cursor[0], GH_EP[0]);
+    s = await t.seek(K.PRESETS, (x) => x.cursor[1], GH_EP[1], `THE SLOT ${hex2(GH_EP[1])}`, 140);
+    t.check(s.cart === GH_EP[0] && s.slot === GH_EP[1], `THE KEYS PLAY ${hex2(s.cart)}:${hex2(s.slot)}, NOT EL PIANO`);
+    const first = [SPREAD[0]], eight = SPREAD.slice(1, 9);
+    w = await S("A LONG NOTE", 30000, async () => {
+        const t0 = t.now();
+        t.keysDown(first);
+        await t.until(t0 + 20000);
+        t.keysDown(eight);
+        await t.until(t0 + 23000);
+        t.keysUp(eight);
+        await t.until(t0 + 28000);
+        t.keysUp(first);
+    });
+    late(w, "A LONG NOTE");
+    if (dbg && (g = G(w))) {
+        const age = g.oldest * FG.BLOCK_S;
+        t.check(age > 20 && (g.oldestFl & 3) === 3, `A LONG NOTE: THE OLDEST NOTE BACK ${age.toFixed(1)} S OLD, ` +
+                `${g.oldestFl & 1 ? "HELD" : "LET GO"}, ${g.oldestFl & 2 ? "A KEY'S" : "NOT A KEY'S"} (OVER 20 S, HELD, A KEY'S)`);
+        t.note(`A LONG NOTE: the first key's note back ${age.toFixed(1)} s old, the longest wait ${blk(g.waitMost)}`);
+    }
+}
+
 /* LOOPS TO A PATTERN AND BACK's and RECORD LIVE's three loops, the length 2 BARS (so a pass leaves room for RECORD LIVE's
  * steps): the pattern recorder's drums (the beat, 16 steps of a row: twice over the length) onto the stage and sent, a
  * MONO bass (the TB-303) and a POLY pad (EL PIANO's chord) overdubbed and sent; playing */
+/* ---- KEYS: VELOCITY (specs/debug.md#the-scenarios): the debug build's KEYS FEED, the scan at rest, its cost ---- */
+const VEL_KEY = 9, VEL_TOP = 20;         /* D4 (read), C#5 (the top row: not read) */
+/* the map's velocities on SOFT, NORMAL, HARD at the landings fed (fw/device/keyvel.h's kv_map, as the host test has it) */
+const VEL_MAP = { 400: [127, 127, 127], 500: [127, 127, 127], 560: [123, 120, 112], 620: [115, 104, 87], 700: [104, 85, 57],
+                  800: [86, 58, 27] };
+const VEL_CURVE = ["CONSTANT", "SOFT", "NORMAL", "HARD"];
+const FD = FG.FEED;
+const landing = (d) => [[FD.READ, 850], [FD.DRIVEN, d], [FD.READ, 300], [FD.PRESS, 0]];   /* touched, landed at d, seated, down */
+async function velFeed(t, k, ops) {
+    const a = await t.feed(k, ops);
+    t.check(a && !a.none, a ? "THIS FIRMWARE HAS NO KEYS FEED" : "KEYS FEED UNANSWERED");
+    return a;
+}
+/* a setting KEYS FEED's answer tells (KEYS VELOCITY, MIDI OUT): its line, K1 a click at a time till read(answer) is it */
+async function velSetting(t, page, line, read, value, what) {
+    await t.screen("SETTINGS");
+    await t.seek(K.ALG, (s) => s.cursor[0], page, "SETTINGS' PAGE");
+    await t.seek(K.SELECT, (s) => s.cursor[1], line, `THE LINE ${what}`);
+    let a = await velFeed(t, 0, []);
+    for (let i = 0; i < 8 && read(a) !== value; i++) {
+        await t.sleep(SEEK_CLICK);
+        await t.turn(K.K1, read(a) < value ? 1 : -1);
+        await t.ask();                                  /* (taken before the next look) */
+        a = await velFeed(t, 0, []);
+    }
+    t.check(read(a) === value, `COULD NOT SET ${what}`);
+    return a;
+}
+/* key fed ops (a press among them or not), the main loop's take waited for, what it made; the notes out meanwhile;
+ * then let go. want: {vol} the note's volume played (and MIDI OUT's velocity), {none} no note */
+async function velPress(t, name, k, ops, want) {
+    t.notesOut();
+    await velFeed(t, k, ops);
+    await t.sleep(150);
+    const a = await velFeed(t, k, []);
+    await t.sleep(50);
+    const out = t.notesOut(), on = out ? out.filter((x) => x.on) : null;
+    await velFeed(t, k, [[FD.RELEASE, 0]]);
+    await t.sleep(100);
+    t.notesOut();
+    const sent = on ? (on.length ? on.map((x) => x.vel).join(", ") : "NO NOTE") : "";
+    if (want.none) {
+        if (on) t.check(!on.length, `${name}: MIDI OUT SENT ${sent}, NO NOTE EXPECTED`);
+    } else {
+        t.check(a.vol === want.vol, `${name}: PLAYED AT ${a.vol}, NOT ${want.vol}`);
+        if (on) t.check(on.length === 1 && on[0].vel === want.vol, `${name}: MIDI OUT SENT ${sent}, NOT ${want.vol}`);
+    }
+    if (want.land !== undefined) {
+        t.check(a.land === want.land, `${name}: ITS LANDING ${a.land}, NOT ${want.land}`);
+        const m = VEL_MAP[want.land];
+        t.check(a.vel.join() === m.join(), `${name}: THE FM-1'S MAP GIVES ${a.vel.join(" / ")} (SOFT / NORMAL / HARD), ` +
+                `NOT ${m.join(" / ")}`);
+    }
+    t.note(`${name}: ${a.land ? `landing ${a.land}, the map ${a.vel.join(" / ")} (SOFT / NORMAL / HARD), ` : ""}` +
+           `${want.none ? "no note" : `played at ${a.vol}${a.late ? " (late: KEYS VOLUME)" : ""}`}` +
+           `${on ? `, MIDI OUT ${sent.toLowerCase()}` : ", MIDI OUT not heard here"}`);
+    return a;
+}
+/* the scan's cost in a stretch: TIMER5's tick (the windows' mean, their longest), CPU 1, the late halves */
+function velCost(t, name) {
+    const w = t.windows(name), k = FG.keysStats(w), s = w.length ? FG.stats(w) : null;
+    return k && s ? { mean: k.tickMean10ns / 100, most: k.tickMostAll10ns / 100, cpu: s.cpu.mean, late: s.late } : null;
+}
+async function keysVelocity(t) {
+    if (!t.canFeed) t.skip("THIS PAGE CANNOT FEED THE KEYS");
+    await keysStart(t);
+    const a0 = await velSetting(t, 1, MIDI_SET.MIDI_OUT, (a) => a.midiOut, 1, "MIDI OUT KEYS");
+    const curve = (c) => velSetting(t, 0, SET.KEYS_VELOCITY, (a) => a.curve, c, `KEYS VELOCITY ${VEL_CURVE[c]}`);
+    await curve(2);
+    const play = async () => {                          /* (the keys on EL PIANO, on INSTRUMENTS) */
+        await t.screen("INSTRUMENTS");
+        let s = await t.pickCart((x) => x.cursor[0], EL_PIANO[0]);
+        s = await t.seek(K.PRESETS, (x) => x.cursor[1], EL_PIANO[1], `THE SLOT ${hex2(EL_PIANO[1])}`, 140);
+        t.check(s.cart === EL_PIANO[0] && s.slot === EL_PIANO[1], "THE KEYS NOT ON EL PIANO");
+    };
+    await play();
+    t.begin();
+    const kv = a0.keysVolume;
+    try {
+        /* NORMAL: a hard landing, a gentle one, a graze, a bounce, a press that waits too long */
+        await velPress(t, "NORMAL, HARD", VEL_KEY, landing(400), { vol: 127, land: 400 });
+        await velPress(t, "NORMAL, GENTLE", VEL_KEY, landing(560), { vol: VEL_MAP[560][1], land: 560 });
+        const g0 = (await velFeed(t, VEL_KEY, [])).grazes;
+        const g = await velPress(t, "NORMAL, A GRAZE", VEL_KEY, [[FD.READ, 850], [FD.DRIVEN, 700], [FD.READ, 950]], { none: true });
+        t.check(g.grazes === g0 + 1 && !g.state, `A GRAZE NOT COUNTED (${g.grazes - g0}), OR THE KEY NOT OPEN AGAIN`);
+        await velPress(t, "NORMAL, A BOUNCE", VEL_KEY, [...landing(620), [FD.DRIVEN, 610], [FD.READ, 650], [FD.DRIVEN, 600],
+                       [FD.READ, 300]], { vol: VEL_MAP[620][1], land: 620 });
+        const l0 = (await velFeed(t, VEL_KEY, [])).lates;
+        const late = await velPress(t, "NORMAL, TOO LATE", VEL_KEY, [[FD.READ, 850], [FD.PRESS, 0], [FD.NONE, 0], [FD.NONE, 0],
+                                    [FD.NONE, 0], [FD.NONE, 0], [FD.NONE, 0], [FD.DRIVEN, 500]], { vol: kv });
+        t.check(late.late && late.lates === l0 + 1, "A PRESS THAT WAITED TOO LONG NOT SHOWN LATE");
+        /* the top row: the mean of the last four sensed */
+        const four = [560, 620, 700, 800];
+        for (const d of four) await velPress(t, `NORMAL, ${d}`, VEL_KEY, landing(d), { vol: VEL_MAP[d][1], land: d });
+        const mean = Math.floor((four.reduce((x, d) => x + VEL_MAP[d][1], 0) + 2) / 4);
+        await velPress(t, "NORMAL, THE TOP ROW (C#5)", VEL_TOP, [[FD.PRESS, 0]], { vol: mean });
+        /* SOFT and HARD: the gentle landing again; CONSTANT: the hard one at KEYS VOLUME */
+        await curve(1);
+        await play();
+        await velPress(t, "SOFT, GENTLE", VEL_KEY, landing(560), { vol: VEL_MAP[560][0], land: 560 });
+        await curve(3);
+        await play();
+        await velPress(t, "HARD, GENTLE", VEL_KEY, landing(560), { vol: VEL_MAP[560][2], land: 560 });
+        await curve(0);
+        await play();
+        await velPress(t, "CONSTANT, HARD", VEL_KEY, landing(400), { vol: kv });
+    } finally {
+        for (const k of [VEL_KEY, VEL_TOP]) await t.feed(k, [[FD.RELEASE, 0]]);   /* (no fed key left held) */
+    }
+    /* the scan at rest, NORMAL: every key open, no conversion lost, MASTER both ways alike, the battery read */
+    await curve(2);
+    await t.screen("SONGS");
+    await t.sleep(2000 * t.scale);
+    await t.measure("VELOCITY: AT REST, NORMAL", 6000);
+    const w = t.windows("VELOCITY: AT REST, NORMAL"), ks = FG.keysStats(w);
+    if (!ks || !ks.scanned) t.note("no scan here (no converter): the keys at rest, MASTER and the battery not checked");
+    else {
+        const low = ks.restMin.map((x, n) => [x, n]).filter(([x]) => !x || x < 896);   /* (kept 16 apart: under 900) */
+        t.check(!low.length, `AT REST ${low.map(([x, n]) => `${FG.keyName(n)} ${x ? `READS ${x}` : "NOT READ"}`).join(", ")}: ` +
+                "A DIRTY CONTACT OR A FAULT");
+        const kw = w.filter((f) => f.c2 && f.c2.keys).map((f) => f.c2.keys), lost = kw[kw.length - 1].lost - kw[0].lost;
+        t.check(lost === 0, `${lost} CONVERSIONS LOST AT REST`);
+        t.check(ks.masterBoth && Math.abs(ks.mSlot - ks.mDirect) <= 10, `MASTER FROM THE SLOT ${ks.mSlot}, READ DIRECTLY ` +
+                `${ks.mDirect}: MORE THAN 10 APART`);
+        t.check(ks.battRead && ks.battN > ks.battN0, "THE BATTERY NOT READ WHILE THE KEYS ARE");
+        const lo = Math.min(...ks.restMin);
+        t.note(`at rest: all 20 keys open (the lowest ${lo}, ${FG.keyName(ks.restMin.indexOf(lo))}), MASTER ${ks.mSlot} from ` +
+               `the slot, ${ks.mDirect} directly, the battery ${ks.batt}`);
+    }
+    await curve(0);
+    await t.screen("SONGS");
+    await t.sleep(2000 * t.scale);
+    await t.measure("VELOCITY: AT REST, CONSTANT", 6000);
+    /* the scan's cost while a song plays, both ways */
+    await t.playSong("PUNCH IN", 2);
+    await t.measure("VELOCITY: A SONG, CONSTANT", 10000);
+    await curve(2);
+    await t.screen("SONGS");
+    await t.measure("VELOCITY: A SONG, NORMAL", 10000);
+    await t.tap(B.PLAY);
+    for (const where of ["AT REST", "A SONG"]) {
+        const n = velCost(t, `VELOCITY: ${where}, NORMAL`), c = velCost(t, `VELOCITY: ${where}, CONSTANT`);
+        if (!n || !c) { t.note(`${where.toLowerCase()}: no figures`); continue; }
+        t.note(`TIMER5's tick ${where.toLowerCase()}: NORMAL ${n.mean.toFixed(2)} us mean, ${n.most.toFixed(2)} the longest, ` +
+               `CPU ${n.cpu.toFixed(1)} %; CONSTANT ${c.mean.toFixed(2)} us, ${c.most.toFixed(2)}, CPU ${c.cpu.toFixed(1)} %`);
+        for (const [x, nm] of [[n, "NORMAL"], [c, "CONSTANT"]])
+            if (x.late) t.note(`${where.toLowerCase()}, ${nm}: ${x.late} late halves`);
+    }
+}
+
 async function threeLoops(t, k) {
     await k.clear(2);
     await k.sound(...KIT);
@@ -1154,11 +1659,16 @@ const SCENARIOS = [
     ...ENGINES.map(([name, cart, slot, keysN]) => ({ group: "KEYS", name, secs: keysN.length > 1 ? 45 : 48, tsecs: keysN.length > 1 ? 32 : 40,
       what: name === "TB-303" ? "1 key held 5 s (the keys play it as one voice), then 4, 8 and 12 as POLY loops of 4 lanes on " +
       "LOOPS (chords onto the stage, REC), 5 s each" :
-      `${keysN.join(", ")} keys held (past 10 on core 2), 5 s each`, run: async (t) => {
-        await voicesSetting(t, 16);                     /* (16: 10 on core 1, 6 on core 2) */
+      `${keysN.join(", ")} keys held (the top places on core 2), 5 s each`, run: async (t) => {
+        await voicesSetting(t, 16);                     /* (16: both cores, the split moving each block) */
         await keysHeld(t, name, cart, slot, keysN);
         if (name === "TB-303") await tb303Voices(t, cart, slot);
     } })),
+    { group: "KEYS", name: "VELOCITY", debug: true, secs: 95, tsecs: 75, what: "the keys' velocity on the FM-1 itself: " +
+      "readings fed to its own velocity as its scan brings them (a hard press, a gentle one, a graze, a bounce, one that " +
+      "waits too long, the top row, SOFT / NORMAL / HARD, CONSTANT), each note's volume and MIDI OUT's velocity; the " +
+      "keys at rest, MASTER both ways, the battery; the scan's cost, NORMAL against CONSTANT, at rest and with a song",
+      run: async (t) => keysVelocity(t) },
     { group: "EFFECTS", name: "A SONG WITH EFFECTS", secs: 37, tsecs: 30, what: "MIDNIGHT RUN, CHORUS DELAY REVERB on, knobs swept, 30 s", run: async (t) => {
         await t.playSong("MIDNIGHT RUN", 2);
         for (const e of ["CHORUS", "DELAY", "REVERB"]) await t.fx(e, true);
@@ -1241,12 +1751,28 @@ const SCENARIOS = [
     } },
     { group: "DJ", name: "DJ HEAVY", secs: 42, tsecs: 30, what: "PUNCH IN and MIDNIGHT RUN mixed from their second patterns, SYNC on, " +
       "the crossfader in the middle, no filters or LFOs, DJ's DELAY and REVERB on, VOICES 16, 30 s", run: async (t) => {
-        await voicesSetting(t, 16);                     /* (the notes past 10 on core 2) */
+        await voicesSetting(t, 16);                     /* (the top places on core 2, the split moving each block) */
         await djHeavy(t, "PUNCH IN", "MIDNIGHT RUN");
         await t.measure("DJ HEAVY", 30000);
         const s = await t.ask();
         t.check(s.dj.decks[0].playing && s.dj.decks[1].playing, "BOTH DECKS STILL PLAYING");
     } },
+    { group: "DJ", name: "DJ HEAVY AT VOICES 12", secs: 42, tsecs: 30, what: "DJ HEAVY again at VOICES 12 (both cores, the " +
+      "split moving each block), the notes past the count kept as ghosts: what more notes heard cost against VOICES 16, 30 s", run: async (t) => {
+        await voicesSetting(t, 12);
+        await djHeavy(t, "PUNCH IN", "MIDNIGHT RUN");
+        await t.measure("DJ HEAVY, VOICES 12", 30000);
+        const s = await t.ask();
+        t.check(s.dj.decks[0].playing && s.dj.decks[1].playing, "BOTH DECKS STILL PLAYING");
+    } },
+    /* the same two with the voices' split fixed as before it moved (the debug build's switch: places 11-16 core 2's at
+     * VOICES 16, none at 12, the load guard counting as then): the "before" beside them, in one session */
+    { group: "DJ", name: "DJ HEAVY, FIXED SPLIT", debug: true, secs: 44, tsecs: 30, what: "DJ HEAVY with the voices' split " +
+      "fixed as before it moved (places 11-16 on core 2, the load guard as then: the debug switch), VOICES 16, 30 s",
+      run: async (t) => djHeavyFixed(t, 16, "DJ HEAVY, FIXED SPLIT") },
+    { group: "DJ", name: "DJ HEAVY AT VOICES 12, FIXED SPLIT", debug: true, secs: 44, tsecs: 30, what: "DJ HEAVY AT VOICES " +
+      "12 with the voices' split fixed as before it moved (every voice on core 1, the load guard as then), 30 s",
+      run: async (t) => djHeavyFixed(t, 12, "DJ HEAVY, VOICES 12, FIXED SPLIT") },
     { group: "LOOPS", name: "THE LOOP STATION", secs: 67, tsecs: 20, what: "12 loops played from the keys onto the stage, each sent " +
       "by REC (JUNO-106 sounds, then DX7's), all playing, 20 s", run: async (t) => {
         await voicesSetting(t, 12);
@@ -1262,6 +1788,11 @@ const SCENARIOS = [
       "mode; 20 s and 10 s measured", run: async (t) => {
         await voicesSetting(t, 12);
         await loopBeat(t);
+    } },
+    { group: "LOOPS", name: "GHOST NOTES", secs: 180, tsecs: 120, what: "VOICES 8, 20 held notes on five pad loops and a " +
+      "TB-303's: over the count, mutes, a solo, VOICES changed; the keys over a song, a long note: ghosts made and back, " +
+      "the returns' work", run: async (t) => {
+        await ghostNotes(t);
     } },
     { group: "TOOLS", name: "AUTO LEVEL ALL", secs: 6, tsecs: 2, what: "SETTINGS' tool over every instrument", run: async (t) => {
         await t.screen("SETTINGS");

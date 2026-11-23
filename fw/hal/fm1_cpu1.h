@@ -85,6 +85,7 @@ static struct {
     uint8_t started;                            /* its start ran (answered or not) */
     uint32_t start_ticks;                       /* its answer at the start, TIMER4 ticks */
     uint32_t faults;                            /* its fault record's count at the start: a fault since counts past */
+    uint32_t stop_pc;                           /* held while it ran: where it was, paused first (PT/FM FROZE) */
 } fm1_c1;
 
 void fm1_c1_loop(void);
@@ -133,6 +134,13 @@ void __attribute__((section(".c2_top"), noreturn, used, noinline)) fm1_c1_loop(v
 /* hold it (any time, whatever it does; interrupts as they are), saying why when it ran (FM1_C1_WHY_*) */
 static void fm1_cpu1_hold(uint32_t why)
 {
+    if (fm1_c1.state == FM1_C1_RUNS) {          /* (a fallback: where it stood, paused and read as a crash reads it) */
+        uint32_t t0 = fm1_ticks_inline();
+        FM1_C1_PAUSE = 0xFFFFFFFFu;
+        while (fm1_ticks_inline() - t0 < 10u * FM1_TICKS_PER_US)
+            ;
+        fm1_c1.stop_pc = FM1_C1_PCRS;
+    }
     fm1_cpu1_halt();
     fm1_c1_runs = 0;
     if (fm1_c1.state == FM1_C1_RUNS) {
@@ -227,6 +235,37 @@ FM1_INLINE int fm1_cpu1_faulted(void)
 {
     FM1_C1_SYNC();
     return fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC && fm1_c1_fault.count != fm1_c1.faults;
+}
+
+/* Core 2's fills and copies (libc.c's c2_memset, c2_memcpy) write only into the RAM: a destination that leaves it (an
+ * invalid write over the bus, a crash on both cores) is written nowhere. Its fault record then says so (vec
+ * FM1_C1_BAD_FILL or _COPY, + 2 on core 1; pc the caller, from; bad_d and bad_n the destination and length; the time
+ * up) and, on core 2, it parks as at a fault of its own: core 1 holds it at the next half (FM1_C1_WHY_FAULT) and runs
+ * alone. On core 1 (core 2 off, its jobs run here) the record alone, the block's work going on. 1: in the RAM */
+#define FM1_RAM_LO 0x01C00000u
+#define FM1_RAM_HI 0x01C80000u
+FM1_INLINE int fm1_c2_dest_ok(const void *d, uint32_t n, uint32_t kind, uint32_t from)
+{
+    uint32_t a = (uint32_t)(uintptr_t)d, c2 = fm1_cnum();
+    if (__builtin_expect(a >= FM1_RAM_LO && a <= FM1_RAM_HI && n <= FM1_RAM_HI - a, 1))
+        return 1;
+    fm1_c1_fault.count = fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC ? fm1_c1_fault.count + 1u : 1u;
+    fm1_c1_fault.vec = kind + (c2 ? 0u : 2u);
+    fm1_c1_fault.pc = from;
+    fm1_c1_fault.rets = 0;
+    fm1_c1_fault.emu = 0;
+    fm1_c1_fault.dbg = FM1_DBG_MSG;
+    fm1_c1_fault.sp = 0;
+    fm1_c1_fault.bad_d = a;
+    fm1_c1_fault.bad_n = n;
+    fm1_c1_fault.uptime_ms = *(volatile uint32_t *)0x10804u / 24000u;   /* (as fm1_fault_c reads it) */
+    fm1_c1_fault.magic = FM1_C1_FAULT_MAGIC;
+    FM1_C1_SYNC();
+    if (c2) {
+        void (*volatile park)(void) = fm1_c1_park;   /* (through a register, as fm1_fault_c) */
+        park();
+    }
+    return 0;
 }
 /* until it has run every entry handed over (while it runs), us at most: 0 done; -1 not in time (held:
  * FM1_C1_WHY_STUCK); -2 it refused an entry (held: _MISREAD); -3 it faulted (held: _FAULT) */

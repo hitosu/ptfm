@@ -312,10 +312,10 @@ static void env_trace(const uint8_t *slot, int x, int y, int col)
 /* where the voices playing the instrument's sample are in it (this cartridge's slots on that sample): a mark each */
 static int play_marks(int sample, uint32_t *mk, uint8_t *mc, int nm)
 {
-    pl_voice_info_t v[PL_VOICES];
+    pl_voice_info_t v[PL_ENGINES];
     rec_cart_t c;
     rec_sinst_t si;
-    int n = ui_player_voices(v, PL_VOICES);
+    int n = ui_player_voices(v, PL_ENGINES);
     if (rec_cart(cart(), &c)) return nm;
     for (int i = 0; i < n; i++) {
         const uint8_t *s = v[i].on && v[i].engine == PL_ENG_SAMPLER && v[i].pos >= 0 && v[i].inst.cart == cart()
@@ -336,8 +336,8 @@ static void samp_picture(const uint8_t *slot, int y, int col)
     rec_sinst_t si;
     rec_sample_t sm;
     rec_sampler_inst(slot, &si);
-    uint32_t mk[4 + PL_VOICES] = {si.start, si.end, si.loop_start, si.loop_end};
-    uint8_t mc[4 + PL_VOICES] = {C_WHITE, C_WHITE, C_GREEN, C_GREEN};
+    uint32_t mk[4 + PL_ENGINES] = {si.start, si.end, si.loop_start, si.loop_end};
+    uint8_t mc[4 + PL_ENGINES] = {C_WHITE, C_WHITE, C_GREEN, C_GREEN};
     int nm = si.loop ? 4 : 2, legend = 213, he = TRACE_H, hw = legend - 2 - y - he - 4, ye;
     hw -= hw & 1;
     ye = y + hw + 4;
@@ -374,8 +374,8 @@ static void knob_pic(int x, int y, int r, int v, const char *label, int col)
 #define RND(v) ((v) >= 0 ? ((v) + 5000) / 10000 : -((-(v) - 5000 + 9999) / 10000))   /* (floor(v / 10000 + 0.5)) */
     g_line(x, y, x + RND(sx), y - RND(cy), col);
 #undef RND
-    g_text(g_centre(&FONT_T, label, x - 20, 40), y + r + 3, &FONT_T, label, C_CYAN);
-    g_text(g_centre(&FONT_T, ui_hex2(v), x - 20, 40), y + r + 15, &FONT_T, ui_hex2(v), C_WHITE);
+    g_text_c(x - 20, 40, y + r + 3, &FONT_T, label, C_CYAN);
+    g_text_c(x - 20, 40, y + r + 15, &FONT_T, ui_hex2(v), C_WHITE);
 }
 /* a DX7 algorithm: carriers along the bottom, each modulator above what it modulates (columns in halves) */
 static int alg_cols(const int kids[6][6], const int *nk, int i)
@@ -570,7 +570,7 @@ static void tb_envelope(const int *k, int x, int y, int w, int h, int col)
     if (T < 1000) ui_fmt(s, sizeof s, "%d MS", T);
     else ui_fmt(s, sizeof s, "%d.%d S", (T + 50) / 1000, (T + 50) / 100 % 10);
     g_text(x, y + h + 2, &FONT_T, "0", C_DGREY);
-    g_text(x + w - g_tw(&FONT_T, s), y + h + 2, &FONT_T, s, C_DGREY);
+    g_text_r(x + w, y + h + 2, &FONT_T, s, C_DGREY);
 }
 static void tb_filter(const int *k, int x, int y, int w, int h, int col)
 {
@@ -784,7 +784,7 @@ static void vib_pic(int x, int y, int w, int h, const chip_patch_t *p, int frame
     int dx = x + p->vib_delay * w / frames;
     g_rect(dx < x + w - 1 ? dx : x + w - 1, y, 1, h, C_YELLOW);
 }
-static void text_r(int xr, int y, const char *s, int col) { g_text(xr - g_tw(&FONT_T, s), y, &FONT_T, s, col); }
+static void text_r(int xr, int y, const char *s, int col) { g_text_r(xr, y, &FONT_T, s, col); }
 static void chip_picture(const chip_patch_t *p, int y, int col)
 {
     int fps = p->fps50 ? 50 : 60;
@@ -969,8 +969,8 @@ static void details(int y)
         ui_fmt(b, sizeof b, "  %u.%02u S  %u HZ", cs / 100, cs % 100, sm.rate);
         g_run_t r[3] = {{hd, C_LGREY}, {nm, (uint8_t)col}, {b, C_LGREY}};
         g_runs(0, y, &FONT_T, r, 3);
-        uint32_t mk[4 + PL_VOICES] = {si.start, si.end, si.loop_start, si.loop_end};
-        uint8_t mc[4 + PL_VOICES] = {C_WHITE, C_WHITE, C_GREEN, C_GREEN};
+        uint32_t mk[4 + PL_ENGINES] = {si.start, si.end, si.loop_start, si.loop_end};
+        uint8_t mc[4 + PL_ENGINES] = {C_WHITE, C_WHITE, C_GREEN, C_GREEN};
         wave(si.sample, 0, y + 16, 240, h - 34, C_BROWN, mk, mc, play_marks(si.sample, mk, mc, si.loop ? 4 : 2));   /* (and
                                                          * where its voices play: yellow) */
         static const txt_t LP[3] = {TX("OFF"), TX("FORWARD"), TX("PING-PONG")};
@@ -1041,7 +1041,7 @@ static void draw_fav_edit(void)
     char rt[8];
     g_rect(0, BODY_Y, 240, BODY_H, C_BLACK);
     ui_ref_text(rt, ui_cur.place);
-    g_text(4, 20, &FONT_T, ui_txt_v(T("FAVORITE #"), rt), C_CYAN);
+    g_text(4, 20, &FONT_T, ui_txt_t(TX("FAVORITE #"), rt), C_CYAN);
     g_text(4, 33, &FONT_T, T("SOURCE"), C_DGREY);
     ui_fav_draw(46, 33, ui_cur.place, 0);
     g_text(4, 46, &FONT_T, T("K1: CARTRIDGE  PRESETS: INSTRUMENT"), C_DGREY);
@@ -1093,11 +1093,11 @@ static void draw_edit(void)
         for (int i = 0; i < 6; i++) kn[i] = bits(s, 7 * i, 7);
         g_text(0, pic_y + 2, &FONT_T, T("ENVELOPE"), C_CYAN);
         const char *acc = T("ACC");
-        g_text(114 - g_tw(&FONT_T, acc), pic_y + 2, &FONT_T, acc, C_YELLOW);
+        g_text_r(114, pic_y + 2, &FONT_T, acc, C_YELLOW);
         tb_envelope(kn, 0, pic_y + 18, 114, 66, col);
         g_text(124, pic_y + 2, &FONT_T, T("FILTER"), C_CYAN);
         const char *wn = kn[0] < 16 ? T("SAW") : kn[0] > 111 ? T("SQUARE") : T("SAW+SQ");
-        g_text(220 - g_tw(&FONT_T, wn), pic_y + 2, &FONT_T, wn, C_LGREY);
+        g_text_r(220, pic_y + 2, &FONT_T, wn, C_LGREY);
         tb_wave(kn[0], 224, pic_y + 4, col);
         tb_filter(kn, 124, pic_y + 18, 114, 66, col);
     } else if (sampler) {
@@ -1126,16 +1126,15 @@ static void draw_edit(void)
     hr[1].s = pn2;
     g_runs(0, par_y + 2, &FONT_T, hr, 3);
     if (g && g->pattern_row) {
-        g_run_t r[6] = {{T("SEL"), C_YELLOW}, {T(": EDIT IT  "), C_LGREY}, {T("ENV"), C_YELLOW}, {T(": PICK  "), C_LGREY},
-                        {T("K1"), C_YELLOW}, {T(": OTHER"), C_LGREY}};
-        g_runs(0, par_y + 15, &FONT_T, r, 6);
+        static const txt_t R[] = {TX("SEL"), TX(": EDIT IT  "), TX("ENV"), TX(": PICK  "), TX("K1"), TX(": OTHER"), 0};
+        ui_hints(0, par_y + 15, R);
     } else if (g && !g->name_row) {
         ui_fmt(b, sizeof b, g->np > 1 ? T("K1-K%d") : T("K1"), g->np);
         g_text(2, par_y + 15, &FONT_T, b, C_YELLOW);
         for (int q = 0; q < g->np; q++) g_textn(60 + q * 45, par_y + 15, &FONT_T, T(g->p[q].n), 7, q == st.last ? C_WHITE : C_LGREY);
     } else if (g) {
-        g_run_t r[2] = {{T("SEL"), C_YELLOW}, {T(": TYPE A NAME"), C_LGREY}};
-        g_runs(0, par_y + 15, &FONT_T, r, 2);
+        static const txt_t R[] = {TX("SEL"), TX(": TYPE A NAME"), 0};
+        ui_hints(0, par_y + 15, R);
     }
     int top = st.group - 3 < ng - 6 ? st.group - 3 : ng - 6;
     if (top < 0) top = 0;
@@ -1255,7 +1254,7 @@ static void turn(const ins_prm_t *p, int sv, int coarse)
     if (put_slot(slot(), s)) return;
     char t[24];
     ins_text(s, p, t, sizeof t);
-    ui_show_knob(T(p->lng ? p->lng : p->n), t);
+    ui_show_knob_t((p->lng ? p->lng : p->n),t);
 }
 static void reset(const ins_prm_t *p)
 {
@@ -1267,7 +1266,7 @@ static void reset(const ins_prm_t *p)
     char t[24], v[40];
     ins_text(s, p, t, sizeof t);
     ui_fmt(v, sizeof v, T("%s (DEFAULT)"), t);
-    ui_show_knob(T(p->lng ? p->lng : p->n), v);
+    ui_show_knob_t((p->lng ? p->lng : p->n),v);
 }
 static void edit_close(int keep)
 {
@@ -1414,6 +1413,14 @@ enum { Q_DELETE, Q_MOVE, Q_SWAP };
 static void change(int upd)
 {
     uint8_t a[MAXSLOT], b[MAXSLOT];
+    int c = cart(), del = q_mode == Q_DELETE;
+    uint16_t f0 = ui_edit_fails();      /* (an edit refused on the way, a measure's rewrite too big for one record among
+                                         * them: the change not made, or its references not saved) */
+    uint32_t need = del ? 0u : ins_put_need((uint8_t)c, q_at);   /* the room for all of it first: refused, nothing
+                                                         * changes and nothing is saved (specs/ui/saving.md#references) */
+    for (int k = del ? q_r0 : q_from; k <= (del ? q_r1 : q_from); k++)
+        need += ins_put_need((uint8_t)c, k) + (upd ? ed_remap_need(c << 8 | k, del ? -1 : c << 8 | q_at, q_mode == Q_SWAP, 0) : 0u);
+    if (ui_edit_fails() != f0 || ui_edit_reserve(need)) return;
     if (q_mode == Q_DELETE) {
         for (int k = q_r0; k <= q_r1; k++) {
             if (upd) remap(cart() << 8 | k, -1, 0);
@@ -1426,7 +1433,7 @@ static void change(int upd)
         if (upd) remap(cart() << 8 | q_from, cart() << 8 | q_at, q_mode == Q_SWAP);
         set_inst(cart(), q_at);
     }
-    if (upd) ui_save_refs(q_uses);
+    if (upd && ui_edit_fails() == f0) ui_save_refs(q_uses);
 }
 static void q_answer(int a) { if (a >= 0) change(a == 1); }
 static void ask_refs(const char *label, int uses)
@@ -1438,7 +1445,7 @@ static void ask_refs(const char *label, int uses)
     lines[0] = l0;
     lines[1] = T("UPDATE REFERENCES?");
     q_uses = uses;
-    ui_ask(lines, 2, T("YES"), T("NO"), q_answer);
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), q_answer);
 }
 static void put_down(void)
 {
@@ -1464,59 +1471,99 @@ static void float_step(int d)
 }
 enum { S_MARK = 1, S_PATTERN, S_COPY, S_PASTE, S_MOVE, S_SWAP, S_DELETE, S_INIT, S_RENAME, S_AUTO, S_REVERT, S_REMOVE,
        S_REPLACE, S_CREATE,             /* (a sampler's: REPLACE SAMPLE; CREATE in INIT's place on an empty slot) */
-       S_NEWC = 0x100,                  /* NEW CARTRIDGE's types: + the kind */
-       S_ADDTO = 0x200 };               /* ADD TO FAVORITES: + the FAVORITES cartridge */
-/* NEW's types, in the menus' order, and their kinds; a new one made at the number after the last of the user's */
-static const txt_t NEW_TN[7] = {TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("CHIP"), TX("SAMPLER"), TX("FUSION"), TX("FAVORITES")};
-static const uint8_t NEW_TK[7] = {REC_DX7, REC_JUNO, REC_TB303, REC_CHIP, REC_SAMPLER, REC_FUSION, REC_FAV};
-static void new_items(ui_mitem_t *t, int base) { for (int k = 0; k < 7; k++) t[k] = (ui_mitem_t){NEW_TN[k], base + NEW_TK[k], 0, 0}; }
+       S_ADDTO, S_UNFAV,                /* ADD TO FAVORITES, REMOVE FROM FAVORITES: into FB, out of it */
+       S_DELCART,                       /* DELETE CARTRIDGE: the one on screen, as the cartridge list's DELETE */
+       S_NEWC = 0x100 };                /* NEW CARTRIDGE's types: + the kind */
+/* NEW's types, in the menus' order, and their kinds (no FAVORITES: the FM-1 has one, FB); a new one made at the number
+ * after the last of the user's */
+#define NEW_N 6
+static const txt_t NEW_TN[NEW_N] = {TX("DX7"), TX("JUNO-106"), TX("TB-303"), TX("CHIP"), TX("SAMPLER"), TX("FUSION")};
+static const uint8_t NEW_TK[NEW_N] = {REC_DX7, REC_JUNO, REC_TB303, REC_CHIP, REC_SAMPLER, REC_FUSION};
+static void new_items(ui_mitem_t *t, int base) { for (int k = 0; k < NEW_N; k++) t[k] = (ui_mitem_t){NEW_TN[k], base + NEW_TK[k], 0, 0}; }
 static int new_cart(int kind)
 {
-    static const txt_t NEWN[7] = {TX("NEW DX7"), TX("NEW JUNO-106"), TX("NEW TB-303"), TX("NEW SAMPLER"), TX("NEW FUSION"),
-                                  TX("NEW CHIP"), TX("MY FAVORITES")};      /* (by kind) */
+    static const txt_t NEWN[6] = {TX("NEW DX7"), TX("NEW JUNO-106"), TX("NEW TB-303"), TX("NEW SAMPLER"), TX("NEW FUSION"),
+                                  TX("NEW CHIP")};                          /* (by kind) */
     int id = ins_free_cart();
-    char v[24];
-    if (id < 0) { ui_toast(T("ALL CARTRIDGE NUMBERS USED")); return -1; }
+    if (id < 0) { ui_toast_t(TX("ALL CARTRIDGE NUMBERS USED")); return -1; }
     ins_new_cart((uint8_t)id, kind, T(NEWN[kind - 1]));
-    ui_fmt(v, sizeof v, T("CARTRIDGE %02X MADE"), id);
-    ui_toast(v);
+    ui_toast(ui_txt_h(TX("CARTRIDGE # MADE"), id));
     return id;
 }
-/* the FAVORITES cartridges, in the lists' order (at most max) */
-static int favs(uint8_t *f, int max)
+/* FB's favourites, read once: each slot's source in have (FFFF empty); the empty slots' count, -1 when FB is no
+ * FAVORITES cartridge (deleted) */
+static int fb_sources(uint16_t *have)
 {
-    uint8_t nums[256];
-    int n = ui_carts(nums, 256), k = 0;
-    for (int i = 0; i < n && k < max; i++) if (ui_cart_rank(nums[i]) < 2) f[k++] = nums[i];
-    return k;
+    rec_cart_t c;
+    int empty = 0;
+    if (rec_cart(UI_FB, &c) || c.kind != REC_FAV) return -1;
+    for (int k = 0; k < 128; k++) {
+        const uint8_t *f = k < c.nslots ? rec_fav(&c, (uint8_t)k) : 0;
+        have[k] = f ? (uint16_t)(f[0] << 8 | f[1]) : 0xFFFFu;
+        empty += !f;
+    }
+    return empty;
 }
-/* ADD TO FAVORITES (specs/ui/screens/instruments.md#favorites): the slots' instruments (r0-r1), each into fc's first
- * empty slot, those there already and the empty slots skipped; nothing added unless they all fit */
-static void fav_add(uint8_t fc, int r0, int r1)
+static int in_fb(const uint16_t *have, uint16_t src) { for (int k = 0; k < 128; k++) if (have[k] == src) return 1; return 0; }
+static int inst_at(int k) { return ui_slot_has((uint16_t)(cart() << 8 | k), 0); }    /* (this cartridge's slot holds one) */
+/* ADD TO FAVORITES and REMOVE FROM FAVORITES (specs/ui/screens/instruments.md#favorites): one item on the slots' (r0-r1)
+ * instruments, the empty slots left out, an action on FB: REMOVE while every one of them is in FB, else ADD; -1 not
+ * listed (no instrument there, or FB deleted) */
+static int fav_item(int r0, int r1)
+{
+    uint16_t have[128];
+    int any = 0, all = 1;
+    if (fb_sources(have) < 0) return -1;
+    for (int k = r0; k <= r1; k++) {
+        if (!inst_at(k)) continue;
+        any = 1;
+        if (!in_fb(have, (uint16_t)(cart() << 8 | k))) all = 0;
+    }
+    return !any ? -1 : all ? S_UNFAV : S_ADDTO;
+}
+/* FB emptied and as built in but for that: the firmware's own again, its record gone (SAVE keeps no copy) */
+static void fb_tidy(void)
+{
+    char v[16];
+    if (!ui_cart_slots(UI_FB) && !ins_builtin(UI_FB) && ui_cart_name(UI_FB, v) && !strcmp(v, T("FAVORITES")))
+        ui_edit_del(REC_FAV, UI_FB, 0);
+}
+/* ADD TO FAVORITES: each slot's instrument (r0-r1) not in FB yet into FB's first empty slot, in order (the empty slots
+ * and those in FB already skipped); nothing added unless they all fit */
+static void fav_add(int r0, int r1)
 {
     uint16_t have[128], add[128];
-    uint8_t s[MAXSLOT];
     char rt[8];
-    int n = 0, there = -1, empty = 0, first = -1;
-    for (int k = 0; k < 128; k++) { have[k] = 0xFFFFu; if (ins_slot_bytes(fc, k, s)) have[k] = (uint16_t)(s[0] << 8 | s[1]); else empty++; }
+    int n = 0, empty = fb_sources(have), first = -1;
+    if (empty < 0) return;                              /* (FB deleted: have is not filled) */
     for (int k = r0; k <= r1; k++) {
         uint16_t src = (uint16_t)(cart() << 8 | k);
-        int j = 0;
-        if (!ins_slot_bytes(cart(), k, s)) continue;
-        while (j < 128 && have[j] != src) j++;
-        if (j < 128) { if (there < 0) there = j; continue; }
-        add[n++] = src;
+        if (inst_at(k) && !in_fb(have, src)) add[n++] = src;
     }
-    if (!n) { if (there >= 0) { ui_ref_text(rt, (uint16_t)(fc << 8 | there)); ui_toast(ui_txt_v(T("ALREADY IN #"), rt)); } return; }
-    if (empty < n) { ui_toast(T("FAVORITES FULL")); return; }
+    if (!n) return;
+    if (empty < n) { ui_toast_t(TX("FAVORITES FULL")); return; }
     for (int k = 0, i = 0; k < 128 && i < n; k++) {
         if (have[k] != 0xFFFFu) continue;
         uint8_t b[3] = {(uint8_t)(add[i] >> 8), (uint8_t)add[i], 0};
-        if (ins_put_slot(fc, k, b)) return;             /* (MEMORY FOR EDITS IS FULL: said) */
+        if (ins_put_slot(UI_FB, k, b)) return;          /* (MEMORY FOR EDITS IS FULL: said) */
         if (!i++) first = k;
     }
-    ui_ref_text(rt, (uint16_t)(fc << 8 | first));
-    ui_toast(ui_txt_v(T("ADDED TO #"), rt));
+    ui_ref_text(rt, (uint16_t)(UI_FB << 8 | first));
+    ui_toast(ui_txt_t(TX("ADDED TO #"), rt));
+}
+/* REMOVE FROM FAVORITES: every slot of FB naming one of the slots' instruments (r0-r1, the empty ones left out)
+ * emptied, from the last down (an emptied last slot shortens the record); FB emptied: the firmware's own again */
+static void fav_remove(int r0, int r1)
+{
+    uint16_t have[128];
+    if (fb_sources(have) < 0) return;
+    for (int j = 127; j >= 0; j--) {
+        int c = have[j] >> 8, s = have[j] & 255;
+        if (have[j] == 0xFFFFu || c != cart() || s < r0 || s > r1 || !inst_at(s)) continue;
+        if (ins_put_slot(UI_FB, j, 0)) return;          /* (MEMORY FOR EDITS IS FULL: said) */
+    }
+    fb_tidy();
+    ui_toast_t(TX("REMOVED FROM FAVORITES"));
 }
 /* REVERT (specs/ui/saving.md#revert): the slot as saved, its sound so from its next note */
 static void slot_revert_go(void) { ui_edit_revert_slot(cart(), (uint8_t)slot()); }
@@ -1526,13 +1573,13 @@ static int slot_unsaved(void)
     return 0;
 }
 static void auto_done(int set) { if (set && st.edit) st.changed = 1; ui_dirty(); }  /* (edit mode: HOME takes it back too) */
+static void slot_del_cart(void);
 static void slot_pick(int a)
 {
     int i = slot(), r0 = st.mark >= 0 ? (st.mark < i ? st.mark : i) : i, r1 = st.mark >= 0 ? (st.mark > i ? st.mark : i) : i;
     uint8_t s[MAXSLOT];
     char v[40];
     st.marking = 0;
-    if (a >= S_ADDTO) { fav_add((uint8_t)(a - S_ADDTO), r0, r1); st.mark = -1; return; }
     if (a > S_NEWC) {                                   /* NEW CARTRIDGE: made and opened */
         int id = new_cart(a - S_NEWC);
         if (id >= 0) set_inst(id, 0);
@@ -1540,12 +1587,14 @@ static void slot_pick(int a)
         return;
     }
     switch (a) {
-    case S_MARK: st.marking = 1; st.mark = i; ui_toast(T("SELECT, ALG: MARK  SEL: ITS MENU")); return;
+    case S_MARK: st.marking = 1; st.mark = i; ui_toast_t(TX("SELECT, ALG: MARK  SEL: ITS MENU")); return;
+    case S_DELCART: slot_del_cart(); break;
+    case S_ADDTO: fav_add(r0, r1); break;
+    case S_UNFAV: fav_remove(r0, r1); break;
     case S_REMOVE:                                      /* the favourites go, their sources stay; FB emptied is the
                                                          * firmware's own again: its record goes */
         for (int k = r0; k <= r1; k++) put_slot(k, 0);
-        if (cart() == 0xFB && !ui_cart_slots(0xFB) && !ins_builtin(0xFB) && ui_cart_name(0xFB, v) && !strcmp(v, T("FAVORITES")))
-            ui_edit_del(REC_FAV, 0xFB, 0);
+        if (cart() == UI_FB) fb_tidy();
         break;
     case S_PATTERN: open_fusion(); break;
     case S_COPY:
@@ -1556,10 +1605,10 @@ static void slot_pick(int a)
         ui_toast(v);
         break;
     case S_PASTE:
-        if (!st.clip_n) { ui_toast(T("NOTHING COPIED")); return; }
+        if (!st.clip_n) { ui_toast_t(TX("NOTHING COPIED")); return; }
         if (st.clip_kind != kind()) {                   /* an instrument is its engine's */
             ui_refuse(B_SEL);
-            ui_toast(ui_txt_v(T("COPIED FROM #: NOT HERE"), T(ENG_TYPE[st.clip_kind])));
+            ui_toast(ui_txt_t(TX("COPIED FROM #: NOT HERE"), T(ENG_TYPE[st.clip_kind])));
             return;
         }
         for (int k = 0; k < st.clip_n && i + k < size(); k++) put_slot(i + k, clip_used[k] ? clip[k] : 0);
@@ -1592,9 +1641,9 @@ static void slot_pick(int a)
         if (!used(s)) break;
         int any_empty = 0;
         for (int k = 0; k < size(); k++) if (!ins_slot_bytes(cart(), k, s)) any_empty = 1;
-        if (a == S_MOVE && !any_empty) { ui_toast(T("NO EMPTY SLOT: SWAP INSTEAD")); return; }
+        if (a == S_MOVE && !any_empty) { ui_toast_t(TX("NO EMPTY SLOT: SWAP INSTEAD")); return; }
         st.mv = 1; st.mv_swap = a == S_SWAP; st.mv_from = st.mv_at = i;
-        ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
+        ui_toast_t(TX("SELECT MOVES IT, SEL PUTS IT DOWN"));
         break;
     }
     case S_REVERT: {                                    /* the slot as saved, after a question */
@@ -1611,21 +1660,19 @@ static void slot_pick(int a)
 }
 static void slot_menu(void)
 {
-    uint8_t s[MAXSLOT], fv[6];
-    ui_mitem_t m[14], nc[7], fa[6];                     /* (the menu copies its items) */
+    uint8_t s[MAXSLOT];
+    ui_mitem_t m[14], nc[NEW_N];                        /* (the menu copies its items) */
     char title[32];
-    int n = 0, i = slot(), has = used(s), fav = kind() == REC_FAV, nf = favs(fv, 6), sampler = kind() == REC_SAMPLER;
+    int n = 0, i = slot(), has = used(s), fav = kind() == REC_FAV, sampler = kind() == REC_SAMPLER;
     int fusion = st.edit && kind() == REC_FUSION && has && s[0] != 0xFF && ui_pattern_rows(s[0]);
     /* a sampler's: REPLACE SAMPLE on one instrument; CREATE in INIT's place on one empty slot (an instrument needs a
      * sample: specs/ui/screens/instruments.md, Sampler cartridges) */
     ui_mitem_t init = sampler && !has && st.mark < 0 ? (ui_mitem_t){TX("CREATE"), S_CREATE, 0, 0} : (ui_mitem_t){TX("INIT"), S_INIT, 0, 0};
     int replace = sampler && has && st.mark < 0;
-    /* ADD TO FAVORITES on an instrument, while a FAVORITES cartridge is there: one, an action; several, a group of them
-     * (named as listed, below) */
-    for (int k = 0; k < nf; k++) fa[k] = (ui_mitem_t){TX("FAVORITES"), S_ADDTO + fv[k], 0, 0};
-    ui_mitem_t add = nf == 1 ? fa[0] : (ui_mitem_t){0, 0, fa, (uint8_t)nf};
-    add.name = TX("ADD TO FAVORITES");
-    int can_add = nf && !fav && (has || st.mark >= 0);
+    /* ADD TO FAVORITES, or REMOVE FROM FAVORITES once FB holds them, on the instruments (not in a FAVORITES cartridge) */
+    int fa = fav ? -1 : fav_item(st.mark >= 0 ? (st.mark < i ? st.mark : i) : i, st.mark > i ? st.mark : i);
+    int can_add = fa >= 0;
+    ui_mitem_t add = fa == S_UNFAV ? (ui_mitem_t){TX("REMOVE FROM FAVORITES"), S_UNFAV, 0, 0} : (ui_mitem_t){TX("ADD TO FAVORITES"), S_ADDTO, 0, 0};
     new_items(nc, S_NEWC);
     if (st.edit) {                                      /* (built in: edited as any) */
         if (fusion) m[n++] = (ui_mitem_t){TX("EDIT PATTERN"), S_PATTERN, 0, 0};
@@ -1653,7 +1700,9 @@ static void slot_menu(void)
             m[n++] = (ui_mitem_t){TX("RENAME"), S_RENAME, 0, 0};
             m[n++] = (ui_mitem_t){TX("AUTO LEVEL"), S_AUTO, 0, 0};
         }
-        m[n++] = (ui_mitem_t){TX("NEW CARTRIDGE"), 0, nc, 7};
+        m[n++] = (ui_mitem_t){TX("NEW CARTRIDGE"), 0, nc, NEW_N};
+        if (st.mark < 0 && cart() < 0xF0) m[n++] = (ui_mitem_t){TX("DELETE CARTRIDGE"), S_DELCART, 0, 0};   /* (a built-in
+                                                         * one: none) */
         if (st.mark < 0 && slot_unsaved()) m[n++] = (ui_mitem_t){TX("REVERT"), S_REVERT, 0, 0};
     }
     char rt[8];
@@ -1663,12 +1712,6 @@ static void slot_menu(void)
     else if (fav) ui_fmt(title, sizeof title, T("SLOTS %02X:%02X-%02X"), cart(), a0, a1);
     else ui_fmt(title, sizeof title, T("SLOTS %02X-%02X"), a0, a1);
     ui_menu(st.edit ? "slot-edit" : "slots", title, m, n, slot_pick, B_SEL);
-    for (int k = 0; k < nf && nf > 1; k++) {            /* the group's names: `FB FAVORITES`, `07 MY FAVORITES` */
-        char nm[16], b[20];
-        ui_cart_name(fv[k], nm);
-        ui_fmt(b, sizeof b, "%02X %s", fv[k], nm);
-        ui_menu_name(S_ADDTO + fv[k], b);
-    }
 }
 
 /* ---------------------------------------------------------------------- the cartridge list --- */
@@ -1708,16 +1751,22 @@ static void cart_follow(int from, int to)
 static int cl_q_from, cl_q_to;
 static void cl_delete(int upd)
 {
+    uint16_t f0 = ui_edit_fails();      /* (as change()'s) */
+    uint32_t need = 16u + (upd ? ed_remap_need(cl_q_from, -1, 0, 1) : 0u);
+    if (ui_edit_fails() != f0 || ui_edit_reserve(need)) return;   /* (the room first: all or nothing) */
     if (upd) cl_remap_cart(cl_q_from, -1);
     ins_delete_cart((uint8_t)cl_q_from);
     cl_refill();
     if (!ins_kind(cart()) && cl.n) set_inst(cl.nums[0], 0);
-    if (upd) ui_save_refs(q_uses);
+    if (upd && ui_edit_fails() == f0) ui_save_refs(q_uses);
 }
 /* MOVE of a cartridge, a sampler's as any (its instruments only: the samples are things of their own) */
 static void cl_move(int upd)
 {
     rec_cart_t c;
+    uint16_t f0 = ui_edit_fails();      /* (as change()'s) */
+    uint32_t need = ins_put_need((uint8_t)cl_q_from, -1) + (upd ? ed_remap_need(cl_q_from, cl_q_to, 0, 1) : 0u);
+    if (ui_edit_fails() != f0 || ui_edit_reserve(need)) return;
     if (!rec_cart((uint8_t)cl_q_from, &c)) {
         char nm[16];
         rec_cart_name(&c, nm);
@@ -1728,7 +1777,7 @@ static void cl_move(int upd)
     cart_follow(cl_q_from, cl_q_to);
     cl_refill();
     cl_select(cl_q_to);
-    if (upd) ui_save_refs(q_uses);
+    if (upd && ui_edit_fails() == f0) ui_save_refs(q_uses);
 }
 static void (*cl_change)(int);
 static void cl_answer(int a) { if (a >= 0) cl_change(a == 1); }
@@ -1744,14 +1793,16 @@ static void cl_ask(int c, int uses, void (*change)(int))
     lines[1] = T("UPDATE REFERENCES?");
     cl_change = change;
     q_uses = uses;
-    ui_ask(lines, 2, T("YES"), T("NO"), cl_answer);
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), cl_answer);
 }
+/* DELETE CARTRIDGE (the slots' menu): the cartridge on screen, as the cartridge list's DELETE */
+static void slot_del_cart(void) { cl_q_from = cart(); cl_ask(cl_q_from, cl_uses((uint8_t)cl_q_from), cl_delete); }
 static void cl_rename_done(const char *name)
 {
     if (name) ins_rename_cart((uint8_t)cl.act, name[0] ? name : T("NO NAME"));
 }
-enum { CM_DX7 = 1, CM_JUNO, CM_TB, CM_SAMPLER, CM_FUSION, CM_CHIP, CM_FAV, CM_CLONE, CM_MOVE, CM_DELETE, CM_RENAME, CM_AUTO,
-       CM_BUILTIN, CM_REVERT };                        /* (NEW's types: their kinds, REC_*) */
+enum { CM_DX7 = 1, CM_JUNO, CM_TB, CM_SAMPLER, CM_FUSION, CM_CHIP, CM_CLONE, CM_MOVE, CM_DELETE, CM_RENAME, CM_AUTO,
+       CM_BUILTIN, CM_REVERT };                        /* (NEW's types: their kinds, REC_*; no FAVORITES) */
 /* REVERT (specs/ui/saving.md#revert): the whole cartridge as saved, every slot and its name (a cartridge made anew
  * goes; one of another kind at its number comes back) */
 static void cl_revert_go(void)
@@ -1765,30 +1816,27 @@ static void cl_pick(int a)
 {
     int c = cl.act, id = ins_free_cart();
     char v[40], nm[16];
-    if (a >= CM_DX7 && a <= CM_FAV) {
+    if (a >= CM_DX7 && a <= CM_CHIP) {
         if ((id = new_cart(a)) >= 0) { cl_refill(); cl_select(id); }
     } else if (a == CM_CLONE) {                          /* an editable copy in the user area */
         rec_cart_t rc;
-        if (id < 0) { ui_toast(T("ALL CARTRIDGE NUMBERS USED")); return; }
+        if (id < 0) { ui_toast_t(TX("ALL CARTRIDGE NUMBERS USED")); return; }
         if (rec_cart((uint8_t)c, &rc)) return;
         rec_cart_name(&rc, nm);
         nm[9] = 0;
         ui_fmt(v, sizeof v, "%s 2", nm);
         ins_copy_cart((uint8_t)c, (uint8_t)id, v);
         cl_refill(); cl_select(id);
-        ui_fmt(v, sizeof v, T("%02X CLONED TO %02X"), c, id);
-        ui_toast(v);
+        ui_toast(ui_txt_v(ui_txt_h(TX("# CLONED TO #"), c), ui_hex2(id)));
     } else if (a == CM_RENAME) {
         rec_cart_t rc;
-        char title[16];
         if (rec_cart((uint8_t)c, &rc)) return;
         rec_cart_name(&rc, nm);
-        ui_fmt(title, sizeof title, T("CARTRIDGE %02X"), c);
-        ui_text_entry(title, nm, 12, B_EDIT, cl_rename_done);
+        ui_text_entry(ui_txt_h(TX("CARTRIDGE #"), c), nm, 12, B_EDIT, cl_rename_done);   /* (it copies its title) */
     } else if (a == CM_DELETE) {
         cl_q_from = c; cl_ask(c, cl_uses((uint8_t)c), cl_delete);
     } else if (a == CM_MOVE) {
-        cl.mv = 1; cl.mv_from = cl.mv_at = c; ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
+        cl.mv = 1; cl.mv_from = cl.mv_at = c; ui_toast_t(TX("SELECT MOVES IT, SEL PUTS IT DOWN"));
     } else if (a == CM_AUTO) ui_auto_level_all(c, 0);
     else if (a == CM_BUILTIN) {                         /* a built-in cartridge's change deleted: the firmware's own */
         char label[20];
@@ -1796,11 +1844,9 @@ static void cl_pick(int a)
         ui_edit_del(kind, (uint8_t)c, 0);
         cl_refill(); cl_select(c);
         ui_fmt(label, sizeof label, T("CARTRIDGE %02X"), c);
-        ui_toast(ui_txt_v(T("# BUILT-IN AGAIN"), label));
+        ui_toast(ui_txt_t(TX("# BUILT-IN AGAIN"), label));
     } else if (a == CM_REVERT) {
-        static char q[32];
-        ui_fmt(q, sizeof q, T("REVERT CARTRIDGE %02X TO SAVED?"), c);
-        ui_ask_revert(q, 0, cl_revert_go);
+        ui_ask_revert(ui_txt_h(TX("REVERT CARTRIDGE # TO SAVED?"), c), 0, cl_revert_go);   /* (it copies its lines) */
     }
 }
 static void cl_menu(void)
@@ -1808,12 +1854,11 @@ static void cl_menu(void)
     if (cl.sel >= cl.n) return;                         /* (ALL SAMPLES: not a cartridge, no menu) */
     int c = cl.nums[cl.sel];
     cl.act = c;
-    ui_mitem_t m[8], types[7];                          /* (the menu copies its items) */
-    char title[32];
+    ui_mitem_t m[8], types[NEW_N];                      /* (the menu copies its items) */
     int n = 0, fav = ui_cart_kind((uint8_t)c) == ENG_FAV;  /* (FAVORITES: no AUTO LEVEL ALL, no sounds of its own) */
-    new_items(types, 0);                                /* (CM_DX7 .. CM_FAV are the kinds) */
-    m[n++] = (ui_mitem_t){TX("NEW"), 0, types, 7};
-    m[n++] = (ui_mitem_t){TX("CLONE"), CM_CLONE, 0, 0};
+    new_items(types, 0);                                /* (CM_DX7 .. CM_CHIP are the kinds) */
+    m[n++] = (ui_mitem_t){TX("NEW"), 0, types, NEW_N};
+    if (!fav) m[n++] = (ui_mitem_t){TX("CLONE"), CM_CLONE, 0, 0};  /* (no CLONE of FB: nothing makes another FAVORITES) */
     if (c >= 0xF0) {                                    /* built in: edited as any; changed, the change can go */
         m[n++] = (ui_mitem_t){TX("RENAME"), CM_RENAME, 0, 0};
         if (!fav) m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
@@ -1825,8 +1870,7 @@ static void cl_menu(void)
         if (!fav) m[n++] = (ui_mitem_t){TX("AUTO LEVEL ALL"), CM_AUTO, 0, 0};
     }
     if (ui_edit_unsaved(REC_DX7, (uint8_t)c, 0)) m[n++] = (ui_mitem_t){TX("REVERT"), CM_REVERT, 0, 0};
-    ui_fmt(title, sizeof title, T("CARTRIDGE %02X"), c);
-    ui_menu("carts", title, m, n, cl_pick, B_SEL);
+    ui_menu("carts", ui_txt_h(TX("CARTRIDGE #"), c), m, n, cl_pick, B_SEL);   /* (and its title) */
 }
 static int cl_tap(ui_overlay_t *o, int b)
 {
@@ -1857,7 +1901,7 @@ static int cl_tap(ui_overlay_t *o, int b)
 }
 static void cl_cancel(ui_overlay_t *o)
 {
-    if (cl.mv) { cl.mv = 0; ui_toast(T("NOT MOVED")); return; }
+    if (cl.mv) { cl.mv = 0; ui_toast_t(TX("NOT MOVED")); return; }
     ui_close(o);
 }
 static void cl_draw(ui_overlay_t *o)
@@ -1877,17 +1921,18 @@ static void cl_draw(ui_overlay_t *o)
     int more = cl_lines() - cl.n, y = ui_cart_lines_more(T("CARTRIDGES"), ids, who, n, more, sel, cl.mv);
     if (y < 0) return;
     /* the samples' line (specs/ui/screens/instruments.md#the-cartridges-env): nothing in the ID column, ALL SAMPLES
-     * yellow as the samples' names (the cursor's white), their size as STATUS writes sizes, their count of 256 */
+     * yellow as the samples' names (the cursor's white) in FONT_S, their size as STATUS writes sizes and their count of
+     * 256 in FONT_T on its baseline */
     char sz[12], cnt[12];
     int on = !cl.mv && sel == cl.n;
-    if (on) g_box(4, y - 1, 232, 13, C_WHITE);
-    g_text(26, y, &FONT_T, T("ALL SAMPLES"), on ? C_WHITE : C_YELLOW);
+    if (on) g_box(4, y - 1, 232, UI_ROW, C_WHITE);
+    g_text(32, y, &FONT_S, T("ALL SAMPLES"), on ? C_WHITE : C_YELLOW);
     if (sr.bytes < 1024u) ui_fmt(sz, sizeof sz, "%u B", sr.bytes);
     else if (sr.bytes < 10240u) { uint32_t t = (sr.bytes * 10u + 512u) / 1024u; ui_fmt(sz, sizeof sz, "%u.%uK", t / 10u, t % 10u); }
     else ui_fmt(sz, sizeof sz, "%uK", (sr.bytes + 512u) / 1024u);
-    g_text(110, y, &FONT_T, sz, C_LGREY);
+    g_text(UI_CL_TYPE, y + UI_T_ON_S, &FONT_T, sz, C_LGREY);
     ui_fmt(cnt, sizeof cnt, "%03d/256", sr.n);
-    g_text(170, y, &FONT_T, cnt, C_LGREY);
+    g_text(UI_CL_SLOTS, y + UI_T_ON_S, &FONT_T, cnt, C_LGREY);
 }
 static void cart_list(void)
 {
@@ -1950,7 +1995,6 @@ static int sm_users(int num)                    /* every sampler's instruments t
 static void sm_delete_now(int users)
 {
     uint8_t carts[256], s[MAXSLOT];
-    char v[24];
     int num = sm.del, nc = store_list(REC_SAMPLER, carts, 256);
     if (ui_edit_reserve((uint32_t)users * 80u + 32u) || ui_edit_del(REC_SAMPLE, (uint8_t)num, 0)) return;
     for (int i = 0; i < nc; i++) {
@@ -1959,8 +2003,7 @@ static void sm_delete_now(int users)
             if (ins_slot_bytes(carts[i], k, s) && s[0] == num) ins_put_slot(carts[i], k, 0);
     }
     if (users) return;
-    ui_fmt(v, sizeof v, T("SAMPLE %02X DELETED"), num);
-    ui_toast(v);
+    ui_toast(ui_txt_h(TX("SAMPLE # DELETED"), num));
 }
 static void sm_deleted(int a) { if (a == 1) sm_delete_now(sm.del_n); }
 static void sm_pick(int a)
@@ -1975,23 +2018,18 @@ static void sm_pick(int a)
     int n = sm_users(sm.del);
     sm.del_n = (uint16_t)n;
     if (!n) { sm_delete_now(0); return; }
-    const char *l[3] = {T("DELETE SAMPLE?"), 0, T("DELETED TOO")};
-    char two[40];
-    if (n == 1) ui_fmt(two, sizeof two, "%s", T("1 INSTRUMENT USES IT AND IS"));
-    else ui_fmt(two, sizeof two, "%s", ui_txt_v(T("# INSTRUMENTS USE IT AND ARE"), ui_dec(n)));
-    l[1] = two;
-    ui_ask(l, 3, T("DELETE"), T("KEEP"), sm_deleted);
+    const char *l[3] = {T("DELETE SAMPLE?"), 0, T("DELETED TOO")};   /* (the question copies its lines) */
+    l[1] = n == 1 ? T("1 INSTRUMENT USES IT AND IS") : ui_txt_d(TX("# INSTRUMENTS USE IT AND ARE"), n);
+    ui_ask_t(l, 3, TX("DELETE"), TX("KEEP"), sm_deleted);
 }
 static void sm_menu(void)
 {
-    ui_mitem_t m[1];                                    /* (the menu copies its items) */
-    char title[24];
+    ui_mitem_t m[1];                                    /* (the menu copies its items and title) */
     int num = sm_num();
     if (!pickable(num)) return;                         /* (a deletion waiting: nothing) */
     sm.del = (uint8_t)num;
     m[0] = (ui_mitem_t){TX("DELETE"), SMM_DELETE, 0, 0};
-    ui_fmt(title, sizeof title, T("SAMPLE %02X"), num);
-    ui_menu("samples", title, m, 1, sm_pick, B_SEL);
+    ui_menu("samples", ui_txt_h(TX("SAMPLE #"), num), m, 1, sm_pick, B_SEL);
 }
 static void sm_knob(ui_overlay_t *o, int e, int s, int c)
 {
@@ -2017,7 +2055,7 @@ static int sm_key(ui_overlay_t *o, int n, int down)     /* the keys: the highlig
     player_keys_sample(s);
     pl_inst_t in = {PL_KEYS_SAMPLE_CART, PL_KEYS_SAMPLE_SLOT};    /* (FE:FF, apart from the UI's "none" 0xFFFF:
                                                                  * player.h) */
-    player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]);
+    player_key_on((uint8_t)m, in, (uint8_t)ui_key_vol(n));
     sm.keys = 1;
     return 1;
 }
@@ -2060,11 +2098,10 @@ static void sm_draw(ui_overlay_t *o)
 {
     (void)o;
     int y = BODY_Y + 2;
-    char title[40], nm[16], t[16];
+    char nm[16], t[16];
     rows();                                             /* (as they are now: a deletion meanwhile) */
     sm.sel = (int16_t)ui_clamp(sm.sel, 0, sr.n - 1 > 0 ? sr.n - 1 : 0);
-    ui_fmt(title, sizeof title, "%s", ui_txt_v(T("SAMPLES (#)"), ui_dec(sr.n)));
-    ui_panel(2, y, 236, 206, title, C_CYAN);
+    ui_panel(2, y, 236, 206, ui_txt_d(TX("SAMPLES (#)"), sr.n), C_CYAN);
     int top = sm.sel - 6 < sr.n - 14 ? sm.sel - 6 : sr.n - 14;
     if (top < 0) top = 0;
     for (int k = 0, i = -1; k < 256 && i < top + 13; k++) {
@@ -2103,7 +2140,7 @@ static void sm_fill(int num)
 static void sm_open(int mode, int num, int edit)
 {
     rows();
-    if (mode != SM_ALL && !sr.picks) { ui_toast(T("NO SAMPLES ON THE FM-1")); return; }
+    if (mode != SM_ALL && !sr.picks) { ui_toast_t(TX("NO SAMPLES ON THE FM-1")); return; }
     sm.mode = (uint8_t)mode;
     sm.edit = (uint8_t)edit;
     sm.keys = 0;
@@ -2189,7 +2226,7 @@ static int fill_key(ui_overlay_t *o, int n, int down)
     (void)o;
     int m = ui_midi(n);
     if (m < 12 || m > 127) return 1;
-    if (down) { pl_inst_t in = {(uint8_t)(fill_src >> 8), (uint8_t)fill_src}; player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]); }
+    if (down) { pl_inst_t in = {(uint8_t)(fill_src >> 8), (uint8_t)fill_src}; player_key_on((uint8_t)m, in, (uint8_t)ui_key_vol(n)); }
     else player_key_off((uint8_t)m);
     return 1;
 }
@@ -2205,14 +2242,14 @@ static void fill_ask(void)
     lines[1] = l1;
     lines[2] = T("ITS NOTE ON EACH ROW: THE SAME SOUND");
     lines[3] = T("K1, SELECT: ANOTHER  KEYS: HEAR IT");
-    ui_ask(lines, 4, T("FILL"), T("EMPTY"), fill_answer);
+    ui_ask_t(lines, 4, TX("FILL"), TX("EMPTY"), fill_answer);
     ui_overlay_t *q = ui_top();
     if (q) { q->knob = fill_knob; q->key = fill_key; }
 }
 static void fusion_new_go(void)
 {
     fill_pat = rec_free_pattern();
-    if (fill_pat < 0) { ui_toast(T("ALL 240 PATTERNS USED")); return; }
+    if (fill_pat < 0) { ui_toast_t(TX("ALL 240 PATTERNS USED")); return; }
     char nm[12];                                        /* the last sound picked, else the first there is */
     int last = ui_last_inst != 0xFFFFu && ui_cart_kind((uint8_t)(ui_last_inst >> 8)) != ENG_FUSION && ui_inst_name(ui_last_inst, nm);
     fill_src = last ? ui_last_inst : sound_step(-1, 1, 0);
@@ -2226,9 +2263,8 @@ static void cart_name_done(const char *name) { if (name) ins_rename_cart(cart(),
 static const char *p_name(void) { static char nm[16]; rec_cart_t c; if (rec_cart(cart(), &c)) return ""; rec_cart_name(&c, nm); return nm; }
 static void p_name_edit(void)
 {
-    char title[16];
-    ui_fmt(title, sizeof title, T("CARTRIDGE %02X"), cart());
-    ui_text_entry(title, p_name(), 12, B_EDIT, cart_name_done);
+    const char *nm = p_name();          /* (first: the title's text then, a buffer apart; it copies both) */
+    ui_text_entry(ui_txt_h(TX("CARTRIDGE #"), cart()), nm, 12, B_EDIT, cart_name_done);
 }
 static const char *p_type(void) { return T(ENG_TYPE[kind()]); }
 static const char *p_used(void)
@@ -2350,7 +2386,7 @@ static int tap(int b)
         int has = used(s);                              /* (built in: edited as any) */
         if (kind() == REC_FUSION && (!has || s[0] == 0xFF || !ui_pattern_rows(s[0]))) { fusion_new(); return 1; }
         if (kind() == REC_SAMPLER && !has) { sm_open(SM_CREATE, -1, 1); return 1; }   /* (CREATE's pick, then edit mode) */
-        if (!has) { ui_toast(T("EMPTY SLOT: SEL, INIT")); return 1; }
+        if (!has) { ui_toast_t(TX("EMPTY SLOT: SEL, INIT")); return 1; }
         st.edit = 1; st.page = 0; st.group = 0; st.last = -1; st.changed = 0;
         ui_edit_session(1);                             /* the mode's copy: HOME puts back what it changed */
         return 1;
@@ -2374,11 +2410,9 @@ static int tap(int b)
         return 1;
     }
     if (b == B_GLO) {
-        static char title[16];
-        ui_prop_t items[4] = {{TX("NAME"), p_name, 0, p_name_edit, 0, 0}, {TX("TYPE"), p_type, 0, 0, 0, 0},
-                              {TX("SLOTS USED"), p_used, 0, 0, 0, 0}, {TX("RENAME WITH"), p_with, 0, 0, 0, 0}};
-        ui_fmt(title, sizeof title, T("CARTRIDGE %02X"), cart());
-        ui_props(title, items, 4, B_GLO);
+        static const ui_prop_t items[4] = {{TX("NAME"), p_name, 0, p_name_edit, 0, 0}, {TX("TYPE"), p_type, 0, 0, 0, 0},
+                                           {TX("SLOTS USED"), p_used, 0, 0, 0, 0}, {TX("RENAME WITH"), p_with, 0, 0, 0, 0}};
+        ui_props(ui_txt_h(TX("CARTRIDGE #"), cart()), items, 4, B_GLO);   /* (it copies its title) */
         return 1;
     }
     if (b == B_ENV) {
@@ -2398,7 +2432,7 @@ static int tap(int b)
 }
 static int back(void)
 {
-    if (st.mv) { st.mv = 0; ui_toast(T("NOT MOVED")); return 1; }
+    if (st.mv) { st.mv = 0; ui_toast_t(TX("NOT MOVED")); return 1; }
     if (st.edit) { edit_close(0); return 1; }           /* HOME: dropping them */
     if (st.mark >= 0) { st.mark = -1; st.marking = 0; return 1; }
     return 0;
@@ -2493,15 +2527,16 @@ static int presets(int step)
     if (st.fe) fav_step(sign(step));
     return st.mv || st.fe;
 }
-/* SEL + PRESETS in edit mode: the cartridges of the edit's own sort only (a favourite's the FAVORITES cartridges, an
- * instrument's the others), so an edit never goes on in a slot of the other sort */
+/* SEL + PRESETS in edit mode: an instrument's the cartridges but FAVORITES ones, so an edit never goes on in a slot of
+ * the other sort; a favourite's nothing (the FM-1 has one FAVORITES, FB) */
 static int presets_cart(int step)
 {
     uint8_t nums[256];
     int n = ui_carts(nums, 256), i = 0, k = 0;
     if (!st.edit) return 0;
+    if (st.fe) return 1;
     for (int j = 0; j < n; j++)
-        if ((ui_cart_kind(nums[j]) == ENG_FAV) == (st.fe != 0)) { if (nums[j] == cart()) i = k; nums[k++] = nums[j]; }
+        if (ui_cart_kind(nums[j]) != ENG_FAV) { if (nums[j] == cart()) i = k; nums[k++] = nums[j]; }
     if (k) { uint8_t c = nums[ui_wrap(i + sign(step), k)]; set_inst(c, ui_cart_first(c)); }
     return 1;
 }

@@ -9,10 +9,11 @@
  * LENGTH planned until GLO closes, SEL's menu (DOUBLE only when it can, QUANTIZE, ADJUST, DELETE LOOP, the instruments);
  * the overview column; repeats, rests and SHIFT played by the lanes; mutes and solos, now and at the bar, CONTROL mode,
  * SEQ held, HOME's combination; the pattern recorder (onto the stage, NOTE LENGTH, ties); SAVE TO / LOAD FROM PATTERN;
- * DOUBLE; CLEAR LOOPS; REVERT; SAVE and a power cycle; RECORD LIVE (its panel, armed, started, what sounded written, the
- * keys quantized and heard as written, the changes as commands, the loops silenced and on again while it goes on, ended
- * at once, leaving, 16 tracks, stopping by itself). Where the loops are heard is stood in for where a case must land on
- * a row. Run by the harness:
+ * DOUBLE; CUT (a loop's window of its own: SEL's CUT HERE, REMOVE CUT, SEL held + EDIT, the lanes drifting round it, the
+ * stage over it, the tools keeping it, its strip); CLEAR LOOPS; REVERT; SAVE and a power cycle; RECORD LIVE (its panel,
+ * armed, started, what sounded written, the keys quantized and heard as written, the changes as commands, the loops
+ * silenced and on again while it goes on, ended at once, leaving, 16 tracks, stopping by itself). Where the loops are
+ * heard is stood in for where a case must land on a row. Run by the harness:
  *   node tests/playground/harness.js tests/playground/loops.js */
 "use strict";
 module.exports = async t => {
@@ -45,7 +46,7 @@ module.exports = async t => {
     const mkLoop = o => Object.assign({ inst: 0xF000, col: 0, mono: false, lanes: 1, base: 16, repeats: 1, muted: false, soloed: false,
                                         cells: new Array(((o && o.base) || 16) * 4).fill(null) }, o);
     const setLoops = (list, rows) => {
-        U.edit(() => { const j = LS(); j.list = list; j.rows = rows; for (let k = 0; k < 16; k++) j.mixer[k] = k < list.length ? plain() : Object.assign({}, j.nextMix); });
+        U.edit(() => { const j = LS(); j.list = list; j.rows = rows; for (let k = 0; k < 16; k++) j.mixer[k] = plain(); });
         P.mutesChanged();
         emptyStage();
     };
@@ -84,6 +85,12 @@ module.exports = async t => {
     ok(U.screen.name === "LOOPS" && !LS().list.length && LS().rows === 64 && LS().view === 2 && LS().knobs.join() === "LEVEL,PAN,REVERB SEND,TEMPO",
        "LOOPS: no loops; the length always set, 4 bars at first; VIEW 2 bars; K1-K4: LEVEL, PAN, REVERB SEND, TEMPO");
     ok(LS().legato === "JUMP" && M.newLoops().legato === "JUMP", "... MONO LEGATO JUMP at first (a new LOOPS setup)");
+    {
+        const DEF = JSON.stringify({ lvl: 0x40, pan: 128, dck: 0, cho: 127, dly: 127, rev: 127 });
+        ok(JSON.stringify(M.loopsNewDef(LS())) === DEF && JSON.stringify(M.loopsNew(LS())) === DEF && !LS().newDefOn &&
+           JSON.stringify(M.newLoops().newDef) === JSON.stringify(plain()) && !M.newLoops().newDefOn,
+           "... a new loop's defaults LEVEL 40, PAN 80, DUCK 0, the sends 7F (not stored: bytes 72-77 a plain mix), NEW the same");
+    }
     ok(!staged() && t.leds[B.EDIT] === 0 && t.leds[B.LFO] === .25 && t.leds[B.REC] === .25, "... the stage empty; EDIT dark (on + NEW LOOP), LFO and REC dim");
     await t.tap("EDIT");
     ok(U.flash[B.EDIT] > U.now() && !staged(), "EDIT on + NEW LOOP: nothing (EDIT blinks)");
@@ -97,9 +104,9 @@ module.exports = async t => {
     await t.turn("ALGORITHM", 3);
     ok(P.kept.loops.row === 3, "ALGORITHM, stopped: the play position a row a click (row 3)");
     t.down("SEL"); await t.sleep(30); await t.turn("ALGORITHM", 1); t.up("SEL"); await t.sleep(250);
-    ok(P.kept.loops.row === 19 && !t.top(), "... SEL held: a bar a click (row 19), no menu after");
-    t.down("SEL"); await t.sleep(30); await t.turn("ALGORITHM", -2); t.up("SEL"); await t.sleep(250);
-    ok(P.kept.loops.row === 51, "... round the length (19 - 32: row 51)");
+    ok(P.kept.loops.row === 3 && !t.top(), "... SEL held: the selected loop's SHIFT; on + NEW LOOP nothing, no menu after");
+    await t.turn("ALGORITHM", -16);
+    ok(P.kept.loops.row === 51, "... round the length (3 - 16: row 51)");
     await t.tap("REC");
     t.frame();
     ok(sc().arm && sc().arm.wait && !P.playing, "REC stopped, the stage empty: armed (a note or PLAY starts)");
@@ -117,11 +124,14 @@ module.exports = async t => {
     await t.tap("PLAY");
     ok(!P.playing && staged(), "PLAY: stopped; the stage keeps its notes");
     {
-        const before = sNotes(), heard = [], on0 = A.noteOn;
+        const at = P.kept.loops.row || 0, heard = [], on0 = A.noteOn;
         A.noteOn = (id, time, midi, ...a) => { heard.push(midi); return on0(id, time, midi, ...a); };
         await t.key(12);
         A.noteOn = on0;
-        ok(sNotes() === before && heard.includes(U.midi(12)) && !P.playing, "stopped (not armed): a key plays freely, nothing onto the stage");
+        const lane = [0, 1, 2, 3].find(l => { const c = sCell(at, l); return isNote(c) && c.note === U.midi(12); }) ?? -1;
+        ok(lane >= 0 && heard.includes(U.midi(12)) && !P.playing && (P.kept.loops.row || 0) === at,
+           "stopped (not armed), the stage on: a key the insert, its note at the play position (row " + at + ", lane " + lane +
+           "), heard as played; nothing plays, the position kept");
     }
     await t.turn("ALGORITHM", 5);
     await hold("PLAY");
@@ -178,6 +188,190 @@ module.exports = async t => {
         ok(k && k.v === 3 && sCell(15).note == null, "REAL TIME: a key's end a key off at its tick (K03 on row 15)");
     }
     U.edit(() => { LS().quantize = "ROW"; });
+
+    /* ---- the stage's keys heard at once (specs/ui/screens/loops.md#the-stage; fw/tests/ui3_test.c's test_loops_at_once,
+     * step for step): each key sounds at its press and ends at its release, with every QUANTIZE, and is written where
+     * QUANTIZE lands it; a note landing ahead is not started again at its row in that pass, then the stage plays it there;
+     * a quick tap let go before its row heard short, kept from its row; MONO LEGATO at the press (LEGATO's one voice,
+     * GLIDE's glide), written as before; POLY's fifth key neither heard nor written; REAL TIME at its press ---- */
+    {
+        await stopAll();
+        setLoops([], 64);
+        U.edit(() => { LS().tempo = 120; LS().quantize = "4 ROWS"; LS().nextMono = false; LS().legato = "GLIDE"; });
+        await pick(0);
+        const inst0 = U.inst, chip = M.state.carts.find(c => c.type === "CHIP").id << 8;
+        U.setInst(chip);
+        const rowsT = {}, ons = [], offs = [], hook = P.loopsRow, on0 = A.noteOn, off0 = A.noteOff;
+        P.loopsRow = function (row, time, dur, pass) { rowsT[pass * 100 + row] = time; return hook.apply(this, arguments); };
+        A.noteOn = (id, time, midi, ref, vol, track, o) => { ons.push({ id, time, midi, leg: !!(o && o.leg) }); return on0(id, time, midi, ref, vol, track, o); };
+        A.noteOff = (id, time) => { offs.push({ id, time }); return off0(id, time); };
+        /* on to (row + frac) of the loops' pass (rows of 125 ms) */
+        const at = (row, frac, pass = 0) => until(() => { const h = realAt(); return !!h && (h.pass > pass || (h.pass === pass && (h.row > row || (h.row === row && (P.time() - h.t) / h.dur >= frac)))); }, 20000);
+        const keyOns = k => ons.filter(o => new RegExp("k" + k + "$").test(o.id));
+        const fromStage = (midi, pass, row) => ons.some(o => o.id[0] === "g" && o.midi === midi && rowsT[pass * 100 + row] != null && Math.abs(o.time - rowsT[pass * 100 + row]) < 1e-6);
+        const soon = (o, t0) => !!o && o.time >= t0 - 1e-6 && o.time - t0 < .03;
+        const m = U.midi(9), mt = U.midi(5);
+        P.kept.loops.row = 0; await t.tap("PLAY");
+        /* 4 ROWS: a key at 10.5, a row and a half before the line at 12, held past it */
+        await at(10, .5);
+        let t0 = P.time();
+        t.keyDown(9);
+        const pk = keyOns(9);
+        await at(12, .3);
+        const again = keyOns(9).length === 1 && !fromStage(m, 0, 12);
+        await at(13, .5);
+        t.keyUp(9);
+        const l = [0, 1, 2, 3].find(x => isNote(sCell(12, x)) && sCell(12, x).note === m) ?? -1;
+        ok(pk.length === 1 && soon(pk[0], t0) && again && l >= 0 && isOff(sCell(14, l)),
+           "the stage's keys at once: 4 ROWS, a key at 10.5: heard at its press, not started again at its line 12, written there (lane " + l + "), its end on 14");
+        /* a quick tap at 26.5 (its line 28), let go at once: heard short, nothing at its row in that pass, kept from its row */
+        await at(26, .5);
+        t0 = P.time();
+        t.keyDown(5);
+        await t.sleep(20);
+        const t1 = P.time();
+        t.keyUp(5);
+        const tk = keyOns(5), toff = tk.length ? offs.filter(o => o.id === tk[0].id) : [];
+        await at(28, .3);
+        const tl = [0, 1, 2, 3].find(x => isNote(sCell(28, x)) && sCell(28, x).note === mt) ?? -1;
+        ok(tk.length === 1 && soon(tk[0], t0) && toff.length && toff[0].time - t1 < .03 && !fromStage(mt, 0, 28) && keyOns(5).length === 1 &&
+           tl >= 0 && isOff(sCell(29, tl)), "... a quick tap at 26.5 let go at once: heard at its press, ended at once, nothing at its line 28 that " +
+           "pass, kept from there (lane " + tl + "), its end on 29");
+        await at(28, .3, 1);
+        ok(fromStage(m, 1, 12) && fromStage(mt, 1, 28) && keyOns(9).length === 1 && keyOns(5).length === 1,
+           "... the next pass: both from the stage, at their lines (12, 28)");
+        /* MONO LEGATO at the press: a key over a held one, its line ahead */
+        U.edit(() => { LS().nextMono = true; LS().legato = "LEGATO"; });
+        await at(34, .5, 1); t.keyDown(0);                 /* (on 36) */
+        await at(38, .5, 1);
+        t0 = P.time();
+        t.keyDown(4);                                      /* (on 40) */
+        const lg = keyOns(4);
+        await at(39, .1, 1); t.keyUp(4); t.keyUp(0);
+        ok(lg.length === 1 && soon(lg[0], t0) && lg[0].leg && isNote(sCell(40)) && sCell(40).note === U.midi(4) && sCell(40).cmds.some(x => x.c === 0xD3) &&
+           isNote(sCell(36)) && sCell(36).note === U.midi(0), "... MONO, LEGATO: a key at 38.5 over a held one: at its press the one voice held " +
+           "moves to its note; written as before, LEG on its line 40");
+        U.edit(() => { LS().legato = "GLIDE"; });
+        await at(42, .5, 1); t.keyDown(0);                 /* (on 44) */
+        await at(46, .5, 1);
+        const c0 = keyOns(0), cv = c0.length ? c0[c0.length - 1].id : null, n4 = keyOns(4).length;
+        t.keyDown(4);                                      /* (on 48) */
+        await t.sleep(20);
+        const gl = cv != null && P.laneKey(cv) === 4 && keyOns(4).length === n4;   /* (the voice held glides: no new one) */
+        await at(47, .1, 1); t.keyUp(4); t.keyUp(0);
+        ok(gl && isNote(sCell(48)) && sCell(48).note === U.midi(4) && sCell(48).cmds.some(x => x.c === 0x03 && x.v === 0x20),
+           "... GLIDE: at its press the one voice glides to the new note; written as before, 320 on its line 48");
+        /* POLY: four keys at once ahead of their line, a fifth neither heard nor written */
+        U.edit(() => { LS().nextMono = false; });
+        await at(50, .5, 1);
+        t0 = P.time();
+        const K5 = [2, 4, 5, 7, 9], n9 = keyOns(9).length;
+        for (const k of K5) t.keyDown(k);
+        const four = [2, 4, 5, 7].every(k => soon(keyOns(k)[keyOns(k).length - 1], t0)), fifth = keyOns(9).length - n9;
+        await at(51, .1, 1);
+        for (const k of K5) t.keyUp(k);
+        ok(four && !fifth && sCell(52, 0) && sCell(52, 0).note === U.midi(2) && sCell(52, 3) && sCell(52, 3).note === U.midi(7) &&
+           ![0, 1, 2, 3].some(x => isNote(sCell(52, x)) && sCell(52, x).note === U.midi(9)),
+           "... POLY, four keys at 50.5 heard at their press, a fifth neither heard nor written (" + sNotes() + ")");
+        /* REAL TIME: heard at its press, written with its tick */
+        U.edit(() => { LS().quantize = "REAL TIME"; });
+        await at(58, .5, 1);
+        t0 = P.time();
+        const n2 = keyOns(2).length;
+        t.keyDown(2);
+        const rk = keyOns(2).slice(n2);
+        await at(59, .1, 1); t.keyUp(2);
+        const rl = [0, 1, 2, 3].find(x => isNote(sCell(58, x)) && sCell(58, x).note === U.midi(2)) ?? -1, ed = rl >= 0 ? sCell(58, rl).cmds.find(x => x.c === 0x0E) : null;
+        ok(rk.length === 1 && soon(rk[0], t0) && ed && ed.v === 0xD3, "... REAL TIME: a key at 58 tick 3 heard at its press, written there with ED3 (lane " + rl + ")");
+        /* the keys' pressure on the stage (fw/tests/ui3_test.c's test_key_pressure, the same steps): held steady, nothing
+         * written; pressed harder, heard at once on its lane and its volume alone on the lane's next rows; held there,
+         * nothing more; eased, back to its velocity; its note at its velocity; the next pass plays them at their rows */
+        U.edit(() => { LS().quantize = "ROW"; });
+        {
+            const hold = async ms => { for (let e = 0; e < ms; e += 5) { await t.sleep(5); U.pressTick(); } };
+            const cs = [], c0 = A.ctl;
+            A.ctl = (id, time, bend, vol, track, glide) => { cs.push({ id, time, vol, glide }); return c0(id, time, bend, vol, track, glide); };
+            await at(4, 0, 2);
+            t.keyDown(9, { reading: 600 });
+            const vp = U.keyVol(9);
+            await hold(300);
+            const pl = [0, 1, 2, 3].find(x => isNote(sCell(4, x)) && sCell(4, x).note === m) ?? -1;
+            const vols = () => pl < 0 ? [] : stg().cells.map((c, k) => (k & 3) === pl && k >> 2 > 4 && c && c.note == null && c.vol != null ? (k >> 2) + ":" + c.vol : null).filter(Boolean);
+            const v0 = vols().join(), n0 = cs.length, tp = P.time();
+            t.pressure(9, 470); await hold(250);
+            const v1 = vols().join(), heard = cs.slice(n0).some(o => o.vol > vp / 127 + 1e-6 && o.time - tp < .3);
+            await hold(300);
+            const v2 = vols().join();
+            t.pressure(9, 600); await hold(250);
+            const v3 = vols(), vs = v3.map(x => +x.split(":")[1]), top = vs.length ? Math.max(...vs) : -1;
+            const tr = vs.length ? +v3[vs.indexOf(top)].split(":")[0] : -1;
+            t.keyUp(9);
+            ok(pl >= 0 && !v0 && v1 && v1 === v2 && heard && vs.length >= 2 && vs[vs.length - 1] === vp && top > vp && sCell(4, pl).vol === vp,
+               "the keys' pressure on the stage: nothing while held steady (" + (v0 || "none") + "), pressed harder heard at once (" + heard +
+               ") and its volume alone on its lane's rows as they played (lane " + pl + ": " + v1 + "), nothing more while held there, eased back to " +
+               vp + " (" + v3.join() + "); its note at " + (pl >= 0 && sCell(4, pl).vol));
+            if (tr > 0) await at(tr, .5, 3);
+            A.ctl = c0;
+            const t3 = rowsT[300 + tr], g = t3 != null && cs.find(o => Math.abs(o.time - t3) < 1e-6 && Math.abs(o.vol - top / 127) < 1e-6);
+            ok(g && Math.abs(g.glide - P.rowSeconds()) < 1e-6, "... the next pass glides to each over its row (row " + tr + ": to " + top +
+               " over " + (g ? g.glide.toFixed(3) : "-") + " s, a row " + P.rowSeconds().toFixed(3) + " s; the worklet's glide: velocity.js)");
+            /* a light landing pressed on down at once, in its note's own row: the note itself as loud as heard there */
+            const cs2 = [];
+            A.ctl = (id, time, bend, vol, track, glide) => { cs2.push({ vol, glide }); return c0(id, time, bend, vol, track, glide); };
+            await at(20, 0, 3);
+            t.keyDown(5, { reading: 880 });
+            const v5 = U.keyVol(5);
+            for (let e = 0; e < 25; e += 5) { t.pressure(5, 880 - e * 11); await hold(5); }
+            await hold(60);
+            const l5 = [0, 1, 2, 3].find(x => isNote(sCell(20, x)) && sCell(20, x).note === U.midi(5)) ?? -1;
+            const most = Math.max(v5, ...cs2.filter(o => !o.glide).map(o => Math.round(o.vol * 127)));
+            t.keyUp(5);
+            A.ctl = c0;
+            ok(l5 >= 0 && most > v5 && sCell(20, l5).vol === most, "... a light landing (" + v5 + ") pressed on down at once: heard up to " + most +
+               " in its note's own row, the note written as loud (" + (l5 >= 0 ? sCell(20, l5).vol : "-") + ")");
+            /* ... and late in a row, its note quantized onto the next: heard before its row, the note as loud */
+            cs2.length = 0;
+            A.ctl = (id, time, bend, vol, track, glide) => { cs2.push({ vol, glide }); return c0(id, time, bend, vol, track, glide); };
+            await at(23, .7, 3);
+            t.keyDown(6, { reading: 880 });
+            const v6 = U.keyVol(6);
+            for (let e = 0; e < 25; e += 5) { t.pressure(6, 880 - e * 11); await hold(5); }
+            const ahead = (h => !!h && h.row === 23)(realAt());
+            await hold(60);
+            const l6 = [0, 1, 2, 3].find(x => isNote(sCell(24, x)) && sCell(24, x).note === U.midi(6)) ?? -1;
+            const most6 = Math.max(v6, ...cs2.filter(o => !o.glide).map(o => Math.round(o.vol * 127)));
+            t.keyUp(6);
+            A.ctl = c0;
+            ok(ahead && l6 >= 0 && most6 > v6 && sCell(24, l6).vol === most6, "... late in row 23 (" + v6 + "), its note quantized onto row 24: heard up to " +
+               most6 + " before its row, the note written as loud (" + (l6 >= 0 ? sCell(24, l6).vol : "-") + "; still ahead at the pressure: " + ahead + ")");
+            /* MONO, GLIDE: a key held under the one sounding pressed harder is neither heard nor written; the one sounding is */
+            const lg0 = LS().legato;
+            U.edit(() => { LS().nextMono = true; LS().legato = "GLIDE"; });
+            const cm = [];
+            A.ctl = (...a) => { cm.push(a); return c0(...a); };
+            await at(26, 0, 3);
+            t.keyDown(2, { reading: 880 }); await hold(60);
+            t.keyDown(7, { reading: 880 }); await hold(60);
+            const vb7 = U.keyVol(7), louder = from => cm.slice(from).filter(a => Math.round(a[3] * 127) > vb7 + 2).length;   /* (the glide's
+                                                         * own steps keep the second key's volume) */
+            const n0m = cm.length;
+            for (let e = 0; e < 25; e += 5) { t.pressure(2, 880 - e * 14); await hold(5); }
+            await hold(40);
+            const under = louder(n0m), n1m = cm.length;
+            for (let e = 0; e < 25; e += 5) { t.pressure(7, 880 - e * 14); await hold(5); }
+            await hold(40);
+            const over = louder(n1m);
+            t.keyUp(2); t.keyUp(7); await hold(20);
+            A.ctl = c0;
+            U.edit(() => { LS().nextMono = false; LS().legato = lg0; });
+            ok(!under && over > 0, "... MONO, GLIDE: the key held under the one sounding pressed harder: not heard (" + under + "); the one sounding: heard (" + over + ")");
+        }
+        P.loopsRow = hook; A.noteOn = on0; A.noteOff = off0;
+        U.setInst(inst0);
+        U.edit(() => { LS().quantize = "ROW"; LS().nextMono = false; });
+        setLoops([], 64);
+        await slow();                                      /* (as the checks below have it) */
+    }
 
     /* ---- MONO: one lane, legato as MONO LEGATO says ---- */
     U.edit(() => { LS().nextMono = true; LS().legato = "GLIDE"; });
@@ -350,8 +544,17 @@ module.exports = async t => {
     const longLfo = !t.top() && !stg().over;
     t.up("LFO"); await t.sleep(30);
     ok(longLfo && !t.top() && stg().over && U.toastNow() === "OVERWRITE", "LFO held past HOLD DELAY: no layer, no switch yet; let go: OVERWRITE");
-    t.down("LFO"); await t.sleep(30); t.keyDown(U.WHITE[3]); await t.sleep(30); t.keyUp(U.WHITE[3]); t.up("LFO"); await t.sleep(30);
-    ok(!stg().over && U.toastNow() === "OVERDUB", "... a key played while it is held: the switch all the same");
+    {                                                       /* (a key with LFO held, stopped: put at the play position, no
+                                                             * switch; the stage then put back as it was) */
+        const keep = stg().cells ? stg().cells.slice() : null, at = P.kept.loops.row || 0;
+        t.down("LFO"); await t.sleep(30); t.keyDown(U.WHITE[3]); await t.sleep(30); t.keyUp(U.WHITE[3]); t.up("LFO"); await t.sleep(30);
+        const c = sCell(at, 0);
+        ok(stg().over && isNote(c) && c.note === U.midi(U.WHITE[3]),
+           "... a key played while it is held, stopped: its note at the play position (row " + at + "), LFO used: no switch (" + sNotes() + ")");
+        stg().cells = keep; M.version++;
+        await t.tap("LFO");                                 /* (OVERDUB again, as the checks after it start) */
+        ok(!stg().over && U.toastNow() === "OVERDUB", "... LFO tapped: OVERDUB");
+    }
     t.down("LFO"); await t.sleep(30); t.down("HOME"); await t.sleep(30); t.up("HOME"); t.up("LFO"); await t.sleep(200);
     ok(t.top() === "help" && !stg().over, "LFO held, then HOME: the help, and no switch at LFO's release");
     await t.tap("HOME");
@@ -714,9 +917,13 @@ module.exports = async t => {
         P.loopsRow = function (row) { rows.push(row); return hook.apply(this, arguments); };
         P.kept.loops.row = 0; await t.tap("PLAY"); await t.sleep(400);
         t.down("SEL"); await t.sleep(30); await t.turn("ALGORITHM", 1); t.up("SEL"); await t.sleep(400);
+        const held = rows.slice();
+        await t.turn("ALGORITHM", 4); await t.sleep(400);
         P.loopsRow = hook;
         await stopAll();
-        ok(rows.some((r, k) => k && (r - rows[k - 1] + 64) % 64 === 17) && !t.top(), "ALGORITHM while they play (SEL held): the loops a bar on at once");
+        const jumped = rs => rs.some((r, k) => k && (r - rs[k - 1] + 64) % 64 > 1);
+        ok(!jumped(held) && !t.top(), "ALGORITHM while they play, SEL held: the selected loop's SHIFT (on + NEW LOOP none), no jump, no menu");
+        ok(jumped(rows), "ALGORITHM while they play: a jump at once");
     }
 
     /* ---- K1-K4: each the job GLO gives it ---- */
@@ -730,44 +937,74 @@ module.exports = async t => {
         t.down("SEL"); await t.sleep(30); await t.turn("K1", -1); t.up("SEL"); await t.sleep(250);
         ok(LS().mixer[0].lvl === 109 && !t.top(), "... SEL held: by 16");
         await pick(2);
+        const nw0 = { ...M.loopsNew(LS()) };                /* (NEW as it was: put back after) */
         await t.turn("K1", -1);
-        ok(LS().nextMix.lvl === 126 && LS().mixer[2].lvl === 126 && LS().mixer[1].lvl === 127, "... on + NEW LOOP: the next loop's mix");
-        {   /* the next loop's sends are the KEYS column's: heard so (the worklet told at once), K3's REVERB SEND on + NEW LOOP
-             * turns the KEYS column's (a setting), REC writes them into the new loop; its own sends kept, not read */
-            const km0 = U.set("KEYS MIX"), fx0 = A.fxNow;
+        ok(M.loopsNew(LS()).lvl === nw0.lvl - 1 && LS().mixer[1].lvl === 127, "... on + NEW LOOP: NEW's, the next loop's own");
+        {   /* NEW, the next loop's own mix: RAM's alone (no edit: the loops unchanged, nothing more unsaved), heard (the worklet
+             * told at once: the loops' mixer's place 02, the stage on + NEW LOOP and the preview); the KEYS column never touched;
+             * REC writes it into the new loop, NEW then the defaults again */
+            const km0 = JSON.stringify(U.set("KEYS MIX")), fx0 = A.fxNow, loops0 = JSON.stringify(LS()), un0 = M.unsavedThing("loops");
             let told = 0;
             A.fxNow = function () { told++; return fx0.apply(this, arguments); };
-            U.edit(() => { LS().nextMix.rev = 5; LS().nextMix.cho = 6; });
-            U.changeSetting("KEYS MIX", { ...km0, cho: 0x11, dly: 0x22, rev: 0x33 });
+            M.loopsNewSet("cho", 0x11); M.loopsNewSet("dly", 0x22); M.loopsNewSet("rev", 0x33);
             const heardMix = M.loopsMixer(LS())[2], told1 = told;
-            ok(heardMix.lvl === 126 && heardMix.cho === 0x11 && heardMix.dly === 0x22 && heardMix.rev === 0x33 && M.loopsMixer(LS())[1] === LS().mixer[1] && told1 > 0,
-               "... the next loop's mix as heard (the stage on + NEW LOOP, the preview): its LEVEL its own, its sends the KEYS column's (" +
-               JSON.stringify(heardMix) + "); a change of the KEYS sends told to the sound at once (" + told1 + ")");
-            const loops0 = JSON.stringify(LS());
-            await t.turn("K3", 1);
-            ok(U.set("KEYS MIX").rev === 0x34 && JSON.stringify(LS()) === loops0 && M.unsavedThing("settings") && U.knobNow() === "REVERB SEND 34 41%" && told > told1,
-               "... K3 (REVERB SEND) on + NEW LOOP: the KEYS column's REVERB SEND turned, a setting (the loops unchanged, the next loop's own " +
-               "send kept); the header as ever (" + U.knobNow() + ")");
+            ok(heardMix.lvl === nw0.lvl - 1 && heardMix.cho === 0x11 && heardMix.dly === 0x22 && heardMix.rev === 0x33 && M.loopsMixer(LS())[1] === LS().mixer[1] &&
+               told1 > 0 && JSON.stringify(LS()) === loops0 && M.unsavedThing("loops") === un0 && JSON.stringify(U.set("KEYS MIX")) === km0,
+               "... NEW as heard (the stage on + NEW LOOP, the preview: the loops' mixer's place 02): " + JSON.stringify(heardMix) +
+               "; told to the sound at once (" + told1 + "); no edit, the KEYS column untouched");
+            await t.turn("K3", -1);
+            ok(M.loopsNew(LS()).rev === 0x32 && JSON.stringify(LS()) === loops0 && JSON.stringify(U.set("KEYS MIX")) === km0 &&
+               U.knobNow() === "REVERB SEND 32 39%" && told > told1,
+               "... K3 (REVERB SEND) on + NEW LOOP: NEW's turned, heard at once (the loops and the KEYS column unchanged); the header as " +
+               "ever (" + U.knobNow() + ")");
             A.fxNow = fx0;
             await stageOn();
             stg().cells = cs(64, [[0, 0, 60], [4, 0, M.OFF]]); M.version++;
             await t.sleep(600);
             await t.tap("REC");
             const nl = LS().mixer[2];
-            ok(LS().list.length === 3 && nl.lvl === 126 && nl.cho === 0x11 && nl.dly === 0x22 && nl.rev === 0x34 && LS().nextMix.rev === 5 && LS().nextMix.cho === 6 &&
-               U.toastNow() === "STAGE AS LOOP 02", "... REC on + NEW LOOP: the new loop's mix the next loop's LEVEL, PAN and DUCK, the KEYS column's sends " +
-               "(" + JSON.stringify(nl) + "); the next loop's own sends kept as written");
-            U.changeSetting("KEYS MIX", km0);
-            U.edit(() => { LS().nextMix.rev = 0; LS().nextMix.cho = 0; });
+            ok(LS().list.length === 3 && nl.lvl === nw0.lvl - 1 && nl.cho === 0x11 && nl.dly === 0x22 && nl.rev === 0x32 &&
+               JSON.stringify(M.loopsNew(LS())) === JSON.stringify(M.loopsNewDef(LS())) && U.toastNow() === "STAGE AS LOOP 02",
+               "... REC on + NEW LOOP: the new loop's mix NEW's (" + JSON.stringify(nl) + "); NEW the defaults again");
             setLoops(LS().list.slice(0, 2), 64);
             await pick(2);
             await stageOn();                                /* (REC's send left it off) */
             await t.sleep(600);
         }
+        for (const k in nw0) M.loopsNewSet(k, nw0[k]);     /* (NEW as it was) */
         await t.tap("GLO");
         const pp = U.top();
-        ok(pp.items.map(i => i.name).join() === "TEMPO,SWING,LENGTH,GRID,QUANTIZE,MONO LEGATO,COUNT-IN,VIEW,K1 TURNS,K2 TURNS,K3 TURNS,K4 TURNS" &&
-           pp.title === "LOOPS PROPERTIES", "GLO: LOOPS PROPERTIES: TEMPO, SWING, LENGTH, GRID, QUANTIZE, MONO LEGATO, COUNT-IN, VIEW, K1-K4 TURNS");
+        ok(pp.items.map(i => i.name).join() === "TEMPO,SWING,LENGTH,GRID,QUANTIZE,MONO LEGATO,COUNT-IN,VIEW,K1 TURNS,K2 TURNS,K3 TURNS,K4 TURNS," +
+           "NEW LOOP LEVEL,NEW LOOP CHORUS,NEW LOOP DELAY,NEW LOOP REVERB" && pp.title === "LOOPS PROPERTIES",
+           "GLO: LOOPS PROPERTIES: TEMPO, SWING, LENGTH, GRID, QUANTIZE, MONO LEGATO, COUNT-IN, VIEW, K1-K4 TURNS, then a new loop's " +
+           "defaults (NEW LOOP LEVEL, CHORUS, DELAY, REVERB)");
+        {   /* 11 lines in view (the dialog's, in F.S), more scrolling with the row selected; NEW LOOP LEVEL `40 50%`, the sends
+             * `7F 100%`; K1 a step, SEL held 16; saved with LOOPS (stored), NEW's value with it */
+            const count = (x0, y0, x1, y1, c) => { let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (t.px(x, y) === c) n++; return n; };
+            t.frame();
+            const in12 = count(10, 202, 120, 212, c565(D.CYAN)) > 0 && count(10, 216, 120, 219, c565(D.CYAN)) === 0;   /* (line 10 at
+                                                                         * 200, no 12th: nothing of one inside the panel, to its
+                                                                         * foot at 218; LOOPS' own screen below it) */
+            await t.turn("SELECT", 12); t.frame();
+            const box = count(6, 151, 234, 152, c565(D.WHITE)) > 100;   /* (NEW LOOP LEVEL selected: rows 5-15, its box the 8th) */
+            const lvl0 = M.loopsNewDef(LS()).lvl, rev0 = M.loopsNewDef(LS()).rev, w0 = pp.items[12].get(), w3 = pp.items[15].get();
+            await t.turn("K1", 1);
+            const lvl1 = M.loopsNewDef(LS()).lvl, n1 = M.loopsNew(LS()).lvl;
+            t.down("SEL"); await t.sleep(30); await t.turn("K1", -1); t.up("SEL"); await t.sleep(250);
+            const lvl2 = M.loopsNewDef(LS()).lvl;
+            await t.turn("SELECT", 3);
+            await t.turn("K1", -2);
+            const rev1 = M.loopsNewDef(LS()).rev, nrev = M.loopsNew(LS()).rev;
+            ok(in12 && box && lvl0 === 0x40 && rev0 === 0x7F && w0 === "40 50%" && w3 === "7F 100%" && lvl1 === 0x41 && n1 === 0x41 && lvl2 === 0x31 &&
+               rev1 === 0x7D && nrev === 0x7D && LS().newDefOn && LS().newDef.lvl === 0x31 && LS().newDef.pan === 128 && M.unsavedThing("loops") && U.top() === pp,
+               "GLO: 11 lines in view (" + in12 + "), scrolling (" + box + "); the last four a new loop's defaults: NEW LOOP LEVEL " + w0 +
+               ", K1 +1 " + M.hex(lvl1) + " (NEW's " + M.hex(n1) + "), SEL held -16 " + M.hex(lvl2) + "; NEW LOOP REVERB " + w3 + ", -2 " +
+               M.hex(rev1) + " (NEW's " + M.hex(nrev) + "); stored with LOOPS (" + JSON.stringify(LS().newDef) + ")");
+            t.shot("ui3_loops_glo_new");
+            U.edit(() => { LS().newDef.lvl = 0x40; LS().newDef.rev = 0x7F; });   /* (the defaults' values back: stored now) */
+            for (const k in nw0) M.loopsNewSet(k, nw0[k]);
+            await t.turn("SELECT", -20);
+        }
         pp.sel = 8; await t.turn("K1", 7);
         ok(LS().knobs[0] === "VIEW" && pp.items[8].get() === "VIEW", "GLO's K1 TURNS: a job from the list (LEVEL ... TEMPO, VIEW)");
         await t.tap("GLO");
@@ -776,8 +1013,64 @@ module.exports = async t => {
         const v4 = LS().view;
         await t.turn("K1", -2);
         ok(v4 === 4 && LS().view === 1, "... K1 then turns VIEW (2 bars, 4, then 1)");
-        U.edit(() => { LS().knobs[0] = "LEVEL"; LS().nextMix.lvl = 127; });
+        U.edit(() => { LS().knobs[0] = "LEVEL"; });
         setLoops(LS().list, 64);
+    }
+
+    /* ---- the keys played freely on LOOPS (specs/ui/screens/loops.md#the-instrument-and-mono-or-poly): through the selected
+     * loop's mix, on + NEW LOOP NEW's, in place of KEYS GAIN, the KEYS column and DRY (the worklet told: A.keysLoop; the
+     * worklet's side: tests/playground/sound.js); off LOOPS and on FX their own strip again ---- */
+    {
+        const kl0 = A.keysLoop;
+        let told = [];
+        A.keysLoop = m => { told.push(m ? JSON.stringify(m) : null); return kl0(m); };
+        await stopAll();
+        U.edit(() => { LS().mixer[1].lvl = 0x20; });
+        await pick(1); t.frame();
+        await pick(0); t.frame();
+        const at0 = told[told.length - 1];
+        await pick(1); t.frame();
+        const at1 = told[told.length - 1];
+        await pick(2); t.frame();
+        const atNew = told[told.length - 1], newJ = JSON.stringify(M.loopsNew(LS()));
+        M.loopsNewSet("lvl", 0x21); t.frame();
+        const atNew2 = told[told.length - 1], n0 = told.length;
+        t.frame();
+        ok(at0 === JSON.stringify(LS().mixer[0]) && at1 === JSON.stringify(LS().mixer[1]) && JSON.parse(at1).lvl === 0x20 && atNew === newJ &&
+           atNew2 && JSON.parse(atNew2).lvl === 0x21 && told.length === n0, "LOOPS: the keys told the selected loop's mix (00, 01), on + NEW " +
+           "LOOP NEW's, again as it changes, once (" + told.slice(-4).join(" | ") + ")");
+        M.loopsNewSet("lvl", 0x20);
+        for (const k of ["cho", "dly", "rev"]) M.loopsNewSet(k, 0);   /* (NEW as the firmware's test has it: LEVEL 20, no sends) */
+        await t.tap("FX");
+        const onFx = told[told.length - 1];
+        {   /* FX's MIXER from LOOPS: its last column NEW, no KEYS (the footer NEW LOOP): K1 turns NEW's LEVEL (no edit, KEYS
+             * GAIN as it was), LFO puts a new loop's default back */
+            for (let i = 0; i < 3 && U.screen.sub() !== "MIXER"; i++) await t.tap("SEQ");
+            await t.turn("ALGORITHM", 20); await t.turn("SELECT", -6);
+            const nl0 = M.loopsNew(LS()).lvl, loops0 = JSON.stringify(LS()), g0 = U.set("KEYS GAIN");
+            await t.turn("K1", 3);
+            t.frame();
+            const ft = U.screen.footer()[0], k1 = M.loopsNew(LS()).lvl, unchanged = JSON.stringify(LS()) === loops0;
+            t.shot("ui3_loops_mixer_new");
+            await t.tap("LFO");
+            ok(U.screen.name === "FX" && ft === "NEW LOOP" && nl0 === 0x20 && k1 === 0x23 && unchanged && U.set("KEYS GAIN") === g0 &&
+               M.loopsNew(LS()).lvl === M.loopsNewDef(LS()).lvl, "FX's MIXER from LOOPS: the last column NEW (footer " + ft + "): K1 NEW's " +
+               "LEVEL " + M.hex(nl0) + " to " + M.hex(k1) + ", no edit, KEYS GAIN as it was; LFO a new loop's default (" + M.hex(M.loopsNew(LS()).lvl) + ")");
+            M.loopsNewSet("lvl", 0x20);
+            for (let i = 0; i < 3 && U.screen.sub() !== "LIVE"; i++) await t.tap("SEQ");
+        }
+        await t.tap("FX");
+        const back = told[told.length - 1];
+        await t.homeKey(1);
+        const off = told[told.length - 1];
+        await t.homeKey(22); t.frame();
+        const again = told[told.length - 1];
+        ok(U.screen.name === "LOOPS" && onFx === null && back === JSON.stringify(M.loopsNew(LS())) && off === null && again === back,
+           "... FX from LOOPS and leaving LOOPS: their own strip again (null), told again back on LOOPS");
+        M.loopsNewSet("lvl", 0x40);
+        for (const k of ["cho", "dly", "rev"]) M.loopsNewSet(k, 0x7F);
+        U.edit(() => { LS().mixer[1].lvl = 127; });
+        A.keysLoop = kl0;
     }
 
     /* ---- VIEW: the bars a screen (the length's bar: the bars in view light) ---- */
@@ -830,9 +1123,9 @@ module.exports = async t => {
     await pick(0);
     {
         const it = await menuItems();
-        ok(it.join() === "TAKE ITS INSTRUMENT,APPLY INSTRUMENT,ADJUST,QUANTIZE,DELETE LOOP,DOUBLE,RECORD PATTERN,RECORD LIVE,SAVE TO PATTERN,LOAD FROM PATTERN," +
-           "CLEAR LOOPS,REVERT", "SEL on a loop: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, QUANTIZE, DELETE LOOP, DOUBLE, RECORD PATTERN, RECORD LIVE, " +
-           "SAVE TO / LOAD FROM PATTERN, CLEAR LOOPS, REVERT (" + it.join() + ")");
+        ok(it.join() === "TAKE ITS INSTRUMENT,APPLY INSTRUMENT,ADJUST,MOVE,QUANTIZE,DELETE LOOP,DOUBLE,RECORD PATTERN,RECORD LIVE,STORE AS A SET," +
+           "SAVE TO PATTERN,LOAD FROM PATTERN,CLEAR LOOPS,REVERT", "SEL on a loop: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, MOVE, QUANTIZE, DELETE LOOP, DOUBLE, " +
+           "RECORD PATTERN, RECORD LIVE, STORE AS A SET (no LOAD A SET with no set), SAVE TO / LOAD FROM PATTERN, CLEAR LOOPS, REVERT (" + it.join() + ")");
     }
     setLoops([mkLoop({ base: 128 })], 128);
     ok(!(await menuItems()).includes("DOUBLE"), "... 8 bars long already: no DOUBLE");
@@ -867,6 +1160,35 @@ module.exports = async t => {
            U.toastNow() === "LOOP 01 DELETED", "DELETE LOOP: at once (LOOP 01 DELETED); the loops after it move up with their mixes, the selection on " +
            "the one in its place; the length stays");
     }
+    {   /* MOVE: SEL's MOVE (SELECT a place a click, SEL keeps, HOME cancels); SEL held + SELECT, no menu after */
+        setLoops([mkLoop({ muted: true, cells: cs(16, [[0, 0, 60]]) }), mkLoop({ col: 1, soloed: true, cells: cs(16, [[0, 0, 62]]) }),
+                  mkLoop({ col: 2, cells: cs(16, [[0, 0, 64]]) })], 16);
+        U.edit(() => { LS().mixer[0].lvl = 0x30; });
+        await pick(0);
+        await menuPick("MOVE");
+        t.frame();
+        ok(t.top() === "adjust" && U.screen.sub() === "MOVE", "MOVE: open (MOVE in the header)");
+        await t.turn("SELECT", 2);
+        const ls = LS().list;
+        ok(notesAt(2).join() === "0:0:60" && notesAt(0).join() === "0:0:62" && notesAt(1).join() === "0:0:64" && ls[2].col === 0 && ls[0].col === 1 &&
+           ls[1].col === 2 && LS().mixer[2].lvl === 0x30 && ls[2].muted && !ls[0].muted && ls[0].soloed && !ls[2].soloed && sc().sel === 2 &&
+           ls.length === 3 && M.unsavedThing("loops"),
+           "... SELECT 2 clicks: loop 00 now 02 with its notes, colour, mix and mute; the two between up a place with their solo; the selection with it");
+        await t.turn("SELECT", 1);
+        ok(U.flash[B.SEL] > U.now() && sc().sel === 2 && notesAt(2).join() === "0:0:60", "... past the last loop: nothing (SEL blinks)");
+        await t.tap("SEL");
+        ok(!t.top() && U.toastNow() === "MOVED TO LOOP 02", "... SEL keeps it (MOVED TO LOOP 02) (" + U.toastNow() + ")");
+        await menuPick("MOVE"); await t.turn("SELECT", -2); await t.tap("HOME");
+        ok(!t.top() && sc().sel === 2 && notesAt(2).join() === "0:0:60" && notesAt(0).join() === "0:0:62" && LS().list[2].muted && LS().list[0].soloed &&
+           U.toastNow() === "CANCELLED", "... HOME cancels: back where it was");
+        t.down("SEL"); await t.turn("SELECT", -1); t.up("SEL"); await t.sleep(250);
+        ok(!t.top() && sc().sel === 1 && notesAt(1).join() === "0:0:60" && notesAt(2).join() === "0:0:64" && LS().list[1].col === 0,
+           "SEL held + SELECT: the loop up a place, no menu after");
+        await pick(3);
+        t.down("SEL"); await t.turn("SELECT", -1); t.up("SEL"); await t.sleep(10);
+        ok(U.flash[B.SEL] > U.now() && sc().sel === 3 && !t.top(), "... on + NEW LOOP: nothing (SEL blinks), no menu");
+        await t.sleep(250);
+    }
     {   /* the instruments: ENV held, TAKE ITS INSTRUMENT, APPLY INSTRUMENT */
         setLoops([mkLoop({ inst: 0xF001, mono: true })], 16);
         U.setInst(dx7);
@@ -898,18 +1220,20 @@ module.exports = async t => {
         ok(t.px(233, y(3) + 1) === c565(D.DGREY) && t.px(231, y(3) + 3) === c565(D.DGREY) && t.px(231, y(3) + 1) === c565(D.BLACK),
            "... + NEW LOOP a grey plus");
         ok(t.px(233, y(4) + 3) === c565(D.BLACK) && t.px(233, y(15) + 3) === c565(D.BLACK), "... the cells after it empty, to the 16th");
-        ok(t.px(0, 185) === c565(D.DGREY) && t.px(239, 185) === c565(D.DGREY) && t.px(120, 196) === c565(D.DGREY) && t.px(2, 185) === c565(D.BLACK) &&
-           t.px(120, 195) === c565(D.BLACK), "the stage drawn in a dark grey frame, black inside it");
+        ok(t.px(0, 185) === c565(D.DGREY) && t.px(239, 185) === c565(D.DGREY) && t.px(120, 197) === c565(D.DGREY) && t.px(2, 185) === c565(D.BLACK) &&
+           t.px(120, 196) === c565(D.BLACK), "the stage drawn in a dark grey frame, black inside it");
         await pick(3);
         t.frame();
         ok(t.px(233, y(3) + 3) === c565(D.LGREY) && t.px(232, y(3) + 1) === c565(D.WHITE), "... the selection on + NEW LOOP: the circle in its place, a light grey dot");
     }
 
     /* ---- each loop's LEVEL on its slot: hex, FONT T, right-aligned to 226 at the strip's row (y + 14), light grey (a
-     * muted or silenced loop's dark grey); + NEW LOOP's the next loop's ---- */
+     * muted or silenced loop's dark grey); + NEW LOOP's NEW's ---- */
     {
         setLoops([mkLoop({}), mkLoop({ col: 1, muted: true }), mkLoop({ col: 2 })], 16);
-        U.edit(() => { LS().mixer[2].lvl = 0x40; LS().nextMix.lvl = 0x55; });
+        const nl0 = M.loopsNew(LS()).lvl;
+        U.edit(() => { LS().mixer[2].lvl = 0x40; });
+        M.loopsNewSet("lvl", 0x55);
         await pick(0);
         t.frame();
         /* slot k's level: its pixels of colour c in x 208-226 (past the strip; the slot's box at 227 aside), y + 14 to y + 26
@@ -921,9 +1245,9 @@ module.exports = async t => {
         const l0 = lev(0, D.LGREY), l1 = lev(1, D.LGREY), d1 = lev(1, D.DGREY), l2 = lev(2, D.LGREY), l3 = lev(3, D.LGREY);
         ok(l0.n && l0.a >= 214 && l0.b <= 225 && !l1.n && d1.n && d1.a >= 214 && d1.b <= 225 && l2.n && l3.n && l3.a >= 214 && l3.b <= 225 &&
            glyphs(0) === glyphs(1) && glyphs(0) !== glyphs(2) && glyphs(2) !== glyphs(3),
-           "each loop's LEVEL on its slot, at 214-225 on the strip's row: 7F light grey, a muted loop's dark grey, 40; + NEW LOOP the next " +
-           "loop's (55) (" + [l0, d1, l2, l3].map(o => o.a + "-" + o.b).join(", ") + ")");
-        U.edit(() => { LS().nextMix.lvl = 127; });
+           "each loop's LEVEL on its slot, at 214-225 on the strip's row: 7F light grey, a muted loop's dark grey, 40; + NEW LOOP NEW's " +
+           "(55) (" + [l0, d1, l2, l3].map(o => o.a + "-" + o.b).join(", ") + ")");
+        M.loopsNewSet("lvl", nl0);
     }
 
     /* ---- the lanes: repeats, the rest, a repeat cut at the length's end, a SHIFT ---- */
@@ -1525,6 +1849,107 @@ module.exports = async t => {
         if (stg().off) await t.tap("ARP");
         t.frame();
         ok(ledOff === .25 && t.leds[B.ARP] === 1, "the ARP LED: dim with the stage off, full on (" + ledOff + ", " + t.leds[B.ARP] + ")");
+        /* the keys' lights (specs/ui/leds.md#keys): lit at the press, then by their lane's note, the stage on and off, a TB-303's
+         * and a FUSION's too; MONO's glide moves the light to the new key; JUMP's first note lights nothing more. Every note
+         * started stands in for a voice still sounding (the worklet's levels faked: each at half) */
+        {
+            const live = [], on1 = A.noteOn, wasRun = A.running;
+            A.noteOn = (id, ...a) => { live.push(id); return on1(id, ...a); };
+            const keysLit = () => {
+                A.running = true; A.stats.voices = live.map(id => ({ id, peak: .5 })); t.frame();
+                const r = [];
+                for (let k = 0; k < 27; k++) if (t.leds[14 + k] === 1) r.push(k);
+                return r.join();
+            };
+            const fc = M.state.carts.find(c => c.type === "FUSION" && c.slots.some(Boolean));
+            const fus = fc ? fc.id << 8 | fc.slots.findIndex(Boolean) : null;
+            await stopAll();
+            setLoops([mkLoop({ cells: cs(16, [[0, 0, 60]]) })], 16);
+            U.edit(() => { LS().tempo = 300; LS().quantize = "ROW"; LS().nextMono = false; LS().legato = "GLIDE"; });
+            U.setInst(dx7);
+            await stageOn();
+            await pick(1);
+            P.kept.loops.row = 0; await t.tap("PLAY");
+            t.keyDown(0); t.keyDown(2);
+            const pressed = keysLit();
+            await t.sleep(300);
+            const sounding = keysLit();
+            ok(pressed === "0,2" && sounding === "0,2", "LOOPS, the stage on, POLY: two keys lit at their press, then with their notes (" +
+               pressed + "; " + sounding + ")");
+            t.keyUp(0); t.keyUp(2); await t.sleep(200);
+            live.length = 0;
+            U.edit(() => { LS().nextMono = true; });
+            t.keyDown(0); await t.sleep(300); t.keyDown(4); await t.sleep(300);
+            const glided = keysLit();
+            t.keyUp(0); await t.sleep(100);
+            const held4 = keysLit();
+            t.keyUp(4); await t.sleep(200);
+            ok(glided === "4" && held4 === "4", "... MONO, GLIDE: the second key's light, the first one dark (the one voice glides there) (" +
+               glided + "; " + held4 + ")");
+            live.length = 0;
+            U.edit(() => { LS().legato = "JUMP"; });
+            t.keyDown(0); await t.sleep(300); t.keyDown(4); await t.sleep(300);
+            const jumped = keysLit();
+            t.keyUp(4); t.keyUp(0); await t.sleep(200);
+            ok(jumped === "4", "... MONO, JUMP: the new note's key lit, the first note's (still ringing) not (" + jumped + ")");
+            live.length = 0;
+            U.edit(() => { LS().legato = "GLIDE"; });
+            U.setInst(tb303);
+            t.keyDown(0); await t.sleep(300); t.keyDown(4); await t.sleep(300);
+            const slid = keysLit();
+            t.keyUp(4); t.keyUp(0); await t.sleep(200);
+            ok(slid === "4", "... MONO on a TB-303: its slide moves the light to the new key (" + slid + ")");
+            live.length = 0;
+            U.edit(() => { LS().nextMono = false; });
+            U.setInst(fus);
+            t.keyDown(7); await t.sleep(300);
+            const fusion = keysLit();
+            t.keyUp(7); await t.sleep(200);
+            ok(fus != null && fusion === "7", "... a FUSION: its key lit with its layers (" + fusion + ")");
+            live.length = 0;
+            U.setInst(dx7);
+            await t.tap("ARP");
+            const offNow = stg().off;
+            t.keyDown(5); await t.sleep(300);
+            const offLit = keysLit();
+            t.keyUp(5); await t.sleep(200);
+            ok(offNow && offLit === "5", "... the stage off: a key lit with its note (" + offLit + ")");
+            await t.tap("ARP");
+            A.noteOn = on1; A.running = wasRun; A.stats.voices = [];
+            await stopAll();
+        }
+        /* VISUAL LEVELS while LOOPS plays (specs/ui/screens/visual.md#levels): a meter a loop (the worklet's tracks 16 + the
+         * loop), a muted loop's number dark grey, the stage's column in the meter of the loop it sounds as. The worklet's
+         * levels faked */
+        {
+            await stopAll();
+            setLoops([0, 1, 2].map(k => mkLoop({ cells: cs(16, [[0, 0, 60]]), muted: k === 1 })), 16);
+            P.mutesChanged();
+            P.kept.loops.row = 0; await t.tap("PLAY");
+            await t.homeKey(15);
+            for (let i = 0; i < 6 && U.screen.sub() !== "LEVELS"; i++) await t.tap("SEQ");
+            const wasRun = A.running, wasLv = A.stats.levels, wasStage = A.stageTrack, lv = new Float32Array(34);
+            A.running = true; A.stats.levels = lv;
+            const count = (x0, y0, x1, y1, c) => { let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) n += t.px(x, y) === c; return n; };
+            const up = m => count(15 * m + 2, 19, 15 * m + 13, 209, c565(D.GREEN)) + count(15 * m + 2, 19, 15 * m + 13, 209, c565(D.RED));
+            lv[16] = lv[17] = lv[18] = .2; lv[0] = .2;
+            A.stageTrack = 16 + 3; lv[32] = 0;
+            t.frame();
+            const m = [0, 1, 2, 3].map(up), n1 = count(16, 214, 30, 226, c565(D.DGREY)), n1c = count(16, 214, 30, 226, c565(D.CYAN));
+            ok(U.screen.sub() === "LEVELS" && m[0] > 0 && m[1] === 0 && m[2] > 0 && m[3] === 0 && n1 > 0 && !n1c,
+               "VISUAL LEVELS, LOOPS playing: a meter a loop: 00 and 02 up, 01 (muted) not green, its number dark grey, 03 (no loop) " +
+               "empty, the song's track 00 not read (" + m.join() + "; " + n1 + ", " + n1c + ")");
+            lv[32] = .2;
+            t.frame();
+            ok(up(3) > 0, "... the stage's column in the meter of the loop it sounds as (+ NEW LOOP: the next, 03)");
+            A.running = wasRun; A.stats.levels = wasLv; A.stageTrack = wasStage;
+            while (U.screen.sub() !== "VOICES") await t.tap("SEQ");
+            await t.homeKey(22);
+            await stopAll();
+            setLoops([mkLoop({ cells: cs(16, [[0, 0, 60], [4, 0, 62], [8, 0, 64], [12, 0, 65]]) })], 16);   /* (as the stage-off
+                                                         * keys' checks had them) */
+            P.mutesChanged();
+        }
         /* ARP held, then a key: the key closes ARP's combination (the key plays, ARP's let go switches nothing) */
         await stopAll();
         P.kept.loops.row = 0; await t.tap("PLAY");
@@ -1595,6 +2020,215 @@ module.exports = async t => {
            LS().swing === U.clamp(song.swing, 50, 75) && LS().rpb === 4 && U.toastNow() === "PATTERN " + M.hex(free) + " IN LOOPS: 0 LOOPS",
            "LOAD of a pattern with no notes: no loops, its 40 rows in whole bars (48), its song's timing (" + LS().tempo + ", " + LS().ticks + " ticks)");
         U.edit(() => { M.state.patterns[free] = null; song.order.pop(); Object.assign(LS(), { tempo: was.tempo, ticks: was.ticks, swing: was.swing, rpb: was.rpb }); });
+    }
+
+    /* ---- LOOPS' sets (specs/ui/screens/loops.md#sets; fw/tests/ui3_test.c's test_loops_sets, step for step): STORE AS A
+     * SET in the menu, LOAD A SET only while a set exists; the sets' list (its title, heads, a line's figures, `4.5` bars, its
+     * last line), STORE's NEW at the first free number and its question over a set; LOAD's PLAY doing nothing, EDIT
+     * renaming, LFO deleting after its question; LOAD over loops: the set's loops, mutes, solos, length and tempo, NEW its
+     * defaults, the loops stopped at their start, the stage fitted; LOOPS' REVERT undoing a load; the sets' loops counted as
+     * an instrument's uses and following a MOVE; REVERT ALL dropping a set; SAVE keeping a rename and a delete ---- */
+    {
+        /* a text as drawn (fw/tests/text_probe.h's text_as, tests/playground/lists_s.js's textAs) */
+        const textAs = (x, y, s, col, f = D.F.S) => {
+            t.frame();
+            const fb = D.fb, w = s.length * f.w, h = f.h === 16 ? 13 : 11, frame = fb.slice();
+            D.px(0, 0, col);
+            const ink = fb[0];
+            D.rect(x, y, w, h, D.BLACK);
+            D.text(x, y, f, s, col);
+            const alone = fb.slice();
+            fb.set(frame);
+            let same = true, inked = 0;
+            for (let j = 0; j < h; j++) for (let i = x; i < x + w && i < 240; i++) {
+                const a = alone[(y + j) * 240 + i] === ink, b = frame[(y + j) * 240 + i] === ink;
+                inked += a;
+                if (a !== b) same = false;
+            }
+            return same && inked > 8;
+        };
+        const textT = (x, y, s, col) => textAs(x, y, s, col, D.F.T);
+        await stopAll();
+        setLoops([mkLoop({ base: 72, cells: cs(72, [[0, 0, 60], [4, 0, M.OFF]]) }),
+                  mkLoop({ base: 16, repeats: 2, shift: 3, col: 1, lanes: 2, cells: cs(16, [[8, 1, 67]]) })], 72);   /* (72 rows: 4.5 bars of 16) */
+        U.edit(() => { LS().list[0].muted = true; LS().list[1].soloed = true; LS().tempo = 120; });
+        P.mutesChanged();
+        await pick(0);
+        ok(!M.setNums().length, "(the demo disk holds no LOOPS set)");
+        let it = await menuItems();
+        ok(it.includes("STORE AS A SET") && !it.includes("LOAD A SET"), "LOOPS' menu: STORE AS A SET; LOAD A SET not listed while no set exists");
+        const f = M.freeSet(), F = M.hex(f), uses = M.instUses(0xF000);
+        await menuPick("STORE AS A SET");
+        ok(t.top() === "list" && U.top().title === "STORE THE LOOPS AS" && U.top().sel === 0 && textAs(6, 22, "STORE THE LOOPS AS", D.CYAN) &&
+           textAs(8, 51, "NEW", D.WHITE) && textT(8, 38, "NR", D.DGREY) && textT(32, 38, "NAME", D.DGREY) && textT(160, 38, "LOOPS", D.DGREY) &&
+           textT(202, 38, "BARS", D.DGREY) && textT(8, 211, "EDIT", D.YELLOW) && textT(32, 211, ": RENAME  ", D.LGREY) && textT(92, 211, "LFO", D.YELLOW) &&
+           textT(110, 211, ": DELETE", D.LGREY), "STORE AS A SET: the sets' list, titled STORE THE LOOPS AS (S), NEW first and picked, its heads NR NAME " +
+           "LOOPS BARS (T) and its last line EDIT: RENAME  LFO: DELETE");
+        await until(() => !U.toastNow(), 3000);             /* (the toasts before gone, as in the firmware's shot) */
+        t.shot("ui3_loops_sets_store");
+        await t.tap("SEL");
+        let s = M.state.lsets[f];
+        ok(!U.top() && s && s.name === "LOOPS " + F && s.loops.list.length === 2 && s.loops.rows === 72 && s.loops.list[1].soloed && !s.loops.list[0].soloed &&
+           U.toastNow() === "LOOPS STORED AS SET " + F && LS().list.length === 2 && LS().list[1].soloed && LS().list[0].muted,
+           "... SEL on NEW: the first free number (" + F + "), named LOOPS " + F + ", 2 loops, 72 rows, the solo of loop 01; the loops as they were (" + U.toastNow() + ")");
+        ok(M.instUses(0xF000) === uses + 2, "... the set's 2 loops counted among the instrument's uses (" + M.instUses(0xF000) + ", before " + uses + ")");
+        it = await menuItems();
+        ok(it.includes("LOAD A SET"), "LOOPS' menu: LOAD A SET listed once a set exists");
+        ok(it.indexOf("STORE AS A SET") + 1 === it.indexOf("LOAD A SET") && it.indexOf("LOAD A SET") + 1 === it.indexOf("SAVE TO PATTERN") &&
+           it.indexOf("SAVE TO PATTERN") + 1 === it.indexOf("LOAD FROM PATTERN"),
+           "... the sets' two before SAVE TO / LOAD FROM PATTERN: STORE AS A SET, LOAD A SET, SAVE TO PATTERN, LOAD FROM PATTERN (" + it.join() + ")");
+        U.edit(() => { LS().tempo = 130; });
+        await menuPick("STORE AS A SET"); await t.turn("SELECT", 1); await t.tap("SEL");
+        ok(t.top() === "question" && U.top().lines.join("/") === "SET " + F + " HOLDS LOOPS/REPLACE IT WITH THESE?",
+           "STORE AS A SET onto a set: asks first (SET " + F + " HOLDS LOOPS / REPLACE IT WITH THESE?)");
+        await t.tap("OCT-");
+        ok(!U.top() && M.state.lsets[f].loops.tempo === 120, "... NO: nothing stored");
+        await menuPick("STORE AS A SET"); await t.turn("SELECT", 1); await t.tap("SEL"); await t.tap("OCT+");
+        ok(M.state.lsets[f].loops.tempo === 130 && M.state.lsets[f].name === "LOOPS " + F, "... YES: the set replaced (TEMPO 130), its name kept");
+        /* two sets more, after it (the list as the manual shows it): SUNDAY JAM, 1 loop over 2 bars; RAINY DAY, 3 over 4 */
+        {
+            setLoops([mkLoop({ base: 32, cells: cs(32, [[0, 0, 64]]) })], 32);
+            U.edit(() => { LS().tempo = 120; M.state.lsets[f + 1] = { n: f + 1, name: "SUNDAY JAM", loops: structuredClone(LS()) }; });
+            setLoops([0, 1, 2].map(() => mkLoop({ repeats: 4, cells: cs(16, [[0, 0, 64]]) })), 64);
+            U.edit(() => { M.state.lsets[f + 2] = { n: f + 2, name: "RAINY DAY", loops: structuredClone(LS()) }; });
+            ok(M.setNums().length === 3, "(two sets more: SUNDAY JAM, RAINY DAY; the working area theirs, as the firmware's test leaves it)");
+        }
+        await menuPick("LOAD A SET");
+        ok(t.top() === "list" && U.top().title === "LOAD INTO LOOPS" && textAs(6, 22, "LOAD INTO LOOPS", D.CYAN) && textAs(8, 51, F, D.WHITE) &&
+           textAs(32, 51, "LOOPS " + F, D.WHITE) && textT(184, 53, "2", D.CYAN) && textT(202, 53, "4.5", D.CYAN),
+           "LOAD A SET: the list titled LOAD INTO LOOPS, on the set: its number and name (S), 2 loops, 4.5 bars (T, on the name's baseline)");
+        await until(() => !U.toastNow(), 3000);
+        t.shot("ui3_loops_sets_load");
+        const was = P.playing;
+        await t.tap("PLAY");
+        ok(t.top() === "list" && P.playing === was, "... PLAY does nothing there");
+        await t.tap("EDIT");
+        ok(t.top() === "text" && U.top().title === "SET " + F, "... EDIT: the text entry, titled SET " + F);
+        await t.turn("SELECT", 1); await t.tap("EDIT");
+        ok(M.state.lsets[f].name === "MOOPS " + F && t.top() === "list", "... renamed (" + M.state.lsets[f].name + "), the list again");
+        await t.tap("LFO");
+        ok(t.top() === "question" && U.top().lines.join("/") === "DELETE SET " + F + "?", "... LFO: asks first (DELETE SET " + F + "?)");
+        t.shot("ui3_loops_sets_delete");
+        await t.tap("OCT-");
+        ok(M.state.lsets[f] && t.top() === "list", "... KEEP: the set kept");
+        await t.tap("HOME");
+        ok(!U.top(), "... HOME closes the list");
+        /* LOAD over loops, the loops playing, NEW turned, notes on the stage past the set's length */
+        setLoops([mkLoop({ base: 128, cells: cs(128, [[0, 0, 72]]) })], 128);
+        U.edit(() => { LS().tempo = 100; });
+        stg().cells = cs(128, [[2, 0, 50], [100, 0, 52]]); M.version++;
+        M.loopsNewSet("lvl", 0x22);
+        P.kept.loops.row = 0;
+        await t.tap("PLAY"); await t.sleep(400);
+        await menuPick("LOAD A SET"); await t.tap("SEL");
+        ok(t.top() === "question" && U.top().lines.join("/") === "REPLACE THE LOOPS/WITH SET " + F + "?", "LOAD A SET over loops: asks first (REPLACE THE LOOPS / WITH SET " + F + "?)");
+        await t.tap("OCT+");
+        ok(U.toastNow() === "SET " + F + " LOADED" && LS().list.length === 2 && LS().rows === 72 && LS().tempo === 130 && LS().list[0].muted &&
+           LS().list[1].soloed && !P.playing && !P.kept.loops.row && JSON.stringify(M.loopsNewMix()) === JSON.stringify(M.loopsNewDef(LS())),
+           "... YES: the set's 2 loops, 72 rows, TEMPO 130, loop 00 muted, 01 soloed, NEW the set's defaults; the loops stopped at their start (" +
+           U.toastNow() + ")");
+        ok(isNote(sCell(2)) && !sCell(100), "... the stage stays, fitted to the set's length (its note at row 100 cut)");
+        emptyStage();
+        await menuPick("REVERT"); await t.tap("OCT+");
+        ok(!LS().list.length && M.state.lsets[f], "... REVERT: the load undone (LOOPS as saved), the set kept");
+        /* a cartridge's MOVE answered YES: the set's loops follow; REVERT ALL drops a set stored */
+        U.edit(() => { M.loopsRemap(0xF0, 0x21, false, true); });
+        ok(M.state.lsets[f].loops.list.every(l => l.inst >> 8 === 0x21), "a cartridge's MOVE (F0 to 21) answered YES: the set's loops follow");
+        M.revert();
+        ok(!M.setNums().length, "REVERT ALL: the set stored gone");
+        /* SAVE keeps a set, its rename and its delete */
+        U.edit(() => { M.state.lsets[5] = { n: 5, name: "KEPT", loops: structuredClone(LS()) }; });
+        M.save();
+        U.edit(() => { M.state.lsets[5].name = "RENAMED"; });
+        M.save();
+        M.revert();
+        ok(M.state.lsets[5] && M.state.lsets[5].name === "RENAMED" && !M.unsaved, "SAVE keeps a set and its rename");
+        U.edit(() => { M.state.lsets[5] = null; });
+        M.save();
+        M.revert();
+        ok(!M.setNums().length && !M.unsaved, "... and its delete");
+        /* as ui3's test_loops_sets_more: 240 sets (ALL 240 SETS USED); a set deleted through its question; one made
+         * elsewhere too big to save again: its rename refused; the edit memory full: STORE refused, a LOAD refused leaving
+         * LOOPS playing on; a REVERT undoing a load leaving no solos; a set of another version */
+        setLoops([], 16);
+        U.edit(() => { for (let n = 0; n <= M.USER_LAST; n++) M.state.lsets[n] = { n, name: "", loops: structuredClone(LS()) }; });
+        await menuPick("STORE AS A SET"); await t.tap("SEL");
+        ok(M.freeSet() < 0 && U.toastNow() === "ALL 240 SETS USED" && !U.top(), "STORE AS A SET, all 240 numbers holding sets: refused, ALL 240 SETS USED (" +
+           U.toastNow() + ")");
+        U.edit(() => { M.state.lsets.fill(null); });
+        setLoops([mkLoop({ cells: cs(16, [[0, 0, 60]]) })], 16);
+        const g = M.freeSet(), G = M.hex(g);
+        await menuPick("STORE AS A SET"); await t.tap("SEL");
+        await menuPick("LOAD A SET"); await t.tap("LFO"); await t.tap("OCT+");
+        ok(U.toastNow() === "SET " + G + " DELETED" && !U.top() && !M.setNums().length, "a set deleted through its question: SET " + G +
+           " DELETED, LOAD's list closed with its last set (" + U.toastNow() + ")");
+        ok(!(await menuItems()).includes("LOAD A SET"), "... LOAD A SET no longer listed");
+        const C4 = () => ({ note: 60, inst: null, vol: null, cmds: [0, 1, 2, 3].map(i => ({ c: i ? 0x14 : 0x0E, v: i ? 3 + i : 0xD2 })) });
+        const bigL = k => {                                /* (3,806 B of cells: past 3,787) */
+            const L = mkLoop({ base: 128, col: k % 12, lanes: 3 });
+            for (let r = 0; r < 128; r++) { L.cells[r * 4] = C4(); L.cells[r * 4 + 1] = C4(); if (r < 90) L.cells[r * 4 + 2] = C4(); }
+            return L;
+        };
+        const huge = { list: Array.from({ length: 16 }, (_, k) => bigL(k)) };
+        ok(M.setTooBig(huge), "(16 loops each past what a set's part 0 holds)");
+        U.edit(() => { M.state.lsets[9] = { n: 9, name: "ELSEWHERE", loops: Object.assign(structuredClone(LS()), { list: huge.list, rows: 128 }) }; });
+        M.save();
+        await menuPick("LOAD A SET"); await t.tap("EDIT"); await t.turn("SELECT", 1); await t.tap("EDIT");
+        ok(U.toastNow() === "THE LOOPS ARE TOO BIG FOR A SET" && M.state.lsets[9].name === "ELSEWHERE" && !M.unsaved,
+           "a set made elsewhere too big to save again: its rename refused, THE LOOPS ARE TOO BIG FOR A SET, nothing changed (" + U.toastNow() + ")");
+        while (U.top()) await t.tap("HOME");
+        U.edit(() => { M.state.lsets[9] = null; });
+        M.save();
+        /* the edit memory full */
+        U.edit(() => { M.state.lsets[3] = { n: 3, name: "KEEP", loops: structuredClone(LS()) }; });
+        setLoops([mkLoop({ cells: cs(16, [[0, 0, 60]]) }), mkLoop({ col: 1, cells: cs(16, [[4, 0, 64]]) })], 16);
+        await t.tap("PLAY"); await t.sleep(300);
+        const used0 = M.editsUsed;
+        M.editsUsed = M.EDITS_MAX - 8;                     /* (the edit memory full, as junk edits leave it) */
+        const full = () => t.top() === "question" && U.top().lines[0] === "MEMORY FOR EDITS IS FULL";
+        await menuPick("STORE AS A SET"); await t.tap("SEL");
+        ok(full() && M.setNums().join() === "3", "the edit memory full: STORE AS A SET refused, MEMORY FOR EDITS IS FULL, no set made");
+        await t.tap("OCT-");
+        await menuPick("LOAD A SET"); await t.tap("SEL"); await t.tap("OCT+");
+        ok(full() && LS().list.length === 2 && P.playing && P.what === "loops", "... LOAD A SET refused: LOOPS as it was, playing on");
+        await t.tap("OCT-");
+        M.editsUsed = used0;
+        P.pause(); await t.sleep(60);
+        /* a REVERT undoing a load leaves no solos; after a SAVE, one keeps them */
+        U.edit(() => { M.state.lsets[3].loops.list = [mkLoop({ cells: cs(16, [[0, 0, 60]]) }), Object.assign(mkLoop({ col: 1 }), { soloed: true })]; });
+        U.edit(() => { for (const l of LS().list) l.soloed = false; });
+        M.save();
+        await menuPick("LOAD A SET"); await t.tap("SEL"); await t.tap("OCT+");
+        ok(LS().list[1].soloed, "LOAD A SET: the set's solo (loop 01)");
+        await menuPick("REVERT"); await t.tap("OCT+");
+        ok(LS().list.length === 2 && !LS().list.some(l => l.soloed), "... REVERT: the loops as saved, no solo");
+        await menuPick("LOAD A SET"); await t.tap("SEL"); await t.tap("OCT+");
+        M.save();
+        U.edit(() => { LS().tempo = 77; });
+        await menuPick("REVERT"); await t.tap("OCT+");
+        ok(LS().list[1].soloed && LS().tempo !== 77, "... loaded again and saved: a REVERT of a later change keeps the solo");
+        /* a set of another version: not listed, its number taken, never loaded */
+        U.edit(() => { M.state.lsets.fill(null); M.state.lsets[0] = { n: 0, other: true }; });
+        ok(!M.setNums().length && M.freeSet() === 1 && !(await menuItems()).includes("LOAD A SET"),
+           "a set of another version in 00: not listed, 00 taken (the first free 01), LOAD A SET not listed");
+        U.edit(() => { M.state.lsets.fill(null); LS().list = []; });
+        M.save();
+        /* CLEAN UP keeps an instrument only a loop plays: LOOPS' own, a set's; a third nothing plays goes */
+        const un = [];
+        for (const c of M.state.carts) if (c.id <= 0xEF) c.slots.forEach((s, k) => { if (s && un.length < 3 && !M.instUses(c.id << 8 | k)) un.push(c.id << 8 | k); });
+        ok(un.length === 3, "(three instruments nothing plays)");
+        const carts0 = structuredClone(M.state.carts);
+        setLoops([mkLoop({ inst: un[1], cells: cs(16, [[0, 0, 60]]) })], 16);
+        U.edit(() => { M.state.lsets[4] = { n: 4, name: "", loops: structuredClone(LS()) }; LS().list[0].inst = un[0]; });
+        U.cleanUp();
+        const cq = U.top();
+        cq.rows[0].on = false; cq.rows[1].on = false; cq.rows[2].on = true;   /* (as K1 ticks them: PATTERNS, SAMPLES off) */
+        await t.tap("OCT+");
+        const has = r => !!M.cart(r >> 8).slots[r & 255];
+        ok(has(un[0]) && has(un[1]) && !has(un[2]), "CLEAN UP's UNUSED INSTRUMENTS: " + un.map(M.refText).join(", ") +
+           ": the first (LOOPS' loop plays it) and the second (set 04's) kept, the third (nothing plays it) gone (" + U.toastNow() + ")");
+        U.edit(() => { M.state.carts = carts0; M.state.lsets[4] = null; LS().list = []; });
+        M.save();
     }
 
     /* ---- the player's stops kept where notes are written out (DOUBLE, LENGTH shorter, SAVE TO PATTERN); SAVE TO
@@ -1712,6 +2346,7 @@ module.exports = async t => {
     await t.tap("EDIT");                                    /* (notes on the stage: CLEAR LOOPS empties it too) */
     const onStage = staged();
     await t.tap("ARP");
+    M.loopsNewSet("lvl", 0x22);                             /* (NEW turned: CLEAR LOOPS puts the defaults back) */
     await menuPick("CLEAR LOOPS");
     ok(t.top() === "question" && U.top().lines.join("/") === "CLEAR ALL 2 LOOPS?/THE STAGE TOO; THE LENGTH STAYS" && U.top().answers.join() === "CLEAR,KEEP",
        "CLEAR LOOPS asks (CLEAR ALL 2 LOOPS? / THE STAGE TOO; THE LENGTH STAYS)");
@@ -1719,26 +2354,31 @@ module.exports = async t => {
     ok(onStage && !LS().list.length && LS().rows === 32 && LS().tempo === 120 && !staged() && U.toastNow() === "LOOPS CLEARED",
        "... CLEAR: no loops, the stage empty, the length and the properties stay (LOOPS CLEARED)");
     ok(stg().off, "... CLEAR LOOPS leaves the stage off");
+    ok(JSON.stringify(M.loopsNew(LS())) === JSON.stringify(M.loopsNewDef(LS())), "... CLEAR LOOPS: NEW the defaults again");
     await t.tap("SEL");
     ok(U.top().items[U.top().items.length - 1] === "REVERT", "LOOPS unsaved: REVERT last in its menu");
     await t.tap("HOME");
+    M.loopsNewSet("lvl", 0x23);                             /* (NEW turned: REVERT keeps it) */
     await menuPick("REVERT");
     ok(t.top() === "question" && U.top().lines.join("/") === "REVERT LOOPS TO SAVED?", "REVERT asks (REVERT LOOPS TO SAVED?)");
     await t.tap("OCT+");
     ok(LS().list.length === 2 && LS().rows === 32 && !M.unsavedThing("loops") && U.toastNow() === "REVERTED", "... REVERT: LOOPS as saved (REVERTED)");
     ok(stg().off, "... REVERT leaves the stage off");
-    U.edit(() => { LS().list[1].muted = true; LS().nextMix.rev = 0x20; LS().view = 4; });
+    ok(M.loopsNew(LS()).lvl === 0x23, "... REVERT keeps NEW (RAM's)");
+    U.edit(() => { LS().list[1].muted = true; LS().newDef = Object.assign(M.loopsNewDef(LS()), { rev: 0x20 }); LS().newDefOn = true; LS().view = 4; });
     await pick(1);
     stg().over = true;                                      /* (OVERWRITE on: never saved) */
     await t.tap("SAVE"); await t.sleep(1600); await M.kept();
     U.edit(() => { LS().list.pop(); });
-    ok(await M.startUp() && LS().list.length === 2 && LS().list[1].muted && LS().nextMix.rev === 0x20 && LS().sel === 1 && LS().view === 4 &&
-       notesAt(0).join() === "0:0:60", "a power cycle: LOOPS as SAVE kept it (its loops, notes, mutes, the next loop's mix, VIEW, the selection), the change not saved gone");
+    ok(await M.startUp() && LS().list.length === 2 && LS().list[1].muted && M.loopsNewDef(LS()).rev === 0x20 && LS().sel === 1 && LS().view === 4 &&
+       notesAt(0).join() === "0:0:60", "a power cycle: LOOPS as SAVE kept it (its loops, notes, mutes, a new loop's defaults, VIEW, the selection), the change not saved gone");
+    ok(M.loopsNew(LS()).lvl === 0x40 && M.loopsNew(LS()).rev === 0x20, "... NEW forgotten (RAM's): the defaults again at the first look");
     ok(!stg().off, "... the stage on at the power-on (the switch is not saved)");
     ok(!stg().over, "... OVERDUB at the power-on (the mode is not saved)");
     t.frame();
     ok(U.screen.selected() === 1, "... the selection back");
-    U.edit(() => { LS().view = 2; });
+    U.edit(() => { LS().view = 2; LS().newDef.rev = 0x7F; });
+    M.loopsNewSet("rev", 0x7F);
 
     /* ---- SHIFT wherever a loop is read: SAVE TO PATTERN, the loops' pattern as heard, QUANTIZE's lines, LENGTH (written out as
      * heard, SHIFT 0; the CUT question counting the notes as heard), DOUBLE (SHIFT kept) ---- */
@@ -1796,6 +2436,320 @@ module.exports = async t => {
         const w = U.loopsPattern(), heard = [...Array(32).keys()].filter(r => isNote(w.cells[r * 16])).join();
         ok(LS().rows === 32 && LS().list[0].shift === 3 && LS().list[0].repeats === 2 && heard === "3,19",
            "DOUBLE keeps the SHIFT: the loop plays the same, twice (rows " + heard + ")");
+    }
+
+    /* ---- CUT (specs/ui/screens/loops.md#cut; fw/tests/loops_test.c's t_cut and t_cut_rec, lanes_test.c's t_cut and
+     * ui3_test.c's CUT, case for case): CUT HERE and REMOVE CUT from SEL's menu and by SEL held + EDIT (tapped, held past
+     * HOLD DELAY, either order; at the first row, on + NEW LOOP, during a count-in nothing), the loop written out first
+     * (its base the length, once), SAVE TO PATTERN's first pass round the window, SHIFT turning the notes under it, LENGTH
+     * both ways and its question, DOUBLE, a set, SAVE and a power cycle, LOAD FROM PATTERN; the lanes round the window
+     * over two passes (the drift), a note ended at the wrap, PLAY from a position, the stage over a cut loop; the keys
+     * landing on the window's row; REC into a cut loop; the strip (the mark, the notes past it dimmed, the window's place,
+     * CUT on the slot's line) ---- */
+    {
+        await stopAll();
+        const L0 = () => LS().list[0], cutOf = i => M.loopCut(LS().list[i], LS().rows), tempo0 = LS().tempo, countIn0 = LS().countIn;
+        const str = i => LS().list[i].cells.map((c, k) => c && c.note != null ? (k >> 2) + ":" + (k & 3) + ":" + (c.note === M.OFF ? "off" : c.note) : null)
+            .filter(Boolean).join();
+        /* SAVE TO PATTERN at a new number: its track 0's cell at a row (the pattern dropped again) */
+        const stored = async () => {
+            const free = M.freePattern();
+            await menuPick("SAVE TO PATTERN"); await t.tap("SEL");
+            const p = M.pattern(free);
+            U.edit(() => { M.state.patterns[free] = null; });
+            return r => p && p.cells[r * 16];
+        };
+        /* base 4 x4: its note at 1, 5, 9, 13, each off 2 rows on */
+        setLoops([mkLoop({ base: 4, repeats: 4, cells: cs(4, [[1, 0, 60], [3, 0, M.OFF]]) })], 16);
+        await pick(0);
+        P.kept.loops.row = 0;
+        let it = await menuItems();
+        ok(!it.includes("CUT HERE") && !it.includes("REMOVE CUT"), "CUT: at the loops' first row no CUT HERE; no REMOVE CUT with no cut");
+        await t.turn("ALGORITHM", 6);
+        it = await menuItems();
+        ok(P.kept.loops.row === 6 && it.indexOf("CUT HERE") === it.indexOf("ADJUST") + 1 && it.indexOf("MOVE") === it.indexOf("CUT HERE") + 1 &&
+           !it.includes("REMOVE CUT"), "... at 1.2.3 (stopped: the play position) CUT HERE listed, after ADJUST (" + it.join() + ")");
+        await menuPick("CUT HERE");
+        ok(L0().cut === 6 && cutOf(0) === 6 && L0().base === 16 && L0().repeats === 1 && !L0().shift && U.toastNow() === "LOOP 00: CUT AT 1.2.3",
+           "CUT HERE: loop 00 cut at 6, its base the length, once (LOOP 00: CUT AT 1.2.3)");
+        ok(str(0) === "1:0:60,3:0:off,5:0:60,7:0:off,9:0:60,11:0:off,13:0:60,15:0:off", "... written out as it was heard first (" + str(0) + ")");
+        it = await menuItems();
+        ok(it.indexOf("REMOVE CUT") === it.indexOf("CUT HERE") + 1, "... REMOVE CUT listed then, after CUT HERE (" + it.join() + ")");
+        let pc = await stored();
+        const n60 = r => isNote(pc(r)) && pc(r).note === 60;
+        ok([1, 5, 7, 11, 13].every(n60) && isOff(pc(3)) && isOff(pc(9)) && ![2, 4, 8, 10, 14].some(r => isNote(pc(r))),
+           "SAVE TO PATTERN: the first pass round the cut (its rows 0-5 at 0, 6 and 12: notes at 1, 5, 7, 11, 13; its note off at 3 and 9)");
+        ok(isOff(pc(6)) && isOff(pc(12)), "... the note sounding at the cut's end ended at each wrap (a note off at 6 and 12)");
+        {
+            const v = U.loopsPattern(), heard = [...Array(16).keys()].filter(r => isNote(v.cells[r * 16])).join();
+            ok(heard === "1,5,7,11,13" && isOff(v.cells[6 * 16]), "the loops as they are heard (their pattern): round the cut (rows " + heard + ")");
+        }
+        await t.tap("EDIT");
+        ok(sNotes() === "1:0:60,5:0:60,9:0:60,13:0:60" && isOff(sCell(15)), "EDIT's copy: the cut loop as it stands, with no cut (" + sNotes() + ")");
+        emptyStage();
+        /* SHIFT turns the notes under the window; SEL held + EDIT tapped moves the mark */
+        U.edit(() => { L0().shift = 2; });
+        await t.turn("ALGORITHM", 4);
+        await t.combo("SEL", "EDIT");
+        ok(L0().cut === 10 && L0().shift === 2 && !t.top() && !staged() && U.toastNow() === "LOOP 00: CUT AT 1.3.3",
+           "SEL held + EDIT tapped at 1.3.3: the cut moved there, its SHIFT kept (the window stays put), no menu, the stage left as it was");
+        pc = await stored();
+        ok(n60(3) && n60(7) && n60(13) && !n60(11), "SAVE TO PATTERN: the notes turned 2 rows under the window (3, 7; again from 10: 13), the one heard at 11 uncut left out");
+        /* LENGTH longer: the cut kept, its base the new length, its SHIFT written out (as any shifted loop) */
+        await t.tap("GLO"); U.top().sel = 2; await t.turn("K1", 1); await t.tap("GLO");
+        ok(LS().rows === 32 && cutOf(0) === 10 && L0().base === 32 && L0().repeats === 1 && !L0().shift &&
+           str(0) === "1:0:off,3:0:60,5:0:off,7:0:60,9:0:off,11:0:60,13:0:off,15:0:60",
+           "LENGTH longer: the cut kept, its base the new length, written out as heard over 16 rows, SHIFT 0 (" + str(0) + ")");
+        /* LENGTH shorter: past the cut it stays (the question counting the notes past the mark, unheard); as short as the
+         * cut or shorter it goes */
+        setLoops([mkLoop({ base: 64, cells: cs(64, [[4, 0, 60], [6, 0, M.OFF], [52, 0, 62], [54, 0, M.OFF]]) })], 64);
+        await pick(0);
+        P.kept.loops.row = 40;
+        await menuPick("CUT HERE");
+        const at40 = U.toastNow();
+        await t.tap("GLO"); U.top().sel = 2; await t.turn("K1", -1); await t.tap("GLO");
+        const asked = t.top() === "question";
+        if (asked) await t.tap("OCT+");
+        ok(at40 === "LOOP 00: CUT AT 3.3" && asked && LS().rows === 48 && cutOf(0) === 40 && L0().base === 48 && str(0) === "4:0:60,6:0:off",
+           "LENGTH shorter but past the cut (64 to 48, cut at 40): asked (its note at 52, past the mark, counted), the cut kept, its base the new length (" +
+           str(0) + ")");
+        await t.tap("GLO"); U.top().sel = 2; await t.turn("K1", -1); await t.tap("GLO");
+        ok(!t.top() && LS().rows === 32 && !cutOf(0) && !L0().cut && L0().base === 32 && L0().repeats === 1,
+           "LENGTH as short as the cut or shorter (32): the cut goes, the loop as any (no note heard lost: no question)");
+        /* REMOVE CUT; DOUBLE keeps the cut (its base written twice); a set; SAVE and a power cycle */
+        setLoops([mkLoop({ cells: cs(16, [[1, 0, 60], [3, 0, M.OFF]]) })], 16);
+        await pick(0);
+        P.kept.loops.row = 3;
+        await menuPick("CUT HERE");
+        await menuPick("REMOVE CUT");
+        ok(!L0().cut && L0().base === 16 && L0().repeats === 1 && U.toastNow() === "LOOP 00: CUT REMOVED",
+           "REMOVE CUT: no cut, its base the length, once (LOOP 00: CUT REMOVED)");
+        await menuPick("CUT HERE");
+        await menuPick("DOUBLE");
+        ok(LS().rows === 32 && cutOf(0) === 3 && L0().base === 32 && L0().repeats === 1 && str(0) === "1:0:60,3:0:off,17:0:60,19:0:off",
+           "DOUBLE: the cut kept, its base written twice, the new length (" + str(0) + ")");
+        U.edit(() => { L0().shift = 5; });
+        const f = M.freeSet();
+        await menuPick("STORE AS A SET"); await t.tap("SEL");
+        await menuPick("REMOVE CUT");
+        await menuPick("LOAD A SET");
+        U.top().sel = M.setNums().indexOf(f); await t.tap("SEL");
+        if (t.top() === "question") await t.tap("OCT+");
+        ok(M.state.lsets[f] && M.state.lsets[f].loops.list[0].cut === 3 && cutOf(0) === 3 && L0().shift === 5,
+           "a set keeps the cut (STORE AS A SET, REMOVE CUT, LOAD A SET: cut at 3 again, SHIFT 5)");
+        U.edit(() => { M.state.lsets[f] = null; });
+        await t.tap("SAVE"); await t.sleep(1600); await M.kept();
+        await M.startUp();
+        t.frame();
+        ok(cutOf(0) === 3 && L0().shift === 5 && !M.unsaved, "SAVE, a power cycle: the cut back");
+        {
+            const old = structuredClone(LS());
+            for (const L of old.list) delete L.cut;
+            M.loopsFilled(old);
+            ok(old.list.every(L => L.cut === 0), "a record from before the cut: its loops read with none, filled where it is loaded");
+        }
+        {   /* LOAD FROM PATTERN (of the cut loop's first pass: its note at 1 every 3 rows): loops with no cut */
+            const free = M.freePattern();
+            U.edit(() => { L0().shift = 0; });
+            await menuPick("SAVE TO PATTERN"); await t.tap("SEL");
+            await menuPick("LOAD FROM PATTERN"); U.top().sel = M.patternNums().indexOf(free); await t.tap("SEL"); await t.tap("OCT+");
+            const nts = notesAt(0);
+            ok(LS().list.length === 1 && LS().list.every(L => L.cut === 0) && LS().rows === 32 && nts.length === 11 && nts[0] === "1:0:60" && nts[10] === "31:0:60",
+               "LOAD FROM PATTERN (of the cut loop's first pass): a loop with no cut, its notes as they were heard (" + nts.join() + ")");
+            U.edit(() => { M.state.patterns[free] = null; });
+        }
+        /* QUANTIZE and MOVE keep the cut, as a part of the loop */
+        setLoops([mkLoop({ cells: cs(16, [[1, 0, 60], [3, 0, M.OFF], [9, 0, 62]]) }), mkLoop({ col: 1 })], 16);
+        U.edit(() => { L0().cut = 6; });
+        await pick(0);
+        await menuPick("QUANTIZE"); U.top().sel = 2; await t.tap("SEL");
+        ok(cutOf(0) === 6 && notesAt(0).join() === "0:0:60,8:0:62", "QUANTIZE on a cut loop: all its notes, past the mark too (" + notesAt(0).join() + "), the cut kept");
+        t.down("SEL"); await t.sleep(30); await t.turn("SELECT", 1); t.up("SEL"); await t.sleep(250);
+        ok(sc().sel === 1 && cutOf(1) === 6 && !cutOf(0) && !t.top(), "MOVE (SEL held + SELECT): the cut goes with its loop (LOOP 01 now)");
+        /* SEL held + EDIT: the other order; held past HOLD DELAY; at the first row; on + NEW LOOP; during a count-in */
+        await stopAll();
+        setLoops([mkLoop({ base: 4, repeats: 4, cells: cs(4, [[1, 0, 60]]) })], 16);
+        await pick(0);
+        P.kept.loops.row = 10;
+        t.down("EDIT"); await t.sleep(30); t.down("SEL"); await t.sleep(30); t.up("SEL"); await t.sleep(20); t.up("EDIT"); await t.sleep(250);
+        ok(cutOf(0) === 10 && !t.top() && !staged() && U.toastNow() === "LOOP 00: CUT AT 1.3.3",
+           "EDIT held + SEL (the other order), EDIT let go at once: CUT HERE (LOOP 00: CUT AT 1.3.3); no menu, the stage neither filled nor cleared");
+        t.down("SEL"); await t.sleep(30); t.down("EDIT"); await t.sleep(U.set("HOLD DELAY") + 100); t.up("EDIT"); await t.sleep(20); t.up("SEL"); await t.sleep(250);
+        ok(!cutOf(0) && !t.top() && U.toastNow() === "LOOP 00: CUT REMOVED", "SEL held + EDIT held past the hold delay: the cut removed (LOOP 00: CUT REMOVED), no menu");
+        t.down("SEL"); await t.sleep(30); t.down("EDIT"); await t.sleep(U.set("HOLD DELAY") + 100); t.up("EDIT"); await t.sleep(20); t.up("SEL"); await t.sleep(60);
+        ok(!cutOf(0) && !t.top() && U.flash[B.EDIT] > U.now(), "... held with no cut to remove: nothing (EDIT blinks)");
+        await t.sleep(400);
+        P.kept.loops.row = 0;
+        await t.combo("SEL", "EDIT");
+        ok(!cutOf(0) && !t.top() && U.flash[B.EDIT] > U.now(), "SEL held + EDIT at the loops' first row: nothing (EDIT blinks)");
+        await t.sleep(400);
+        P.kept.loops.row = 10;
+        await pick(1);
+        await t.combo("SEL", "EDIT");
+        ok(!cutOf(0) && !t.top() && !staged() && U.flash[B.SEL] > U.now(), "... on + NEW LOOP: nothing (SEL blinks)");
+        await pick(0);
+        await t.sleep(400);
+        U.edit(() => { LS().countIn = "1 BAR"; });
+        await t.tap("REC"); await t.tap("PLAY");
+        const counting = P.countingIn();
+        await t.combo("SEL", "EDIT");
+        ok(counting && !cutOf(0) && !t.top() && U.flash[B.EDIT] > U.now(), "... during a count-in: nothing (EDIT blinks)");
+        await t.tap("PLAY");
+        U.edit(() => { LS().countIn = countIn0; });
+        await stopAll();
+        /* the lanes round the window (lanes_test.c's t_cut): two loops cut at 3 over 16 rows; loop 00's notes at 0, 2 and 4 (past
+         * the mark: unheard), loop 01's at 1, held into its wrap */
+        setLoops([mkLoop({ cells: cs(16, [[0, 0, 67], [2, 0, 62], [4, 0, 60]]) }), mkLoop({ col: 1, cells: cs(16, [[1, 0, 64]]) })], 16);
+        U.edit(() => { for (const L of LS().list) L.cut = 3; LS().tempo = 300; });
+        /* the loops played from row `from` for ms (the screen's PLAY: viaScreen, the stage with them); their notes' starts
+         * on track tr as pass * 100 + row:note, the rows the replay scheduled */
+        const heard = async (ms, from = 0, viaScreen = false) => {
+            const calls = [], rows = [], on0 = A.noteOn, off0 = A.noteOff, hook = P.loopsRow;
+            A.noteOn = (id, time, midi, ref, vol, track, opts) => { calls.push({ on: 1, id, time, midi, track }); return on0(id, time, midi, ref, vol, track, opts); };
+            A.noteOff = (id, time) => { calls.push({ on: 0, id, time }); return off0(id, time); };
+            P.loopsRow = function (row, time, dur, pass) { rows.push({ row, time, pass }); return hook.apply(this, arguments); };
+            if (viaScreen) { P.kept.loops.row = from; await t.tap("PLAY"); await t.sleep(Math.max(0, ms - 180)); }
+            else { P.playLoops(from); await t.sleep(ms); }
+            P.pause();
+            A.noteOn = on0; A.noteOff = off0; P.loopsRow = hook;
+            await t.sleep(60);
+            const at = time => { const x = rows.find(r => Math.abs(r.time - time) < 1e-6); return x ? x.pass * 100 + x.row : -1; };
+            return { calls, at, starts: (tr, most = 200) => calls.filter(c => c.on && c.track === tr && at(c.time) >= 0 && at(c.time) < most).map(c => at(c.time) + ":" + c.midi).join() };
+        };
+        let h = await heard(1900);
+        ok(h.starts(16, 100) === "0:67,2:62,3:67,5:62,6:67,8:62,9:67,11:62,12:67,14:62,15:67",
+           "pass 0: loop 00's rows 0 and 2 round the cut (0, 3 ... 15 and 2, 5 ... 14), its note at 4 unheard (" + h.starts(16, 100) + ")");
+        ok(h.starts(16).split(",").filter(s => +s.split(":")[0] >= 100 && +s.split(":")[0] < 103).join() === "101:62,102:67",
+           "pass 1: it runs on across the length's end (its row 0 at row 2, its row 2 at 1, nothing at 0): drifting (" + h.starts(16) + ")");
+        {
+            const w3 = h.calls.find(c => !c.on && h.at(c.time) === 3 && /^s17\.0\./.test(c.id));
+            ok(h.starts(17, 6) === "1:64,4:64" && !!w3, "loop 01's note at 1 held into its wrap: ended there (row 3), again at 4 (" + h.starts(17, 6) + ")");
+        }
+        h = await heard(400);
+        ok(h.starts(16).startsWith("0:67,2:62,3:67"), "PLAY from the start: the same again (" + h.starts(16) + ")");
+        h = await heard(400, 5);
+        ok(h.starts(16).startsWith("5:62,6:67"), "PLAY from row 5: the window where the first pass has it there (its row 2 at 5, its row 0 at 6) (" + h.starts(16) + ")");
+        U.edit(() => { L0().shift = 1; });
+        h = await heard(500);
+        ok(h.starts(16, 8) === "1:67,4:67,7:67", "SHIFT 1: the window's rows play the loop's 15, 0, 1: its note at 0 at rows 1, 4, 7; its note at 2 out of the window (" +
+           h.starts(16, 8) + ")");
+        U.edit(() => { L0().shift = 0; });
+        /* the stage over a cut loop wraps at its mark; over + NEW LOOP the length's rows, as ever */
+        await pick(0);
+        stg().cells = cs(16, [[0, 0, 72], [5, 0, 74]]); M.version++;
+        await stageOn();
+        h = await heard(700, 0, true);
+        ok(h.starts(STAGE_T, 8) === "0:72,3:72,6:72", "the stage over loop 00 (cut 3): its row 0 at 0, 3, 6; its row 5 unheard (" + h.starts(STAGE_T, 8) + ")");
+        await pick(2);
+        h = await heard(700, 0, true);
+        ok(h.starts(STAGE_T, 8) === "0:72,5:74", "... over + NEW LOOP: the length's rows, as ever (" + h.starts(STAGE_T, 8) + ")");
+        emptyStage();
+        await stopAll();
+        U.edit(() => { LS().tempo = 120; });
+        /* the keys land on the window's row (ui3_test.c's: a key at the loops' row 9 over loop 00 cut at 4: onto the stage's
+         * row 1), let go a row on: its note off at the window's next row; past the window's end: the next window's first row */
+        setLoops([mkLoop({ cells: cs(16, [[1, 0, 60]]) })], 16);
+        U.edit(() => { L0().cut = 4; });
+        await pick(0);
+        await slow();
+        press(12, 9, .1); lift(12, 10, .1);
+        ok(isNote(sCell(1)) && sCell(1).note === U.midi(12) && isOff(sCell(2)) && !sCell(9) && !sCell(10),
+           "a key at the loops' row 9 over loop 00 cut at 4: onto the stage's row 1, its window's; let go at 10: its note off at the window's row 2 (" + sNotes() + ")");
+        emptyStage();
+        press(14, 11, .6); lift(14, 12, .1);
+        ok(isNote(sCell(0)) && sCell(0).note === U.midi(14) && isOff(sCell(1)) && !sCell(12),
+           "... at 11.6, past the window's end (its row 3.6): the next window's row 0, its note off at 1 (" + sNotes() + ")");
+        {   /* OVERWRITE over a cut loop: its line erases the window's rows it passes, never the stage's notes past the mark */
+            const was = stg().cells;
+            stg().cells = cs(16, [[2, 0, 50], [9, 0, 52]]); M.version++;
+            frameAt(0, .5);
+            await t.tap("LFO");
+            frameAt(3, .5); frameAt(9, .9);
+            ok(stg().over && !sCell(2) && isNote(sCell(9)), "OVERWRITE over loop 00 cut at 4: the line erases the window's row 2, its note at 9 (past the mark) kept (" + sNotes() + ")");
+            await t.tap("LFO");
+            stg().cells = was; M.version++;
+        }
+        /* REC into a cut loop: its cut kept, SHIFT 0 (the stage as heard); on + NEW LOOP no cut */
+        U.edit(() => { L0().shift = 5; });
+        await t.tap("REC");
+        ok(L0().cut === 4 && !L0().shift && U.toastNow() === "STAGE INTO LOOP 00", "REC into a cut loop: its cut kept, SHIFT 0 (STAGE INTO LOOP 00)");
+        await stopAll();
+        await stageOn();
+        await t.sleep(500);
+        stg().cells = cs(16, [[2, 0, 62]]); M.version++;
+        await pick(1);
+        await t.tap("REC");
+        ok(LS().list.length === 2 && LS().list[1].cut === 0 && U.toastNow() === "STAGE AS LOOP 01", "REC on + NEW LOOP: a new loop with no cut");
+        await stageOn();
+        /* the strip (ui3_test.c's): base 4 x4, its note at 1 (sustained to its base's end), cut at 10, the play position at 7:
+         * the mark at x 139 from y 45 (a pixel over the strip), a note before it in the loop's colour (x 97), one past it
+         * dimmed, dark grey (x 188); CUT on the slot's line (x 100) */
+        await t.sleep(500);
+        setLoops([mkLoop({ base: 4, repeats: 4, cells: cs(4, [[1, 0, 60]]) })], 16);
+        await pick(0);
+        P.kept.loops.row = 10;
+        await t.combo("SEL", "EDIT");
+        P.kept.loops.row = 7;
+        t.frame();
+        const lc = c565(M.LOOP_COLS[L0().col]), lgIn = (x0, x1) => { for (let y = 33; y < 43; y++) for (let x = x0; x < x1; x++) if (t.px(x, y) === c565(D.LGREY)) return true; return false; };
+        ok(cutOf(0) === 10 && t.px(139, 43) === lc && t.px(97, 50) === lc && t.px(188, 50) === c565(D.DGREY) && lgIn(100, 118),
+           "the strip: the mark at 10 in the loop's colour (a pixel over the strip), a note before it in its colour, one past it dimmed; CUT on the slot's line (" +
+           [t.px(139, 43), t.px(97, 50), t.px(188, 50)].map(v => v.toString(16)).join(" ") + ", the colour " + lc.toString(16) + ")");
+        ok(t.px(139, 175) === lc, "... the stage's strip over it: the mark too (" + t.px(139, 175).toString(16) + ")");
+        P.kept.loops.row = 12;                              /* (the window's row there: 2) */
+        t.frame();
+        ok(t.px(49, 50) === lc && t.px(49, 43) === c565(D.BLACK) && t.px(162, 43) === c565(D.WHITE),
+           "... the window's row playing (stopped: the play position 12 round the cut, 2) a line in the loop's colour within the strip, the play line white");
+        U.edit(() => { L0().shift = 3; });
+        t.frame();
+        ok(lgIn(124, 166) && !lgIn(118, 124), "... a cut loop's SHIFT at x 124, after CUT");
+        stg().cells = cs(16, [[3, 0, 50], [12, 0, 52]]); M.version++;
+        t.frame();
+        ok(t.px(76, 184) === lc && t.px(176, 184) === c565(D.DGREY), "... the stage's notes before the mark in its colour (row 4), those past it dimmed (row 13)");
+        emptyStage();
+        await pick(1);
+        t.frame();
+        ok(t.px(139, 175) !== lc, "... on + NEW LOOP the stage's strip has no mark");
+        await pick(0);
+        /* a cut loop's strip pages by its own place (specs/ui/screens/loops.md#the-strips; ui3_test.c's): LENGTH 4 bars, VIEW
+         * 1 bar, loop 00 cut at 1 bar, its note at 2; loop 01's at 40. Playing at 36 (bar 3): loop 00's strip on bar 1's
+         * page, its note there, its own line (row 4, x 72) in its colour and no play line; loop 01's on bar 3's, the white
+         * play line at 36 (x 72 too); the stage over the cut loop as loop 00's strip; the length's bar on bar 3. Stopped, the
+         * play position at 38: where PLAY would start it (row 6, x 94) */
+        {
+            await stopAll();
+            const view0 = LS().view;
+            setLoops([mkLoop({ base: 64, cut: 16, cells: cs(64, [[2, 0, 60], [3, 0, M.OFF]]) }), mkLoop({ col: 1, base: 64, cells: cs(64, [[40, 0, 64], [41, 0, M.OFF]]) })], 64);
+            U.edit(() => { LS().view = 1; LS().tempo = 120; LS().countIn = 0; });
+            await pick(0);
+            P.kept.loops.row = 0;
+            await t.tap("PLAY");
+            await until(() => { const h = realAt(); return !!h && h.row === 36 && (P.time() - h.t) / h.dur >= .34; }, 10000);
+            const h = realAt();
+            t.frame();
+            const lc0 = c565(M.LOOP_COLS[LS().list[0].col]), lc1 = c565(M.LOOP_COLS[LS().list[1].col]), wh = c565(D.WHITE);
+            let w3 = false, w1 = false;
+            for (let y = 199; y < 211; y++) for (let x = 0; x < 6; x++) { w3 = w3 || t.px(118 + x, y) === wh; w1 = w1 || t.px(28 + x, y) === wh; }
+            const hx = v => v.toString(16);
+            ok(h && h.row === 36 && cutOf(0) === 16 && t.px(54, 50) === lc0 && t.px(72, 50) === lc0 && t.px(72, 45) !== wh && t.px(72, 82) === wh &&
+               t.px(122, 82) === lc1 && t.px(72, 180) === lc0 && t.px(72, 175) !== wh && w3 && !w1,
+               "a cut loop's strip by its own place: playing at 36 (bar 3), VIEW 1 bar, loop 00 cut at 16: its strip bar 1's page (its note at 2: " +
+               hx(t.px(54, 50)) + "), its own line at row 4 (" + hx(t.px(72, 50)) + ", over it " + hx(t.px(72, 45)) + "), no play line; loop 01's bar 3's (its " +
+               "note at 40: " + hx(t.px(122, 82)) + ", the play line " + hx(t.px(72, 82)) + "); the stage over loop 00 the same (" + hx(t.px(72, 180)) + ", over it " +
+               hx(t.px(72, 175)) + "); the length's bar on bar 3 (the colour " + hx(lc0) + ")");
+            await t.tap("PLAY");                           /* (stopped: the play position back at the start) */
+            await t.sleep(100);
+            await t.turn("ALGORITHM", 38);
+            t.frame();
+            ok(P.kept.loops.row === 38 && t.px(94, 50) === lc0 && t.px(94, 45) !== wh && t.px(54, 50) === lc0 && t.px(94, 82) === wh && t.px(94, 180) === lc0 &&
+               t.px(94, 175) !== wh, "... stopped, the play position at 38: loop 00's strip where PLAY would start it (row 6: " + hx(t.px(94, 50)) + ", over it " +
+               hx(t.px(94, 45)) + "), bar 1's page (" + hx(t.px(54, 50)) + "); loop 01's play line there on bar 3's (" + hx(t.px(94, 82)) + "); the stage's (" +
+               hx(t.px(94, 180)) + ")");
+            await t.turn("ALGORITHM", -38);
+            U.edit(() => { LS().view = view0; });
+            setLoops([], 16);
+        }
+        U.edit(() => { LS().tempo = tempo0; LS().countIn = countIn0; });
     }
 
     /* ---- REC ends the arm; PLAY's red after LOOPS' stop; EMPTY's place; PLAY outside LOOPS with no loops ---- */
@@ -1886,9 +2840,9 @@ module.exports = async t => {
         const before = atRow(land - 1), after = atRow(land).concat(atRow(land + 1));
         const its = after.filter(o => o.midi === 60), others = after.filter(o => o.midi !== 60);
         ok(before.length === 4 && !before.some(gone) && its.every(gone) && others.length === 6 && !others.some(gone) &&
-           ons.some(o => /k9$/.test(o.id) && Math.abs(o.time - rowsT[q + land]) < 1e-6),
+           ons.filter(o => /k9$/.test(o.id)).length === 1 && ons.some(o => /k9$/.test(o.id) && o.time < rowsT[q + land - 1]),
            "a key landing ahead (4 ROWS), no lane free: the stage's row before its landing still heard, its lane silenced from the landing " +
-           "row on, the other lanes heard, the key's note there (" + its.length + " of its lane, " + others.length + " others)");
+           "row on, the other lanes heard; the key's note heard at its press, once (" + its.length + " of its lane, " + others.length + " others)");
         U.edit(() => { LS().quantize = "ROW"; });
         /* the stage heard whatever the mutes and solos: a column of its own, carrying the loop's mix */
         setLoops([mkLoop({ muted: true, cells: eight() }), mkLoop({ col: 1, cells: cs(16, [[2, 0, 67]]) })], 16);
@@ -2044,12 +2998,13 @@ module.exports = async t => {
         A.noteOff = (id, time) => { offs.push({ id, time }); return off0(id, time); };
         P.kept.loops.row = 0; await t.tap("PLAY");
         await until(() => { const h = realAt(); return !!h && h.pass === 0 && h.row >= 1; }, 3000);
-        t.down("SEL"); await t.sleep(10); await t.turn("ALGORITHM", 1); t.up("SEL"); await t.sleep(300);
+        P.lpJump(16); await t.sleep(300);   /* (a bar's jump, the player's: ALGORITHM's clicks come 120 ms apart here, so
+                                             * the loops would walk into the rest between them) */
         P.loopsRow = hook; A.noteOn = on0; A.noteOff = off0;
         await stopAll();
-        const k = rows.findIndex((r, x) => x && r.row !== (rows[x - 1].row + 1) % 32), land = k > 0 ? rows[k] : null;
+        const k = rows.findIndex((r, x) => x && r.row !== (rows[x - 1].row + 1) % 32 && r.row >= 8), land = k > 0 ? rows[k] : null;
         const note = ons.find(o => /^s16\.0\./.test(o.id));
-        ok(land && land.row >= 16 && note && offs.some(o => o.id === note.id && Math.abs(o.time - land.time) < 1e-6),
+        ok(land && land.row >= 8 && note && offs.some(o => o.id === note.id && Math.abs(o.time - land.time) < 1e-6),
            "a jump landing in a loop's rest: the loop falls silent there (its note ends on the row it lands on, " + (land ? land.row : "-") + ")");
         setLoops([], 32);
         U.edit(() => { LS().tempo = 300; LS().quantize = "ROW"; });
@@ -2059,7 +3014,7 @@ module.exports = async t => {
         t.keyDown(9); await t.sleep(60); t.keyUp(9);
         await until(() => { const h = realAt(); return !!h && h.row >= 22; }, 3000);
         A.noteOn = (id, time, midi, ...a) => { heard.push({ id, midi }); return on0(id, time, midi, ...a); };
-        t.down("SEL"); await t.sleep(10); await t.turn("ALGORITHM", -1); t.up("SEL"); await t.sleep(400);
+        await t.turn("ALGORITHM", -16); await t.sleep(400);   /* (a bar back) */
         A.noteOn = on0;
         const back = realAt();
         await stopAll();
@@ -2204,6 +3159,19 @@ module.exports = async t => {
         await t.tap("GLO"); U.top().sel = 3; await t.turn("K1", 1); await t.tap("GLO");
         ok(LS().rpb === 6 && LS().rows === 90, "GRID from a part bar: its whole bars rounded down (5 1/3 bars at 1/16: 5 bars at 1/16T, " + LS().rows + " rows)");
         U.edit(() => { LS().rpb = 4; LS().fx.knobs.METRONOME[1] = 4; });
+        setLoops([], 64);
+    }
+
+    /* a loop's piece in the edit memory: its stream as the firmware encodes it (M.streamOf: a long skip's byte, a gap past
+     * 255 stream rows bridged), the room MEMORY FOR EDITS IS FULL and STATUS go by, not an estimate */
+    {
+        setLoops([mkLoop({ base: 128, cells: cs(128, [[0, 0, 60]]) })], 128);
+        const u0 = M.editsUsed, c0 = LS().list[0].cells, c1 = cs(128, [[0, 0, 60], [100, 0, 62]]);
+        U.edit(() => { LS().list[0].cells = c1; });
+        const want = M.pieceRoom(M.streamOf(c1)) - M.pieceRoom(M.streamOf(c0));
+        const est = M.pieceRoom(M.streamBytes({ cells: c1 })) - M.pieceRoom(M.streamBytes({ cells: c0 }));
+        ok(M.editsUsed - u0 === want && want !== est, "a loop's piece in the edit memory as the firmware encodes its stream: a note 100 " +
+           "rows on takes " + (M.editsUsed - u0) + " B more (the bridge, the long skip: " + want + "; the old estimate " + est + ")");
         setLoops([], 64);
     }
 
@@ -2386,12 +3354,12 @@ module.exports = async t => {
         await lvAt(13, 0); U.edit(() => { LS().fx.knobs.REVERB[3] = 70; });
         await lvAt(14, 2);
         const pressed = P.time();
-        t.keyDown(4);                                      /* (4 ROWS: 14.33 lands on 16, ahead: it waits for it) */
+        t.keyDown(4);                                      /* (4 ROWS: 14.33 lands on 16, ahead: heard at once all the same) */
         await lvAt(15, 1); U.edit(() => { LS().tempo = 64; });
         await lvAt(17, 5); t.keyUp(4);
         const kc = calls.find(c => /k4$/.test(c.id));
-        ok(kc && kc.track === STAGE_T && kc.time - pressed > .15, "RECORD LIVE: ... a key's note heard as written: on the stage at its line, not " +
-           "before (" + (kc ? (kc.time - pressed).toFixed(2) : "none") + " s)");
+        ok(kc && kc.track === STAGE_T && kc.time - pressed < .05 && calls.filter(c => /k4$/.test(c.id)).length === 1,
+           "RECORD LIVE: ... a key's note heard at once, before its line (written on it: below) (" + (kc ? (kc.time - pressed).toFixed(2) : "none") + " s)");
         ok(LS().list[1].muted && staged(), "RECORD LIVE: ... the mute is live; the keys overdub the stage as ever");
         t.frame();
         const foot = U.screen.footer();
@@ -2520,6 +3488,43 @@ module.exports = async t => {
         const ty = y0 ? noteTrk(y0, 126, 60) : -1;
         ok(Sy && Sy.order.length === 2 && ty >= 0 && y1 && ends(pc(y1, 0, ty)),
            "RECORD LIVE: a note off exactly on row 128 lands at row 0 of the second pattern, on its note's track");
+        await stopAll();
+
+        /* the stage's keys heard at once, written as they land on the stage (4 ROWS; ui3_test.c's test_live_early): a key
+         * played early and held past its line written on that line, its end on the row the stage gives it, ahead of its
+         * release; a quick tap let go before its line: its note and its end both landing ahead of where they were heard, on
+         * their rows, nothing where they were heard */
+        setLoops([mkLoop({ cells: cs(16, [[0, 0, 60], [4, 0, M.OFF]]) })], 16);
+        U.edit(() => { LS().tempo = 60; });
+        await pick(1);
+        P.kept.loops.row = 0;
+        await lvArm();
+        const ne = M.freeSong(), e0 = U.midi(0), e4 = U.midi(4), ecalls = [], eon0 = A.noteOn;
+        A.noteOn = (id, time, midi, ref, vol, track, o) => { ecalls.push({ id, time }); return eon0(id, time, midi, ref, vol, track, o); };
+        await t.tap("PLAY");
+        U.edit(() => { LS().quantize = "4 ROWS"; });
+        await lvAt(6, 4);
+        let pe = P.time();
+        t.keyDown(0);                                      /* (6.67: on 8) */
+        const h0 = ecalls.some(c => /k0$/.test(c.id) && c.time - pe < .03);
+        await lvAt(8, 4); t.keyUp(0);                      /* (8.67: its end on 9) */
+        await lvAt(10, 3);
+        pe = P.time();
+        t.keyDown(4);                                      /* (10.5: on 12) */
+        await t.sleep(30);
+        const h4 = ecalls.some(c => /k4$/.test(c.id) && c.time - pe < .03);
+        t.keyUp(4);                                        /* (let go at once: its end on 13) */
+        await lvAt(14, 1);
+        A.noteOn = eon0;
+        await t.tap("HOME");
+        await until(() => !sg());
+        const Se = M.state.songs[ne], pe0 = Se && M.pattern(Se.order[0]);
+        const te0 = pe0 ? noteTrk(pe0, 8, e0) : -1, te4 = pe0 ? noteTrk(pe0, 12, e4) : -1;
+        ok(h0 && h4 && te0 >= 0 && ends(pc(pe0, 9, te0)) && noteTrk(pe0, 6, e0) < 0 && te4 >= 0 && ends(pc(pe0, 13, te4)) && noteTrk(pe0, 10, e4) < 0 &&
+           !ends(pc(pe0, 10, te4)) && !ends(pc(pe0, 11, te4)) && !ends(pc(pe0, 12, te4)),
+           "RECORD LIVE, 4 ROWS: keys heard at once, written as they land: 6.67 on 8 (track " + te0 + "), let go at 8.67, its end on 9; a quick tap at " +
+           "10.5 on 12 (track " + te4 + "), its end on 13; nothing where they were heard");
+        U.edit(() => { LS().quantize = "ROW"; });
         await stopAll();
 
         /* the log full (8 entries): 8 notes of a loop, an off between each: the first four notes and their offs fill it; a mix
@@ -2730,6 +3735,28 @@ module.exports = async t => {
             ok(p && noteTrk(p, 0, 60) >= 0 && ends(pc(p, 3, noteTrk(p, 0, 60))) && !pc(p, 6, noteTrk(p, 0, 60)) && noteTrk(p, 8, 62) < 0 && noteTrk(p, 12, 64) >= 0,
                "only notes with a voice: one losing its voice ends there (no note off at its own end), one never given a voice not written");
         }
+    }
+    {   /* REC keeps a MONO stage's volumes alone and its notes' ends (they go on with the note; the FM-1's rec_stage_merge) */
+        await stopAll();
+        await t.homeKey(22); t.frame();
+        setLoops([], 64);
+        U.edit(() => { LS().nextMono = true; });
+        await stageOn();
+        emptyStage();
+        const cells = new Array(LS().rows * 4).fill(null), vc = v => M.newCell(null, null, v);
+        cells[40 * 4] = M.newCell(U.midi(2), null, 20);
+        cells[41 * 4] = vc(50); cells[42 * 4] = vc(80); cells[43 * 4] = vc(110);
+        cells[45 * 4] = M.newCell(M.OFF, null, null);
+        cells[48 * 4] = M.newCell(U.midi(4), null, 30);
+        cells[49 * 4] = vc(90);
+        cells[51 * 4] = M.newCell(M.OFF, null, null);
+        U.edit(() => { stg().cells = cells; });
+        t.down("REC"); await t.sleep(30); t.up("REC"); await t.sleep(100);
+        const L = LS().list.find(x => isNote(x.cells[40 * 4]) && x.cells[40 * 4].note === U.midi(2) && isNote(x.cells[48 * 4]));
+        const got = L ? [41, 42, 43, 45, 49, 51].map(r => { const c = L.cells[r * 4]; return !c ? "-" : c.note === M.OFF ? "OFF" : c.vol; }).join() : "none";
+        ok(L && L.mono && got === "50,80,110,OFF,90,OFF", "REC of a MONO stage: its volumes alone and its notes' ends kept, as played (rows 41-43, 45, 49, 51: " + got +
+           "; " + (U.toastNow() || "-") + ")");
+        U.edit(() => { LS().nextMono = false; });
     }
     A.stageCol = stageCol0;
     M.demoDisk();

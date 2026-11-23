@@ -107,7 +107,7 @@ const AUDIO_OLD = 0x10;                     /* the old form's audio, numbered un
 const isAudio = kind => (kind & 0xFE) === AUDIO_OLD;
 const KIND_NAME = { 0x01: "DX7 CART", 0x02: "JUNO CART", 0x03: "TB-303 CART", 0x04: "SAMPLER CART",
     0x05: "FUSION CART", 0x06: "CHIP CART", 0x10: "SAMPLE", 0x11: "SAMPLE", 0x20: "PATTERN", 0x21: "SONG", 0x22: "LOOPS", 0x23: "DJ",
-    0x30: "SETTINGS", 0x31: "MIDI MAP", 0xE0: "NOTES" };
+    0x24: "LOOPS SET", 0x30: "SETTINGS", 0x31: "MIDI MAP", 0x32: "AUTOMATIONS", 0xE0: "NOTES" };
 const BUILTIN_KINDS = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x20];   /* numbers F0-FF are the firmware's */
 
 /* ---- bytes ---- */
@@ -158,7 +158,8 @@ function parseMessage(m) {
 function describe(r) {
     const name = KIND_NAME[r.kind] || "KIND " + hex2(r.kind);
     if (r.kind === AUDIO_OLD) return name + " " + hex2(r.num) + "." + hex2(r.sub);
-    if (r.kind === 0x20 || r.kind === 0x22) return name + " " + hex2(r.num) + "." + r.sub;
+    if (r.kind === 0x20 || r.kind === 0x22 || r.kind === 0x24) return name + " " + hex2(r.num) + "." + r.sub;
+    if (r.kind === 0x32) return name + " " + hex2(r.sub >> 4) + "." + (r.sub & 15);   /* (a slot's part) */
     return name + " " + hex2(r.num);
 }
 function parseData(bytes) {
@@ -717,9 +718,9 @@ function session(transport, opts) {
     };
 }
 
-/* A disk (specs/files/disk.md): settings, cartridges, songs, patterns, the loops, notes, then the audio,
-   each by number and sub. */
-const DISK_ORDER = [0x30, 0x31, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x21, 0x20, 0x22, 0x23, 0xE0, 0x10];
+/* A disk (specs/files/disk.md): settings, cartridges, the marks of deleted built-ins (0x0F), songs, patterns, the
+   loops, DJ's setup, LOOPS' sets, notes, then the audio, each by number and sub. */
+const DISK_ORDER = [0x30, 0x31, 0x32, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0F, 0x21, 0x20, 0x22, 0x23, 0x24, 0xE0, 0x10];
 function makeDisk(files, notes) {
     const all = files.slice();
     if (notes) all.push({ kind: 0xE0, num: 0, sub: 0, ver: 1, payload: new TextEncoder().encode(notes) });

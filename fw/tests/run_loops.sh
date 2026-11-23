@@ -24,6 +24,6 @@ python3 -I ../tools/gen.py "$GEN" > /dev/null
 $CC -std=c99 -D_DEFAULT_SOURCE -O1 -g -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-type-limits -Werror \
     -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize=shift-base -fno-sanitize-recover=all \
     -I../core -I../core/play/ibxm -I"$GEN" -o "$OUT/lanes_test" lanes_test.c $SRC "$GEN/builtin.c" \
-    ../core/play/ibxm/ibxm.c ../core/fx/fx.c ../core/eng/dx7/dx7.c ../core/eng/juno/juno.c ../core/eng/tb303/tb303.c \
+    ../core/plat_weak.c ../core/play/ibxm/ibxm.c ../core/fx/fx.c ../core/eng/dx7/dx7.c ../core/eng/juno/juno.c ../core/eng/tb303/tb303.c \
     ../core/eng/samp/samp.c ../core/eng/chip/chip.c -lm
 ASAN_OPTIONS=detect_leaks=0 "$OUT/lanes_test"

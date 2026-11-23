@@ -4,7 +4,8 @@ Status: **settled** (2026-10-12), with proposed details marked *(proposed)*.
 
 The firmware as released, plus figures of what its time goes to, read over USB by a page of its own. It is
 for measuring on the FM-1: what the sound costs by stage, what the screen costs it, how close the stacks
-come to their ends. Nothing a user does differs from the release. The page also runs
+come to their ends. Nothing a user does differs from the release but the help, which the FM-1's debug build leaves
+out ([what it holds less](#made-and-installed)). The page also runs
 [autotests](#autotests) (settled 2026-10-13: [proposals/202610131302-autotest.md](proposals/202610131302-autotest.md)),
 on any PT/FM firmware.
 
@@ -23,17 +24,25 @@ on any PT/FM firmware.
   they went, the answer to the page, [the USB test tone](#the-usb-test-tone) and [the layout's
   proofs](#proving-the-layout). It reports; it does not measure by itself: what an engine or an effect costs comes
   from the [autotests](#autotests)' live figures. Built with `PTFM_DEBUG` defined; the release compiles none of it. Its RAM: about a kilobyte more; it keeps 7 KB spare, not 8.
-- **Its slot is the release's and the probes:** the rest of what it holds more is [the debug part](#the-debug-part),
-  out of the slot.
+- **What it holds less: the help.** Its pages, about 10 KB of the packed texts, are left out of the FM-1's debug
+  build, room for the probes in the slot: every screen's help (HOME + LFO) is one page,
+  `HELP IS STRIPPED IN THE DEBUG BUILD`. Built for anything else (the emulator, the host tests) it keeps the help.
+- **Its slot is the release's and the probes, less the help:** the rest of what it holds more is [the debug
+  part](#the-debug-part), out of the slot.
 
 ## The debug part
 
-The debug build's cold code (the answers to the page, FIGURES and RECORDS put together, the layout's proofs and
-their screens, FREEZE's and the frames' counting, the stacks painted at the start and the main loop's passes timed)
-is linked apart, at the flash's 0x0F7000 (in place over the user area's window), and written there by the debug page
-as INSTALL DEBUG FIRMWARE's last step, once the firmware's install has ended well: no key of its own (pressed again,
-the install skips the firmware already in and writes the part). The sound's probes
-stay in the slot: they run inside each block.
+The debug build's cold code (the answers to the page, FIGURES and RECORDS put together, the ghosts' cold figures, the
+window's GHOSTS read and put together for FIGURES, the layout's proofs and their screens, FREEZE's and the frames'
+counting, the stacks painted at the start and the main loop's passes timed) is linked apart, at the flash's 0x0F7000
+(in place over the user area's window), and written there by the debug page as INSTALL DEBUG FIRMWARE's last step,
+once the firmware's install has ended well: no key of its own (pressed again, the install skips the firmware already
+in and writes the part). The sound's probes stay in the slot, inline in each block (the stages' clock reads and sums,
+what each block counts of the ghosts), as does the window's end of a half, in the audio interrupt. The ghosts' figures
+that are functions of their own (a ghost made, back or gone; a return's checks, searches, starts and forward work
+timed; the walk's budget; the waits' look) are the part's too: the audio interrupt calls them only while the part is
+in (the flag its check sets and a seeding clears), and without the part nothing asks for the figures. The build refuses
+a call of one that does not test the flag first.
 
 - **Its room:** 32 KB, 0x0F7000 - 0x0FF000, above the debug build's user area, which ends at 0x0F7000 (380 KB):
   nothing the store saves or the page uploads goes there. The FM-1 reports it in its layout as a region of its own,
@@ -89,6 +98,14 @@ longest in one half):
 What a stage's parts leave of it is the rest of its work (in REPLAY: the replays' own row and tick work, the
 rows' commands, the tracks' levels; in EFFECTS: the shared effects' own passes, the sends' sums, the METRONOME).
 
+**GHOSTS,** a stage of its own carried in 37 (31's stages are full: a 30th would pass the 640 bytes a message may
+take): the voices pass's ghost work ([ui/screens/settings.md](ui/screens/settings.md#voices)), the ends' walk (the
+ghosts ended by themselves or let go 10 s ago) and the returns' walk (their checks, starts and forward work under the
+budget), inside VOICES. Its sum over the window, its longest in one half and the worst half's (31's worst half) are
+[the ghosts' bytes](#the-ghosts-bytes)' first; the report lists it under VOICES, over the windows that have their 37
+(a 37 lost counts no ghost work: its mean and share by those windows' halves, its p95 over them), and in the worst
+half's line as `ghosts N`.
+
 **Each stage is measured wherever it runs:** while core 2 takes the blocks ([second-core.md](second-core.md)), EFFECTS
 and its parts (but DJ MIX, DJ FILTERS and the decks' INSERTS, core 1's), OUTPUT and USB AUDIO are core 2's, counted
 by core 2 for the half they were handed over in. At the next half's start, once core 2 has finished, core 1 adds
@@ -119,23 +136,28 @@ notes taken; flash reads in the audio context, their count and time; the main lo
 longest; the screen's frames drawn, their total and longest time; each stack's deepest point since power-on
 (the main loop's, the interrupts'); the time since power-on; what plays (the song, or DJ's two, its tempo,
 VOICES, the effects switched on), the screen, and the firmware's version; USB audio's state and its packets
-(sent, short, missed), so a recording's clicks show whether the FM-1 was late or the USB buffer ran dry.
+(sent, short, missed), so a recording's clicks show whether the FM-1 was late or the USB buffer ran dry; in 37,
+core 2's figures and the ghosts' ([the ghosts' bytes](#the-ghosts-bytes)): the ghosts now and the most, made, back,
+ended and dropped by kind, the returns' work engine by engine, the budget's use, the waits and the oldest note brought
+back.
 
 ## Asking: SysEx
 
-PT/FM's messages, `F0 7D 50 54 cmd ... F7` ([files/blob.md](files/blob.md#seeding)), six commands more:
+PT/FM's messages, `F0 7D 50 54 cmd ... F7` ([files/blob.md](files/blob.md#seeding)), eight commands more:
 
 | cmd | Direction | Contents |
 |---|---|---|
-| 30 FIGURES? | page → device | one byte, 7 bits: bit 0 the worst figures start afresh (only the page keeps them: it drops its own), bit 1 FREEZE THE SCREEN on, bit 2 off |
+| 30 FIGURES? | page → device | one byte, 7 bits: bit 0 the worst figures start afresh (only the page keeps them: it drops its own), bit 1 FREEZE THE SCREEN on, bit 2 off, bit 3 [the fixed split](#the-fixed-split) on, bit 4 off |
 | 31 FIGURES | device → page | the window, 7-bit packed as seeding's (7 bytes in 8): the bytes below |
-| 37 FIGURES 2 | device → page | core 2's window, sent right after each 31, packed as 31: [its bytes](#core-2s-bytes) |
+| 37 FIGURES 2 | device → page | the window's second part, sent right after each 31, packed as 31: core 2's bytes, then the ghosts' ([core 2's](#core-2s-bytes), [the ghosts'](#the-ghosts-bytes)) |
 | 34 USB TONE | page → device | one byte: 1 the USB test tone on, 0 off ([below](#the-usb-test-tone)) |
 | 35 PROVE | page → device | one byte: 0 the records, 1 the watchdog test, 2 the main loop's stack's overflow, 3 the interrupts' ([below](#proving-the-layout)) |
 | 36 RECORDS | device → page | what was kept across the last restart, packed as 31: [its bytes](#proving-the-layout) |
+| 32 KEYS FEED | page → device | a key, then its readings as the scan would bring them ([below](#keys-feed)) |
+| 33 KEYS FED | device → page | what the FM-1 made of them, packed as 31 ([below](#keys-feed)) |
 
-Only the debug build answers 30, 34 and 35; the release ignores them, as every unknown command, and the debug
-build every other (32, 33 and 38 among them, kept unused). The state
+Only the debug build answers 30, 32, 34 and 35; the release ignores them, as every unknown command, and the debug
+build every other (38 among them, kept unused). The state
 (40, 41) and MIRROR (43) are every build's ([connections.md](connections.md#mirror-the-panel-from-a-page)).
 
 **FIGURES' bytes** (version 11; little-endian; `u16` and `u32` unsigned; *n* stages, 29; *p* = 18 + 6*n*,
@@ -184,15 +206,15 @@ a page reads only its own version.
 
 ### Core 2's bytes
 
-**37 FIGURES 2** (version 2; little-endian), after every 31, for the same window:
+**37 FIGURES 2** (version 6; little-endian), after every 31, for the same window:
 
 | Offset | Size | What |
 |---|---|---|
-| 0 | u8 | the version: 2 |
+| 0 | u8 | the version: 5 |
 | 1 | u8 | the window's number, as 31's byte 17 |
 | 2 | u8 | core 2's state: 0 not started yet (`STARTING`), 1 running (`ON`), 2 off (`OFF`), 3 stopped |
 | 3 | u8 | why it stopped: 0 not stopped, 1 no answer, 2 a misread, 3 stuck, 4 a fault, 5 after a crash |
-| 4 | u8 | bit 0 SETTINGS' SECOND CORE on; bit 1 spare (0); bit 2 its start needed the clock-divider bit (always 0 now: the start has one try, without it); bit 3 the blocks went to core 2 for the whole window |
+| 4 | u8 | bit 0 SETTINGS' SECOND CORE on; bit 1 [the fixed split](#the-fixed-split) on (at the answer); bit 2 its start needed the clock-divider bit (always 0 now: the start has one try, without it); bit 3 the blocks went to core 2 for the whole window |
 | 5 | u8 | spare |
 | 6 | u16 | its answer at the start, in 10 ns (41: 0.41 µs; 0 not started) |
 | 8 | u32 | its blocks' time summed, µs |
@@ -206,16 +228,174 @@ a page reads only its own version.
 | 28 | u16, u16 | its jobs' stack: the deepest it went since its start, its size, bytes |
 | 32 | u32, u32 | its fault record if it faulted: the vector and the PC (0 none) |
 | 40 | u32 | its voice jobs' time summed, µs (part of byte 8's; [second-core.md](second-core.md#the-voices-on-core-2)) |
-| 44 | u16 | the voice jobs handed over (blocks with a voice of core 2's places, 11-16) |
-| 46 | u8, u8 | the most of core 2's places sounding at once; spare |
+| 44 | u16 | the voice jobs handed over (blocks whose split handed a voice to core 2: [second-core.md](second-core.md#the-split)) |
+| 46 | u8, u8 | the most voices in one voice job; spare |
 | 48 | u32 | core 1's waits for the voice jobs, summed, µs |
 | 52 | u16 | the longest of them, µs |
 | 54 | u8, u8 | SysEx messages the FM-1 lost on the way in this window (255 at most): begun while others waited for its main loop (it keeps one frame and one short message, under 15 bytes, at a time), cut short by another message's status (not core 2's, but the window's: FIGURES 2 carried it, the bytes being spare; 0 from an older firmware) |
-| 56 | | the end |
+| 56 | 310 | [the ghosts' bytes](#the-ghosts-bytes) |
+| 366 | 4 × u16 | the stacks' bottoms, the main loop's then the interrupts': from the deepest point FIGURES counts (the first word not painted at power-on, read from the bottom up), the bytes not painted, then the painted bytes above them. A word something else wrote at a stack's bottom reads as a stack used whole; then these show a few bytes, then the paint, and the report says so on a line of its own (`the main loop's stack: 8 B written at its bottom, then 9800 B untouched: 6320 B deep above`; no paint at all: not painted at this start). A start without the debug part (an install's page writes it after the firmware's restart) paints the stacks at its first window instead: else they would keep the last run's paint, the start check's variables at the main loop's bottom (184 B) zeroed at this start |
+| 374 | u32 | the voices' split ([second-core.md](second-core.md#the-split)), summed over the window's blocks in which core 2 took the voices' share (the half's, CUT's too): each block's place it stood after, the places before it core 1's (0-16; past the last place, none handed over: the count in force) |
+| 378 | u16 | those blocks |
+| 380 | u8, u8 | the lowest split in them (16: no block counted); spare |
+| 382 | s16 | the split's margin at the answer, units a block (the effects' allowance it follows: [second-core.md](second-core.md#the-split)) |
+| 384 | u32 | core 2's voices summed over the voice jobs (byte 44's: their mean a job) |
+| 388 | u16 | the voice jobs core 1 waited for at the join: core 2 not done with it when core 1 reached its places (without the timer: the platform's look at core 2's queue) |
+| 390 | 90 | [the keys' bytes](#the-keys-bytes) |
+| 480 | | the end (555 on the wire) |
+
+Version 5 ended at 414 (the keys' first 24 bytes alone), version 4 at 390 (no keys' bytes), version 3 at 374 (no split's
+bytes), version 2 at 56 (no ghosts); a page reads only its own version.
+
+### The keys' bytes
+
+In 37 from its byte 390 (little-endian): the keys' readings ([hardware.md](hardware.md#the-keys-velocity)), so an FM-1's
+own keys can be read before the curve is trusted. The counts run since power-on (not the window's); the last press is
+the last landing read.
+
+| Offset | Size | What |
+|---|---|---|
+| 390 | u8 | KEYS VELOCITY: 0 CONSTANT, 1 SOFT, 2 NORMAL, 3 HARD |
+| 391 | u8 | WAIT: 1 (the landing the first driven reading after the touch) or 2 (the lower of the first two) |
+| 392 | u8 | the last press's key, 0-19 (F3-C5); 255 none yet |
+| 393 | u8 | its velocity, 1-127; 0 none (taken late: KEYS VOLUME, or not taken yet) |
+| 394 | u16 | its touch: the pulled-up reading under 900 that began it |
+| 396 | u16, u16 | its first and second driven readings (0 not yet) |
+| 400 | u16 | its landing, the reading its velocity came from |
+| 402 | u16 | presses read: landings |
+| 404 | u16 | grazes: touches gone before they seated |
+| 406 | u16 | presses that waited too long (10 ms) for their velocity: played at KEYS VOLUME |
+| 408 | u16 | conversions not done by the next tick |
+| 410 | u16 | TIMER5's tick (the scan, the clocks, USB-MIDI's poll), its mean over its last 1,024, 10 ns |
+| 412 | u16 | its longest since the last window (since power-on while no page asks), 10 ns |
+| 414 | u8 | bit 0 the keys scanned (KEYS VELOCITY not CONSTANT on the FM-1; never in the firmware for the browser, which has no scan), bit 1 MASTER read both ways (435), bit 2 the battery read (439) |
+| 415 | 20 × u8 | each key's lowest pulled-up reading in the window, F3 first, a quarter of it (× 4: 0-1008, 16 apart: kept / 16; 0 none read): at rest an open key's near the top, a key under 900 at rest a dirty contact or a fault |
+| 435 | u16, u16 | MASTER from the scan's slot and read directly, both at the last battery reading (`FFFF` none) |
+| 439 | u16, u16 | the battery's last reading (`FFFF` none); its readings since power-on |
+| 443 | u8 | the landings since power-on, modulo 256: the newest below is this less 1 |
+| 444 | 4 × 9 | the last four landings, the newest first, each: u8 its key (255 none), u8 its velocity (0 none: KEYS VOLUME, or not taken yet), u8 the scan's frames (1.1 ms) its press waited for it (15: it waited too long, shown at KEYS VOLUME), u16 its touch, u16, u16 its first two driven readings |
+| 480 | | the end |
+
+- **STATUS** shows the same on its DEVICE page, under SECOND CORE, in T: `KEYS VELOCITY` and its value with
+  `WAIT 1 (K1)`; `LAST D-4 V87 T612 D455/448 L455` (the key, its velocity, touch, driven readings, landing; `LAST:
+  NONE YET`); `PRESSES 34 GRAZES 2 LATE 0 LOST 0` (yellow once a press was late or a conversion lost); `SCAN TICK 4.12
+  US, MOST 9.30 US`. **K1 on DEVICE switches WAIT 1 / WAIT 2** (the debug build's alone; at every start WAIT 1), to
+  compare the two on the FM-1.
+- **The report** gives them on lines of their own: `keys' velocity: NORMAL, WAIT 1`, the last window's last press and
+  counts, the scan's tick (the windows' mean, their longest), each key's lowest reading at rest over the windows (`20 of 20
+  read, the lowest 1012 (D-4), all open`, or the keys under 900), MASTER both ways and the battery, and **the presses
+  read**, each once (by its landing's number) from the windows' last four: `D-4: touch 850, driven 560 / 548, velocity
+  117, waited 2.2 ms`; a window that had more than four says how many it could not keep. So a RUN recorded while a hand
+  plays soft and hard measures that FM-1's own keys.
+
+### KEYS FEED
+
+**32 KEYS FEED** (`F0 7D 50 54 32 key op... F7`, the debug build's): key (0-26) fed readings as its scan would
+bring them, through the FM-1's own velocity (its compiled map, its state machine), so an autotest checks what the
+FM-1 makes of a press without a hand. Each op two bytes: `kind << 3 | bits 7-9 of its value`, then bits 0-6. Kinds:
+0 a pulled-up reading, 1 a driven one, 2 the slot's none (each the key's next reading: two frames on), 3 the
+debounced scan's press (the key then held, as a key down: its note plays, MIDI OUT sends it), 4 its release, 5 the
+value's frames passing. From its first op until its release the scan leaves that key alone (its readings and its
+contact). With no op it only answers. The ops run at once, interrupts off.
+
+**33 KEYS FED** (packed as 31; little-endian; version 1):
+
+| Offset | Size | What |
+|---|---|---|
+| 0 | u8 | the version: 1 |
+| 1 | u8 | the key |
+| 2 | u8 | KEYS VELOCITY: 0 CONSTANT, 1 SOFT, 2 NORMAL, 3 HARD |
+| 3 | u8 | bit 0 its press waits for its velocity, bit 1 it waited too long (KEYS VOLUME), bit 2 held (fed down), bit 7 no KEYS FEED in this firmware |
+| 4 | u32 | the key's state word (the velocity's: its lowest or latest driven reading, landing, state) |
+| 8 | u16 | its landing, 0 none |
+| 10 | 3 × u8 | the landing's velocity on SOFT, NORMAL and HARD (0 none) |
+| 13 | u8 | the velocity its press was taken at, 0 none |
+| 14 | u8 | the volume the keys play it at now (its velocity, or KEYS VOLUME) |
+| 15 | u8 | KEYS VOLUME |
+| 16 | u8 | MIDI OUT: 0 OFF, 1 KEYS, 2 ALL |
+| 17 | u8 | WAIT, 1 or 2 |
+| 18 | u16 × 3 | presses read (landings), grazes, presses that waited too long, since power-on |
+| 24 | | the end |
+
+### The fixed split
+
+The debug build's switch (30's bits 3 and 4): the voices' split as it stood before it moved, places 11-16 core 2's at
+VOICES 16 and none at 8 and 12, and the load guard counting as then (the first 10 places at VOICES 16, every one at 8
+and 12, core 1's alone), so AUTOTEST runs the "before" beside the "after" in one session (DJ HEAVY, FIXED SPLIT and DJ
+HEAVY AT VOICES 12, FIXED SPLIT, [below](#the-scenarios)). It is off at every start of the firmware and from bit 4 on;
+the release has none. With it on, the sound is the one before the split moved, sample for sample.
 
 Core 2's voice jobs count in the stages as core 1's voices do (VOICES and the engines' stages, their blocks; their
 mixing in MIX, as core 1's adding of core 2's mixes): the stages sum both cores' time. A voice job's time (byte 40)
 is its rendering and its mixing.
+
+### The ghosts' bytes
+
+In 37 from its byte 56 (little-endian), the ghosts' figures ([ui/screens/settings.md](ui/screens/settings.md#voices)):
+each the window's (since the page last asked), but "now" (a look at the answer, the ghosts and the engines walked with
+the audio held back) and "the most" (over the window). Kinds are in the order given, as the firmware and the page both
+list them:
+
+| Offset | Size | What |
+|---|---|---|
+| 56 | u32 | GHOSTS: the stage's time summed over the window, µs (the voices pass's ghost work: the ends' walk and the returns' walk, inside VOICES) |
+| 60 | u16 | its longest in one half, µs |
+| 62 | u16 | the window's worst half's (31's worst half) GHOSTS, µs |
+| 64 | 8 × u8 | now: ghosts; held (songs' and loops', heard); held, muted; the keys' held; let go; returns under way; the keys' notes in the count's engines; the songs' and loops' |
+| 72 | 4 × u8 | now: ghosts by engine (DX7, JUNO-106, sampler, CHIP) |
+| 76 | u32 | now: the tracks (0-31, a bit each) with ghosts |
+| 80 | u32 | now: the tracks with notes in the count's engines |
+| 84 | u8, u8, u8 | the most at once: ghosts; returns under way at a block's end; come back in one block |
+| 87 | u8 | the returns a block at most (4) |
+| 88 | u16 | the budget, units a block (44) |
+| 90 | u8, u8 | a ghost's checks' weight (15); the sampler's seek's (95) |
+| 92 | 4 × (u8, u8) | a start's and a step's weight: DX7, JUNO-106, sampler, CHIP |
+| 100 | 7 × u16 | made: taken for a new note; started as ghosts (the keys holding the engines, a key's held ghost waiting); started, a muted track's; muted; past a smaller VOICES; core 2's fallback, its job begun; never begun |
+| 114 | u16 | made: a TB-303's (never) |
+| 116 | 5 × u16 | back into a free engine; into a release tail's; tails cut for returns that never came back (not those given up to a new note); back after a mute (made by one, or muted since); back while muted (never) |
+| 126 | 15 × (u16, u16) | gone, by why, held and let go: cut (and every end without a why of its own); let go 10 s ago; ended by themselves; found ended at their return; instruments gone; the list full: let go, muted, songs' held, keys' held; under hearing at their return; the JUNO-106's RELEASE over; their track off their instrument; a FUSION cell or track changed; an older note's FUSION layer; a sampler ended by its commands |
+| 186 | u16 | of the drops, at a deferred start (a tail's engine's return checked again at its start) |
+| 188 | u16 | back let go, then freed by the quiet rule within 4 blocks |
+| 190 | 4 × u16 | returns under way given up: a new note, a smaller count, a command, a mute |
+| 198 | 4 × (u16, u32, u32) | each engine's forward work (DX7, JUNO-106, sampler, CHIP): calls, steps, µs |
+| 238 | 4 × (u16, u32) | each engine's note starts at a return: count, µs |
+| 262 | 4 × (u16, u32) | each engine's first block back rendered: count, µs (the sampler's seek in it) |
+| 286 | 3 × (u16, u32) | the checks before a return: the others', a sampler's, a FUSION layer's: count, µs |
+| 304 | u16, u32 | the free engine's or a tail's searches |
+| 310 | u16, u32 | the walks that spent nothing (those the load guard held among them) |
+| 316 | u16, u32 | the ends' walks |
+| 322 | u32, u16, u16 | the budget: units spent; the most in a block; blocks that spent |
+| 330 | u16, u16 | the walks stopped by the returns' count; by the budget |
+| 334 | u16, u16 | the longest wait (blocks, below); the longest under way (blocks from its return's begin to its fade in; one under way at a block's end, the least it will be) |
+| 338 | u32, u8 | the oldest note brought back: its age, blocks; bit 0 held, 1 a key's, 2 into a tail's |
+| 343 | u8 | a sampler's checks' weight (109; 0 from a firmware counting in its first units, below) |
+| 344 | 4 × u16 | the list full: notes not kept (never ghosts), by rank: let go, muted, songs' held, keys' held |
+| 352 | u16, u32 | the debug build's own look at the waits after each walk: count, µs (in no stage: VOICES has its time taken out, the "(interrupt)" row holds it) |
+| 358 | u16 | a timer pair's own cost × 32: 32 timer reads back to back at the window's first look (once a window), µs (0xFFFF: none measured, no ghost waited) |
+| 360 | u16 | the timed pieces inside the walks that spent nothing (searches that found nothing; a forward work's call that stepped nothing) |
+| 362 | u16 | the walks the load guard held ([ui/screens/settings.md](ui/screens/settings.md#coming-back): the half's work on the first core over its cap), a walk spending nothing each |
+| 364 | u16 | the load guard's cap, units (4,200) |
+
+- **The unit** is fixed, about 1 µs of the FM-1's time: each weight is its work's mean as measured on the FM-1 (the
+  starts, steps, seek and checks of GHOST NOTES), and the budget's 44 are 3 % of a block. A budget changed changes how
+  many units a block has, not what a unit is; the weights in µs are the unit's. A firmware whose byte 343 is 0 counted
+  in its first units, about 32 of the FM-1's instructions (0.091 µs), and the page reads its weights so.
+- **The longest wait** is a return's, in blocks from the first block its ghost could have begun (an engine it may take
+  left there: a free one of the count, or, held, a release tail's; whatever then stopped it: the returns' count, the
+  budget, no fade left) to its fade in; a ghost that may not begin by rule (muted; a faded-out DJ deck's with no tail
+  of its own deck) starts its wait again once it may. **The longest under way** is a figure of its own: from its
+  return's begin to its fade in.
+- **The timer pairs:** every time above holds the pair of timer reads around each of its calls (a walk's own, and two
+  for each piece timed inside it: the walks spending nothing count theirs, sent apart); the device measures a pair's
+  own cost (byte 358, a page keeping a section's least over its windows), and the report gives each time net of its
+  pairs, the GHOSTS stage and its row as measured (like every stage, its pairs in it), its line saying how much of
+  it is timer reads. A figure its pairs would take below nothing (held at 0), or timer reads past the stage's time,
+  says `probe over the measure` in its line: a bad probe, or pieces cheaper than a pair.
+- **What the counting leaves in:** the look at the waits after each walk, and its probe (32 timer reads once a
+  window, about 7 µs in one half), are in no stage but in the half's CPU, the worst half and the late count, so the
+  debug build's CPU is that much over the release's there (its own figure says how much: a block's look while
+  ghosts wait); the counting without timer reads (about 1 µs a return) stays in the GHOSTS stage and in the µs a unit
+  spent.
 
 ### USB audio's bytes
 
@@ -390,8 +570,9 @@ Its parts:
    in the footer and the key's tooltip.
 2. **RUNS,** the figures recorded by hand:
    - **CONNECT** asks for the figures once a second while the FM-1 runs the debug build (not while an install
-     or an upload runs); the window's figures show live: the CPU now, each stage's share and µs, a graph of
-     the last 60 s. The first answer after CONNECT covers everything since a page last asked, so it only
+     or an upload runs); the window's figures show live: the CPU now, each stage's share and µs (GHOSTS under
+     VOICES, from the window's 37), a graph of the last 60 s. The first answer after CONNECT covers everything since
+     a page last asked, so it only
      starts the clock: it is neither shown nor kept.
    - **RECORD and STOP:** the user sets up what is to be measured, types the run's name (`PASS 1`), presses
      RECORD, and STOP when done; only the windows between them are kept, as that run. While it records the
@@ -412,7 +593,9 @@ Its parts:
      for each run: the worst, the mean, the median and the 95th percentile, and the CPU's share for each
      stage, **from the windows the FM-1 played in** (the stopped ones left out, and counted), unless it
      never played; for each core apart (CPU 1: the interrupt's time; CPU 2: its blocks' time, from 37), with
-     core 2's state, core 1's waits for it and the late halves each core caused in the report.
+     core 2's state, core 1's waits for it and the late halves each core caused in the report, and the voices' split
+     (where it stood on average and at its lowest, core 2's voices a job, the jobs core 1 waited for at the join, the
+     margin at the end; the fixed split named while it was on).
    - **FREEZE SCREEN** switches the freeze on and off.
 3. **LISTEN,** a part of its own:
    - **USB AUDIO HERE** (off at first) plays the FM-1's USB audio input on the computer's speakers, with a
@@ -455,7 +638,40 @@ beside what the run did then; at most 12, those with the most late halves, then 
 by engine, voices (mean, most: the mean from the voice blocks made, every block of every voice, so voices
 that sound half a row, as a TB-303's on a track, count as they sound), the
 screen's frames, the stacks' depth, USB audio, and the FIGURES windows the FM-1 could not send whole when there
-were any. A run DJ played in also lists **DJ's settings** as at its end
+were any. A run where ghosts were made gives **the ghosts' lines** after the voices' ([the ghosts'
+bytes](#the-ghosts-bytes)): the ghosts now (by engine too) and the most at once; made by kind; back (into free
+engines, into tails', the tails cut for returns that never came back, after a mute, the most in a block); ended and
+dropped by kind with the held ones apart, the notes not kept, the drops at a deferred start, those back let go and
+quiet at once; the returns given up; the budget (units spent, the most in a block, the walks stopped by the count or
+the budget, those the load guard held and its cap, the GHOSTS time with its timer reads' share, the µs a unit spent against the unit's 1 µs); each engine's
+steps, starts and first blocks back with the weights in force, the checks by kind, the searches, the walks spending
+nothing, the ends' walks, the look at the waits; the longest wait, the longest under way and the oldest note back.
+Lines with nothing to say are left out. DJ HEAVY's, as the computer's run gives them (the emulator's clock standing
+still inside a half, its times 0):
+
+```
+ghosts: now 0 (held 0, muted 0, the keys' 0, let go 0; returning 0), the most 3 at once
+  in the engines now the keys' notes 0, the songs' 15
+  made 4: taken 4
+  back 3: into free engines 0, into tails' 3, the most 2 a block
+  dropped 1: under hearing at their return 1
+  the budget 480 a block, 4 returns: spent 250 in 5 blocks (50 a block), the most 170
+  walks stopped by the count 0, by the budget 0, held by the load guard 0 (its cap 4200)
+  GHOSTS 0 us (its timer reads 0), 0.00 us a unit spent (the unit 0.091)
+  the times net of their timer pairs, 0.000 us each, the GHOSTS stage as measured
+  JUNO-106: steps 17 x 0.00 us (weight 2 = 0.18), starts 3 x 0.00 us (14 = 1.3)
+  first blocks back 2 x 0.00 us
+  SAMPLER: steps 4 x 0.00 us (weight 3 = 0.27), starts 1 x 0.00 us (26 = 2.4)
+  first blocks back 1 x 0.00 us (its seek 94 = 8.5)
+  checks 7 x 0.00 us (weight 6 = 0.55), others' 5 x 0.00, samplers' 2 x 0.00
+  searches 12 x 0.00 us, walks spending nothing 6 x 0.00 us, the ends' walks 1 x 0.00 us
+  the debug build's look at the waits 11 x 0.00 us, in no stage (in the interrupt's own)
+  the longest wait 2 blocks (2.9 ms, from the first block it could have begun)
+  the longest under way 1 block, 2 at once at most
+  the oldest note back 0.5 s (held, into a tail's)
+```
+
+A run DJ played in also lists **DJ's settings** as at its end
 (the crossfader and its place, FILTER RESONANCE, FILTER THE SENDS, SYNC and its multiple, the crossfader's and
 the FX LFO, DJ's CHORUS, DELAY, REVERB and LIMITER with their knobs' steps, the METRONOME;
 each deck's song, tempo, KEY, VOLUME, FILTER, REPEAT PATTERN, loop, mutes, solo, filter LFO, cue), what each
@@ -586,7 +802,10 @@ A list of steps, with checks between them.
   DJ's effects) is set as an edit and checked; the next REVERT takes it back. REVERT brings back the saved DJ
   stand, whatever it is, so every DJ scenario first sets DJ's properties as a new store has them (CROSSFADER
   SMOOTH, FILTER RESONANCE 30 %, FILTER THE SENDS ON, FX LFO REVERB MIX) and sets, or switches off, every DJ
-  FILTER, LFO and effect it does not measure.
+  FILTER, LFO and effect it does not measure. **LOOPS' scenarios** clear the loops on LOOPS first; when DJ played
+  last, its setup and tempo are still what the keys play through there ([ui/screens/dj.md](ui/screens/dj.md)) and
+  the state's tempo is DJ's, so UNLOAD SONG (SONGS' SEL menu) lets DJ go before: LOOPS then holds the loops for the
+  keys, and the state's tempo, which the scenarios timed by the bar read and set, is LOOPS' own.
 - **Checks:** the state after a step; on the debug build also FIGURES. A check that fails ends the scenario
   (`FAILED: EXPECTED SONGS, FOUND INSTRUMENTS`), all sound off, and the run goes on with the next scenario.
 - **Measured stretches:** named parts whose FIGURES (the debug build) go into the report, each laid out as a
@@ -595,7 +814,10 @@ A list of steps, with checks between them.
   for (`MEMORY FOR EDITS IS FULL`) ends it and fails the scenario with the question's words; so does the
   edit memory ([connections.md](connections.md#the-state)) filling past three quarters while it runs, with
   its figures. Input going on meanwhile (knobs swept, keys held, DJ BUSY's steps) ends with its scenario,
-  failed or stopped, before the controls are let go.
+  failed or stopped, before the controls are let go. A scenario whose times are the sound's (GHOST NOTES: bars at
+  a tempo, a note's age) measures its stretches at their full length whatever the computer's scale, and may end a
+  stretch at its steps' end and a figures window more, failing past a time of its own. **The page's peek** gives the
+  windows a stretch has so far, so a step marks where it falls and its checks read the windows before or after it.
 - **After each scenario** (passed or failed) a note gives the edit memory it left: filled, of its size, and
   what the changes take. When the figures show the FM-1 sending USB audio in a scenario that does not take
   it (something else on the computer holds the FM-1's input), a note says in how many windows: its cost is
@@ -607,7 +829,7 @@ A list of steps, with checks between them.
 
 ### The scenarios
 
-Times are what each measures; those ticked at first take about 25 minutes.
+Times are what each measures; those ticked at first take about 30 minutes.
 
 | Group | Scenario | What |
 |---|---|---|
@@ -616,7 +838,8 @@ Times are what each measures; those ticked at first take about 25 minutes.
 | | IDLE AFTER A SONG | PUNCH IN from position 02 for 10 s, paused, 5 s on, then 10 s measured: its DELAY and REVERB at rest ([ui/screens/fx.md](ui/screens/fx.md#effects-at-rest)), so the CPU is IDLE's |
 | | each demo song | PUNCH IN, SPICE ROAD, MIDNIGHT RUN, CITY LIGHTS, ACID TEST, ADVENTURE, each from its heaviest stretch (*(proposed)* for now position 02 for PUNCH IN, 03 for the others), 20 s (a pattern change: 8 bars take 13-20 s at their tempos) |
 | | each DJ loop | the twelve, a scenario each: from its last position (ALGORITHM turned up till it moves no more), usually a loop's heaviest, 20 s (a pass of an 8-bar pattern at 96 BPM or more) |
-| KEYS | each engine | one start for every engine, whatever the scenario before left: WORLD LOOP played a moment from its start, paused and all sound off, so the keys sound through its effects, DELAY and REVERB (checked at work with the first keys down), as the KEYS runs measured before; VOICES 16; 1, 4, 8, 12 and 16 keys held (past 10 on core 2) on a DX7, a Juno-106 resonant and one plain, and a sampler whose instrument loops (03:08, so it sounds all the time it is held; the user area's, skipped if it is not there); the TB-303 one key on the keys (they play it as one voice, legato: more keys add nothing), then 4, 8 and 12 TB-303 voices as loops on LOOPS (a voice a lane): the loops cleared (SEL's CLEAR LOOPS), the length 1 BAR (GLO's LENGTH), the keys POLY (SEQ held + POLY), then POLY loops of 4 lanes, one for each four voices, each a cycle of chords of four tapped onto the stage on every row of the bar (a 303 line in sixteenths, QUANTIZE `ROW`) and sent by REC on `+ NEW LOOP`, the first started by its first chord (REC armed with the stage empty; then LOOPS' DELAY and REVERB switched on, as the keys had them, and checked at work back on LOOPS: not at first, noted with what played, the screen and the effects at work, and how long they took; not within a second, the scenario fails with the same), the others overdubbed while the loops play; on a lane a 303's gate closes half a row after its note, so each voice sounds about half of every row and a row's start has them all; 5 s each |
+| KEYS | each engine | one start for every engine, whatever the scenario before left: WORLD LOOP played a moment from its start, paused and all sound off, so the keys sound through its effects, DELAY and REVERB (checked at work with the first keys down), as the KEYS runs measured before; VOICES 16; 1, 4, 8, 12 and 16 keys held (the top places on core 2) on a DX7, a Juno-106 resonant and one plain, and a sampler whose instrument loops (03:08, so it sounds all the time it is held; the user area's, skipped if it is not there); the TB-303 one key on the keys (they play it as one voice, legato: more keys add nothing), then 4, 8 and 12 TB-303 voices as loops on LOOPS (a voice a lane): the loops cleared (SEL's CLEAR LOOPS), the length 1 BAR (GLO's LENGTH), the keys POLY (SEQ held + POLY), then POLY loops of 4 lanes, one for each four voices, each a cycle of chords of four tapped onto the stage on every row of the bar (a 303 line in sixteenths, QUANTIZE `ROW`) and sent by REC on `+ NEW LOOP`, the first started by its first chord (REC armed with the stage empty; then LOOPS' DELAY and REVERB switched on, as the keys had them, and checked at work back on LOOPS: not at first, noted with what played, the screen and the effects at work, and how long they took; not within a second, the scenario fails with the same), the others overdubbed while the loops play; on a lane a 303's gate closes half a row after its note, so each voice sounds about half of every row and a row's start has them all; 5 s each |
+| | VELOCITY | the debug build's: the keys' velocity on the FM-1 itself, through [KEYS FEED](#keys-feed), MIDI OUT set to KEYS, the keys on EL PIANO (F0:00) on INSTRUMENTS; each press fed on D-4, its note's volume and MIDI OUT's Note On checked (not heard: noted): at NORMAL a hard landing (driven 400: 127), a gentle one (560: 117), a graze (driven 700, then open: no note, counted), a bounce (620, open once and seated again: one note, 97), one that waits too long (its driven readings missing 10 ms: KEYS VOLUME, counted late), four landings (560, 620, 700, 800) then the top row's C#5 (their mean, 82); the gentle one at SOFT (120) and HARD (112); the hard one at CONSTANT (KEYS VOLUME); every landing's SOFT / NORMAL / HARD from the FM-1's map as the host test's. Then at NORMAL 6 s at rest measured: every key's lowest reading 900 or more (else the key named: a dirty contact or a fault), no conversion lost, MASTER from the slot within 10 of a direct reading, the battery read (none of it where nothing is scanned: noted); 6 s at rest at CONSTANT; PUNCH IN from position 02, 10 s at CONSTANT, 10 s at NORMAL: TIMER5's tick (mean, longest) and CPU both ways, at rest and with the song, noted; late halves noted, not failed |
 | EFFECTS | a song with effects | a heavy song with CHORUS, DELAY and REVERB on, their knobs swept on FX LIVE (three times), 30 s |
 | | the punch-ins | punch-ins held one after another over it |
 | | METRONOME and COUNT-IN | a song with the METRONOME on, started through a COUNT-IN |
@@ -624,9 +847,13 @@ Times are what each measures; those ticked at first take about 25 minutes.
 | | DJ busy | each action in a stretch of its own, done while it is measured, so each has its own figures: a LOAD at the bar (8 s), SWAP (4 s), BRAKE, BACKSPIN, ECHO OUT, REVERB OUT (each held 2 s, 5 s), the crossfader swept (4 s), MOVE (4 s), JUMP (6 s); 46 s |
 | | DJ effects and punch-ins | the stand with DJ's CHORUS on too (DELAY and REVERB already), each white key's punch-in held 2 s over it, 32 s |
 | | DJ two tempos | TRANCE LOOP and DISCO LOOP, SYNC off, the crossfader in the middle, no DJ FILTER and no LFO, DJ's DELAY and REVERB on (its CHORUS off), each deck's tempo turned on its own (K1 the left's, K4 the right's, up and down by turns), so the decks are never in step, 30 s; both still playing at the end, each at its own tempo |
-| | DJ heavy | two demo songs mixed, the heaviest pair: PUNCH IN on the left, MIDNIGHT RUN on the right, SYNC on, the crossfader in the middle, no DJ FILTER and no LFO, DJ's DELAY and REVERB on (its CHORUS off), VOICES 16 (the notes past 10 on core 2), 30 s; both still playing at the end |
+| | DJ heavy | two demo songs mixed, the heaviest pair: PUNCH IN on the left, MIDNIGHT RUN on the right, SYNC on, the crossfader in the middle, no DJ FILTER and no LFO, DJ's DELAY and REVERB on (its CHORUS off), VOICES 16 (both cores, the split moving each block), 30 s; both still playing at the end |
+| | DJ heavy at VOICES 12 | the same at VOICES 12 (both cores too; the notes past 12 ghosts), 30 s: what the notes ghost notes bring back cost, against VOICES 16 |
+| | DJ heavy, fixed split | DJ HEAVY with [the fixed split](#the-fixed-split) (the debug build's only): places 11-16 on core 2, the load guard as before, every window checked fixed, the switch off after; 30 s: the "before" beside DJ HEAVY |
+| | DJ heavy at VOICES 12, fixed split | the same at VOICES 12: every voice on core 1, the load guard as before; 30 s, beside DJ HEAVY AT VOICES 12 |
 | LOOPS | the loop station | VOICES 12; the loops cleared (SEL's CLEAR LOOPS), the length 1 BAR (GLO's LENGTH), then twelve loops played from the keys onto the stage and each sent by REC on `+ NEW LOOP`: the first started by its note (REC armed with the stage empty), each next one overdubbed while the loops play, a note held over most of a cycle; JUNO-106 sounds for the first six, DX7's for the rest (each the next with PRESETS); all twelve playing, 20 s |
 | | a beat | VOICES 12; the loops cleared and the length 1 BAR, then a beat as a hand builds one, every step checked through LOOPS' cursor and LOOPS' bytes in the state: the first loop from the pattern recorder (ARP held + REC; a kit, a drum a row: KICK, SNARE, HAT, HAT OPEN; its REC puts it onto the stage, the loops starting from its preview; REC sends it, `STAGE AS LOOP 00`); a TB-303 bass line overdubbed in MONO (SEQ held + MONO) on `+ NEW LOOP`, REC; a chord of four on EL PIANO in POLY (SEQ held + POLY, 4 lanes), REC; 20 s measured; EDIT on the bass's loop (`LOOP 01 ON THE STAGE`, the loop silent), a bar overdubbed, REC back into it (`STAGE INTO LOOP 01`); SEL's DELETE LOOP on the last loop, the pad's (`LOOP 02 DELETED`); CONTROL mode (SEQ): white key 1 tapped (loop 00 muted at once), white key 2 held (loop 01's mute waiting for the bar line, then muted), GLO's black key to SOLO, white key 1 (loop 00 soloed), PIT (all back on); 10 s measured, the loops playing on |
+| | GHOST NOTES | the notes far past VOICES, so ghosts are made and come back all the time ([ui/screens/settings.md](ui/screens/settings.md#voices)), every step checked through LOOPS' cursor and bytes in the state, each stretch measured at the sound's own times, its checks on [the ghosts' figures](#the-ghosts-bytes) of its windows (the debug build's: without it the steps run, checked through the state, and those checks are left out); about 3 minutes, 2 of them measured. **Setting up:** VOICES 8; the loops cleared, the length 1 BAR, QUANTIZE `ROW`, the keys POLY; LOOPS' TEMPO 120 BPM (checked: the stretches count bars at it; REVERT brings a user's back); five loops of 4 lanes played from the keys and each sent by REC on `+ NEW LOOP`, each a chord of four held over the whole bar: JUNO-106 F8:31 and F8:35, DX7 F4:06, the sampler instrument KEYS plays (A2:08, it loops; without it a CHIP pad, F9:46, noted), CHIP F9:43; then MONO, a sixth, a TB-303 line in sixteenths tapped onto the stage, REC, and POLY again: 20 held notes against the 7 engines left. **OVER THE COUNT,** 20 s, all six playing: ghosts made in every window (15 windows with their figures at least), no held ghost dropped (the drops noted by kind), no TB-303 note made a ghost, returns into tails' engines in every window (the TB-303's sixteenths make tails and takes all the time); the longest wait and the most ghosts noted. **MUTES,** its length from the bar (23 s at 120 BPM, 22 s at the least; ended by its steps' end and a window more, failing past 40 s): CONTROL mode, loops 00-04 each muted (its white key tapped) for 1.5 s, so a whole figures window falls inside each mute, then on again, 4 s apart: while muted none of its notes in an engine and its notes ghosts, every engine in use meanwhile (7 or 8 of the loops' notes in engines) with returns in those windows; a loop heard before its mute (a note in an engine) heard again by its next bar line and a figures window more (a loop never heard before its mute is noted); ghosts made by the mutes, none back while muted; noted: made by a mute, back after one, which loops were heard. **SOLO AND BACK,** 10 s: GLO's black key to SOLO, loop 00 soloed 5 s, PIT: while soloed no other pad loop's note in an engine, loop 00's in one, no TB-303 ghost; no held ghost dropped before the let-go and the muted ones; the budget's most in a block within the budget less one, a ghost's checks' weight and the largest one-ghost overdraw (a start, a step's rounding, the engine's overshoot steps, the sampler's seek: 617 units with the numbers in force). **VOICES CHANGED,** 16 s (failing past 30 s): VOICES 16, 8, 12, 16 as edits, 4 s apart, the loops playing: ghosts made past the smaller count at the change to 8; at each larger one, by its own windows, returns into free engines, never more than 4 in a block, and at 16 the second core's places taken (more than 12 of the loops' notes in the count's engines). **THE KEYS ON TOP,** 10 s, on SONGS (on LOOPS the keys play through the stage's lanes): the loops stopped, VOICES 8, the keys on DX7 F4:00, MIDNIGHT RUN from position 03, a second, then twelve keys held 5 s and let go: while held the keys' notes 8 in the engines and 4 held ghosts of the keys, no song note in an engine; after, the song's ghosts back (4 at most a block), the song playing on. **A LONG NOTE,** 30 s: SONGS stopped, all sound off, the keys on EL PIANO (F0:00, the built-in DX7 electric piano whose release ends soonest: 17-46 ms on the PC); one key held; at 20 s eight more held for 3 s; the first let go at 28 s: the oldest note brought back over 20 s old, held, a key's; its age and wait noted. LATE halves are noted, not failed |
 | TOOLS | AUTO LEVEL ALL | SETTINGS' tool over every instrument (its question answered LEVEL), measured while it runs (the main loop's stack) and ended by its end (the state answered again, its progress bar gone; at most 10 min), which is checked |
 | | CHECK REFERENCES | SETTINGS' tool (it writes nothing), measured till its progress bar is gone: `NO MISSING REFERENCES`, or the list of what is missing (noted, not a failure: a user's own songs may point at things deleted), closed by HOME |
 | | CHECK STORAGE | SETTINGS' tool (it writes nothing), measured till its progress bar is gone: `STORAGE OK` is checked; a list of problems fails the scenario and is closed by HOME |
@@ -650,9 +877,12 @@ stretches laid out as RUNS' reports.
 ### Tested first on the computer
 
 Every scenario runs against the firmware compiled for the browser with the debug build's figures, through
-MIRROR and the state, every check passing, before it reaches the FM-1 (`fw/tests/run_autotest.sh`). The
-scenarios that turn, pick and hold by hand run once more with every main-loop pass 100 ms long, as slow as the
-FM-1's while a list or DJ redraws: a step that leans on a fast pass fails there first. A knob's turn ends with a
+MIRROR and the state, every check passing, before it reaches the FM-1 (`fw/tests/run_autotest.sh`), GHOST NOTES at
+its full length there (its times are the sound's, which the run's scale does not shorten: its counts close to the
+FM-1's, the inputs landing in other blocks, its times its own). The scenarios that turn, pick and hold by hand run
+once more with every main-loop pass 100 ms long, as slow as the FM-1's while a list or DJ redraws: a step that leans
+on a fast pass fails there first (GHOST NOTES is not among them: its TB-303 line's taps, 125 ms apart, need shorter
+passes, as the FM-1's are on LOOPS). A knob's turn ends with a
 look at the state, which the FM-1 answers after taking its input, so a button pressed next never shares a pass
 with the clicks (that would make it the button held + the knob: a combination, no tap).
 

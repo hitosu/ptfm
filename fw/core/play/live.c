@@ -48,7 +48,9 @@ static pl_tap_t ring[RING_N];
 static struct {
     uint8_t on, known, song, made, ticks, rpb, swing, landed;
     uint16_t done, left, tempo, tnow, n;
-    uint32_t h0, t0, land[4];
+    uint32_t h0, t0;
+    uint16_t land[8];                   /* (live_land: the stage's keys' notes' places, then their ends', a replay's tick's low
+                                         * bits; landed a bit each) */
     uint8_t name[12], km[RM_N];
     uint8_t mix0[16][RM_N];             /* each track's mix at the song's start */
     uint8_t fx0[64];                    /* the loops' setup at the start: the song's */
@@ -224,10 +226,12 @@ static void tap_event(const pl_tap_t *e, uint32_t now)
             if (lv.tr[t].on && lv.tr[t].lane == e->lane) { lv.tr[t].lane = e->vol; lv.tr[t].owner = e->ch; }
         return;
     }
-    if (e->lane >= PT_SKEYS && e->lane < PT_SKEYS + 4u && (lv.landed >> (e->lane - PT_SKEYS) & 1)) {
-        uint32_t at = lv.land[e->lane - PT_SKEYS];      /* (as it landed; one left over from a note gone is stale) */
-        lv.landed &= (uint8_t)~(1u << (e->lane - PT_SKEYS));
-        if (tk - at <= 3u * lv.ticks) tk = at;
+    if (e->lane >= PT_SKEYS && e->lane < PT_SKEYS + 4u && (e->note >= 12 || e->note == PT_OFF)) {
+        uint32_t b = e->lane - PT_SKEYS + (e->note == PT_OFF ? (uint32_t)LIVE_LAND_OFF : 0u);
+        int32_t d = (int16_t)(lv.land[b] - (uint16_t)tk), w = 3 * lv.ticks;   /* (as it landed, ahead or behind; one left
+                                                         * over from a note gone is stale) */
+        if ((lv.landed >> b & 1) && d <= w && d >= -w) tk += (uint32_t)d;
+        if (b >= LIVE_LAND_OFF) lv.landed &= (uint8_t)~(1u << b);   /* (an end's used once; a note's kept for a chord) */
     }
     if ((int32_t)(tk - lv.t0) < 0) return;              /* (before its row 0) */
     uint32_t d = tk - lv.t0;
@@ -555,8 +559,8 @@ void live_poll(void)
 }
 void live_land(int lane, uint32_t tick)
 {
-    lv.land[lane & 3] = tick;
-    lv.landed |= (uint8_t)(1u << (lane & 3));
+    lv.land[lane & 7] = (uint16_t)tick;
+    lv.landed |= (uint8_t)(1u << (lane & 7));
 }
 uint8_t live_song(void) { return lv.song; }
 int live_known(void) { return lv.known; }

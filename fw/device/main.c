@@ -34,6 +34,19 @@
 #include "fm1_irq.h"
 #include "fm1_guard.h"
 #include "fm1_cpu1.h"                    /* the second core (specs/second-core.md) */
+#include "fm1_supply.h"                  /* the core supplies, raised at every start (specs/hardware.md) */
+#include "fm1_adc.h"
+#include "keyvel.h"                      /* the keys' velocity (specs/hardware.md#the-keys-velocity) */
+#define FM1_INPUT_ANALOG 1               /* the scan reads the keys F3-C5 while KEYS VELOCITY is on (fm1_input.h) */
+#ifdef PTFM_DEBUG                        /* (KEYS FEED's key, while fed: the scan leaves it alone, keyvel.h's kv_feed) */
+#define FM1_INPUT_READ(n, v, driven) ((n) != kv_dbg.fed ? kv_reading((n), (v), (driven), fm1_in.frames) : (void)0)
+#define FM1_INPUT_NOTE(n, down) ((n) != kv_dbg.fed ? kv_note((n), (down), fm1_in.frames) : (void)0)
+#else
+#define FM1_INPUT_READ(n, v, driven) kv_reading((n), (v), (driven), fm1_in.frames)
+#define FM1_INPUT_NOTE(n, down) kv_note((n), (down), fm1_in.frames)
+#endif
+#define FM1_INPUT_DRIVE(n) kv_drive(n)
+#define FM1_INPUT_DARK(n) kv_dark(n)
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"
@@ -127,6 +140,42 @@ static void midi_out_move(void)          /* TIMER5 */
 
 #include "plat.h"
 #include "app.h"
+#include "eng/juno/juno.h"               /* (juno_mark: where a Juno-106 voice's render stood, for PT/FM FROZE) */
+
+/* ---- the freeze record (specs/hardware.md, Updates and rescue) ----
+ * Where the main loop stood, and how the interrupts and core 2 went on after its last pass, kept in .noinit: a
+ * watchdog restart keeps RAM, so the next start finds it and shows PT/FM FROZE (freeze_check). Stores only: the main
+ * loop's steps (plat_step, and the device's own below), the audio and input interrupts in and out. */
+enum { FZ_ERASE = PLAT_STEP_N, FZ_PROG, FZ_READ, FZ_C2_WAIT, FZ_USB, FZ_UPDATE, FZ_N };
+#define FZ_MAGIC 0x465A5245u             /* "FZRE": armed at this start */
+typedef struct {
+    uint32_t magic;
+    volatile uint32_t step, arg;         /* the main loop's step (PLAT_STEP_*, FZ_*), a flash step's address */
+    volatile uint32_t passes, pass_ms;   /* the main loop's passes, fm1_ms at its last */
+    volatile uint32_t halves, halves_at; /* audio halves begun; their count at the main loop's last pass */
+    volatile uint32_t ticks, ticks_at;   /* the input interrupt's ticks (10 kHz); their count then */
+    volatile uint8_t in_audio, in_input; /* inside either now */
+    volatile uint8_t astep;              /* where the audio interrupt stands (FA_*) */
+    volatile uint32_t aarg;              /* ... a flash read's address */
+    uint32_t crash_n;                    /* the crash record's count as this run began (a fault since: more) */
+    uint8_t c2_why;                      /* core 2 stopped by a fallback in this run, the first time: why (FM1_C1_WHY_*,
+                                          * 0 never), */
+    uint32_t c2_ms, c2_pc;               /* ... when (fm1_ms), where it stood (0: not read) (core2.c c2_stop_note) */
+} freeze_t;
+/* the audio interrupt's steps: its start, the wait for core 2's half before, making the sound, a wait for core 2 inside
+ * it (its queue full; until it is done), a flash read with interrupts off, its end */
+enum { FA_START = 1, FA_C2_HALF, FA_SOUND, FA_C2_FULL, FA_C2_WAIT, FA_READ, FA_END, FA_N };
+freeze_t fz __attribute__((section(".noinit")));   /* (not static, as fm1_crash: never folded) */
+void plat_step(uint32_t step) { fz.step = step; }
+static inline uint32_t fz_in(uint32_t step, uint32_t arg)   /* a device step inside another: the one it was */
+{
+    uint32_t was = fz.step;
+    fz.arg = arg;
+    fz.step = step;
+    return was;
+}
+static inline void fz_out(uint32_t was) { fz.step = was; }
+
 #ifndef PTFM_BRINGUP
 #include "store/store.h"                 /* an update waits for a save being written */
 #include "store/seed.h"                  /* ... and for a seeding under way */
@@ -294,7 +343,8 @@ long long __moddi3(long long n, long long d)
 static uint8_t flash_ok;                 /* the JEDEC id matched at boot */
 static uint8_t loader_kept = 0xFFu;      /* the staging at this start: 1 PT/FM's loader kept, 0 none, 0xFF not read */
 #ifdef PTFM_DEBUG
-static uint8_t dbg_part_ok;              /* the debug part checked out (dbg_part_check) */
+volatile uint8_t plat_dbg_in;            /* the debug part checked out (dbg_part_check): plat.h's, which the sound's
+                                          * probes that call into the part read too */
 #endif
 static uint8_t fl_plain;                 /* the plain window is set: the user area reads in place */
 
@@ -302,14 +352,16 @@ static void c2_quiet(void);              /* (core2.c, below) */
 
 /* direct reads, 256-byte IRQ-off windows, each once core 2 is idle: its voice job runs from the flash, which a direct
  * read switches off (specs/second-core.md, Core 2 and the flash) */
-static int st_read(uint32_t off, void *dst, uint32_t n)
+static int st_read(uint32_t off, void *dst, uint32_t n)   /* (the main loop's: the freeze record's steps) */
 {
     uint8_t *d = dst;
     while (n) {
-        uint32_t k = n > 256u ? 256u : n, f = irq_save();
+        uint32_t k = n > 256u ? 256u : n, f = irq_save(), was = fz_in(FZ_C2_WAIT, off);
         int rc;
         c2_quiet();
+        fz.step = FZ_READ;
         rc = FL_FAR(fl_read_ram)(off, d, k);
+        fz_out(was);
         irq_restore(f);
         if (rc)
             return rc;
@@ -404,6 +456,8 @@ static uint32_t dbg_pass_max, dbg_pass_t0;
 #define DBG_SS_LO ((uint32_t *)_sstack_lo)
 #define DBG_SS_TOP ((uint32_t *)_sstack_top)
 #define DBG_PAINT 0x5AA5C33Cu
+static uint8_t dbg_unpainted;            /* the debug part came in after the start (an install's page writes it after
+                                          * the restart): the stacks painted at the first window (plat_dbg) */
 static PLAT_DBG void dbg_paint(void)     /* before interrupts: the interrupts' stack whole, the main loop's below here */
 {
     volatile uint32_t here = 0;
@@ -413,11 +467,20 @@ static PLAT_DBG void dbg_paint(void)     /* before interrupts: the interrupts' s
     for (p = DBG_US_LO; p < (uint32_t *)&here - 64; p++)
         *p = DBG_PAINT;
 }
-static PLAT_DBG uint16_t dbg_depth(const uint32_t *lo, const uint32_t *top)
+/* a stack's depth: from its first word not the paint up (the bottom's paint read up); from there, the words not the
+ * paint, then the paint above them (*island, *paint: a word something else wrote at the bottom shows as a few bytes,
+ * then the paint) */
+static PLAT_DBG uint16_t dbg_depth(const uint32_t *lo, const uint32_t *top, uint16_t *island, uint16_t *paint)
 {
-    const uint32_t *p = lo;
+    const uint32_t *p = lo, *q, *r;
     while (p < top && *p == DBG_PAINT)
         p++;
+    for (q = p; q < top && *q != DBG_PAINT; q++)
+        ;
+    for (r = q; r < top && *r == DBG_PAINT; r++)
+        ;
+    *island = (uint16_t)((const uint8_t *)q - (const uint8_t *)p);
+    *paint = (uint16_t)((const uint8_t *)r - (const uint8_t *)q);
     return (uint16_t)((const uint8_t *)top - (const uint8_t *)p);
 }
 static uint16_t sat16u(uint32_t v) { return (uint16_t)(v > 65535u ? 65535u : v); }   /* (the audio interrupt's too:
@@ -425,6 +488,11 @@ static uint16_t sat16u(uint32_t v) { return (uint16_t)(v > 65535u ? 65535u : v);
 PLAT_DBG void plat_dbg(plat_dbg_t *d)
 {
     uint32_t f = irq_save();
+    if (dbg_unpainted) {                 /* (interrupts off: the interrupts' stack holds no frame now, the main loop's
+                                          * painted below here) */
+        dbg_unpainted = 0;
+        dbg_paint();
+    }
     d->isr_sum_us = dbg_isr_sum;
     d->isr_max_us = dbg_isr_max;
     d->halves = dbg_halves;
@@ -458,9 +526,9 @@ PLAT_DBG void plat_dbg(plat_dbg_t *d)
     d->pass_max_us = dbg_pass_max;
     dbg_passes = 0;
     dbg_pass_max = 0;
-    d->stack_used[0] = dbg_depth(DBG_US_LO, DBG_US_TOP);
+    d->stack_used[0] = dbg_depth(DBG_US_LO, DBG_US_TOP, &d->stack_island[0], &d->stack_paint[0]);
     d->stack_size[0] = (uint16_t)((uint8_t *)DBG_US_TOP - (uint8_t *)DBG_US_LO);
-    d->stack_used[1] = dbg_depth(DBG_SS_LO, DBG_SS_TOP);
+    d->stack_used[1] = dbg_depth(DBG_SS_LO, DBG_SS_TOP, &d->stack_island[1], &d->stack_paint[1]);
     d->stack_size[1] = (uint16_t)((uint8_t *)DBG_SS_TOP - (uint8_t *)DBG_SS_LO);
     {                                    /* USB audio: its counters since the last window */
         static uint32_t last[5];
@@ -679,7 +747,7 @@ static PLAT_DBG void prove_records(void) /* 36 RECORDS (specs/debug.md, RECORDS'
     r[120] = box->last;                  /* the start check (version 4): its decision, why, the loader's starts */
     r[121] = box->why;
     r[122] = box->tries;
-    r[123] = dbg_part_ok;
+    r[123] = plat_dbg_in;
     for (i = 0; i < 4u; i++)
         r[124 + i] = (uint8_t)(box->check_us >> (8u * i));
     r[128] = (uint8_t)box->starts;
@@ -714,19 +782,22 @@ static void dbg_part_check(int force)    /* (the head and the mark word-aligned:
 {
     const uint32_t *h = (const uint32_t *)FL_XIP(DBG_PART_FLASH), *mk = (const uint32_t *)STUB_MARK_XIP;
     uint32_t len = (uint32_t)(_dbg_end - _dbg_start), pc = fm1_crash.pc - (uint32_t)(uintptr_t)_dbg_start;
-    dbg_part_ok = (uint8_t)(fl_plain && h[0] == 0x50445450u && h[1] == mk[3] && h[2] == len &&
+    plat_dbg_in = (uint8_t)(fl_plain && h[0] == 0x50445450u && h[1] == mk[3] && h[2] == len &&
                             crc32_update(0, h + 8, len) == h[3] &&
                             (force || fm1_crash.magic != FM1_CRASH_MAGIC || pc >= len));
 }
-int plat_dbg_part(void) { return dbg_part_ok; }
-void plat_dbg_part_recheck(void) { dbg_part_check(1); }
-void plat_dbg_part_stop(void) { dbg_part_ok = 0; }   /* (a seeding begins: it may erase the part's block) */
+int plat_dbg_part(void) { return plat_dbg_in; }
+void plat_dbg_part_recheck(int written) { dbg_part_check(written); }
+void plat_dbg_part_stop(void) { plat_dbg_in = 0; }   /* (a seeding begins: it may erase the part's block) */
 #endif
 
 void fm1_alnk0_irq(void)                 /* via isr_alnk0 (hal/fm1_isr.S) */
 {
     uint8_t p = fm1_audio_pending();
     uint32_t t0 = fm1_ticks();
+    fz.in_audio = 1;                     /* (the freeze record's: in, a half begun) */
+    fz.astep = FA_START;
+    fz.halves++;
 #ifdef PTFM_DEBUG
     if (prove_irq)                       /* (PROVE: the interrupts' stack run past its bottom) */
         prove_dive(0);
@@ -735,6 +806,7 @@ void fm1_alnk0_irq(void)                 /* via isr_alnk0 (hal/fm1_isr.S) */
     if (p & FM1_AUDIO_HALF) {
         uint32_t half, dt, late;
         int32_t *o;
+        fz.astep = FA_C2_HALF;
         c2_half_start();                 /* first: core 2 done with the half before's blocks (core2.c) */
         half = fm1_audio_free_half();
         o = &abuf[half * HALF_WORDS];
@@ -751,9 +823,11 @@ void fm1_alnk0_irq(void)                 /* via isr_alnk0 (hal/fm1_isr.S) */
             usb_gain_half = usb_gain;
             usb_audio_start();           /* (USB audio: the ring primed, or the resampler steered) */
             in_audio = 1;
+            fz.astep = FA_SOUND;
             app_audio(0, (int)HALF_FRAMES);  /* each block into the half as it is made (out_block) */
             in_audio = 0;
         }
+        fz.astep = FA_END;
         fm1_audio_ack_half();
         dt = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
         cpu_last = dt;
@@ -775,6 +849,7 @@ void fm1_alnk0_irq(void)                 /* via isr_alnk0 (hal/fm1_isr.S) */
             dbg_late = sat16u(dbg_late + 1u);
 #endif
     }
+    fz.in_audio = 0;
 }
 extern void isr_alnk0(void);
 
@@ -925,10 +1000,15 @@ static void fast_tick(void);
 static uint16_t usb_frame_seen;          /* the host's frame number as the tick last saw it, and when it moved */
 static volatile uint32_t usb_frame_at;
 
+#ifdef PTFM_DEBUG
+static uint32_t tk_sum, tk_n, tk_mean, tk_most; /* TIMER5's tick (TIMER4's ticks): the last 1024's mean, the longest */
+#endif
 void fm1_timer5_irq(void)
 {
     static uint32_t sub, last, acc, uacc;
     uint32_t t0 = fm1_ticks(), el;
+    fz.in_input = 1;                     /* (the freeze record's: in, a tick) */
+    fz.ticks++;
     fm1_timer5_ack();
     fm1_input_tick();
     el = t0 - last;                      /* milliseconds and microseconds from the 24 MHz TIMER4 */
@@ -963,6 +1043,19 @@ void fm1_timer5_irq(void)
     }
     if (++sub == 10u)
         sub = 0;
+#ifdef PTFM_DEBUG
+    {                                    /* (the debug build's: its time, the keys' readings in it) */
+        uint32_t d = fm1_ticks() - t0;
+        tk_sum += d;
+        if (d > tk_most)
+            tk_most = d;
+        if (++tk_n == 1024u) {
+            tk_mean = tk_sum >> 10;
+            tk_sum = tk_n = 0;
+        }
+    }
+#endif
+    fz.in_input = 0;
 }
 extern void isr_timer5(void);
 
@@ -977,8 +1070,9 @@ static void crash_wait_reboot(void)
     uint32_t held = 1;
     fm1_cpu1_halt();                     /* (not c2_hold_reset: core 2 running at a crash, the next start bans it) */
     dma_quiet();
-    crash_tail();
+    crash_tail("PRESS A BUTTON TO RESTART");
     lcd_sync();
+    fm1_input_analog_off();              /* (the rows as the scan reads them: none driven) */
     for (;;) {
         fm1_wdt_feed();
         fm1_input_scan();
@@ -988,6 +1082,170 @@ static void crash_wait_reboot(void)
             break;
     }
     fm1_reboot();
+}
+
+/* ---- PT/FM FROZE ----
+ * The freeze record as the last run left it, taken first thing at this start (fz_take: before anything here marks a
+ * step), with core 2's queue (.c2_queue: nothing clears it before core 2 starts, 2 s in); then a fresh one armed.
+ * After a watchdog restart the screen shows it (freeze_check, once the panel and the keys work) until a button or a
+ * key is pressed (one held at the start let go first), the watchdog fed; then the start goes on */
+static freeze_t fz_was;
+static uint32_t fz_c2_posted, fz_c2_done;
+volatile uint8_t plat_sound_at __attribute__((section(".noinit")));   /* (plat.h: the core's, a restart keeps it) */
+static uint8_t fz_sound;                 /* ... as the last run left it */
+static uint8_t fz_juno_at;               /* the Juno-106 render's marks as the last run left them (juno.h) */
+static uint32_t fz_juno_v, fz_juno_p;
+/* the core supplies' levels as this start found them (fm1_cstart: as the last run left them; specs/hardware.md) */
+static uint8_t sup_vdc14, sup_sysvdd;
+static uint8_t sup_up;                   /* raised by this run (plat_supplies) */
+/* SETTINGS' CORE SUPPLIES (plat.h): STOCK raises them now, once (interrupts off; ~0.8 ms from the boot loader's levels,
+ * nothing to do at the stock ones); LOWER leaves them: only a power-off brings the boot loader's back */
+void plat_supplies(int stock)
+{
+    uint32_t f;
+    int rc;
+    if (!stock || sup_up)
+        return;
+    f = irq_save();
+    rc = fm1_supplies_raise();
+    irq_restore(f);
+    sup_up = (uint8_t)(rc == 0);
+}
+static void fz_take(void)
+{
+    fz_was = fz;
+    fz_c2_posted = fm1_c1_q.posted;
+    fz_c2_done = fm1_c1_q.done;
+    fz_sound = plat_sound_at;
+    plat_sound_at = 0;
+    fz_juno_at = juno_mark.at;
+    fz_juno_v = (uint32_t)(uintptr_t)juno_mark.v;
+    fz_juno_p = (uint32_t)(uintptr_t)juno_mark.p;
+    juno_mark.at = 0;
+    memset((void *)&fz, 0, sizeof fz);
+    fz.magic = FZ_MAGIC;
+    fz.crash_n = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0u;   /* (this run's: the next start compares) */
+}
+static const char *const FZ_NAMES[FZ_N] = {
+    "?", "THE LOOP'S START", "SEEDING", "THE STORE", "PATTERNS AHEAD", "MIDI", "DJ", "INPUT, SCREENS", "DRAWING",
+    "THE PAGE'S ASKING", "DEBUG", "THE CONTROLLER", "A FLASH ERASE", "A FLASH WRITE", "A FLASH READ",
+    "WAITING FOR CORE 2", "USB", "AN UPDATE"};
+typedef char fz_names_all[sizeof FZ_NAMES / sizeof FZ_NAMES[0] == FZ_N ? 1 : -1];
+static const char *const FA_NAMES[FA_N] = {
+    0, "ITS START", "CORE 2'S LAST HALF", "MAKING THE SOUND", "CORE 2'S QUEUE FULL", "WAITING FOR CORE 2",
+    "A FLASH READ", "ITS END"};
+static void freeze_check(void)
+{
+    freeze_info_t x;
+    uint32_t held = 1;
+    if (!(fm1_boot.p3_rst & 4u) || fz_was.magic != FZ_MAGIC)   /* (P33: the watchdog's restart) */
+        return;
+    memset(&x, 0, sizeof x);
+    x.step = fz_was.step < FZ_N ? FZ_NAMES[fz_was.step] : "?";
+    x.flash = (uint8_t)(fz_was.step >= FZ_ERASE && fz_was.step <= FZ_C2_WAIT);
+    x.arg = fz_was.arg;
+    x.pass_ms = fz_was.pass_ms;
+    x.halves = fz_was.halves - fz_was.halves_at;
+    x.ticks = fz_was.ticks - fz_was.ticks_at;
+    x.in_audio = fz_was.in_audio;
+    x.in_input = fz_was.in_input;
+    x.c2 = c2_ban.magic == C2_BAN_MAGIC && c2_ban.runs == C2_RUNS;   /* (core 2 marked as running at the freeze:
+                                         * read as the restart left it, before c2_boot works out the ban, core2.c) */
+    x.c2_posted = fz_c2_posted;
+    x.c2_done = fz_c2_done;
+    x.astep = fz_was.astep < FA_N ? FA_NAMES[fz_was.astep] : 0;
+    x.aread = (uint8_t)(fz_was.astep == FA_READ);
+    x.aarg = fz_was.aarg;
+    if (fz_was.astep == FA_SOUND && fz_sound) {   /* (making the sound: where in it, the core's mark, plat.h) */
+        static const char *const ENG[5] = {"DX7", "JUNO-106", "SAMPLER", "TB-303", "CHIP"};
+        static const char *const AT[7] = {0, "ITS START", "THE NOTES", "THE GHOSTS", "THE VOICES", "THE EFFECTS",
+                                          "THE OUTPUT"};
+        static char at[28];
+        uint32_t e = fz_sound & 7u;
+        if (fz_sound < 7u && AT[fz_sound])
+            x.astep = AT[fz_sound];
+        else if (e < 5u && (fz_sound >> 4) == 1u) {   /* (`A JUNO-106 VOICE`) */
+            strcpy(at, "A ");
+            strcat(at, ENG[e]);
+            strcat(at, " VOICE");
+            x.astep = at;
+            if (e == 1u && (fz_sound >> 4) == 1u && fz_juno_at >= JM_TICK && fz_juno_at <= JM_DONE) {   /* (its render's
+                                         * part, the voice and its patch: juno.h's marks) */
+                static const char *const PART[JM_DONE] = {"START", "OSCILLATORS", "FILTER 1/4", "FILTER 2/4",
+                                                          "FILTER 3/4", "FILTER 4/4", "VCA", "END"};
+                x.part = PART[fz_juno_at - 1u];
+                x.part_v = fz_juno_v;
+                x.part_p = fz_juno_p;
+            }
+        }
+    }
+    x.c2_why = fz_was.c2_why;            /* (core 2 stopped by a fallback in that run: why, when, where) */
+    x.c2_s = fz_was.c2_ms / 1000u;
+    x.c2_pc = fz_was.c2_pc;
+    x.vdc14_mv = (uint16_t)fm1_vdc14_mv(sup_vdc14);   /* (the supplies as the frozen run left them: a restart keeps them) */
+    x.sysvdd_mv = (uint16_t)fm1_sysvdd_mv(sup_sysvdd);
+    x.raised = (uint8_t)(sup_vdc14 == FM1_VDC14_STOCK && sup_sysvdd == FM1_SYSVDD_STOCK);
+    if (fm1_crash.magic == FM1_CRASH_MAGIC && fm1_crash.count != fz_was.crash_n) {   /* (a fault began in that run: its
+                                         * screen never came, the watchdog's restart did) */
+        x.crash = 1;
+        x.crash_vec = fm1_crash.vec;
+        x.crash_pc = fm1_crash.pc;
+    }
+    freeze_screen(&x);
+    crash_tail("PRESS A BUTTON TO GO ON");
+    lcd_sync();
+    for (;;) {
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (!fm1_in.buttons && !fm1_in.notes)
+            held = 0;
+        else if (!held)
+            break;
+    }
+    for (;;) {                           /* (let go before the start goes on: no press for the app) */
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (!fm1_in.buttons && !fm1_in.notes)
+            break;
+    }
+}
+
+/* CORE 2 FAULTED: core 2's own fault record (kept in its room through restarts and installs, lost at a power-off) from
+ * an earlier run that no screen has shown yet (a crash's red screen shows it and marks it), once, until a press */
+static void c2_fault_check(void)
+{
+    c2_fault_info_t x;
+    uint32_t held = 1;
+    if (fm1_c1_fault.magic != FM1_C1_FAULT_MAGIC || fm1_c1_fault.shown == FM1_C1_FAULT_SHOWN(fm1_c1_fault.count))
+        return;
+    fm1_c1_fault.shown = FM1_C1_FAULT_SHOWN(fm1_c1_fault.count);
+    x.vec = fm1_c1_fault.vec;
+    x.pc = fm1_c1_fault.pc;
+    x.emu = fm1_c1_fault.emu;
+    x.dbg = fm1_c1_fault.dbg;
+    x.rets = fm1_c1_fault.rets;
+    x.sp = fm1_c1_fault.sp;
+    x.up_s = fm1_c1_fault.uptime_ms / 1000u;
+    x.count = fm1_c1_fault.count;
+    x.bad_d = fm1_c1_fault.bad_d;
+    x.bad_n = fm1_c1_fault.bad_n;
+    c2_fault_screen(&x);
+    crash_tail("PRESS A BUTTON TO GO ON");
+    lcd_sync();
+    for (;;) {
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (!fm1_in.buttons && !fm1_in.notes)
+            held = 0;
+        else if (!held)
+            break;
+    }
+    for (;;) {                           /* (let go before the start goes on: no press for the app) */
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (!fm1_in.buttons && !fm1_in.notes)
+            break;
+    }
 }
 
 /* PT/FM CRASH: what the fault found (the record, fm1_crash_more, core 2's state, the time up, the late halves) drawn by
@@ -1003,7 +1261,8 @@ static void fm1_fault(const fm1_crash_t *c)   /* (core 1's: core 2's park in fm1
     x.dbg = c->dbg;
     x.rets = c->rets;
     x.sp = c->sp;
-    x.wr = fm1_crash_more.wr;
+    for (i = 0; i < 8u; i++)
+        x.bus[i] = fm1_crash_more.bus[i];
     for (i = 0; i < 4u; i++)
         x.etm[i] = c->etm[i];
     x.usp = fm1_crash_more.usp;
@@ -1017,8 +1276,21 @@ static void fm1_fault(const fm1_crash_t *c)   /* (core 1's: core 2's park in fm1
                                                                                              * the halt keeps them) */
                      fm1_c1.state == FM1_C1_OFF ? CS_C2_OFF : CS_C2_STOPPED);
     x.c2_why = fm1_c1.why;
-    x.c2_pc_ok = fm1_c1.why == FM1_C1_WHY_FAULT && fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC;
-    x.c2_pc = fm1_c1_fault.pc;
+    if (x.c2 == CS_C2_RUNS && fm1_cpu1_faulted()) {   /* (a fault of its own since its start: it parked itself, so
+                                                        * where the pause found it says nothing; its record does) */
+        x.c2 = CS_C2_STOPPED;
+        x.c2_why = FM1_C1_WHY_FAULT;
+    }
+    if (x.c2 == CS_C2_RUNS) {            /* (where fm1_fault_c paused it) */
+        x.c2_pc_ok = (uint8_t)fm1_crash_more.c2_pc_ok;
+        x.c2_pc = fm1_crash_more.c2_pc;
+    } else {
+        x.c2_pc_ok = x.c2_why == FM1_C1_WHY_FAULT && fm1_c1_fault.magic == FM1_C1_FAULT_MAGIC;
+        x.c2_pc = fm1_c1_fault.pc;
+        x.c2_rets = x.c2_pc_ok ? fm1_c1_fault.rets : 0u;
+        if (x.c2_pc_ok)                  /* (shown here: not again at the next start) */
+            fm1_c1_fault.shown = FM1_C1_FAULT_SHOWN(fm1_c1_fault.count);
+    }
     fm1_cpu1_halt();                     /* (the record says whether it ran: fm1_fault_c) */
     fm1_audio_stop();
 #ifdef PTFM_DEBUG
@@ -1070,10 +1342,13 @@ void plat_input(plat_input_t *in)
 {
     uint32_t f;
     in->buttons = fm1_in.buttons;
-    in->notes = fm1_in.notes;
     f = irq_save();                      /* the scan adds to the steps in TIMER5 */
+    in->notes = kv_shown(fm1_in.notes | KV_FAKE);   /* (but the presses still waiting for their velocity: KEYS
+                                          * VELOCITY's; KV_FAKE: the debug build's KEYS FEED's presses) */
     fm1_input_take(in->knob, in->knob_pre);   /* (and which of them came before a press) */
     irq_restore(f);
+    if (kv.curve)
+        kv_take(in->notes, in->notes);   /* (the new presses' velocities: plat_key_vel) */
     in->master = (uint16_t)master10;
 }
 
@@ -1082,8 +1357,10 @@ static void fast_tick(void)              /* TIMER5, 1 kHz: plat_fast's fn with t
 {
     plat_input_t in;
     in.buttons = fm1_in.buttons;
-    in.notes = fm1_in.notes;
+    in.notes = kv_shown(fm1_in.notes | KV_FAKE);
     fm1_input_take(in.knob, in.knob_pre);
+    if (kv.curve)
+        kv_take(in.notes, in.notes);
     in.master = (uint16_t)master10;
     fast_fn(&in, fm1_ms);
 }
@@ -1096,7 +1373,89 @@ int plat_usb_up(void) { return *(volatile uint8_t *)&usb.config != 0; }
 /* configured, and the frame number usb_poll keeps (every 10 ms while configured) moved in the last half second */
 int plat_usb_power(void) { return plat_usb_up() && fm1_ms - usb_frame_at < 500u; }
 
-uint32_t plat_notes(void) { return fm1_in.notes; }
+uint32_t plat_notes(void) { return kv_shown(fm1_in.notes | KV_FAKE); }
+
+/* KEYS VELOCITY (keyvel.h): the keys read from now on, on curve 1-3, or not (0: the scan, the converter and MASTER as
+ * without it) */
+void plat_key_touch(int curve)
+{
+    uint32_t f, c = curve >= 1 && curve <= 3 ? (uint32_t)curve : 0u;
+    if (c == kv.curve)
+        return;
+    f = irq_save();
+    kv_set(c, fm1_in.notes | KV_FAKE);
+    fm1_input_analog(c != 0u);
+    irq_restore(f);
+}
+int plat_key_vel(int n) { return n >= 0 ? (int)kv_vel((uint32_t)n) : 0; }
+int plat_key_reading(int n) { return n >= 0 && (kv_shown(fm1_in.notes | KV_FAKE) >> n & 1u) ? (int)kv_now((uint32_t)n) : 0; }
+#ifdef PTFM_DEBUG
+/* the keys' readings (dbg.h, specs/debug.md): the last landing's, the counts, TIMER5's tick; wait 1 or 2 sets WAIT */
+void plat_keys(plat_keys_t *k, int wait)
+{
+    uint32_t f = irq_save(), vel, rd, n = kv_dbg_last(&vel, &rd), i;
+    if (wait == 1 || wait == 2)
+        kv.wait2 = (uint8_t)(wait == 2);
+    k->curve = kv.curve;
+    k->wait = (uint8_t)(1u + kv.wait2);
+    k->key = (uint8_t)n;
+    k->vel = (uint8_t)vel;
+    k->touch = (uint16_t)(rd & 1023u);
+    k->d1 = (uint16_t)(rd >> 10 & 1023u);
+    k->d2 = (uint16_t)(rd >> 20 & 1023u);
+    k->land = kv_dbg.last_land;
+    k->presses = kv_dbg.presses;
+    k->grazes = kv_dbg.grazes;
+    k->lates = kv_dbg.lates;
+    k->lost = fm1_an.lost;
+    k->tick_10ns = sat16u(tk_mean * 100u / FM1_TICKS_PER_US);
+    k->tick_most_10ns = sat16u(tk_most * 100u / FM1_TICKS_PER_US);
+    k->flags = (uint8_t)((kv.curve ? 1u : 0u) | (kv_dbg.m_slot != 0xFFFFu ? 2u : 0u) | (kv_dbg.batt != 0xFFFFu ? 4u : 0u));
+    for (i = 0; i < KV_KEYS; i++)
+        k->rest[i] = (uint8_t)((kv_dbg.tr[i] >> 10) << 2);   /* (kept / 16: as / 4, 16 apart) */
+    k->m_slot = kv_dbg.m_slot;
+    k->m_direct = kv_dbg.m_direct;
+    k->batt = kv_dbg.batt;
+    k->batt_n = kv_dbg.batt_n;
+    k->landed = kv_dbg.landed;
+    for (i = 0; i < KV_RING; i++) {      /* (the newest first) */
+        uint32_t j = (kv_dbg.landed - 1u - i) & (KV_RING - 1u), kv_ = kv_dbg.ring_kv[j], rd_ = kv_dbg.ring_rd[j];
+        k->ring[i].key = (uint8_t)((kv_ & 31u) ? (kv_ & 31u) - 1u : 0xFFu);
+        k->ring[i].vel = (uint8_t)(kv_ >> 5 & 127u);
+        k->ring[i].wait = (uint8_t)(kv_ >> 12);
+        k->ring[i].touch = (uint16_t)(rd_ & 1023u);
+        k->ring[i].d1 = (uint16_t)(rd_ >> 10 & 1023u);
+        k->ring[i].d2 = (uint16_t)(rd_ >> 20 & 1023u);
+    }
+    if (wait & 8) {                      /* (a figures window's: the next starts afresh) */
+        tk_most = 0;
+        for (i = 0; i < KV_KEYS; i++)
+            kv_dbg.tr[i] &= 1023u;
+    }
+    irq_restore(f);
+}
+/* KEYS FEED (dbg.h, keyvel.h's kv_feed): key's readings as the scan would bring them, with interrupts off; what they
+ * made */
+void plat_key_feed(int key, const uint8_t *op, int len, plat_feed_t *r)
+{
+    uint32_t f = irq_save(), n = key >= 0 && key < (int)KV_NOTES ? (uint32_t)key : 0u, s;
+    if (len > 0)
+        kv_feed(n, op, (uint32_t)len, fm1_in.frames);
+    s = n < KV_KEYS ? kv.key[n] : 0u;
+    r->state = s;
+    r->land = (uint16_t)KV_LAND(s);
+    r->presses = kv_dbg.presses;
+    r->grazes = kv_dbg.grazes;
+    r->lates = kv_dbg.lates;
+    r->flags = (uint8_t)((kv.pend >> n & 1u) | (s & KV_LATE ? 2u : 0u) | (kv_dbg.fake >> n & 1u) << 2);
+    r->vel[0] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 1u) : 0u);
+    r->vel[1] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 2u) : 0u);
+    r->vel[2] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 3u) : 0u);
+    r->taken = (uint8_t)kv_vel(n);
+    r->wait = (uint8_t)(1u + kv.wait2);
+    irq_restore(f);
+}
+#endif
 
 void plat_led(int id, uint8_t level)
 {
@@ -1187,7 +1546,10 @@ int plat_flash_read(uint32_t addr, void *dst, uint32_t n)
          * ALNK0's own runs (it is the interrupt wrapper that restores them, at its return); core 2 idle first, as for
          * every direct read */
         irq_save();
+        fz.astep = FA_C2_WAIT;
         c2_quiet();
+        fz.aarg = addr;
+        fz.astep = FA_READ;
         while (n) {
             uint32_t k = n > 256u ? 256u : n;
             if (FL_FAR(fl_read_ram)(addr, d, k))
@@ -1196,6 +1558,7 @@ int plat_flash_read(uint32_t addr, void *dst, uint32_t n)
             d += k;
             n -= k;
         }
+        fz.astep = FA_SOUND;
         DBG_FL();
         return 0;
     }
@@ -1250,17 +1613,20 @@ void plat_unlock(uint32_t was)
 
 int plat_flash_erase(uint32_t addr)
 {
-    uint32_t took, f;
+    uint32_t took, f, was;
     int rc;
     if (!flash_ok || (addr & 0xFFFu) || addr == 0x000E0000u || !FL_RANGE_OK(addr, 0x1000u) ||
         FL_IN(addr, 0x1000u, 0x000E0000u, 0x000E5000u))
         return -1;                       /* (the staging is the updater's alone) */
     fm1_wdt_feed();
     f = irq_save();
+    was = fz_in(FZ_C2_WAIT, addr);
     c2_quiet();                          /* (core 2 done writing the halves first, and idle in its loop in RAM: its
                                           * voice job runs from the flash, which the erase switches off) */
     audio_silence();
+    fz.step = FZ_ERASE;
     rc = FL_FAR(fl_erase4k_ram)(addr, &took);
+    fz_out(was);
     irq_restore(f);
     return rc ? -1 : 0;
 }
@@ -1269,7 +1635,7 @@ int plat_flash_prog(uint32_t addr, const void *src, uint32_t n)
 {
     /* the source in RAM, as the flash is off while it programs: lcd_buf's last 256 bytes (main loop only) */
     uint8_t *page = (uint8_t *)lcd_buf + sizeof lcd_buf - 256u;
-    uint32_t took, f;
+    uint32_t took, f, was;
     int rc;
     if (!flash_ok || !n || n > 256u || (addr & 0xFFu) + n > 256u || !FL_RANGE_OK(addr, n) ||
         FL_IN(addr, n, 0x000E0000u, 0x000E5000u))
@@ -1278,9 +1644,12 @@ int plat_flash_prog(uint32_t addr, const void *src, uint32_t n)
     memmove(page, src, n);
     fm1_wdt_feed();
     f = irq_save();
+    was = fz_in(FZ_C2_WAIT, addr);
     c2_quiet();                          /* (as plat_flash_erase) */
     audio_silence();
+    fz.step = FZ_PROG;
     rc = FL_FAR(fl_prog_ram)(addr, page, n, &took);
+    fz_out(was);
     irq_restore(f);
     return rc ? -1 : 0;
 }
@@ -1397,7 +1766,29 @@ void plat_fault(const char *why)
 
 /* ---- the main loop ---- */
 
-/* MASTER: read every 2 ms, smoothed (~16 ms), squared; the battery every 2 s */
+/* the battery: with the keys read (the converter the scan's), in a pause of the readings */
+static int32_t adc_battery(void)
+{
+    uint32_t t0;
+    int32_t a;
+    if (!fm1_an.on && !fm1_an.pend)
+        return fm1_adc_read(FM1_ADC_BATT);
+    fm1_an.hold = 1;                     /* (the tick takes the one it started, and starts none) */
+    for (t0 = fm1_ticks(); fm1_an.pend && fm1_ticks() - t0 < 1000u * FM1_TICKS_PER_US;)
+        ;
+    a = fm1_an.pend ? -1 : fm1_adc_read(FM1_ADC_BATT);
+#ifdef PTFM_DEBUG
+    if (a >= 0) {                        /* (MASTER both ways at once: the slot's last, and read directly) */
+        kv_dbg.m_slot = fm1_an.mvalid ? fm1_an.master : 0xFFFFu;
+        kv_dbg.m_direct = (uint16_t)fm1_adc_read(FM1_ADC_MASTER);
+    }
+#endif
+    fm1_an.hold = 0;
+    return a;
+}
+
+/* MASTER: read every 2 ms (with the keys read: the scan's, from its slot), smoothed (~16 ms), squared; the battery
+ * every 2 s */
 static void adc_poll(void)
 {
     static uint32_t t_adc, t_batt;
@@ -1406,7 +1797,10 @@ static void adc_poll(void)
     int32_t a;
     if (now - t_adc >= 2u) {
         t_adc = now;
-        a = fm1_adc_read(FM1_ADC_MASTER);
+        if (fm1_an.on || fm1_an.pend)
+            a = fm1_an.mvalid ? (int32_t)fm1_an.master : -1;
+        else
+            a = fm1_adc_read(FM1_ADC_MASTER);
         if (a >= 0) {
             knob = knob < 0 ? a * 16 : knob + (a * 16 - knob) / 8;
             pot10 = knob / 16;
@@ -1420,9 +1814,15 @@ static void adc_poll(void)
     }
     if (now - t_batt >= 2000u || !t_batt) {
         t_batt = now | 1u;
-        a = fm1_adc_read(FM1_ADC_BATT);  /* 501-621 as 0-100 %: the bars from 513 / 542 / 582; the voltage is not known */
+        a = adc_battery();               /* 501-621 as 0-100 %: the bars from 513 / 542 / 582; the voltage is not known */
         if (a >= 0)
             battery_pct = a <= 501 ? 0 : a >= 621 ? 100 : (a - 501) * 100 / 120;
+#ifdef PTFM_DEBUG
+        if (a >= 0) {
+            kv_dbg.batt = (uint16_t)a;
+            kv_dbg.batt_n++;
+        }
+#endif
     }
 }
 
@@ -1443,7 +1843,7 @@ static void sysex_route(void)
         m[n + 1u] = 0xF7u;
         ota_frame_done();
 #ifdef PTFM_DEBUG
-        if (dbg_part_ok && prove_sysex(m, n + 2u))   /* 35 PROVE: the device's own (specs/debug.md; the part's) */
+        if (plat_dbg_in && prove_sysex(m, n + 2u))   /* 35 PROVE: the device's own (specs/debug.md; the part's) */
             return;
 #endif
         app_sysex(m, n + 2u);
@@ -1469,9 +1869,12 @@ static void enter_uboot_now(const char *why)
     fm1_enter_uboot();
 }
 
-static void ptfm_main(void)
+/* (the start and the main loop: built for size, as nothing of it runs per block or per sample; the interrupts'
+ * and the output stage's code stay -Os) */
+static __attribute__((minsize)) void ptfm_main(void)
 {
     uint32_t healthy_since, dac_on = 0;
+    fz_take();                           /* (first: the last run's freeze record, before a step here marks it) */
     {
         uint32_t f = irq_save();
         flash_ok = (uint8_t)fl_jedec_ok(FL_FAR(fl_jedec_ram)());   /* one of the FM-1's two 1 MiB parts */
@@ -1488,12 +1891,16 @@ static void ptfm_main(void)
     }
 #ifdef PTFM_DEBUG
     dbg_part_check(0);                   /* (the debug part, read in place over the plain window) */
-    if (dbg_part_ok) {
+    if (plat_dbg_in) {
         dbg_paint();                     /* (no interrupt source runs yet: the stacks painted for their depths) */
         prove_boot();                    /* (PROVE's watchdog test: its second restart, after the first's report) */
-    }
+    } else
+        dbg_unpainted = 1;               /* (else they keep the last run's paint, the start check's variables at the
+                                          * main loop's bottom zeroed at this start: 184 B read as written) */
 #endif
     fm1_input_init();
+    freeze_check();                      /* (after a watchdog restart: PT/FM FROZE, until a press) */
+    c2_fault_check();                    /* (core 2's own fault from an earlier run, not shown yet: once, until a press) */
     fm1_adc_init();
     uart_midi_init();                    /* the MIDI IN jack (before TIMER5: PORTH) */
     leds_init();
@@ -1519,8 +1926,13 @@ static void ptfm_main(void)
     healthy_since = fm1_ms;
     for (;;) {
         uint32_t now = fm1_ms;
+        fz.passes++;                     /* (the freeze record: a pass, and how far the interrupts had come) */
+        fz.pass_ms = now;
+        fz.halves_at = fz.halves;
+        fz.ticks_at = fz.ticks;
+        fz.step = PLAT_STEP_LOOP;
 #ifdef PTFM_DEBUG
-        if (dbg_part_ok)
+        if (plat_dbg_in)
             dbg_pass();
 #endif
         if (!dac_on && now - healthy_since >= 150u) {   /* 150 ms of silence through the codec, then its sound */
@@ -1529,6 +1941,7 @@ static void ptfm_main(void)
         }
         c2_poll(now - healthy_since);    /* core 2 started 2 s in, once SECOND CORE is on (core2.c) */
         fm1_wdt_feed();
+        fz.step = FZ_USB;
         usb_retry(now);
         if ((uint32_t)(now - healthy_since) >= 30000u && bootguard.pending) {
             bootguard_clear(&bootguard); /* 30 s up: this boot did not fail */
@@ -1540,6 +1953,7 @@ static void ptfm_main(void)
         /* the installer asks for an update: it runs once a save being written has finished and a seeding
          * under way has ended (or timed out, 10 s), so neither is cut halfway; the app runs on meanwhile */
         if (usb.ota_req && !store_saving() && !seed_active()) {
+            fz.step = FZ_UPDATE;
             usb.ota_req = 0;
             audio_mute = 1;
             fm1_delay_ms(12);            /* two halves of silence before the flash work */
@@ -1559,7 +1973,7 @@ extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 extern uint32_t _c2_start[], _c2_end[], _c2_load[];
 
-void fm1_cstart(void)
+__attribute__((minsize)) void fm1_cstart(void)
 {
     uint32_t *s, *d, p3, src, wdt, boot_mode, power_on;
     fm1_cpu1_halt();                     /* first: a core 2 a reset did not hold spins in its loop, which the room's
@@ -1596,6 +2010,10 @@ void fm1_cstart(void)
     fm1_boot.p3_rst = (uint8_t)p3;
     fm1_boot.rst_src = src;
     fm1_boot.wdt_con = (uint8_t)wdt;
+    sup_vdc14 = (uint8_t)fm1_vdc14();    /* the core supplies as the last run left them (a restart keeps them; a power-on
+                                          * brings the boot loader's): PT/FM FROZE's; raised by SETTINGS' CORE SUPPLIES
+                                          * once the settings are read (plat_supplies) */
+    sup_sysvdd = (uint8_t)fm1_sysvdd();
     c2_boot((int)power_on);              /* (core 2 left off after a crash or the watchdog with it running: core2.c) */
     if (boot_mode == BOOT_RECOVERY)
         stub_update_mode();

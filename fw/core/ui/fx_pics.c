@@ -25,7 +25,7 @@ static void curve_px(int x, int y, int col, int first)       /* a line through c
     g_px(x, y, col);
     curve_py = y;
 }
-static int text_right(int xr, int y, const char *s, int col) { return g_text(xr - g_tw(&FONT_T, s), y, &FONT_T, s, col); }
+static int text_right(int xr, int y, const char *s, int col) { return g_text_r(xr, y, &FONT_T, s, col); }
 /* acos(c), c Q30 in [-1, 1], as a phase (2^32 a turn) */
 static uint32_t acos_ph(int64_t c)
 {

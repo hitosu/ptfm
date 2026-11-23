@@ -16,9 +16,12 @@
 /* OUTPUT: SYNC PULSE L / R put a click on that side at every half beat, the music in mono on the other
  * (specs/connections.md#clock) */
 static const txt_t L_OUTPUT[4] = {TX("STEREO"), TX("MONO"), TX("SYNC PULSE L"), TX("SYNC PULSE R")};
-static const txt_t L_VOICES[3] = {TX("8"), TX("12"), TX("16")};   /* (16: 10 on core 1, 6 on core 2: PL_VOICES_MOST) */
+static const txt_t L_VOICES[3] = {TX("8"), TX("12"), TX("16")};   /* (16: both cores, PL_VOICES_MOST) */
 static const uint8_t VOICES_N[3] = {8, 12, 16};
 static const txt_t L_ON_OFF[2] = {TX("ON"), TX("OFF")};
+/* CORE SUPPLIES: the chip's two core supplies at the FM-1's stock firmware's levels, or left lower, where the boot loader
+ * leaves them (specs/hardware.md#the-chip) */
+static const txt_t L_SUPPLIES[2] = {TX("STOCK"), TX("LOWER")};
 static const txt_t L_THEME[G_THEMES] = {TX("DEFAULT"), TX("EGA"), TX("PASTEL"), TX("NEON"), TX("SUNSET"), TX("ICE"),
                                         TX("CLEAR"), TX("GREEN"), TX("AMBER"), TX("WHITE"), TX("DAYLIGHT"), TX("PAPER"),
                                         TX("MANUAL"), TX("SILVER"), TX("LCD"), TX("COMMANDER")};
@@ -43,7 +46,12 @@ static const txt_t L_MIDI_IN[17] = {TX("ALL"), TX("1"), TX("2"), TX("3"), TX("4"
 static const txt_t L_MIDI_OUT[3] = {TX("OFF"), TX("KEYS"), TX("ALL")};
 static const txt_t L_SYNC[2] = {TX("INTERNAL"), TX("EXTERNAL")};
 static const txt_t L_OFF_ON[2] = {TX("OFF"), TX("ON")};
+/* CONTROLLER AFTERTOUCH: MIDI CONTROLLER's general mode sends the keys' pressure, as Channel Pressure or each note's */
+static const txt_t L_CTL_AT[3] = {TX("OFF"), TX("CHANNEL"), TX("POLY")};
 const txt_t UI_KEYS_FX[2] = {TX("THROUGH FX"), TX("DRY")};   /* KEYS: the keys heard through the effects, or past them */
+/* KEYS VELOCITY: the keys' touch read and its curve (specs/hardware.md#the-keys-velocity), or CONSTANT: every key at
+ * KEYS VOLUME */
+static const txt_t L_KEYS_VEL[4] = {TX("CONSTANT"), TX("SOFT"), TX("NORMAL"), TX("HARD")};
 
 const ui_setting_t UI_SETTINGS[S_COUNT] = {
     {TX("OUTPUT"), L_OUTPUT, 4, 0, 0, 1, 0, SF_LIST},
@@ -51,7 +59,9 @@ const ui_setting_t UI_SETTINGS[S_COUNT] = {
     {TX("USB GAIN"), 0, 0, -24, 12, 1, 0, SF_DB},            /* USB audio's, without it */
     {TX("VOICES"), L_VOICES, 3, 0, 0, 1, 2, SF_LIST},
     {TX("SECOND CORE"), L_ON_OFF, 2, 0, 0, 1, 0, SF_LIST},  /* the effects and the output stage on core 2, or not */
+    {TX("CORE SUPPLIES"), L_SUPPLIES, 2, 0, 0, 1, 0, SF_LIST},   /* raised to the stock levels, or left lower */
     {TX("THEME"), L_THEME, G_THEMES, 0, 0, 1, 0, SF_LIST},
+    {TX("KEYS VELOCITY"), L_KEYS_VEL, 4, 0, 0, 1, 2, SF_LIST},
     {TX("KEYS VOLUME"), 0, 0, 1, 127, 1, 0x60, SF_HEX},
     {TX("KEYS GAIN"), 0, 0, -24, 12, 1, 0, SF_DB},          /* a gain on every note the keys start */
     {TX("KEYS"), UI_KEYS_FX, 2, 0, 0, 1, 0, SF_LIST},       /* THROUGH FX, or DRY: past every effect */
@@ -77,6 +87,7 @@ const ui_setting_t UI_MIDI_SETTINGS[S_MIDI_COUNT] = {
     {TX("MIDI OUT CHANNEL"), 0, 0, 1, 16, 1, 1, SF_NUM},
     {TX("SYNC"), L_SYNC, 2, 0, 0, 1, 0, SF_LIST},
     {TX("CLOCK OUT"), L_OFF_ON, 2, 0, 0, 1, 0, SF_LIST},
+    {TX("CONTROLLER AFTERTOUCH"), L_CTL_AT, 3, 0, 0, 1, 1, SF_LIST},
 };
 
 int16_t ui_set[S_COUNT];
@@ -143,6 +154,11 @@ static void from_record(const uint8_t *p, uint32_t len)
     if (len >= 124) {
         ui_set[S_SECOND_CORE] = p[123] & 2 ? 1 : 0;    /* (bit 1 OFF: ON in a record from before it) */
         ui_set[S_PRESETS_LIST] = p[123] & 4 ? 1 : 0;   /* (bit 2 OFF: ON in a record from before it) */
+        ui_set[S_SUPPLIES] = p[123] & 8 ? 1 : 0;       /* (bit 3 LOWER: STOCK in a record from before it) */
+        ui_set[S_KEYS_VELOCITY] = (int16_t)(((p[123] >> 4 & 3) + 2) & 3);   /* (bits 5-4: 0 NORMAL, 1 HARD, 2 CONSTANT, 3 SOFT;
+                                                         * NORMAL in a record from before it) */
+        ui_midi_set[S_MIDI_CTL_AT] = (int16_t)((p[123] >> 6) == 1 ? 2 : (p[123] >> 6) == 2 ? 0 : 1);   /* (bits 7-6: 0
+                                                         * CHANNEL, 1 POLY, 2 OFF; CHANNEL in a record from before it) */
     }
     if (len >= 125)
         ui_set[S_KEYS_GAIN] = (int16_t)ui_clamp((int8_t)p[124], -24, 12);   /* (0 dB in a record from before it) */
@@ -190,8 +206,13 @@ static void to_record(uint8_t *p)
     p[120] = (uint8_t)(ui_set[S_OUTPUT] >= 2 ? ui_set[S_OUTPUT] - 1 : 0);    /* (SYNC PULSE's side, as it was kept) */
     p[121] = (uint8_t)(ui_cur.inst >> 8);               /* the current instrument, kept */
     p[122] = (uint8_t)ui_cur.inst;
-    p[123] = (uint8_t)(1 | (ui_set[S_SECOND_CORE] ? 2 : 0) | (ui_set[S_PRESETS_LIST] ? 4 : 0));   /* bit 0 the instrument
-                                                         * kept, bit 1 SECOND CORE OFF, bit 2 PRESETS LIST OFF */
+    p[123] = (uint8_t)(1 | (ui_set[S_SECOND_CORE] ? 2 : 0) | (ui_set[S_PRESETS_LIST] ? 4 : 0) | (ui_set[S_SUPPLIES] ? 8 : 0) |
+                       ((ui_set[S_KEYS_VELOCITY] + 2) & 3) << 4 |
+                       (ui_midi_set[S_MIDI_CTL_AT] == 2 ? 1 : ui_midi_set[S_MIDI_CTL_AT] == 0 ? 2 : 0) << 6);
+                                                        /* bit 0 the instrument kept, bit 1 SECOND CORE OFF, bit 2 PRESETS
+                                                         * LIST OFF, bit 3 CORE SUPPLIES LOWER, bits 5-4 KEYS VELOCITY (0
+                                                         * NORMAL, 1 HARD, 2 CONSTANT, 3 SOFT), bits 7-6 CONTROLLER
+                                                         * AFTERTOUCH (0 CHANNEL, 1 POLY, 2 OFF) */
     p[124] = (uint8_t)(int8_t)ui_set[S_KEYS_GAIN];      /* KEYS GAIN, dB */
     p[125] = (uint8_t)ui_set[S_KEYS_FX];                /* KEYS: 0 THROUGH FX, 1 DRY */
     saved_pat = editor_pattern();                       /* the EDITOR's pattern: a numbered one (bit 0), or its own */
@@ -241,13 +262,14 @@ void ui_settings_apply(int k)
     if (k == S_KEYS_GAIN) {                     /* the keys' notes, all of them: their level, and FX MIXER's KEYS */
         player_keys_gain(ui_set[S_KEYS_GAIN]);
         player_keys_mix(ui_keys_mix);
-        loops_changed(0);                       /* (KEYS' sends the next loop's: the stage on + NEW LOOP hears them from
-                                                 * the next block) */
     }
     if (k == S_KEYS_FX) player_keys_dry(ui_set[S_KEYS_FX]);        /* the keys heard past every effect, or not */
+    if (k == S_KEYS_VELOCITY) plat_key_touch(ui_set[S_KEYS_VELOCITY]);   /* the keys' touch read, or not */
     if (k == S_THEME) g_theme(ui_set[S_THEME]);
     if (k == S_VOICES) ui_voices_poll();
     if (k == S_SECOND_CORE) plat_c2_enable(!ui_set[S_SECOND_CORE]);  /* core 2 from the next half, or core 1 alone */
+    if (k == S_SUPPLIES) plat_supplies(!ui_set[S_SUPPLIES]);   /* STOCK: raised now (the start's settings: before any sound
+                                                         * or core 2); LOWER: left, a power-off lowers them */
     if (k == S_KEYS_OCTAVE) ui_cur.octave = (int8_t)ui_set[S_KEYS_OCTAVE];
     if (k == S_ARP_RHYTHM || k == S_ARP_PATTERN || k == S_ARP_LATCH) ui_arp_refresh();
 }
@@ -332,15 +354,25 @@ void ui_settings_reload(void)
     for (int k = 0; k < S_COUNT; k++) ui_settings_apply(k);
 }
 /* SAVE: every change as one save; store_poll writes it, ui.c shows its progress. Not fitting in the user
- * area, it writes nothing and asks: CLEAN UP (its checklist), then SAVE again (specs/ui/saving.md) */
+ * area, or past the records the FM-1 lists, it writes nothing and asks: CLEAN UP (its checklist), then SAVE again
+ * (specs/ui/saving.md) */
 static void clean_then_save(int a) { if (a == 1) ui_clean_up(ui_save_again); }
-void ui_ask_storage_full(void)                  /* (specs/ui/saving.md#storage-full: the user area's figures) */
+void ui_ask_storage_full(void)                  /* (specs/ui/saving.md#storage-full: the user area's figures, or the
+                                                 * list of records') */
 {
-    char more[24], frees[28];
-    ui_fmt(more, sizeof more, "%s", ui_txt_v(T("# KB MORE NEEDED"), ui_dec((int)((store_save_short() + 1023) / 1024))));
-    ui_fmt(frees, sizeof frees, "%s", ui_txt_v(T("CLEAN UP FREES # KB"), ui_dec((int)((ui_clean_up_frees() + 1023) / 1024))));
-    const char *l[3] = {T("NOT ENOUGH STORAGE TO SAVE"), more, frees};
-    ui_ask(l, 3, T("CLEAN UP"), T("BACK"), clean_then_save);
+    int over = store_save_over();
+    const char *l[3];                                   /* (the question copies its lines) */
+    if (over) {
+        l[0] = T("TOO MANY RECORDS TO SAVE");
+        l[1] = ui_txt_d(TX("# MORE THAN THE FM-1 LISTS"), over);
+        l[2] = T("DELETE SOMETHING, THEN SAVE");
+    } else {
+        uint32_t fr = ui_clean_up_frees();              /* (first: the texts after it, no other text between) */
+        l[1] = ui_txt_d(TX("# KB MORE NEEDED"), (int)((store_save_short() + 1023) / 1024));
+        l[2] = ui_txt_d(TX("CLEAN UP FREES # KB"), (int)((fr + 1023) / 1024));
+        l[0] = T("NOT ENOUGH STORAGE TO SAVE");
+    }
+    ui_ask_t(l, 3, TX("CLEAN UP"), TX("BACK"), clean_then_save);
 }
 int ui_save_all(void)
 {
@@ -355,8 +387,10 @@ void ui_revert_all(void)
 {
     int dj = dj_live();
     lp_song_stop();                                     /* (a song recording ends first, an edit like the others) */
+    ua_reverted();                                      /* (and an automation recording or playing) */
     player_pause();
     ui_edit_drop();
+    loops_unloaded();                                   /* (a LOOPS load undone: no solos) */
     player_store_changed();
     ui_settings_reload();
     if (dj) dj_on(0);

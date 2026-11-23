@@ -19,11 +19,12 @@ PTFM.ui = (function () {
     const E = { SELECT: 0, ALGORITHM: 1, K1: 2, K2: 3, K3: 4, K4: 5, PRESETS: 6 };
     const WHITE = [0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26];
     const BLACK = [1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25];
-    /* (FX has its own button and no black key; OP6 and the blank key no screen yet) */
-    const SCREEN_KEY = { 1: "SONGS", 3: "EDITOR", 5: "INSTRUMENTS", 8: "PLAYBACK", 10: "DJ", 15: "VISUAL", 17: "STATUS",
-                         20: "SETTINGS", 22: "LOOPS" };
-    /* the round HOME's SELECT turns (specs/ui/navigation.md): the start screen first, SETTINGS last */
-    const ROUND = ["STATUS", "SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "VISUAL", "FX", "LOOPS", "DJ", "SETTINGS"];
+    /* (FX has its own button and no black key; the blank key no screen yet) */
+    const SCREEN_KEY = { 1: "SONGS", 3: "EDITOR", 5: "INSTRUMENTS", 8: "PLAYBACK", 10: "DJ", 13: "AUTOMATIONS", 15: "VISUAL",
+                         17: "STATUS", 20: "SETTINGS", 22: "LOOPS" };
+    /* the round HOME's SELECT turns (specs/ui/navigation.md): the start screen first, SETTINGS then AUTOMATIONS last; an
+     * automation's screen is its place here (specs/files/automations.md: 0 STATUS ... 9 SETTINGS) */
+    const ROUND = ["STATUS", "SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "VISUAL", "FX", "LOOPS", "DJ", "SETTINGS", "AUTOMATIONS"];
     const GROUP_COL = { MAKE: D.LBLUE, PLAY: D.GREEN, HEAR: D.BROWN, SYSTEM: D.MAGENTA };
     const BODY_Y = 17, BODY_H = 210;
 
@@ -36,7 +37,7 @@ PTFM.ui = (function () {
         place: 0xF000,
         pattern: M.EDITOR_PATTERN,                           /* (the EDITOR's: its own at first) */
         mutes: new Array(16).fill(false), solo: -1,
-        version: "0.27", dev: true,                          /* (fw/VERSION's number; the playground a dev build) */
+        version: "1.0", dev: true,                           /* (fw/VERSION's number, checked by checks.js; the playground a dev build) */
     };
     U.now = () => performance.now();
     U.set = k => M.state.settings[k];
@@ -169,14 +170,37 @@ PTFM.ui = (function () {
     /* ---------------------------------------------------------------- the keys sound --- */
     const sounding = {};
     const keyMax = new Array(27).fill(0);        /* the loudest a key's note has been: its light follows it */
+    /* the keys' velocity, as the FM-1's platform gives the firmware (fw/device/keyvel.h; the emulator's
+     * plat_web.c): each press of the panel's tells how hard it went down, its landing (where it was pressed) or a
+     * velocity given (an FM-1 as the controller), taken as the press comes: the landing on KEYS VELOCITY's curve, the
+     * top row (C#5-G5, notes 20-26, no reading on the FM-1) at the mean of the last four sensed; none (the computer's
+     * keyboard, a test): KEYS VOLUME. KEYS VELOCITY CONSTANT: every key at KEYS VOLUME (specs/hardware.md#the-keys-velocity) */
+    const touchVel = new Array(27).fill(0);     /* each held key's press's velocity, 0 none */
+    const sensed = [];                           /* the last four sensed velocities, the newest last */
+    U.touchVelocity = function (n, touch) {      /* a press's velocity (0 none), the sensed ones kept for the top row */
+        const c = M.KEYS_VELOCITIES.indexOf(U.set("KEYS VELOCITY"));
+        if (c <= 0 || !touch) return 0;
+        if (touch.vel) return Math.max(1, Math.min(127, touch.vel));
+        if (!touch.reading) return 0;
+        if (n < 20) {
+            const v = M.keyVelocity(touch.reading, c);
+            sensed.push(v);
+            if (sensed.length > 4) sensed.shift();
+            return v;
+        }
+        return sensed.length ? Math.floor((sensed.reduce((a, b) => a + b, 0) + (sensed.length >> 1)) / sensed.length) : 0;
+    };
+    U.keyVol = n => (U.set("KEYS VELOCITY") !== "CONSTANT" && touchVel[n]) || U.set("KEYS VOLUME");
     U.keyOn = function (n, ref = U.inst, track = -1) {
         const m = U.midi(n);
         if (m < 12 || m > 127) return;
         keyMax[n] = 0;
         keyAt[n] = U.now();
-        sounding[n] = PTFM.player.noteOn("k" + n, m, ref, U.set("KEYS VOLUME"), track);
+        sounding[n] = PTFM.player.noteOn("k" + n, m, ref, U.keyVol(n), track);
     };
     const keyAt = new Array(27).fill(-1e9);     /* lit at once, before the sound's level comes back */
+    /* key n played a note a screen took (LOOPS' stage): lit from its press, then by its note, as a key played freely */
+    U.keyLit = n => { keyMax[n] = 0; keyAt[n] = U.now(); };
     /* a played key's light: full while its note is loud, dim as it fades
      * (under half its loudest), off under an eighth; with no sound running, lit while held */
     function keyGlow(keys) {
@@ -184,9 +208,11 @@ PTFM.ui = (function () {
         if (!PTFM.audio.running) return;
         const lvl = new Array(27).fill(0);
         for (const v of st.voices || []) {
-            const m = v.id && /^k(\d+)|k(\d+)$/.exec(v.id);      /* the keys' notes, and those of LOOPS' takes (a lane's, ...k5) */
-            if (!m) continue;
-            const n = +(m[1] || m[2]);
+            if (!v.id) continue;
+            const id = v.id.split("/")[0], m = /^k(\d+)/.exec(id);   /* the keys' notes (a FUSION's layers too, k5/0); on
+                                                     * LOOPS a key's lane's note now (P.laneKey) */
+            const n = m ? +m[1] : PTFM.player.laneKey ? PTFM.player.laneKey(id) : null;
+            if (n == null) continue;
             if (!(n >= 0 && n < 27)) continue;
             keyMax[n] = Math.max(keyMax[n], v.peak);
             lvl[n] = Math.max(lvl[n], keyMax[n] > 1e-4 ? v.peak / keyMax[n] : 0);
@@ -197,6 +223,34 @@ PTFM.ui = (function () {
         }
     }
     U.keyOff = n => { PTFM.player.noteOff("k" + n); delete sounding[n]; };
+    /* the keys' pressure (fw/core/press.h, the FM-1's ui.c keys_press): every 5 ms each held key read, its own notes
+     * louder, from its velocity's volume toward 127 at the most (heard only: what it wrote keeps its velocity) */
+    const keyRd = new Array(20).fill(0), keyW = new Array(20).fill(0), keyPv = new Array(20).fill(0);   /* (keyPv: the
+                                                         * volume as the screen last took it, 0 none: ui.c's key_pv) */
+    let pressT = 0;
+    function keysPress(notes, now) {
+        if (now - pressT > 200) pressT = now - 5;           /* (a page late: the time caught up in 5 ms steps, as the
+                                                         * FM-1's main loop takes them) */
+        for (; now - pressT >= 5; pressT += 5) keyStep(notes, 5);
+    }
+    function keyStep(notes, dt) {
+        for (let n = 0; n < 20; n++) {
+            const was = ((keyW[n] >>> 14 & 0x7FF) + 8) >> 4, m = U.midi(n);
+            const d = notes >> n & 1 && U.set("KEYS VELOCITY") !== "CONSTANT" && touchVel[n] ? keyRd[n] : 0;
+            let p;
+            if (!(notes >> n & 1)) keyPv[n] = 0;
+            [keyW[n], p] = PTFM.ctl.press(keyW[n], d, dt);
+            if (p === was || m < 12 || m > 127 || !d) continue;
+            const vel = U.keyVol(n), pv = vel + Math.floor(((127 - vel) * p + 63) / 127);
+            if (PTFM.audio.keyPress) PTFM.audio.keyPress(n, Math.floor((pv * 256 + (vel >> 1)) / vel) / 256);
+            if (!keyPv[n]) keyPv[n] = vel;
+            if (U.screen.pressure && (pv >= keyPv[n] + 4 || pv + 4 <= keyPv[n] || (pv === vel && keyPv[n] !== vel))) {
+                keyPv[n] = pv;                           /* (written there: the EDITOR's take, LOOPS' stage) */
+                U.screen.pressure(n, pv);
+            }
+        }
+    }
+    U.keyPressure = (n, reading) => { if (n >= 0 && n < 20) keyRd[n] = reading || 0; };
     U.lastKey = null;
 
     /* ------------------------------------------------------------------- overlays --- */
@@ -207,12 +261,48 @@ PTFM.ui = (function () {
     let selArmed = false;                        /* SEL tapped on the screen, nothing touched since: PRESETS opens its list */
 
     /* a box over the body: x, y, w, h; a title */
-    function panel(x, y, w, h, title, col = D.CYAN) {
+    function panel(x, y, w, h, title, col = D.CYAN, font = F.T) {
         D.rect(x, y, w, h, D.BLACK);
         D.box(x, y, w, h, D.LGREY);
-        if (title) D.text(x + 4, y + 3, F.T, title, col);
+        if (title) D.text(x + 4, y + 3, font, title, col);
     }
     U.panel = panel;
+    /* the same, its title in F.S (menus, properties, the song and cartridge lists) */
+    U.panelS = (x, y, w, h, title, col = D.CYAN) => panel(x, y, w, h, title, col, F.S);
+    U.ROW = 16;                                  /* a row in F.S */
+    U.T_ON_S = 2;                                /* F.T beside F.S, on its baseline: 2 px lower (T's capitals end on its
+                                                  * row 9, S's on its 11) */
+    /* rows of one line or two in F.S (specs/ui/dialogs.md#rows-in-s), each row's lines (1 or 2) counted once a draw into
+     * nl[]: U.rowLines a row's (2 when its name, two spaces and its value pass `room` characters); U.rowsTop the first
+     * row shown, `lines` lines in view, the selected row sel whole and kept `mid` lines down while it can; U.rowsDraw the
+     * rows in view from y0, row(i, y, its lines, whole: both its lines in view, on: selected) each (its box the
+     * caller's), and the lines the rows take (lines + 1 when a two-line row is cut at the bottom) */
+    U.rowLines = (name, value, room) => name.length + 2 + value.length > room ? 2 : 1;
+    U.rowsTop = function (sel, lines, mid, nl) {
+        const n = nl.length;
+        if (n <= 0 || sel < 0 || sel >= n) return 0;
+        let end = n, used = 0, top = sel, m = 0;
+        while (end > 0 && used + nl[end - 1] <= lines) used += nl[--end];     /* the first from which every row fits */
+        while (top > 0 && m + nl[top - 1] <= mid) m += nl[--top];            /* the first with sel mid lines down or less */
+        if (end < top) top = end;
+        for (;;) {                                                            /* the selected row whole (the rule; it acts
+                                                                               * only where mid + 2 passes the lines in
+                                                                               * view, which no list has) */
+            let s = 0;
+            for (let i = top; i <= sel; i++) s += nl[i];
+            if (s <= lines || top >= sel) return top;
+            top++;
+        }
+    };
+    U.rowsDraw = function (sel, lines, mid, nl, y0, row) {
+        let line = 0;
+        for (let i = U.rowsTop(sel, lines, mid, nl); i < nl.length && line < lines; i++) {
+            const k = nl[i];
+            row(i, y0 + line * U.ROW, k, line + k <= lines, i === sel);
+            line += k;
+        }
+        return line;
+    };
     const lastMenu = {};
 
     /* SEL menus (specs/ui/dialogs.md#menus): the last action used is preselected. An item is an action, or
@@ -262,23 +352,27 @@ PTFM.ui = (function () {
                 return true;
             },
             draw() {
-                const list = this.list(), n = list.length, h = Math.min(n, 15) * 12 + 22, w = 150, x = 240 - w - 6, y = BODY_Y + 4;
-                const t = this.level ? (this.title + " > " + this.level.group).length > 23 ? this.level.group : this.title + " > " + this.level.group : this.title;
-                panel(x, y, w, h, t);
-                const top = Math.max(0, Math.min(this.sel - 7, n - 15));
-                for (let i = top; i < Math.min(n, top + 15); i++) {
-                    const yy = y + 18 + (i - top) * 12, on = i === this.sel, it = list[i];
-                    if (on) { D.rect(x + 2, yy - 1, w - 4, 12, D.DEEP + D.BLUE); D.box(x + 2, yy - 1, w - 4, 12, D.WHITE); }
+                /* the body's width in F.S: the panel at 2, 19, the title at 8, 22 (28 characters, cut past them), item i at
+                 * 10, 39 + 16 i (26 characters at most); 11 in view, the highlight kept 5 down while it can */
+                const list = this.list(), n = list.length, SHOWN = 11, h = Math.min(n, SHOWN) * U.ROW + 22, y = BODY_Y + 2;
+                const t = this.level ? (this.title + " > " + this.level.group).length > 28 ? this.level.group : this.title + " > " + this.level.group : this.title;
+                panel(2, y, 236, h, null);
+                D.text(8, y + 3, F.S, t.slice(0, 28), D.CYAN);
+                const top = Math.max(0, Math.min(this.sel - 5, n - SHOWN));
+                for (let i = top; i < Math.min(n, top + SHOWN); i++) {
+                    const yy = y + 20 + (i - top) * U.ROW, on = i === this.sel, it = list[i];
+                    if (on) { D.rect(4, yy - 1, 232, U.ROW, D.DEEP + D.BLUE); D.box(4, yy - 1, 232, U.ROW, D.WHITE); }
                     /* in a group, BACK first: `<` and the word in cyan, a dark grey rule under it (a way out,
                      * not an action) */
                     if (this.level && i === 0) {
-                        if (!on) D.hline(x + 4, yy + 10, w - 8, D.DGREY);
-                        D.text(x + 6, yy, F.T, "<", on ? D.WHITE : D.CYAN);
-                        D.text(x + 18, yy, F.T, it, on ? D.WHITE : D.CYAN);
+                        if (!on) D.hline(6, yy + U.ROW - 2, 228, D.DGREY);   /* (at 53, in BACK's own row: the next
+                                                                         * item's bar never covers it) */
+                        D.text(10, yy, F.S, "<", on ? D.WHITE : D.CYAN);
+                        D.text(26, yy, F.S, it, on ? D.WHITE : D.CYAN);
                         continue;
                     }
-                    D.text(x + 6, yy, F.T, it.group || it, on ? D.WHITE : D.LGREY);
-                    if (it.group) D.text(x + w - 12, yy, F.T, ">", on ? D.WHITE : D.LGREY);
+                    D.text(10, yy, F.S, (it.group || it).slice(0, 26), on ? D.WHITE : D.LGREY);
+                    if (it.group) D.text(222, yy, F.S, ">", on ? D.WHITE : D.LGREY);
                 }
             },
         });
@@ -380,15 +474,22 @@ PTFM.ui = (function () {
                 return false;
             },
             draw() {
-                const n = this.items.length, sub = this.sub ? 12 : 0, h = n * 14 + 24 + sub, y = BODY_Y + 4;
-                panel(6, y, 228, h, this.title);
-                if (sub) D.text(10, y + 15, F.T, this.sub, D.WHITE);
-                this.items.forEach((it, i) => {
-                    const yy = y + 19 + sub + i * 14, on = i === this.sel;
-                    if (on) D.box(8, yy - 2, 224, 14, D.WHITE);
-                    D.text(12, yy, F.T, it.name, on ? D.WHITE : D.CYAN);
-                    const v = it.get(), col = it.col ? it.col(on) : (on ? D.WHITE : D.LGREY);   /* (an item's own colour, highlighted or not) */
-                    D.text(228 - D.tw(F.T, v), yy, F.T, v, it.fixed ? D.DGREY : col);
+                /* in F.S (specs/ui/dialogs.md#properties): 11 lines in view (10 under a title of two lines); more scroll by
+                 * rows, the selected row whole and kept 5 lines down while it can; a row passing 27 characters (its
+                 * name, two spaces, its value) has its value on the next line, right-aligned to 230 */
+                /* (each getter read once a draw; the panel's height the rows' lines, at most those in view, whatever the
+                 * scroll) */
+                const sub = this.sub ? U.ROW : 0, lines = sub ? 10 : 11, y = BODY_Y + 2;
+                const val = this.items.map(it => String(it.get()).slice(0, 27)), nl = this.items.map((it, i) => U.rowLines(it.name, val[i], 27));
+                U.panelS(4, y, 232, Math.min(nl.reduce((a, k) => a + k, 0), lines) * U.ROW + 24 + sub, this.title);
+                if (sub) D.text(8, y + 19, F.S, this.sub, D.WHITE);
+                U.rowsDraw(this.sel, lines, 5, nl, y + 21 + sub, (i, yy, k, whole, on) => {
+                    const it = this.items[i], v = val[i];
+                    if (on) D.box(6, yy - 1, 228, U.ROW * k, D.WHITE);
+                    D.text(10, yy, F.S, it.name, on ? D.WHITE : D.CYAN);
+                    const col = it.col ? it.col(on) : (on ? D.WHITE : D.LGREY);   /* (an item's own colour, highlighted or not) */
+                    if (whole) D.text(230 - D.tw(F.S, v), yy + (k - 1) * U.ROW, F.S, v, it.fixed ? D.DGREY : col);   /* (its value on
+                                                                         * the next line when the row passes 27) */
                 });
             },
         });
@@ -536,14 +637,19 @@ PTFM.ui = (function () {
     U.unlayer = l => { const i = U.layers.indexOf(l); if (i >= 0) U.layers.splice(i, 1); };
     /* a combination's lines at the body's bottom (specs/ui/dialogs.md): the heading, then a control and what
      * it does on each line */
-    function comboPanel(heading, lines) {
-        const h = lines.length * 12 + 26, y = BODY_Y + BODY_H - h - 2;
+    /* A held layer (mayS) is in F.S when every line fits, 28 characters and 11 lines at most, else the whole of it in F.T
+     * (specs/ui/dialogs.md#hold-layers); HOME's always in F.T */
+    function comboPanel(heading, lines, mayS = false) {
+        const len = l => Array.isArray(l) ? l.reduce((a, r) => a + r[0].length, 0) : l.length;
+        const s = mayS && lines.length <= 11 && len(heading) <= 28 && lines.every(l => len(l) <= 28), f = s ? F.S : F.T;   /* (11:
+                                                                         * the rule's; no layer has more than 8 lines) */
+        const lh = s ? U.ROW : 12, ly = s ? 21 : 19, h = lines.length * lh + 26, y = BODY_Y + BODY_H - h - 2;
         panel(4, y, 232, h, null);
-        D.runs(8, y + 5, F.T, heading);
+        D.runs(8, y + 5, f, heading);
         lines.forEach((l, i) => {
-            if (Array.isArray(l)) return D.runs(8, y + 19 + i * 12, F.T, l);      /* (a line coloured already) */
+            if (Array.isArray(l)) return D.runs(8, y + ly + i * lh, f, l);        /* (a line coloured already) */
             const k = l.indexOf(":");
-            D.runs(8, y + 19 + i * 12, F.T, [[l.slice(0, k), D.YELLOW], [l.slice(k), D.LGREY]]);
+            D.runs(8, y + ly + i * lh, f, [[l.slice(0, k), D.YELLOW], [l.slice(k), D.LGREY]]);
         });
     }
     /* lines: a list, or a function giving it (HOME's change as its combination is used) */
@@ -555,7 +661,7 @@ PTFM.ui = (function () {
                 const tail = this.btn === B.FX ? [[" + ", D.CYAN], ["KEYS", D.YELLOW]] : [[" +", D.CYAN]];   /* (FX: HOLD FX + KEYS) */
                 const lines = this.lines();
                 if (!lines.length) return;                       /* (no lines now: nothing drawn) */
-                comboPanel([["HOLD ", D.CYAN], [BNAME[this.btn], D.YELLOW]].concat(tail), lines);
+                comboPanel([["HOLD ", D.CYAN], [BNAME[this.btn], D.YELLOW]].concat(tail), lines, true);
             },
         };
         U.layers.push(l);
@@ -623,7 +729,7 @@ PTFM.ui = (function () {
     U.progress = function (text, ms, then) {
         const t0 = U.now();
         const o = U.open({
-            kind: "progress", text,
+            kind: "progress", text, at: t0,             /* (at: when it opened, an automation's stand-still counts from it) */
             knob() {}, tap() { return true; },
             draw() {
                 const k = clamp((U.now() - t0) / ms, 0, 1), y = BODY_Y + 80;
@@ -656,22 +762,27 @@ PTFM.ui = (function () {
             if (prev.name === "FX" && U.fxDj && name !== "DJ" && U.screens.DJ.leave) U.screens.DJ.leave(s);
         }
         if (loopsToFx && prev.toFx) prev.toFx();            /* (LOOPS: the keys down stop writing onto the stage) */
-        U.fxLoops = name === "FX" && loopsToFx;
-        U.fxDj = name === "FX" && djToFx;
+        /* back from AUTOMATIONS (U.goBack): FX as it was, its own origin kept and given to it */
+        const back = !!opts.back && name === "FX";
+        U.fxLoops = name === "FX" && (loopsToFx || back && U.fxFrom === "LOOPS");
+        U.fxDj = name === "FX" && (djToFx || back && U.fxFrom === "DJ");
         U.overlays = U.overlays.filter(o => o.full || o.keep);   /* memory full stays until answered; HOME's
                                                                   * combination while SELECT turns the screens */
         PTFM.player.auditionEnd();                          /* a pattern list's preview ends with it */
         selArmed = false;
         if (!opts.deep) U.deep = [];
-        if (name === "FX" && prev) U.fxFrom = prev.name;                                   /* FX again: back there (LOOPS too) */
+        if (name === "FX" && prev && !opts.back) U.fxFrom = prev.name;                     /* FX again: back there (LOOPS too) */
         U.from = prev ? prev.name : null;
         arpOff();                                           /* ARP stays with its screen */
         U.screen = s;
         /* LOOPS shown or left with nothing playing: the keys through the loops' setup at their time, or back to what
          * was held (specs/ui/screens/fx.md#the-fx-setup) */
         if (PTFM.player.loopsShown() !== loopsWas && !PTFM.player.playing) PTFM.audio.fxNow();
-        if (s.enter) s.enter(prev ? prev.name : null, opts);
+        if (s.enter) s.enter(back ? U.fxFrom : prev ? prev.name : null, opts);
     };
+    /* back to a screen from AUTOMATIONS (a recording's or a playback's start): as if it had not opened, FX keeping its own
+     * origin */
+    U.goBack = name => U.go(name, { back: true });
     /* EDIT jumps into the EDITOR go deep: HOME tap returns (5) */
     U.goDeep = function (name, opts, back) {
         const from = U.screen.name;
@@ -727,9 +838,17 @@ PTFM.ui = (function () {
         return true;
     }
     const loopsKeys = () => !!U.screen.muteKey && !U.screen.soloKey;      /* (a screen whose white keys only mute: none now) */
-    /* SEQ switches the white keys between mute and solo as long as they are members: before any member acted
-     * and after they did, again and again */
+    /* SEQ switches the white keys to solo, ARP to the automations, each back to mute (ARP from recording them too; c.solo:
+     * 0 mute, 1 solo, 2 the automations played, 3 recorded), as long as they are members: before any member acted and
+     * after they did, again and again; after ARP, REC (in buttonDown) from playing the automations to recording them and
+     * back */
     const seqSwitches = c => (!c.lock || c.lock === "white") && !loopsKeys();
+    function homeSwitch(c, b) {
+        if ((b !== B.SEQ && b !== B.ARP) || !seqSwitches(c)) return false;
+        const k = b === B.SEQ ? 1 : 2;
+        c.solo = c.solo === k || (c.solo & k & 2) ? 0 : k;
+        return true;
+    }
     /* the black keys' screens, two a line by the keys' order, each as printed: `OP1: SONGS  OP2: EDITOR`
      * (the current screen white; a screen not built yet is left out) */
     function screenKeyLines() {
@@ -746,15 +865,20 @@ PTFM.ui = (function () {
     /* its lines: what can act; once a member has acted, only that one */
     function homeLines(c) {
         const lp = U.screen.name === "LOOPS", dj = U.screen.name === "DJ", what = lp ? "LOOP" : "TRACK";   /* LOOPS: the loops */
+        const au = c.solo >= 2, half = (k, w) => [[k, D.YELLOW], [": " + w, D.LGREY]];   /* (after ARP: the automations) */
         return [
             ["select", "SELECT: THE SCREENS, ONE BY ONE"],
             ...screenKeyLines().map(l => ["black", l]),
-            ["white", c.solo ? "WHITE KEY: SOLO A " + what : "WHITE KEY: MUTE A " + what + ", HELD: SOLO"],
-            ["white", dj && "KEYS 1-8: LEFT DECK, 9-16: RIGHT"],       /* DJ: whose tracks they are */
-            ["white", dj && U.screen.homeOct && (U.screen.homeOct(B.OCTP) ? "OCT+: TRACKS 08-0F" : U.screen.homeOct(B.OCTM) ? "OCT-: TRACKS 00-07" : null)],
-            ["white", c.solo ? "SEQ: WHITE KEYS MUTE INSTEAD" : "SEQ: WHITE KEYS SOLO INSTEAD"],   /* (theirs: on while they act) */
+            ["white", au ? (c.solo === 3 ? "WHITE KEY: RECORD ITS AUTOMATION" : "WHITE KEY: PLAY ITS AUTOMATION")
+                         : c.solo ? "WHITE KEY: SOLO A " + what : "WHITE KEY: MUTE A " + what + ", HELD: SOLO"],
+            ["white", !au && dj && "KEYS 1-8: LEFT DECK, 9-16: RIGHT"],       /* DJ: whose tracks they are */
+            ["white", !au && dj && U.screen.homeOct && (U.screen.homeOct(B.OCTP) ? "OCT+: TRACKS 08-0F" : U.screen.homeOct(B.OCTM) ? "OCT-: TRACKS 00-07" : null)],
+            /* SEQ's and ARP's switches, two a line as the screens (theirs: on while the white keys act) */
+            ["white", half("SEQ", c.solo === 1 ? "MUTE INSTEAD" : "SOLO INSTEAD").concat([["  ", D.LGREY]], half("ARP", au ? "MUTE INSTEAD" : "AUTOMATIONS"))],
             ["play", dj ? "PLAY: BACK TO THE CUES" : "PLAY: BACK TO THE START"],
-            ["rec", "REC: CUT, SILENT WHILE HELD"],
+            /* after ARP: REC's switch, or the end (with the white keys) */
+            au ? ["white", U.auto.state() === 1 ? "REC: END THE RECORDING" : c.solo === 3 ? "REC: PLAY INSTEAD" : "REC: RECORD INSTEAD"]
+               : ["rec", "REC: CUT, SILENT WHILE HELD"],
             ["lfo", "LFO: HELP FOR THIS SCREEN"],
         ].filter(([k, l]) => l && (!c.lock || c.lock === k)).map(x => x[1]);
     }
@@ -762,11 +886,11 @@ PTFM.ui = (function () {
      * button that is no member closes it and goes on to do its own job (passes) */
     function openHome() {
         U.open({
-            kind: "home", opener: B.HOME, keep: true, passes: true, lock: null, solo: false, at: U.now(),
+            kind: "home", opener: B.HOME, keep: true, passes: true, lock: null, solo: 0, at: U.now(),
             knob() {},
             tap(b) {
                 if (b === B.LFO && member(this, "lfo")) { U.close(this); U.openHelp(); return true; }
-                if (b === B.SEQ && seqSwitches(this)) { this.solo = !this.solo; return true; }
+                if (homeSwitch(this, b)) return true;      /* (SEQ, ARP: what the white keys do) */
                 U.close(this);
                 return false;
             },
@@ -803,20 +927,53 @@ PTFM.ui = (function () {
     const standChanged = () => PTFM.player.djStandChanged(M.state.dj.stand);
     U.unsavedCount = () => M.unsaved + (standChanged() && !M.djSetupUnsaved() ? 1 : 0);
     /* the current instrument is kept by SAVE (the settings record's, specs/files/settings.md): not a change by itself,
-     * but SAVE writes it when it differs from the one kept */
+     * but SAVE writes it when it differs from the one kept; so the EDITOR's pattern and, with POWER-ON SCREEN = LAST,
+     * the screen (its place in that list; the firmware's at first: F0:00, its own pattern, STATUS) */
     U.savedInst = 0xF000;
+    U.savedPat = M.EDITOR_PATTERN;
+    U.savedScreen = 0;
+    const screenAt = () => M.SETTINGS.find(s => s.k === "POWER-ON SCREEN").list.indexOf(U.screen ? U.screen.name : "");
+    U.keepChanged = () => U.inst !== U.savedInst || U.pattern !== U.savedPat ||
+        (U.set("POWER-ON SCREEN") === "LAST" && screenAt() >= 0 && screenAt() !== U.savedScreen);
     function saveTap() {
-        if (!U.unsavedCount() && U.inst === U.savedInst) { U.toast("NOTHING TO SAVE"); return; }
+        if (!U.unsavedCount() && !U.keepChanged()) { U.toast("NOTHING TO SAVE"); return; }
         if (PTFM.player.playing) { U.saveWaiting = true; U.toast("SAVE WAITS FOR A PAUSE"); return; }
         doSave();
     }
+    /* CUT held or a save under way: the sound off (specs/ui/saving.md: a save is made in silence, as under CUT) */
+    U.hush = () => PTFM.audio.hush(!!(U.cutOn || U.saving));
+    const SAVE_FADE_MS = 25;                             /* (CUT's fade from the next half, with room: the firmware's) */
     function doSave(after, refs) {                       /* after: once saved (the MIDI CONTROLLER's switch); refs: a
                                                           * reference update's save, the references it updates */
+        if (U.saving) { U.toast("SAVE: THE STORE IS BUSY"); return; }
         U.saveWaiting = false;
+        /* all sound off first, as CUT does; the save once it has faded, the sound back at its end, whatever came of it */
+        U.saving = true;
+        PTFM.player.allSoundOff();
+        U.hush();
+        setTimeout(() => saveBegin(after, refs), SAVE_FADE_MS);
+    }
+    function saveBegin(after, refs) {
+        /* the list of records first (specs/ui/saving.md#storage-full, specs/files/store.md#the-list-of-records): a save
+         * the FM-1 could not list writes nothing but the deletions it can write first, and asks; CLEAN UP (its
+         * checklist), then the save again. Counted with what the save puts in (the settings' kept state, DJ's stand) */
+        const keep = U.keepChanged(), stand = PTFM.player.djStandToSave();
+        let over = M.recordsOver(keep, stand);
+        if (over > 0 && M.saveDeletions()) over = M.recordsOver(keep, stand);
+        if (over > 0) {
+            U.saving = false;
+            U.hush();
+            U.ask(["TOO MANY RECORDS TO SAVE", over + " MORE THAN THE FM-1 LISTS", "DELETE SOMETHING, THEN SAVE"], ["CLEAN UP", "BACK"], a => {
+                if (a === "CLEAN UP" && U.cleanUp) U.cleanUp(() => { if (U.unsavedCount() || U.keepChanged()) doSave(); });
+            });
+            return;
+        }
         /* storage full (specs/ui/saving.md): a save that does not fit in the user area writes nothing and
          * asks; CLEAN UP (its checklist), then the save if it fits now. Its figures count the user area only */
         const st = M.storage();
         if (st.userFree < 0) {
+            U.saving = false;
+            U.hush();
             const cl = M.cleanable(), kbs = b => Math.ceil(b / 1024) + " KB";
             const frees = cl.patterns.bytes + cl.samples.bytes;
             U.ask(["NOT ENOUGH STORAGE TO SAVE", kbs(-st.userFree) + " MORE NEEDED", "CLEAN UP FREES " + kbs(frees)], ["CLEAN UP", "BACK"], a => {
@@ -825,14 +982,15 @@ PTFM.ui = (function () {
             return;
         }
         const n = U.unsavedCount() || 1;
-        U.saving = true;
         U.progress(refs ? "UPDATING " + refs + " REFERENCE" + (refs === 1 ? "" : "S") : "SAVING " + n + " CHANGE" + (n === 1 ? "" : "S"),
                    300 + 40 * Math.min(n, 30), () => {
             M.state.dj.stand = PTFM.player.djStandToSave();   /* (the decks as they stand, paused: no edit of its own) */
             for (const k in U.screens) if (U.screens[k].toSave) U.screens[k].toSave();   /* (LOOPS' selection, as the stand) */
-            U.savedInst = U.inst;
-            M.save(); U.toast(refs ? "REFERENCES UPDATED, SAVED" : "SAVED");
+            const kept = U.keepChanged();
+            if (kept || M.unsavedThing("settings")) { U.savedInst = U.inst; U.savedPat = U.pattern; if (screenAt() >= 0) U.savedScreen = screenAt(); }
+            M.save(kept); U.toast(refs ? "REFERENCES UPDATED, SAVED" : "SAVED");
             U.saving = false;
+            U.hush();                                    /* (heard again from the next notes) */
             if (after) after();
         });
     }
@@ -896,6 +1054,7 @@ PTFM.ui = (function () {
         U.ask(["REVERT TO SAVED?", "DROP " + n + " UNSAVED CHANGE" + (n === 1 ? "" : "S"),
                "AND RELOAD FROM FLASH"], ["REVERT", "KEEP"], a => {
             if (a !== "REVERT") return;
+            if (U.auto) U.auto.reverted();                  /* (an automation recording or playing ends) */
             PTFM.player.pauseAll();
             U.progress("RELOADING", 500, () => {
                 M.revert();
@@ -1038,8 +1197,10 @@ PTFM.ui = (function () {
         [B.SEL]: () => {
             const o = U.top();
             if (o && o.kind === "text") return ["SELECT IN A NAME: NEXT GROUP"];
-            return (U.screen.selLines ? U.screen.selLines() : []).concat(U.screen.noKeyboard ? [] : ["PRESETS: OTHER CARTRIDGE"])
+            const lines = (U.screen.selLines ? U.screen.selLines() : []).concat(U.screen.noKeyboard ? [] : ["PRESETS: OTHER CARTRIDGE"])
                 .concat(selFavHere() && !instrEdit() ? ["GLO: FAVORITES AND BACK"] : []);
+            return () => { const t = U.top(); return t && t.presetsList ? [] : lines; };   /* (gone while the cartridge list SEL +
+                                                         * PRESETS opens shows, as GLO's while its favourites' list does) */
         },
         /* GLO + PRESETS where it works; gone while the favourites' list shows */
         [B.GLO]: () => U.gloFavHere() ? () => (U.overlays.length ? [] : ["PRESETS: A FAVORITE, ONCE"]) : null,
@@ -1052,25 +1213,26 @@ PTFM.ui = (function () {
     /* an overlay that captures the next FM-1 control (MIDI learn: specs/connections.md): it gets the
      * control instead of its job; HOME stays HOME (it cancels) */
     const capturing = () => { const o = U.top(); return o && o.capture ? o : null; };
-    /* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES (FB; deleted, the first
-     * FAVORITES cartridge in the lists' order), at the favourite last used there; with it current, back to the place
-     * before it. Where SEL + PRESETS works; refused in INSTRUMENTS' edit mode (GLO blinks). SEL's layer says so */
+    /* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES, FB, at the favourite last
+     * used there; with it current, back to the place before it; with no favourite there (or FB deleted) NO FAVORITES
+     * YET. Where SEL + PRESETS works; refused in INSTRUMENTS' edit mode (GLO blinks). SEL's layer says so */
     const selFavHere = () => !U.screen.noKeyboard && !U.overlays.length;
     const instrEdit = () => U.screen.name === "INSTRUMENTS" && U.screen.editMode && U.screen.editMode();
     function selFav() {
         if (instrEdit()) { U.refuse(B.GLO); return; }
-        const favs = M.state.carts.filter(c => c.type === "FAVORITES"), to = favs[0];   /* (first in the lists' order) */
-        if (to && U.place >> 8 === to.id) { if (favBack != null) U.setInst(favBack); }
-        else if (!favs.some(c => c.slots.some(Boolean))) { U.toast("NO FAVORITES YET"); return; }
-        else U.setInst(to.id << 8 | (favAt != null && favAt >> 8 === to.id ? favAt & 255 : U.cartFirst(to)));
+        const to = M.fb(), FB = M.FB;
+        if (!to) { U.toast("NO FAVORITES YET"); return; }
+        if (U.place >> 8 === FB) { if (favBack != null) U.setInst(favBack); }
+        else if (!to.slots.some(Boolean)) { U.toast("NO FAVORITES YET"); return; }
+        else U.setInst(FB << 8 | (favAt != null && favAt >> 8 === FB ? favAt & 255 : U.cartFirst(to)));
         const c = M.cart(U.place >> 8);
         U.showKnob("CARTRIDGE", M.hex(U.place >> 8) + " " + (c ? c.name : ""));
     }
     U.selFavLit = () => held.has(B.SEL) && selFavHere() && !instrEdit();     /* (GLO dim while SEL is held, where it works) */
-    /* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of the FAVORITES cartridge SEL + GLO goes
-     * to, picked once: the keys' instrument becomes its source, the current cartridge and slot stay (PRESETS alone goes
-     * on from them); a click from the favourite last used, the favourites' list shown till GLO is let go. Where SEL + GLO
-     * works, not on INSTRUMENTS (its cursor is the current instrument: GLO blinks). True when PRESETS was taken so */
+    /* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of FB, picked once: the keys' instrument
+     * becomes its source, the current cartridge and slot stay (PRESETS alone goes on from them); a click from the
+     * favourite last used, the favourites' list shown till GLO is let go. Where SEL + GLO works, not on INSTRUMENTS (its
+     * cursor is the current instrument: GLO blinks). True when PRESETS was taken so */
     U.gloFavHere = () => selFavHere() && U.screen.name !== "INSTRUMENTS";
     function gloFav(d) {
         const g = held.get(B.GLO), fl = ilFind() && ilFind().fav;
@@ -1081,8 +1243,8 @@ PTFM.ui = (function () {
         useCombo(B.GLO, "presets");
         closeCombos(B.GLO);
         if (U.screen.name === "INSTRUMENTS") { U.refuse(B.GLO); return true; }
-        const to = M.state.carts.find(c => c.type === "FAVORITES");     /* (first in the lists' order) */
-        const at = to ? stepFrom(to, favAt != null && favAt >> 8 === to.id ? favAt & 255 : d > 0 ? to.slots.length - 1 : 0, d) : -1;
+        const to = M.fb(), FB = M.FB;
+        const at = to ? stepFrom(to, favAt != null && favAt >> 8 === FB ? favAt & 255 : d > 0 ? to.slots.length - 1 : 0, d) : -1;
         const src = at < 0 ? null : M.placeInst(to.id << 8 | at);
         if (src == null) { U.toast("NO FAVORITES YET"); return true; }
         favAt = to.id << 8 | at;
@@ -1108,13 +1270,21 @@ PTFM.ui = (function () {
             return;
         }
         /* HOME's combination: PLAY back to the start, REC all sound off (both on press, tapped open or
-         * held); held, LFO the help and SEQ the white keys' mute / solo at once, and any other button closes
+         * held); held, LFO the help and SEQ and ARP what the white keys do at once, and any other button closes
          * it. Tapped open, the other buttons go to it on their taps. */
         if (hc && b !== B.HOME) {
             /* DJ: OCT-, OCT+ the tracks the white keys reach, with them (a member of theirs); nowhere to go: nothing */
             if ((b === B.OCTM || b === B.OCTP) && U.screen.homeOct) {
-                if (U.screen.homeOct(b) && member(hc, "white")) U.screen.homeOct(b, true);
+                if (!(hc.solo >= 2) && U.screen.homeOct(b) && member(hc, "white")) U.screen.homeOct(b, true);   /* (a held HOME's solo: unset till SEQ or ARP) */
                 else if (hc.kind !== "home") consume(B.HOME);       /* (HOME held: its let-go no tap either way) */
+                held.set(b, { t, used: true });
+                return;
+            }
+            /* after ARP: REC switches the white keys to recording the automations, and back; while one records, it
+             * ends there (the combination closed). Its press nothing more: no CUT */
+            if (b === B.REC && hc.solo >= 2 && seqSwitches(hc)) {
+                if (U.auto.state() === 1) { closeHome(hc); U.auto.end(); }
+                else { hc.solo ^= 1; consume(B.HOME); }
                 held.set(b, { t, used: true });
                 return;
             }
@@ -1127,7 +1297,7 @@ PTFM.ui = (function () {
             }
             if (hc.kind !== "home") {
                 if (b === B.LFO && member(hc, "lfo")) { held.set(b, { t, used: true }); U.openHelp(); return; }
-                if (b === B.SEQ && seqSwitches(hc)) { hc.solo = !hc.solo; consume(B.HOME); held.set(b, { t, used: true }); return; }
+                if (homeSwitch(hc, b)) { consume(B.HOME); held.set(b, { t, used: true }); return; }   /* (SEQ, ARP: what the white keys do) */
                 if (!hc.closed && b !== B.PLAY && b !== B.REC) closeHome(hc);
             }
         }
@@ -1270,7 +1440,7 @@ PTFM.ui = (function () {
             PTFM.player.allSoundOff(); punchOff(); U.toast("SOUND CUT: LET GO OF REC");
             cutFx = setTimeout(cutFxOff, 2000);
         }
-        PTFM.audio.hush(!!on);
+        U.hush();
     };
     function cutFxOff() {
         if (!U.cutOn) return;
@@ -1288,6 +1458,13 @@ PTFM.ui = (function () {
         pcEnd();                                            /* (PRESETS' cartridge list: closed, the key plays) */
         ilEnd();                                            /* (its instrument list too) */
         const bi = U.blackIndex(n), wi = U.whiteIndex(n), hc = home();
+        if (hc && wi >= 0 && hc.solo >= 2 && seqSwitches(hc)) {   /* (after ARP: its automation played, or after REC
+                                                             * recorded into, the combination closed; refused, it stays
+                                                             * as it was) */
+            consume(B.HOME);
+            if (U.auto.shortcut(wi, hc.solo === 3)) closeHome(hc);
+            return;
+        }
         /* HOME's combination: a black key goes to its screen (tapped open: and closes it), a white key mutes
          * its track on release, or solos it (SEQ's SOLO, or held past the hold delay); LOOPS: its loop */
         if (hc && member(hc, bi >= 0 ? "black" : "white")) {
@@ -1317,7 +1494,7 @@ PTFM.ui = (function () {
         U.lastKey = n;
         if (U.arp && genericArp()) {                        /* ARP on: the key feeds the arpeggio, not a note of its own */
             const m = U.midi(n);
-            PTFM.player.repeatKey(m, U.inst, !U.keysHeld().length);
+            PTFM.player.repeatKey(m, U.inst, !U.keysHeld().length, U.keyVol(n));
             keyUse[n] = { kind: "arp", midi: m };
             return;
         }
@@ -1551,9 +1728,14 @@ PTFM.ui = (function () {
             if (can("play")) lv[B.PLAY] = DIM;
             if (can("rec")) lv[B.REC] = DIM;
             if (can("lfo")) lv[B.LFO] = DIM;
-            if (seqSwitches(hc)) lv[B.SEQ] = hc.solo ? 1 : DIM;
-            if (can("white") && s.homeOct) for (const b of [B.OCTM, B.OCTP]) lv[b] = s.homeOct(b) ? DIM : 0;   /* DJ: tracks that way */
+            if (seqSwitches(hc)) {
+                lv[B.SEQ] = hc.solo === 1 ? 1 : DIM;
+                lv[B.ARP] = hc.solo >= 2 ? 1 : DIM;
+                if (hc.solo >= 2) lv[B.REC] = hc.solo === 3 ? 1 : DIM;   /* (after ARP: full while they record) */
+            }
+            if (can("white") && s.homeOct && !(hc.solo >= 2)) for (const b of [B.OCTM, B.OCTP]) lv[b] = s.homeOct(b) ? DIM : 0;   /* DJ: tracks that way */
         }
+        if (U.cutOn) lv[B.REC] = 1;                             /* (CUT held: REC full) */
         for (const b in U.flash) if (U.now() < U.flash[b]) lv[b] = blink(80) ? 1 : 0;     /* a refusal, over all */
         for (let b = 0; b < 14; b++) dev.led(b, hc && b === B.HOME ? lv[b] : Math.max(lv[b], held.has(b) ? .55 : 0));
         dev.led(dev.LED_PLAY_GREEN, green);
@@ -1563,6 +1745,8 @@ PTFM.ui = (function () {
             /* the screens: the current one bright; the tracks: dim while they play, dark muted, a solo bright */
             if (can("black") || hc.lock === "select") for (const n in SCREEN_KEY) keys[n] = SCREEN_KEY[n] === s.name ? 1 : DIM;
             if (!can("white")) { /* the white keys are no members any more */ }
+            else if (hc.solo >= 2) WHITE.forEach((n, t) => { keys[n] = hc.solo === 3 || U.auto.holds(t) ? DIM : 0; });   /* (the
+                                                                     * automations: recording, each dim) */
             else if (s.muteLeds) s.muteLeds(keys);              /* LOOPS: a key a loop, dim while it sounds */
             else WHITE.forEach((n, t) => { keys[n] = U.solo === t ? 1 : U.muted(t) ? 0 : DIM; });
         } else if (active(B.FX)) {
@@ -1598,7 +1782,12 @@ PTFM.ui = (function () {
         if (knobShow && U.now() < knobShow.until) { text = knobShow.text; col = D.WHITE; }   /* (a knob turned) */
         else if (toast && U.now() < toast.until) { text = toast.text; col = D.WHITE; runs = toast.runs || null; }
         else if (help) { text = help.header; col = D.CYAN; page = help.pageText(); }
-        else {
+        else if (U.auto && U.auto.state()) {            /* an automation records (red) or plays (green): AUTO 03 */
+            const c = U.auto.state() === 1 ? D.RED : D.GREEN;
+            transport(2, U.auto.state() === 1 ? "rec" : "play", c);
+            D.text(12, 0, F.S, "AUTO " + M.hex(U.auto.slot()), c);
+            return;
+        } else {
             const s = U.screen;
             text = s.title ? s.title() : s.name;
             col = GROUP_COL[s.group];
@@ -1751,11 +1940,63 @@ PTFM.ui = (function () {
     };
 
     /* ------------------------------------------------------------------- start --- */
+    /* The pass (the firmware's main loop takes its input a pass at a time, ui.c's ui_poll): the buttons and keys down as
+     * bit masks, against what the controls were given the pass before, and each knob's clicks, those before the pass's
+     * first press apart; then the clicks before the first press, the presses (buttons, then keys), the other clicks, the
+     * releases (keys, then buttons). Here a panel's event is a pass of its own. AUTOMATIONS (scr-auto.js, U.auto) takes
+     * each pass first: recording, as it comes; playing, or a control of the player's masked, in its place, with passes of
+     * its own at its times (U.pass). A pass as it came goes to the controls as it came */
+    const ctlOn = () => PTFM.ctl && PTFM.ctl.on ? PTFM.ctl : null;   /* (MIDI CONTROLLER: the panel is its alone) */
+    const own = { buttons: 0, notes: 0 };              /* the panel's controls down */
+    let given = { buttons: 0, notes: 0 };               /* what the controls were given last */
+    let inAt = 0;                                       /* the pass's input time (whole ms, never back): its event's, else
+                                                         * now; what the knobs' acceleration counts from (an automation
+                                                         * playing gives the time recorded for the pass it plays) */
+    function pass(ev) {
+        const was = { buttons: own.buttons, notes: own.notes };
+        if (ev && ev.b != null) own.buttons = ev.down ? own.buttons | 1 << ev.b : own.buttons & ~(1 << ev.b);
+        if (ev && ev.n != null) {
+            if (ev.down && !(own.notes >> ev.n & 1)) {
+                touchVel[ev.n] = U.touchVelocity(ev.n, ev.touch);
+                U.keyPressure(ev.n, ev.touch && ev.touch.reading);
+                if (ev.n < 20 && PTFM.audio.keyPress) PTFM.audio.keyPress(ev.n, 1);   /* (a new press: none yet) */
+            } else if (!ev.down) { touchVel[ev.n] = 0; U.keyPressure(ev.n, 0); }
+            own.notes = ev.down ? own.notes | 1 << ev.n : own.notes & ~(1 << ev.n);
+        }
+        inAt = Math.max(inAt, Math.floor(ev && ev.at != null ? ev.at : U.now()));
+        const inp = { buttons: own.buttons, notes: own.notes, knob: new Array(7).fill(0), knobPre: new Array(7).fill(0), at: inAt };
+        if (ev && ev.e != null) inp.knob[ev.e] = ev.step;   /* (no press in its pass: none before one) */
+        const took = U.auto ? U.auto.input(inp, given) : false;
+        keysPress(own.notes, inAt);
+        if (!took && ev && given.buttons === was.buttons && given.notes === was.notes) {
+            given = { buttons: inp.buttons, notes: inp.notes };
+            if (ev.b != null) { if (ev.down) buttonDown(ev.b); else buttonUp(ev.b); }
+            else if (ev.n != null) { if (ev.down) noteDown(ev.n); else noteUp(ev.n); }
+            else encoder(ev.e, ev.step, inp.at);
+            return;
+        }
+        const bd = inp.buttons & ~given.buttons, bu = given.buttons & ~inp.buttons;
+        const nd = inp.notes & ~given.notes, nu = given.notes & ~inp.notes;
+        given = { buttons: inp.buttons, notes: inp.notes };
+        const turn = (e, k) => { for (; k > 0; k--) encoder(e, 1, inp.at); for (; k < 0; k++) encoder(e, -1, inp.at); };   /* (a click at a time) */
+        for (let e = 0; e < 7; e++) turn(e, inp.knobPre[e]);
+        for (let b = 0; b < 14; b++) if (bd >> b & 1) buttonDown(b);
+        for (let n = 0; n < 27; n++) if (nd >> n & 1) noteDown(n);
+        for (let e = 0; e < 7; e++) turn(e, inp.knob[e] - inp.knobPre[e]);
+        for (let n = 0; n < 27; n++) if (nu >> n & 1) noteUp(n);
+        for (let b = 0; b < 14; b++) if (bu >> b & 1) buttonUp(b);
+    }
+    U.pass = () => { if (!ctlOn()) pass(null); };
+    U.pressTick = () => { if (!ctlOn()) keysPress(own.notes, Math.floor(U.now())); };
     U.attach = function (dev) {
-        const ctl = () => PTFM.ctl && PTFM.ctl.on ? PTFM.ctl : null;   /* (MIDI CONTROLLER: the panel is its alone) */
-        dev.on("button", ev => ctl() ? ctl().button(ev.id, ev.down) : ev.down ? buttonDown(ev.id) : buttonUp(ev.id));
-        dev.on("note", ev => ctl() ? ctl().note(ev.note, ev.down) : ev.down ? noteDown(ev.note) : noteUp(ev.note));
-        dev.on("encoder", ev => ctl() ? ctl().encoder(ev.id, ev.step, ev.t) : encoder(ev.id, ev.step, ev.t));
+        const ctl = ctlOn;
+        dev.on("button", ev => ctl() ? ctl().button(ev.id, ev.down) : pass({ b: ev.id, down: ev.down }));
+        const touch = ev => ev.reading || ev.vel ? { reading: ev.reading, vel: ev.vel } : null;
+        dev.on("note", ev => ctl() ? ctl().note(ev.note, ev.down, ev.down ? U.touchVelocity(ev.note, touch(ev)) : 0, ev.reading)
+                                   : pass({ n: ev.note, down: ev.down, touch: touch(ev) }));
+        dev.on("pressure", ev => { if (ctl()) ctl().pressure(ev.note, ev.reading); else U.keyPressure(ev.note, ev.reading); });   /* (MIDI
+                                                         * CONTROLLER's aftertouch; the tracker's: the key's notes louder) */
+        dev.on("encoder", ev => ctl() ? ctl().encoder(ev.id, ev.step, ev.t) : pass({ e: ev.id, step: ev.step, at: ev.t }));
         dev.on("master", ev => {
             if (ctl()) { ctl().master(ev.value); return; }
             PTFM.audio.master(ev.value);

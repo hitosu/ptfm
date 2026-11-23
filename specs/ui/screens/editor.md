@@ -378,12 +378,27 @@ whole pattern again and again, recording on every pass, until PLAY or REC stops 
     rows from the pattern's start; `ROW` (at first), the nearest row; `REAL TIME`, the row it falls in,
     with a note delay `EDx` of the ticks since and its end as a key off `Kxx` at its tick, as LOOPS
     writes them ([../../files/loops.md](../../files/loops.md#recording-on-the-grid)).
-  - **The keys sound exactly as they are written:** a note played before its grid line waits for it;
-    one played just after the line sounds at once and is written on the line.
+  - **The keys sound at once, written on the line:** a key sounds at its press and ends at its release,
+    with every QUANTIZE, on its track as the replay would start it (REAL TIME's `EDx` written, not
+    waited for); its note is written where QUANTIZE lands it, before or after the key
+    ([the proposal](../../proposals/202611201537-editor-takes-at-once.md)). A cell a take writes on a row
+    still ahead, a note or its end, stands in for itself there that once: the replay does not play it again
+    in that pass (no note started twice, no end cutting a note played on that track meanwhile). From the
+    next pass the replay plays the take as written.
   - A note goes to the cursor's track, unless an earlier note is still held there; then it goes to
     the next track with no note held. So a melody stays on one track, and a chord spreads.
   - Releasing a key writes a note off (`REAL TIME`: the key off). A note off that would land on its own
     note's row goes to the next row.
+  - **A held key pressed harder** (F3-C5, KEYS VELOCITY not CONSTANT: [../../hardware.md](../../hardware.md#the-keys-velocity))
+    writes its volume alone on its track's row after the one playing, past its note's row: each change of 4 or more,
+    and its return to the key's velocity (a row keeps the last), heard as the replay reaches that row and from then on
+    each pass. **The row playing gets a volume slide toward it** (`Axy`, [../../files/commands.md](../../files/commands.md):
+    `x` up or `y` down a tick on the row's ticks but the first, 2 of the cells' 0-127 each), from the volume in force
+    there (the latest at or before it, its note's at the most), its size the nearest the slide's whole steps get; the
+    next row's volume sets it exactly, so the replay plays the swell smoothly, as any pattern plays a slide. No slide
+    where none comes nearer, nor where the row has no room for one more command (a cell holds four). Held steady, nothing is written; a row holding a note or a note's end is left as it is; the note keeps
+    the press's velocity. With the edit memory nearly full (256 B left) the volumes are no longer written, the notes
+    still are.
   - Existing cells stay unless a note lands on them, those written on an earlier pass of the take
     too: each pass plays what the passes before wrote, and adds to it.
 - **At the pattern's end** the take goes on from its first row, as the loop would.
@@ -616,28 +631,30 @@ grey; panels black with a light grey frame ([../dialogs.md](../dialogs.md)).
 
 ### ARP held
 
-A hold layer ([../dialogs.md](../dialogs.md#hold-layers)) of one line: a panel at 4, 187, 232 × 38;
-`HOLD ARP +` at 8, 192; `SELECT: THE RHYTHM, # A ROW, _ A REST` at 8, 206.
+A hold layer ([../dialogs.md](../dialogs.md#hold-layers)) of one line, in T (its line passes S's 28 characters): a
+panel at 4, 187, 232 × 38; `HOLD ARP +` at 8, 192; `SELECT: THE RHYTHM, # A ROW, _ A REST` at 8, 206.
 
 ### GLO: the pattern's properties
 
+A character here is one of S's (8 px), a line a 16-px row:
+
 ```
-+--------------------------------------+   a panel at 6, 21, 228 x 80
-| PATTERN 12 PROPERTIES                |   the title, T at 10, 24
-|[TRACKS                              8]|   items, T, every 14 px from 40
-| ROWS                              128|
-| EDIT STEP                           1|
-| USED BY                        1 SONG|
-+--------------------------------------+
++----------------------------+   a panel at 4, 19, 232 x 88
+|PATTERN 12 PROPERTIES       |   the title, S at 8, 22
+|[TRACKS                   8]|   items, S, every 16 px from 40
+| ROWS                   128 |
+| EDIT STEP                1 |
+| USED BY             1 SONG |
++----------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| the panel | 6, 21 | 228 × 80 | | |
-| the title | 10, 24 | | T | `PATTERN 12 PROPERTIES`; `PATTERN PROPERTIES` on the EDITOR's own pattern, whose panel ends after EDIT STEP (no USED BY) |
-| item *i* | 12, 40 + 14*i* | | T | its name |
-| its value | right-aligned to 228, same | | T | `8`, `128`, `1`, `1 SONG` / `3 SONGS` (`, FUSION` added when a FUSION plays it) |
-| the selected item | 8, its y − 2 | 224 × 14 | | a box |
+| the panel | 4, 19 | 232 × 88 | | |
+| the title | 8, 22 | | S | `PATTERN 12 PROPERTIES`; `PATTERN PROPERTIES` on the EDITOR's own pattern, whose panel ends after EDIT STEP (no USED BY) |
+| item *i* | 10, 40 + 16*i* | | S | its name |
+| its value | right-aligned to 230, same | | S | `8`, `128`, `1`, `1 SONG` / `3 SONGS` (`, FUSION` added when a FUSION plays it) |
+| the selected item | 6, its y − 1 | 228 × 16 | | a box |
 
 Colours: the title cyan; names cyan, the selected one's white; values light grey, the selected one's
 white; USED BY's value dark grey (it cannot change).
@@ -685,31 +702,32 @@ about references; HOME takes it back.
 ### SEL: a block
 
 - **Marked:** its cells on a deep magenta ground in the grid; SEL lit.
-- **The menu** ([../dialogs.md](../dialogs.md#menus)): a panel at 84, 21, 150 wide, titled
-  `BLOCK 4 X 1` (rows × tracks) or `CELL`; `CELL`'s starts with MARK:
+- **The menu** ([../dialogs.md](../dialogs.md#menus)): a panel at 2, 19, the body's width, in S, titled
+  `BLOCK 4 X 1` (rows × tracks) or `CELL`; `CELL`'s starts with MARK (a character here one of S's, every item
+  listed, though 11 show):
 
 ```
-             +-----------------------+
-             | BLOCK 4 X 1           |
-             | TAKE ITS INSTRUMENT   |   `CELL` only, after MARK
-             |[COPY                 ]|
-             | CUT                   |
-             | PASTE                 |
-             | PASTE MIX             |
-             | CLEAR                 |
-             | MOVE                  |
-             | SWAP                  |
-             | ROWS                 >|   INSERT ROW, DELETE ROW
-             | TRANSFORM            >|   TRANSPOSE, INTERPOLATE
-             | NEW PATTERN           |   `CELL` only
-             | LOAD A PATTERN        |   `CELL` only
-             | STORE IN A PATTERN    |   `CELL` only
-             | RECORD PATTERN        |   `CELL` only
-             | REVERT                |   `CELL` only, while the pattern has something unsaved
-             +-----------------------+
++----------------------------+
+| BLOCK 4 X 1                |
+|  TAKE ITS INSTRUMENT       |   `CELL` only, after MARK
+|[COPY                      ]|
+|  CUT                       |
+|  PASTE                     |
+|  PASTE MIX                 |
+|  CLEAR                     |
+|  MOVE                      |
+|  SWAP                      |
+|  ROWS                     >|   INSERT ROW, DELETE ROW
+|  TRANSFORM                >|   TRANSPOSE, INTERPOLATE
+|  NEW PATTERN               |   `CELL` only
+|  LOAD A PATTERN            |   `CELL` only
+|  STORE IN A PATTERN        |   `CELL` only
+|  RECORD PATTERN            |   `CELL` only
+|  REVERT                    |   `CELL` only, while the pattern has something unsaved
++----------------------------+
 ```
 
-`CELL`'s menu, with MARK and TAKE ITS INSTRUMENT, has up to 16 items: 15 show, and it scrolls
+`CELL`'s menu, with MARK and TAKE ITS INSTRUMENT, has up to 16 items: 11 show, and it scrolls
 ([../dialogs.md](../dialogs.md#menus)).
 
 The groups open in the same panel ([../dialogs.md](../dialogs.md#levels)): `BLOCK 4 X 1 > ROWS` with

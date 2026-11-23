@@ -209,13 +209,13 @@ static int ov_col(int d, int pos, int row) { int x = ov_x(d, pos, row); return x
 static void changed(void) { dj.dirty = 1; dj.dirty_at = ui_now(); ui_dirty(); }
 static void put_stand(void)
 {
-    if (ui_edit_put(REC_DJ, 0, 0, 1, DJ_REC, DJ_REC_LEN)) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+    if (ui_edit_put(REC_DJ, 0, 0, 1, DJ_REC, DJ_REC_LEN)) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
     dj.dirty = 0;
 }
 static const char *side(int d) { return d ? T("RIGHT") : T("LEFT"); }
 static int has_song(int d) { return dj_deck(d)[DK_SONG] != DJ_NO_SONG; }
 static void refuse_key(int n) { if (n >= 0 && n < 27) dj.flash[n] = ui_now() + 600; }
-static void no_song(int n) { refuse_key(n); ui_toast(T("NO SONG ON THE DECK")); }
+static void no_song(int n) { refuse_key(n); ui_toast_t(TX("NO SONG ON THE DECK")); }
 static int playing(int d) { dj_deck_state_t s; dj_deck_state(d, &s); return s.playing; }
 /* the deck moved off its song's end (CUE, JUMP, MOVE, HOLD's hand, the start, a LOAD): AT THE END cleared, and a
  * reading of the player's from before the move does not set it again (keep_place) */
@@ -330,7 +330,7 @@ static void load_key(int d, int n)
     int ns = ui_songs(nums, 256);
     if (dj.list < 0 || dj.list >= ns) { refuse_key(n); return; }
     uint8_t song = nums[dj.list];
-    if (!ui_song(song, &s) || !s.npos) { refuse_key(n); ui_toast(ui_txt_v(T("SONG # IS EMPTY"), ui_hex2(song))); return; }
+    if (!ui_song(song, &s) || !s.npos) { refuse_key(n); ui_toast(ui_txt_h(TX("SONG # IS EMPTY"), song)); return; }
     char b[48];
     if (k->load_to != DJ_NO_SONG) { load_drop(d); ui_fmt(b, sizeof b, T("%s: LOAD CANCELLED"), side(d)); ui_toast(b); return; }
     if (playing(d)) {                                   /* on the deck's next bar line: the player lands it there */
@@ -396,7 +396,7 @@ static int play_key(int d, int n)
         changed();
         return 0;
     }
-    if (dj_deck(d)[DK_FLAGS] & DF_AT_END) { refuse_key(n); ui_toast(T("THE END: CUE GOES BACK")); return 0; }
+    if (dj_deck(d)[DK_FLAGS] & DF_AT_END) { refuse_key(n); ui_toast_t(TX("THE END: CUE GOES BACK")); return 0; }
     dj_on(1);
     dj_mix();
     send_tempo();
@@ -419,7 +419,7 @@ static void cue_set(int d, int pos, int row)
  * here by side goes with its deck, a key held meanwhile lets go on its deck */
 static void swap(void)
 {
-    if (!has_song(0) && !has_song(1)) { ui_toast(T("NO SONGS TO SWAP")); return; }
+    if (!has_song(0) && !has_song(1)) { ui_toast_t(TX("NO SONGS TO SWAP")); return; }
     uint8_t t[24];
     int right10 = bpm10(1);                             /* (the right's BPM as heard: synced, the main's share) */
     memcpy(t, dj_deck(0), 24);
@@ -445,7 +445,7 @@ static void swap(void)
     dj_swap();                                          /* (before the tempos: they go by the new sides) */
     send_tempo();
     dj_mix();
-    ui_toast(T("DECKS SWAPPED"));
+    ui_toast_t(TX("DECKS SWAPPED"));
     changed();
 }
 
@@ -523,7 +523,7 @@ static void filter_row(int d, int x0)
         g_vline(h, y - 3, 7, heard ? C_DGREY : side_col((int8_t)k[DK_FILTER]));
     }
     g_vline(cx, y - 3, 7, C_LGREY);
-    if (lfo) { const char *w = T("LFO"); g_text(x0 + 114 - g_tw(&FONT_T, w), Y.filt, &FONT_T, w, swing && heard ? C_WHITE : C_DGREY); }
+    if (lfo) g_text_r(x0 + 114, Y.filt, &FONT_T, T("LFO"), swing && heard ? C_WHITE : C_DGREY);
 }
 static void set_line(int d, int x0)
 {
@@ -559,7 +559,7 @@ static void set_line(int d, int x0)
         g_run_t r[2] = {{mw, C_CYAN}, {mute, C_LGREY}};
         g_runs(x, Y.set, &FONT_T, r, 2);
     }
-    if (key[0]) g_text(x0 + 114 - g_tw(&FONT_T, key), Y.set, &FONT_T, key, C_WHITE);
+    if (key[0]) g_text_r(x0 + 114, Y.set, &FONT_T, key, C_WHITE);
 }
 static void overview(int d, const dj_deck_state_t *st, int x0, int warn)
 {
@@ -620,10 +620,10 @@ static void draw_deck(int d, int x0)
     char bp[12];
     fmt_bpm(bp, bpm10(d));
     ui_fmt(b, sizeof b, "%5s", bp);
-    g_text(x0 + 40 - g_tw(&FONT_S, b), Y.tempo, &FONT_S, b, C_WHITE);
+    g_text_r(x0 + 40, Y.tempo, &FONT_S, b, C_WHITE);
     g_text(x0 + 44, Y.tempo + 3, &FONT_T, T("BPM"), C_LGREY);
-    if (d == 1 && dj_sync() && has_song(0)) { const char *sy = T("SYNC"); g_text(x0 + 114 - g_tw(&FONT_T, sy), Y.tempo + 3, &FONT_T, sy, C_GREEN); }
-    else { fmt_change(b, d); g_text(x0 + 114 - g_tw(&FONT_T, b), Y.tempo + 3, &FONT_T, b, !strcmp(b + 1, "0.0%") ? C_LGREY : C_WHITE); }
+    if (d == 1 && dj_sync() && has_song(0)) g_text_r(x0 + 114, Y.tempo + 3, &FONT_T, T("SYNC"), C_GREEN);
+    else { fmt_change(b, d); g_text_r(x0 + 114, Y.tempo + 3, &FONT_T, b, !strcmp(b + 1, "0.0%") ? C_LGREY : C_WHITE); }
     int br = bar_rows(d), rows = ui_pattern_rows(s.order[st.pos < s.npos ? st.pos : 0]), bars_in = (rows + br - 1) / br;
     char p1[12], p2[12];
     ui_fmt(p1, sizeof p1, "%02X/%02X", st.pos, s.npos > 1 ? s.npos - 1 : 0);   /* (positions two digits: POS 02/05) */
@@ -642,7 +642,7 @@ static void draw_deck(int d, int x0)
     char t[12];
     ui_fmt_time(t, secs);
     ui_fmt(b, sizeof b, "-%s", t);
-    g_text(x0 + 114 - g_tw(&FONT_T, b), Y.left, &FONT_T, b, warn ? C_RED : C_LGREY);
+    g_text_r(x0 + 114, Y.left, &FONT_T, b, warn ? C_RED : C_LGREY);
     const char *what = state_word(d, &st);
     if (what) g_text(x0, Y.state, &FONT_T, what, C_YELLOW);
     filter_row(d, x0);
@@ -658,8 +658,8 @@ static void draw_list(void)
     const char *bpm_h = T("BPM"), *len_h = T("LEN");
     g_text(18, Y.cols, &FONT_T, T("NR"), C_CYAN);
     g_text(36, Y.cols, &FONT_T, T("NAME"), C_CYAN);
-    g_text(156 - g_tw(&FONT_T, bpm_h), Y.cols, &FONT_T, bpm_h, C_CYAN);
-    g_text(180 - g_tw(&FONT_T, len_h), Y.cols, &FONT_T, len_h, C_CYAN);   /* (the positions: its length) */
+    g_text_r(156, Y.cols, &FONT_T, bpm_h, C_CYAN);
+    g_text_r(180, Y.cols, &FONT_T, len_h, C_CYAN);    /* (the positions: its length) */
     g_text(192, Y.cols, &FONT_T, T("TIME"), C_CYAN);
     if (!n) { g_text(2, Y.list, &FONT_T, T("NO SONGS: MAKE ONE ON SONGS"), C_DGREY); return; }
     int top = ui_clamp(dj.list - 2, 0, n - LIST_ROWS > 0 ? n - LIST_ROWS : 0), keep = ls.ok && ls.gen == store_gen() && ls.top == top;
@@ -679,9 +679,9 @@ static void draw_list(void)
         nm[16] = 0;
         g_text(36, y, &FONT_T, nm, on ? C_WHITE : C_LGREY);
         const char *bpm = ui_dec(ui_song_bpm(&s)), *pos = ui_dec(s.npos);
-        g_text(156 - g_tw(&FONT_T, bpm), y, &FONT_T, bpm, C_LGREY);
-        g_text(180 - g_tw(&FONT_T, pos), y, &FONT_T, pos, C_LGREY);
-        char t[8];
+        g_text_r(156, y, &FONT_T, bpm, C_LGREY);
+        g_text_r(180, y, &FONT_T, pos, C_LGREY);
+        char t[12];                                     /* (ui_fmt_time writes up to 12) */
         if (!keep) ls.secs[i - top] = ui_song_secs(&s);
         ui_fmt_time(t, ls.secs[i - top]);
         g_text(192, y, &FONT_T, t, C_LGREY);
@@ -718,8 +718,8 @@ static void draw(void)
 static void tempo_knob(int d, int s, int coarse)
 {
     if (!has_song(d)) return;
-    if (d == 1 && dj_sync() && has_song(0)) { ui_toast(T("SYNC: TEMPO ON THE MAIN DECK")); return; }
-    if (d == 0 && clock10()) { ui_toast(T("SYNC EXTERNAL: THE CLOCK'S TEMPO")); return; }
+    if (d == 1 && dj_sync() && has_song(0)) { ui_toast_t(TX("SYNC: TEMPO ON THE MAIN DECK")); return; }
+    if (d == 0 && clock10()) { ui_toast_t(TX("SYNC EXTERNAL: THE CLOCK'S TEMPO")); return; }
     int v = ui_clamp(dj_deck_bpm10(d) + s * (coarse ? 10 : 1), dj.dk[d].lo10, dj.dk[d].hi10);
     dj_deck_set_bpm10(d, v);
     send_tempo();
@@ -814,7 +814,7 @@ static void hand(int d, int rows, int heard)
     }
     char b[24];
     ui_fmt(b, sizeof b, T("%s ROW %s"), ui_hex2(pos), ui_hex2(row));
-    ui_show_knob(T("POS"), b);
+    ui_show_knob_t(TX("POS"), b);
     changed();
 }
 static void move_turn(int d, int pats, int bars)
@@ -900,7 +900,7 @@ static void knob(int e, int s, int coarse)
         dj.last_k = 1;
         char b[16];
         xf_word(b);
-        ui_show_knob(T("X-FADER"), b);
+        ui_show_knob_t(TX("X-FADER"), b);
         changed();
         return;
     }
@@ -939,7 +939,7 @@ static void lfo_pad(int wi, int down)
         for (int i = 0; i < DJ_NLFO; i++) dj_lfo_bytes(i)[0] &= (uint8_t)~1u;
         dj_mix();
         dj.done[2] = ui_now() + DONE_MS;
-        ui_toast(T("ALL LFOS OFF"));
+        ui_toast_t(TX("ALL LFOS OFF"));
         changed();
         return;
     }
@@ -1060,7 +1060,7 @@ static void pad(int wi, int down, int flip)    /* (flip: let go after a SWAP, it
     case P_SET:                                         /* SET CUE: the bar line nearest, playing on */
         if (!down) { dk->set_down = 0; return; }
         if (dk->move) { cue_set(d, dk->move_pos, dk->move_row); dj.done[d] = ui_now() + DONE_MS; return; }
-        if (st.ended) { refuse_key(n); ui_toast(T("THE END: CUE GOES BACK")); return; }
+        if (st.ended) { refuse_key(n); ui_toast_t(TX("THE END: CUE GOES BACK")); return; }
         if (st.playing) {                               /* (the nearest bar line past the pattern: the next position's
                                                          * start; on the last, the bar line at or before) */
             int br = bar_rows(d), pos = st.pos, row = (st.row + br / 2) / br * br;
@@ -1231,7 +1231,7 @@ static int key(int n, int down)
     case K_MODE:
         if (!down) return 1;
         dj.mode = dj.mode == M_LFO ? dj.mode_before : dj.mode == M_PLAY ? M_LOOPS : M_PLAY;
-        ui_toast(ui_txt_v(T("PADS: #"), T(MODES[dj.mode])));
+        ui_toast(ui_txt_t(TX("PADS: #"), T(MODES[dj.mode])));
         return 1;
     default: return 1;
     }
@@ -1278,12 +1278,12 @@ static void reset_answer(int a)
     for (int d = 0; d < 2; d++) { read_song(d); hands_off(d); }
     dj_mix();
     changed();
-    ui_toast(T("DJ RESET"));
+    ui_toast_t(TX("DJ RESET"));
 }
 static void p_reset_edit(void)
 {
     const char *l[2] = {T("RESET DJ?"), T("BOTH DECKS EMPTIED, ALL AS AT FIRST")};
-    ui_ask(l, 2, T("RESET"), T("KEEP"), reset_answer);
+    ui_ask_t(l, 2, TX("RESET"), TX("KEEP"), reset_answer);
 }
 /* LFO held showed the LFO pads' keys (its layer): let go, the pads are the LFOs' (already: they stay) */
 static void layer_up(int b)
@@ -1291,7 +1291,7 @@ static void layer_up(int b)
     if (b != B_LFO || dj.mode == M_LFO) return;
     dj.mode_before = dj.mode;
     dj.mode = M_LFO;
-    ui_toast(ui_txt_v(T("PADS: #"), T(MODES[dj.mode])));
+    ui_toast(ui_txt_t(TX("PADS: #"), T(MODES[dj.mode])));
 }
 static int tap(int b)
 {
@@ -1300,14 +1300,14 @@ static int tap(int b)
     case B_SEQ: swap(); return 1;
     case B_LFO:
         if (dj.mode == M_LFO) dj.mode = dj.mode_before; else { dj.mode_before = dj.mode; dj.mode = M_LFO; }
-        ui_toast(ui_txt_v(T("PADS: #"), T(MODES[dj.mode])));
+        ui_toast(ui_txt_t(TX("PADS: #"), T(MODES[dj.mode])));
         return 1;
     case B_GLO: {
-        const ui_prop_t items[5] = {{TX("CROSSFADER"), p_xf, p_xf_ch, 0, 0, 0},
-                                    {TX("FILTER RESONANCE"), p_reso, p_reso_ch, 0, 0, 0},
-                                    {TX("FILTER THE SENDS"), p_sends, p_sends_ch, 0, 0, 0},
-                                    {TX("FX LFO"), p_lfofx, p_lfofx_ch, 0, 0, 0},
-                                    {TX("RESET DJ"), p_reset, 0, p_reset_edit, 0, p_reset_col}};
+        static const ui_prop_t items[5] = {{TX("CROSSFADER"), p_xf, p_xf_ch, 0, 0, 0},
+                                           {TX("FILTER RESONANCE"), p_reso, p_reso_ch, 0, 0, 0},
+                                           {TX("FILTER THE SENDS"), p_sends, p_sends_ch, 0, 0, 0},
+                                           {TX("FX LFO"), p_lfofx, p_lfofx_ch, 0, 0, 0},
+                                           {TX("RESET DJ"), p_reset, 0, p_reset_edit, 0, p_reset_col}};
         ui_props(T("DJ PROPERTIES"), items, 5, B_GLO);
         return 1;
     }
@@ -1316,13 +1316,13 @@ static int tap(int b)
         ui_toast(dj.k23vol ? T("K2 K3: VOLUME") : T("K2 K3: FILTER"));
         return 1;
     case B_SEL:                                         /* the last knob turned back to its default */
-        if (dj.last_k == 1) { dj_set_xf(16); dj_mix(); xf_word(w); ui_show_knob(T("X-FADER"), w); changed(); }
+        if (dj.last_k == 1) { dj_set_xf(16); dj_mix(); xf_word(w); ui_show_knob_t(TX("X-FADER"), w); changed(); }
         else if (dj.last_k == 2 && has_song(dj.last_d)) {
             dj_deck_set_bpm10(dj.last_d, dj.dk[dj.last_d].own10);
             send_tempo();
             char bp[12];
             fmt_bpm(bp, bpm10(dj.last_d));
-            ui_toast(ui_txt_v(T("TEMPO # BPM: THE SONG'S"), bp));
+            ui_toast(ui_txt_t(TX("TEMPO # BPM: THE SONG'S"), bp));
             changed();
         } else if (dj.last_k == 3) { filter_knob(dj.last_d, -(int8_t)dj_deck(dj.last_d)[DK_FILTER], 0); }
         else if (dj.last_k == 4) {
@@ -1331,7 +1331,7 @@ static int tap(int b)
             vol_word(w, 0);
             ui_show_knob(dj.last_d ? T("VOLUME R") : T("VOLUME L"), w);
             changed();
-        } else if (dj.last_k == 5) { dj_deck_key(dj.last_d, 0); ui_toast(T("KEY 0")); changed(); }
+        } else if (dj.last_k == 5) { dj_deck_key(dj.last_d, 0); ui_toast_t(TX("KEY 0")); changed(); }
         else if (dj.last_k == 6) {                      /* an LFO's speed back to 1/2 */
             dj_lfo_bytes(dj.last_d)[3] = 6;
             dj_mix();
@@ -1352,7 +1352,7 @@ static int play_down(void)
     player_state_t st;
     if (playing(0) || playing(1)) { for (int d = 0; d < 2; d++) dj_deck_play(d, 0); changed(); return 1; }
     ui_player_state(&st);
-    if (!dj_live() && st.playing) { player_pause(); ui_toast(T("PAUSED: PLAY AGAIN FOR DJ")); return 1; }
+    if (!dj_live() && st.playing) { player_pause(); ui_toast_t(TX("PAUSED: PLAY AGAIN FOR DJ")); return 1; }
     int songs = 0, ready = 0;                           /* (no deck to start: refused, DJ not made live) */
     for (int d = 0; d < 2; d++) if (has_song(d)) { songs = 1; ready |= !(dj_deck(d)[DK_FLAGS] & DF_AT_END); }
     if (!ready) { ui_refuse(B_PLAY); ui_toast(songs ? T("THE END: CUE GOES BACK") : T("NO SONG ON THE DECK")); return 1; }
@@ -1379,7 +1379,7 @@ static void to_cues(void)
         off_end(d);
         dj_deck_place(d, r[DK_POS], r[DK_ROW]);
     }
-    ui_toast(T("BACK TO THE CUES"));
+    ui_toast_t(TX("BACK TO THE CUES"));
     changed();
 }
 static int hold(int b)

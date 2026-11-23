@@ -39,6 +39,14 @@ small knobs, buttons and keys placed where they are easy to reach. Each lights a
 - **Gliding:** a pointer that pressed a note key follows it: moved onto another note key, it lets the one it
   held go and plays that one, as a finger slid along a keyboard; off the note keys it keeps the last. A button
   stays held wherever its pointer goes.
+- **How hard a key is pressed** ([hardware.md](hardware.md#the-keys-velocity)): where a pointer presses a note key,
+  the lower on the key, the harder: the top edge the lightest press (velocity 1), the bottom edge the firmest (127),
+  between them evenly on the log of the pill's resistance, as the FM-1's driven landing reads (`dev.keyReading`: 896 at
+  the top, 530 at the bottom); KEYS VELOCITY's curve shapes it as on the FM-1, so the key's middle is the curve's middle.
+  The note event carries that landing (`reading`). A glide's new key: where the pointer is on it. A held key dragged
+  further down is pressed harder (a `pressure` event: MIDI CONTROLLER's aftertouch, general mode); held still, none.
+  The top seven keys (C#5-G5) carry their reading too, but the FM-1 reads none there: the twins play them at the mean
+  of the last four read. The computer's keyboard and code press with no reading: KEYS VOLUME.
 
 ## Three views
 

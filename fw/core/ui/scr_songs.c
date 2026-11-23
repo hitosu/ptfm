@@ -67,7 +67,7 @@ static void set_order(const uint8_t *order, int n)
     rlen = (uint32_t)(21 + n) + tl;
     if (rec[18] >= n) rec[18] = (uint8_t)(n - 1);       /* LOOP FROM stays inside the order */
 }
-static void not_yet(void) { ui_toast(T("THIS: NOT IN THIS FIRMWARE YET")); }
+static void not_yet(void) { ui_toast_t(TX("THIS: NOT IN THIS FIRMWARE YET")); }
 
 /* ---- the properties (GLO) ---- */
 static char pv[32];
@@ -119,15 +119,13 @@ static void rename(void)
 }
 static void props(void)
 {
-    const ui_prop_t items[7] = {
+    static const ui_prop_t items[7] = {
         {TX("NAME"), p_name, 0, rename, 0, 0}, {TX("TEMPO"), p_tempo, c_tempo, 0, 0, 0},
         {TX("TICKS A ROW"), p_ticks, c_ticks, 0, 0, 0}, {TX("ROWS A BEAT"), p_rpb, c_rpb, 0, 0, 0},
         {TX("SWING"), p_swing, c_swing, 0, 0, 0}, {TX("AT THE END"), p_end, c_end, 0, 0, 0},
         {TX("LOOP FROM"), p_from, c_from, 0, 0, 0},
     };
-    char t[32];
-    ui_fmt(t, sizeof t, "%s", ui_txt_v(T("SONG # PROPERTIES"), ui_hex2(ui_cur.song)));
-    ui_props(t, items, 7, B_GLO);
+    ui_props(ui_txt_h(TX("SONG # PROPERTIES"), ui_cur.song), items, 7, B_GLO);   /* (it copies its title) */
 }
 
 /* ---- the list's menu: NEW, CLONE, MOVE, DELETE, RENAME, REVERT ---- */
@@ -140,7 +138,7 @@ enum { M_NEW = 1, M_CLONE, M_MOVE, M_DELETE, M_RENAME, M_UNLOAD, M_REVERT };
 static void song_revert_ask(void);
 /* DELETE's question (specs/ui/screens/songs.md): ITS PATTERNS TOO, ticked at first, the song's own ones */
 static char del_row[20], del_note[20], del_name[17], del_foot[33];  /* (kept: the question draws them later) */
-static const char *del_title(const ui_check_t *r, int n) { (void)r; (void)n; return ui_txt_v(T("DELETE SONG #?"), ui_hex2(ui_cur.song)); }
+static const char *del_title(const ui_check_t *r, int n) { (void)r; (void)n; return ui_txt_h(TX("DELETE SONG #?"), ui_cur.song); }
 static void deleted(int a, ui_check_t *rows)
 {
     if (a != 1) return;
@@ -159,19 +157,19 @@ static void deleted(int a, ui_check_t *rows)
     ui_cur.song = nsongs ? nums[ui_clamp(k, 0, nsongs - 1)] : 0;
     picked = 0;
     player_song_changed(num);
-    if (np == 1) ui_toast(ui_txt_v(T("SONG # DELETED, 1 PATTERN TOO"), ui_hex2(num)));
-    else if (np) ui_toast(ui_txt_v(ui_txt_v(T("SONG # DELETED, # PATTERNS TOO"), ui_hex2(num)), ui_dec(np)));
+    if (np == 1) ui_toast(ui_txt_h(TX("SONG # DELETED, 1 PATTERN TOO"), num));
+    else if (np) ui_toast(ui_txt_v(ui_txt_h(TX("SONG # DELETED, # PATTERNS TOO"), num), ui_dec(np)));
 }
 /* NEW's pattern list picked (specs/ui/screens/songs.md): the song made at the smallest number free, its one position the
  * pattern picked, or a new empty one (8 tracks x 64 rows at the first free number) */
 static void new_song_with(int pat)
 {
     int n = ui_free_song();
-    if (n < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }   /* (FE: the keys' song) */
+    if (n < 0) { ui_toast_t(TX("NO FREE SONG NUMBER")); return; }   /* (FE: the keys' song) */
     if (pat == ED_PICK_NEW) {
         int f = rec_free_pattern();
         uint8_t p[5] = {8, 63, 1, 0, 0};
-        if (f < 0) { ui_toast(T("NO FREE PATTERN")); return; }
+        if (f < 0) { ui_toast_t(TX("NO FREE PATTERN")); return; }
         if (ui_edit_put(REC_PATTERN, (uint8_t)f, 0, 1, p, sizeof p)) return;
         pat = f;
     }
@@ -191,13 +189,13 @@ static void list_pick(int id)
     int k = index_of(ui_cur.song);
     switch (id) {
     case M_NEW:                                         /* (first its pattern: NEW SONG STARTS WITH) */
-        if (ui_free_song() < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }
+        if (ui_free_song() < 0) { ui_toast_t(TX("NO FREE SONG NUMBER")); return; }
         ed_pattern_list_new(T("NEW SONG STARTS WITH"), ui_cur.pattern, new_song_with, B_SEL);
         return;
     case M_CLONE: {
         if (k < 0) return;
         int n = ui_free_song();                         /* (the smallest number free, as everything made) */
-        if (n < 0) { ui_toast(T("NO FREE SONG NUMBER")); return; }
+        if (n < 0) { ui_toast_t(TX("NO FREE SONG NUMBER")); return; }
         if (load(nums[k])) {
             ui_song_t s;
             char nm[20];
@@ -217,7 +215,7 @@ static void list_pick(int id)
     case M_MOVE:
         if (k < 0) return;
         mv_from = mv_at = k;
-        ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
+        ui_toast_t(TX("SELECT MOVES IT, SEL PUTS IT DOWN"));
         return;
     case M_DELETE: {
         ui_song_t s;
@@ -226,7 +224,7 @@ static void list_pick(int id)
         int sh, n = ui_song_own(ui_cur.song, own, del_note, &sh);
         ui_fmt(del_name, sizeof del_name, "%s", s.name);
         ui_fmt(del_row, sizeof del_row, "%s", T("ITS PATTERNS TOO"));
-        ui_fmt(del_foot, sizeof del_foot, "%s", ui_txt_v(T("# SHARED WITH OTHER SONGS STAY"), ui_dec(sh)));
+        ui_fmt(del_foot, sizeof del_foot, "%s", ui_txt_t(TX("# SHARED WITH OTHER SONGS STAY"), ui_dec(sh)));
         ui_check_t r = {del_row, del_note, n, n > 0};
         ui_checklist(del_title, &r, 1, T("DELETE"), T("KEEP"), deleted, del_name, sh ? del_foot : 0, 1);
         return;
@@ -241,11 +239,9 @@ static void list_menu(void)
     const ui_mitem_t items[7] = {{TX("NEW"), M_NEW, 0, 0}, {TX("CLONE"), M_CLONE, 0, 0}, {TX("MOVE"), M_MOVE, 0, 0},
                                  {TX("DELETE"), M_DELETE, 0, 0}, {TX("RENAME"), M_RENAME, 0, 0},
                                  {ui_song_held() ? TX("UNLOAD SONG") : 0, M_UNLOAD, 0, 0}, {TX("REVERT"), M_REVERT, 0, 0}};
-    char t[24];
     int rv = ui_edit_unsaved(REC_SONG, ui_cur.song, 0);
-    ui_fmt(t, sizeof t, T("SONG %02X"), ui_cur.song);
-    ui_menu("songs", t, items, 6 + rv, list_pick, B_SEL);   /* (UNLOAD SONG while a song is held; REVERT last, while
-                                                             * unsaved) */
+    ui_menu("songs", ui_txt_h(TX("SONG #"), ui_cur.song), items, 6 + rv, list_pick, B_SEL);   /* (UNLOAD SONG while a song
+                                                             * is held; REVERT last, while unsaved; it copies its title) */
 }
 /* MOVE: the song afloat put down at its new place; the ones between shift a number */
 static void put_down(void)
@@ -264,7 +260,7 @@ static void put_down(void)
     ui_edit_put(REC_SONG, nums[at], 0, kver, keep, klen);
     ui_cur.song = nums[at];
     for (int i = 0; i < nsongs; i++) player_song_changed(nums[i]);
-    ui_toast(ui_txt_v(T("SONG MOVED TO #"), ui_hex2(nums[at])));
+    ui_toast(ui_txt_h(TX("SONG MOVED TO #"), nums[at]));
 }
 
 /* ---- the order (EDIT): HOME drops what changed in it, and the patterns made meanwhile ---- */
@@ -289,7 +285,7 @@ static void order_drop(void)
     order_mode = 0;
     for (int i = 0; i < sess_nmade; i++) ui_edit_del(REC_PATTERN, sess_made[i], 0);    /* (made here: they go) */
     sess_nmade = 0;
-    if (!ui_edit_session_drop() && made) ui_toast(T("CHANGES DROPPED"));
+    if (!ui_edit_session_drop() && made) ui_toast_t(TX("CHANGES DROPPED"));
     song_changed(ui_cur.song);
 }
 static void order_edit(void (*fn)(uint8_t *order, int *n))
@@ -328,7 +324,7 @@ static void o_after(uint8_t *o, int *n)                 /* arg_pat in after the 
 static int new_pattern(int like)
 {
     int f = rec_free_pattern();
-    if (f < 0) { ui_toast(T("NO FREE PATTERN")); return -1; }
+    if (f < 0) { ui_toast_t(TX("NO FREE PATTERN")); return -1; }
     int tr = like >= 0 ? ui_pattern_tracks((uint8_t)like) : 0, rows = like >= 0 ? ui_pattern_rows((uint8_t)like) : 0;
     uint8_t p[5] = {(uint8_t)(tr ? tr : 8), (uint8_t)((rows ? rows : 64) - 1), 1, 0, 0};
     if (ui_edit_put(REC_PATTERN, (uint8_t)f, 0, 1, p, sizeof p)) return -1;
@@ -338,7 +334,7 @@ static int new_pattern(int like)
 static int clone_pattern(int src)
 {
     int f = rec_free_pattern();
-    if (f < 0) { ui_toast(T("NO FREE PATTERN")); return -1; }
+    if (f < 0) { ui_toast_t(TX("NO FREE PATTERN")); return -1; }
     if (ed_copy_pattern((uint8_t)src, (uint8_t)f)) return -1;
     if (sess_nmade < 16) sess_made[sess_nmade++] = (uint8_t)f;
     return f;
@@ -357,9 +353,7 @@ static void song_revert_go(void)
 }
 static void song_revert_ask(void)
 {
-    static char q[32];
-    ui_fmt(q, sizeof q, T("REVERT SONG %02X TO SAVED?"), ui_cur.song);
-    ui_ask_revert(q, 0, song_revert_go);
+    ui_ask_revert(ui_txt_h(TX("REVERT SONG # TO SAVED?"), ui_cur.song), 0, song_revert_go);   /* (it copies its lines) */
 }
 static void editor_back(void) {}
 static int edit_pat;                    /* EDIT PATTERN's, after the EDITOR's own pattern's warning (ed_own_ask) */
@@ -375,7 +369,7 @@ static void order_pick(int id)
     int here = s.npos ? s.order[pos] : -1;
     switch (id) {
     case O_EDIT: {
-        if (!ui_screen_named("EDITOR")) { ui_toast(T("EDITOR: NOT IN THIS FIRMWARE YET")); return; }
+        if (!ui_screen_named("EDITOR")) { ui_toast_t(TX("EDITOR: NOT IN THIS FIRMWARE YET")); return; }
         edit_pat = here;
         ed_own_ask(edit_go);
         return;
@@ -385,19 +379,19 @@ static void order_pick(int id)
         if (f < 0) return;
         arg_pat = f;
         order_edit(o_after);
-        ui_toast(ui_txt_v(T("PATTERN # MADE"), ui_hex2(f)));
+        ui_toast(ui_txt_h(TX("PATTERN # MADE"), f));
         return;
     }
     case O_INSERT: order_edit(o_insert); return;
     case O_DELETE: order_edit(o_remove); return;
-    case O_COPY: clip = here; ui_toast(ui_txt_v(T("PATTERN # COPIED"), ui_hex2(here))); return;
+    case O_COPY: clip = here; ui_toast(ui_txt_h(TX("PATTERN # COPIED"), here)); return;
     case O_PASTE: arg_pat = clip; order_edit(o_after); return;
     case O_CLONE: {
         int f = clone_pattern(here);
         if (f < 0) return;
         arg_pat = f;
         order_edit(o_set);
-        ui_toast(ui_txt_v(ui_txt_v(T("# CLONED TO #"), ui_hex2(here)), ui_hex2(f)));
+        ui_toast(ui_txt_v(ui_txt_h(TX("# CLONED TO #"), here), ui_hex2(f)));
         return;
     }
     case O_REVERT: song_revert_ask(); return;
@@ -419,15 +413,13 @@ static void order_menu(void)
     if (has) ADD(TX("CLONE PATTERN"), O_CLONE);
     if (ui_edit_unsaved(REC_SONG, ui_cur.song, 0)) ADD(TX("REVERT"), O_REVERT);
 #undef ADD
-    char t[24];
-    ui_fmt(t, sizeof t, T("POSITION %02X"), pos);
-    ui_menu("order", t, items, n, order_pick, B_SEL);
+    ui_menu("order", ui_txt_h(TX("POSITION #"), pos), items, n, order_pick, B_SEL);   /* (it copies its title) */
 }
 static int env_to;
 static void env_go(void)
 {
     ui_cur.pattern = (uint8_t)env_to;
-    ui_toast(ui_txt_v(T("PATTERN # FOR THE EDITOR"), ui_hex2(env_to)));
+    ui_toast(ui_txt_h(TX("PATTERN # FOR THE EDITOR"), env_to));
 }
 static void env_pick(int pat)
 {
@@ -498,7 +490,7 @@ static void knob(int e, int s, int coarse)
         } else if (e == K_ALG && has && sg.npos) {
             pos = ui_clamp(start_pos() + s, 0, sg.npos - 1);
             picked = 1;
-            ui_show_knob(T("PLAY FROM"), ui_txt_v(T("POS #"), ui_hex2(pos)));
+            ui_show_knob_t(TX("PLAY FROM"), ui_txt_h(TX("POS #"), pos));
         }
         return;
     }
@@ -514,7 +506,7 @@ static void knob(int e, int s, int coarse)
         i = ui_clamp(i + s * (coarse ? 8 : 1), 0, n - 1);
         arg_pat = pn[i];
         order_edit(o_set);
-        ui_show_knob(T("K1 PATTERN"), ui_hex2(pn[i]));
+        ui_show_knob_t(TX("K1 PATTERN"), ui_hex2(pn[i]));
     }
 }
 static int play_down(void)
@@ -559,7 +551,7 @@ static int tap(int b)
 }
 static int back(void)
 {
-    if (mv_from >= 0) { mv_from = -1; ui_toast(T("NOT MOVED")); return 1; }
+    if (mv_from >= 0) { mv_from = -1; ui_toast_t(TX("NOT MOVED")); return 1; }
     if (order_mode) { order_drop(); return 1; }
     return 0;
 }

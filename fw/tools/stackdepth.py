@@ -57,8 +57,8 @@ HOOKS = (
      ["fx_strip_lr", "fx_djfilter", "fx_djfilter_rest"], ["pl_audio_a", "pl_dj_mix"]),
     ("core 2's queue: the jobs its loop runs, each handed over by fm1_cpu1_post (a block's job or its voice job,"
      " plat_c2_post's)", ["pl_c2_job", "pl_v2_job"], ["fm1_c1_loop"]),
-    ("core 2's park: a fault on core 2 waits there, in its room, out of a call's reach (fm1_irq.h)", ["fm1_c1_park"],
-     ["fm1_fault_c"]),
+    ("core 2's park: a fault on core 2 waits there, in its room, out of a call's reach (fm1_irq.h); and a fill or copy"
+     " core 2 refused (fm1_cpu1.h's fm1_c2_dest_ok)", ["fm1_c1_park"], ["fm1_fault_c", "c2_memset", "c2_memcpy"]),
 )
 
 # hook targets only the debug build has: not reported missing from the others
@@ -98,10 +98,26 @@ def regs(lst):
     return n
 
 
+WRAP = re.compile(r"^\s*\}\s*(<[^<>]* : [0-9a-f]+ >)\s*$")
+
+
+def joined(dis):
+    """objdump -d's lines, a target's annotation that objdump wrapped onto the next line (an instruction inside a
+    block's braces: `call -N` then `} <name : address >`) joined to its instruction"""
+    out = []
+    for ln in dis.splitlines():
+        m = WRAP.match(ln)
+        if m and out:
+            out[-1] += " " + m.group(1)
+        else:
+            out.append(ln)
+    return out
+
+
 def parse(dis):
     """{address: function} from objdump -d's text: name, frame bytes, direct calls (addresses), indirect calls"""
     funcs, cur = {}, None
-    for ln in dis.splitlines():
+    for ln in joined(dis):
         m = LABEL.match(ln)
         if m:
             if m.group(1).startswith("."):          # (a jump table's label inside a function)

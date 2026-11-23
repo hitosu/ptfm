@@ -9,10 +9,13 @@
 enum { CK_NONE, CK_SELECT, CK_BLACK, CK_WHITE, CK_SEQ, CK_PLAY, CK_REC, CK_LFO, CK_PUNCH, CK_PRESETS, CK_MARK, CK_BIG,
        CK_ARP, CK_BUTTON = 32 };
 
-/* HOME's combination, held or tapped open */
+/* HOME's combination, held or tapped open; solo: its white keys mute (0), solo (1, SEQ), play the automations (2, ARP) or
+ * record them (3, ARP then REC) */
 typedef struct { int lock; uint8_t solo, closed; uint32_t at; uint8_t is_ov; } combo_t;
 combo_t *ui_home_combo(void);
-int ui_home_seq_switches(const combo_t *c);    /* SEQ switches the white keys mute / solo (while they are members) */
+int ui_home_seq_switches(const combo_t *c);    /* SEQ and ARP (after ARP, REC) switch the white keys (while they are
+                                                 * members) */
+int ui_home_switch(combo_t *c, int b);  /* b SEQ or ARP switching them: 1 done */
 #define UI_LINE_RUNS 12                 /* runs a line of a combination's panel holds at most */
 int ui_home_lines(const combo_t *c, g_run_t (*lines)[UI_LINE_RUNS], int *nruns, char (*buf)[48], int max);
 void ui_open_home(void);
@@ -37,7 +40,7 @@ extern void (*ui_between_halves)(void); /* the tests': called between a frame's 
 
 int ui_save_all(void);                  /* SAVE: every change to the flash; 0 done */
 void ui_save_refs(int uses);            /* YES to UPDATE REFERENCES?: playback paused, SAVE with its own texts */
-void ui_ask_storage_full(void);         /* NOT ENOUGH STORAGE TO SAVE, CLEAN UP or BACK */
+void ui_ask_storage_full(void);         /* NOT ENOUGH STORAGE TO SAVE or TOO MANY RECORDS TO SAVE, CLEAN UP or BACK */
 void ui_revert_all(void);               /* REVERT ALL: the changes dropped, all read again */
 void ui_revert_all_ask(void);           /* REVERT ALL's question (SAVE + OCT-, SETTINGS' TOOLS), then ui_revert_all */
 void ui_factory_reset_ask(void);        /* SETTINGS' TOOLS: FACTORY RESET's two questions, the erase, the restart */
@@ -73,6 +76,22 @@ void ui_setting_text(const ui_setting_t *s, int v, char *dst);
 void ui_settings_changed(void);         /* a setting changed: unsaved until SAVE */
 
 void ui_screens_register(void);         /* every screen built (screens.c) */
+/* HOME's round (ui.c): a screen's place in it (0xFF none), the screen at a place (NULL none, or AUTOMATIONS') */
+int ui_round_at(const ui_screen_t *s);
+const ui_screen_t *ui_round_screen(int i);
+/* AUTOMATIONS (scr_auto.c): each pass's input (ui_poll), recorded or stood in for; 0 idle, 1 recording, 2 playing; its slot */
+void ua_input(plat_input_t *in, const plat_input_t *last);
+/* the pass's input time (ms), what the knobs' acceleration counts from: the clock as the pass began, or, while an
+ * automation plays, the time recorded for the pass it plays (so a turn's steps come out as recorded) */
+extern uint32_t ui_in_t;
+int ua_state(void);
+void ua_reverted(void);                 /* REVERT ALL: a recording or a playback ends */
+void ui_go_back(const ui_screen_t *s);  /* back to s from AUTOMATIONS, as if it had not opened (FX's origin kept) */
+int ua_slot(void);
+int ua_holds(int s);                    /* slot s holds an automation */
+int ua_shortcut(int s, int r);          /* HOME, ARP, a white key: slot s played (r: HOME, ARP, REC, recorded into; 0 refused:
+                                         * the combination stays open) */
+void ua_end(void);                      /* a recording ends there (HOME + OP6, HOME, ARP, REC), the end's controls out */
 const ui_screen_t *ui_power_on_screen(void);    /* SETTINGS' POWER-ON SCREEN */
 
 #endif

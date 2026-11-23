@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* A fake FM-1 for the store's tests: the 1 MiB flash in memory (programming only clears bits, within a
  * page; erase 4 KB), a clock, SysEx out to a callback, and power cuts: after cut_at flash operations
- * the next one longjmps to cut_env, done in part when cut_torn says so. */
+ * the next one longjmps to cut_env, done in part when cut_torn says so; or the operation fail_at fails (-1, nothing
+ * written), the session going on. */
 #ifndef STORE_PLAT_H
 #define STORE_PLAT_H
 #include <setjmp.h>
@@ -23,6 +24,7 @@ extern long fake_low_reads;             /* reads of the flash below the user are
 extern long cut_at;                     /* -1: no cut */
 extern int cut_torn;                    /* the cut operation half done: a program's first half, an erase's most */
 extern jmp_buf cut_env;
+extern long fail_at;                    /* -1: none; else the flash operation (counted as fake_ops) that fails, once */
 extern void (*fake_sysex)(const uint8_t *msg, uint32_t n);
 extern int fake_sysex_refused;          /* USB takes no message (a cable pulled): plat_sysex_send says -1 */
 

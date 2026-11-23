@@ -25,8 +25,9 @@ other text on the screens. One table and one decoder serve them all.
 
 ## Compression: a tokenizer
 
-- **Its size:** 1,821 texts (49 of them the help's pages), 44,469 B as plain text; **21,633 B packed**,
-  the table and the index included (10-bit tokens, 956 merges).
+- **Its size:** 1,923 texts (50 of them the help's pages), 46,975 B as plain text; **20,727 B packed**,
+  the table and the index included (1,922 tokens of 1,854 merges, Huffman-coded in 6 to 13 bits). The FM-1's debug
+  build, without the help's pages ([../debug.md](../debug.md#made-and-installed)): 1,874 texts, 11,022 B packed.
 - **The method: byte-pair encoding,** as language models tokenize text, trained by the build on all
   the fixed texts together:
   - it starts from the characters (the fonts', the line break and the indent);
@@ -39,11 +40,19 @@ other text on the screens. One table and one decoder serve them all.
     spelled-out words;
   - **each text is then spelled with the fewest tokens of the table** (any token anywhere, found by
     dynamic programming), not in the order the merges were made: the decoder only expands tokens,
-    so any spelling unpacks the same.
+    so any spelling unpacks the same;
+  - **the tokens are Huffman-coded,** each by how often the texts use it: a canonical code of 16 bits at most, the
+    tokens numbered in the codes' order, so the decoder keeps only where each length's codes end (16 numbers) and
+    what turns a code of that length into its token (16 more). Every token has its two halves in the table, at the
+    width the tokens' count needs; a character's first half is all ones and its second the character.
 - **One table for all:** the help and the screens' texts share their words, so one table packs them
   as small as two would, with one decoder.
-- **The index:** each text's length in tokens, a byte, and every 16th text's start (2 bytes); a
-  text's start is its sixteen's start plus the lengths before it there.
+- **The index:** each text's length in tokens in 3 bits, bit-packed (a length of 7 or more: the 3 bits all ones,
+  then 8 bits), and for every 16th text the bit its codes start at (2 bytes, in bits of 4: a sixteen's codes start on
+  such a bit) and the bit its length is at (2 bytes); a text is found from its sixteen's start, the tokens of the
+  texts before it there read and passed over.
+- **The texts are numbered by their length in tokens,** shortest first (the empty one 0): a sixteen holds texts of
+  about the same length, so the short ones, most of what is drawn, pass over few tokens.
 - **Packing takes a few seconds,** so the build keeps its result in its own folder, keyed by the texts
   and the tool: a build whose texts did not change reads it back.
 
@@ -53,7 +62,7 @@ other text on the screens. One table and one decoder serve them all.
   `T("LOOP # CLEARED")`. The source stays readable.
 - **A text kept in a table** (a menu's items, the properties, a list's values, the commands', effects'
   and screens' names) is marked `TX("REVERT")` where the table is written, and drawn through `T()`;
-  in the firmware the table holds the text's number (the number 0 is no text).
+  in the firmware the table holds the text's number, 2 bytes (the number 0 is no text).
 - **Identifiers are not texts:** a word only compared, never shown (a screen looked up by its name, a
   menu's key), stays plain.
 - **The build packs them:** a tool in `tools/`, run on every firmware build:
@@ -77,11 +86,13 @@ other text on the screens. One table and one decoder serve them all.
 
 ## Unpacking
 
-- **Into a line buffer, for what is drawn:** each token expands through its halves with a small stack
-  (the tokens and the halves read at their bit width).
+- **Into a line buffer, for what is drawn:** each token's code is read from the next 16 bits taken as a number (its
+  length the first whose codes end past it), then the token expands through its halves with a small stack.
   The line buffers are a ring of 12 (a line's runs hold up to 8 texts at once); a text kept longer,
   as a panel's lines waiting to be drawn, is copied first.
-- **A few µs a text:** even a full screen of texts unpacks in well under a millisecond, against a
+- **A few µs a text:** about 1,600 instructions on average as the screens ask for them (about 4.4 µs), the longest
+  of the screens' texts about 14,000 (39 µs), a help page up to 170,000 (0.5 ms, once as it opens). The busiest main
+  loop pass of the UI's tests unpacks 746 texts in about 3.4 ms, the 99th in a hundred under 0.4 ms, against a
   frame's tens of milliseconds.
 
 ## Tests

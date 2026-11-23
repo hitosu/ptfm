@@ -142,6 +142,20 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
         check(!w.problems.length && w.converted.length === 1 && w.converted[0].from === 4 && w.converted[0].to === 3 && !w.converted[0].lost.length &&
             lw.length === 1 && lw[0].ver === 3 && R.loopsV3([lw[0].payload]).every((p, i) => p.length === loops.recs[i].payload.length),
             "the FM-1 reads loops version 3: written as version 3, nothing lost (" + JSON.stringify(w.converted) + ")");
+        /* a cut loop: written as its first pass, NOT KEPT naming the cut; a LOOPS set: an FM-1 that reads version 3 takes
+         * no sets (they came later), refused */
+        const Lc = R.unpackLoops(R.loopsV3([head]));
+        Lc.length = 16;
+        Lc.loops = [{ cart: 0xF8, slot: 0, colour: 0, mono: 0, muted: false, lanes: 1, base: 16, repeat: 1, shift: 0, cut: 6, mixer: R.MIX_DEFAULT.slice(),
+            cells: new Map([[R.cellKey(1, 0), { note: 60, ins: -1, vol: -1, cmds: [] }]]) }];
+        const cutL = M.fromRecords(R.packLoops(Lc).map((payload, sub) => ({ kind: K.LOOPS, num: 0, sub, ver: 4, payload })), { side: "R" }).items[0];
+        const wc = F.planWrite(old, Object.assign({}, st, { R: st.R.filter(i => i.kind !== K.LOOPS).concat([cutL]) }));
+        check(!wc.problems.length && wc.converted.length === 1 && wc.converted[0].lost.join() === "A LOOP'S CUT (PLAYED AS ITS FIRST PASS)",
+            "a cut loop: NOT KEPT names the cut (" + JSON.stringify(wc.converted.map(c => c.lost)) + ")");
+        const set = M.fromRecords(R.packLSet({ name: "JAM", solos: 0, loops: Lc }).map((payload, sub) => ({ kind: K.LSET, num: 9, sub, ver: 1, payload })), { side: "R" }).items[0];
+        const v3only = Object.assign({}, old, { accepts: old.accepts.filter(a => a.kind !== K.LSET) });
+        check(F.planWrite(v3only, Object.assign({}, stL, { R: stL.R.concat([set]) })).problems.some(t => /DOES NOT TAKE LOOPS SET VERSION 1/.test(t)),
+            "a LOOPS set to an FM-1 that reads loops version 3: refused, no way down");
         const none = Object.assign({}, lay, { accepts: lay.accepts.filter(a => a.kind !== K.LOOPS) });
         check(F.planWrite(none, stL).problems.some(t => /DOES NOT TAKE LOOPS VERSION 4/.test(t)), "no version of the loops it reads: refused as before");
     }
@@ -398,6 +412,80 @@ const empty = () => ({ L: [], R: [], base: [], fm1: { from: "empty", lastSave: n
         check(w7.bad === 0 && sameRecs(M.toRecords(rd6.items), M.toRecords(free.st.R)) && rd6.items.some(i => i.kind === K.FUSION && i.num === 0x40),
             "the FM-1 holds it at 40, what names it following");
         ses5.close();
+    }
+
+    /* ---- a LOOPS set (kind 24, version 1, in parts: specs/files/loops.md#sets) written with the cartridge its loops play;
+     * the FM-1 takes the kind; READ back byte for byte ---- */
+    {
+        const fw7 = await new ED.Firmware(wasm).start(null), ses7 = S.session(fw7.transport(), { timeout: 20000, blockTimeout: 20000, endTimeout: 30000 });
+        const perc = L.find(i => i.orig === 0xA1 && M.isCart(i.kind)), fx = new Uint8Array(64);
+        fx[11] = 4;
+        const cells = k => { const m = new Map(); for (let r = 0; r < 128; r++) for (let l = 0; l < 4; l++) m.set(r + "," + l, { note: 40 + (r + l + k) % 40, ins: -1, vol: 100, cmds: [[0x0E, 0xD2]] }); return m; };
+        const lp = k => ({ cart: 0xA1, slot: k, colour: k, mono: 0, muted: k === 1, lanes: 4, base: 128, repeat: 1, shift: 0, mixer: [127, 128, 0, 0, 0, 0], cells: cells(k) });
+        const parts = R.packLoops({ tempo: 125, ticks: 6, countIn: 0, legato: 1, swing: 50, grid: 0, quantize: 0, nextMono: 0, n: 3, selected: 2, length: 128,
+            fx, mix: [64, 128, 0, 127, 127, 127], view: 2, jobs: [0, 1, 5, 6], loops: [lp(0), lp(1), lp(2)] });
+        const p0 = new Uint8Array(16 + parts[0].length);
+        p0.set(R.packName("WRITTEN JAM", 16), 0); p0[12] = 4; p0.set(parts[0], 16);
+        const set = { id: M.newId(), side: "L", kind: K.LSET, num: null, orig: 9, src: "TEST", link: { [M.lk("c", 0xA1)]: perc.id },
+            recs: parts.map((payload, sub) => ({ sub, ver: 1, payload: sub ? payload : p0 })) };
+        const mv = M.transfer(Object.assign(empty(), { L: L.concat([set]) }), "L", [set.id], {});
+        const lay = await ses7.hello();
+        check(mv.ok && parts.length > 1 && p0.length <= R.RECORD_MAX && lay.accepts.some(a => a.kind === K.LSET && a.ver === 1),
+            "a set of 3 loops in " + parts.length + " parts, with its sampler, on the FM-1 panel; the FM-1 takes kind 24 version 1");
+        const w = await F.writeTo(ses7, Object.assign({}, mv.st, { fm1: { from: "empty", lastSave: null } }), {});
+        const rd = await F.readFrom(ses7, empty());
+        const back = rd.items.find(i => i.kind === K.LSET);
+        check(w.bad === 0 && sameRecs(M.toRecords(rd.items), M.toRecords(mv.st.R)) && back && back.num === 9 && back.recs.length === parts.length &&
+            M.nameOf(back, rd.items) === "WRITTEN JAM" && M.kindText(back, rd.items) === "SET · 3 LOOPS · 8 BARS · TEMPO 125",
+            "written and READ back byte for byte: SET 09 WRITTEN JAM, " + (back && M.kindText(back, rd.items)));
+        ses7.close();
+    }
+
+    /* ---- the FM-1's list of records (specs/files/store.md#the-list-of-records): its layout's room, 560; a panel of 561
+     * records (the demo disk's 121, cartridges, patterns and songs made of its own) refused before anything is written,
+     * WRITE REFUSED with the list's words, an UPLOAD DISK of it taken in all the same; 560 written; one song swapped for
+     * two on the panel (562 the FM-1 would list, its deletion with them; 561 written anew): refused with the panel's own
+     * count; one swapped for one (561 listed, 560 written anew): the whole user area written anew ---- */
+    {
+        const fw8 = await new ED.Firmware(wasm).start(null), ses8 = S.session(fw8.transport(), { timeout: 20000, blockTimeout: 20000, endTimeout: 30000 });
+        const files = S.parseData(demo()).files, at = (kind, num) => files.find(f => f.kind === kind && f.num === num);
+        const fus = at(K.FUSION, 0xA5), pat = files.filter(f => f.kind === K.PATTERN).reduce((a, f) => f.len < a.len ? f : a), song = at(K.SONG, 0xA0);
+        const made = [], has = new Set(files.map(f => (M.isCart(f.kind) ? "C" : f.kind) + "." + f.num));
+        const add = (f, num) => { const k = (M.isCart(f.kind) ? "C" : f.kind) + "." + num; if (!has.has(k)) { has.add(k); made.push(Object.assign({}, f, { num })); } };
+        for (let n = 0; n <= 0xEF; n++) { add(fus, n); add(pat, n); }
+        for (let n = 0; files.length + made.length < 561; n++) add(song, n);
+        const big = M.fromRecords(files.concat(made), { side: "R", src: "TEST" }).items, nrec = M.toRecords(big).length;
+        const lay = await ses8.hello(), last0 = lay.lastSave;
+        const up = F.diskItems(F.diskOf(big), "R", "BIG.PTFMDSK");
+        const words = n => "IT DOES NOT FIT IN THE FM-1'S LIST OF RECORDS: " + n + " RECORDS, 560 AT MOST";
+        const wb = F.planWrite(lay, Object.assign(empty(), { R: up.items }));
+        check(lay.mapRoom === 560 && nrec === 561 && M.toRecords(up.items).length === 561 && wb.problems.includes(words(561)),
+            "the FM-1's list: room " + lay.mapRoom + "; a disk of " + nrec + " records uploaded to the panel (" + M.toRecords(up.items).length +
+            "), WRITE refused: " + wb.problems.join(" · "));
+        let err = null;
+        try { await F.writeTo(ses8, Object.assign(empty(), { R: up.items }), {}); } catch (e) { err = e; }
+        const lay1 = await ses8.hello();
+        check(err && err.problems && err.problems.includes(words(561)) && lay1.lastSave === last0 && lay1.records.length === 0,
+            "... refused before anything is written: " + (err ? err.message : "written") + " (the FM-1's records " + lay1.records.length + ")");
+        const s560 = up.items.filter(i => !(i.kind === K.SONG && i.num === 0x00));
+        const w560 = await F.writeTo(ses8, Object.assign(empty(), { R: s560 }), {});
+        const lay2 = await ses8.hello();
+        check(w560.bad === 0 && lay2.records.length === 560 && lay2.records.every(r => !r.deleted), "560 records written: the FM-1 lists " + lay2.records.length);
+        const base = Object.assign(empty(), { R: s560, base: s560, fm1: { from: "write", lastSave: w560.lastSave } });
+        const songOf = n => Object.assign({}, s560.find(i => i.kind === K.SONG && i.num === 0xA0), { id: M.newId(), num: n });
+        const gone = s560.find(i => i.kind === K.SONG && i.num === 0x01);
+        const two = Object.assign({}, base, { R: s560.filter(i => i !== gone).concat([songOf(0x00), songOf(0xEE)]) });
+        const w2 = F.planWrite(lay2, two);
+        check(w2.problems.includes(words(561)), "one song deleted and two made on the panel: refused with the panel's own count (" + w2.problems.join(" · ") + ")");
+        const one = Object.assign({}, base, { R: s560.filter(i => i !== gone).concat([songOf(0x00)]) });
+        const w1 = F.planWrite(lay2, one);
+        check(!w1.problems.length && w1.plan.ok && w1.plan.clean, "one song deleted and one made: the FM-1 would list its deletion too, so the user area is written anew (" +
+            w1.problems.join(" · ") + ")");
+        const w3 = await F.writeTo(ses8, one, {});
+        const lay3 = await ses8.hello();
+        check(w3.bad === 0 && lay3.records.length === 560 && lay3.records.every(r => !r.deleted) && lay3.records.some(r => r.kind === K.SONG && r.num === 0),
+            "written so: the FM-1 lists 560, none deleted");
+        ses8.close();
     }
 
     ses.close();

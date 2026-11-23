@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Copyright (C) 2026 Vasily Kazantsev (cut: what the controller does not call; fast turns; the clicks
- * before a press) */
+ * before a press; the keys' readings, their method after Charles Vestal's measurements, fm1-velocity) */
 /* FM-1 input HAL: key/button/encoder matrix and LEDs.
  *
  * One 11-column x 6-row diode matrix behind a 2x74HC595 chain (PA4 SER, PA3
@@ -45,6 +45,17 @@
  * the next column (its outputs change only at the latch, so the pulse stays on column p and the key
  * read before it is unchanged). fm1_led_dim[col]: the glow, FM1_GLOW_NS (~1/24 of a lit LED). TIMER4
  * times the pulse bit by bit. An LED in both layers is lit.
+ * The keys' readings (FM1_INPUT_ANALOG defined, with fm1_adc.h included first and the hooks below; only while
+ * fm1_an.on, the scan as above otherwise; specs/hardware.md#the-keys-velocity): rows PA7 and PA8, the converter's
+ * channels 0 and 1, carry the 20 keys F3-C5 (notes 0-19). Once column n is latched, the tick starts a conversion of
+ * its PA7 key (even frames) or its PA8 key (odd frames) and takes it first thing at the next tick, before the rows are
+ * read: each key read every 2.2 ms. FM1_INPUT_READ(note, v, driven) gets it (v 0xFFFF: not done in time). A key
+ * FM1_INPUT_DRIVE(note) names is read with its row driven high at its second-weakest drive (HD0) instead of pulled
+ * up, the row an input with its pull-up again at the take; FM1_INPUT_DARK(note) keeps column n's LEDs dark while it
+ * is read (a lit LED lifts the reading). OCT-'s slot (odd frames, column 0) reads MASTER into fm1_an.master; OCT+'s
+ * reads nothing. fm1_an.hold starts none (the main loop's own conversion: the battery). The rows' digital inputs
+ * stay on throughout (off, every key on them reads pressed). FM1_INPUT_NOTE(note, down): a note key's debounced
+ * press or release (the scan's ISR).
  */
 #pragma once
 #include <stdint.h>
@@ -54,6 +65,9 @@
 
 #ifndef FM1_INPUT_IDLE
 #define FM1_INPUT_IDLE() ((void)0)
+#endif
+#ifndef FM1_INPUT_NOTE
+#define FM1_INPUT_NOTE(note, down) ((void)0)
 #endif
 #ifndef FM1_LED_US
 #define FM1_LED_US 40u           /* LED on-time per column (brightness vs scan rate) */
@@ -204,10 +218,12 @@ static void fm1__key(uint32_t id, uint32_t closed)
             fm1_in.enc_pre[e] = fm1_in.enc_steps[e];
         fm1_in.pre_on = 1;
     }
-    if (note)
+    if (note) {
         fm1_in.notes ^= bit;
-    else
+        FM1_INPUT_NOTE(id - 14u, !on);
+    } else {
         fm1_in.buttons ^= bit;
+    }
 }
 
 /* the steps since the last take, and of them those that came before the first press since (all of them when
@@ -299,6 +315,104 @@ static void fm1__frame(void)
     fm1_in.frames++;
 }
 
+#ifdef FM1_INPUT_ANALOG
+/* the keys' readings (see top): the tick's conversion */
+static volatile struct {
+    uint8_t on;                  /* the keys read (KEYS VELOCITY on) */
+    uint8_t hold;                /* none started: the main loop converts (the battery) */
+    uint8_t pend;                /* a conversion runs: 1 a key's, 2 MASTER's */
+    uint8_t note;                /* its key */
+    uint8_t driven;              /* its row driven: 1 PA7, 2 PA8 */
+    uint8_t odd;                 /* this frame's row: 0 PA7, 1 PA8 */
+    uint8_t mvalid;              /* MASTER read once */
+    uint16_t master;             /* MASTER from its slot, 0-1023 */
+    uint16_t lost;               /* conversions not done by the next tick */
+} fm1_an;
+
+static void fm1__row_drive(uint32_t m)             /* PA7 or PA8 (its bit) driven high, weakly (HD0 alone, set while the
+                                                   * scan reads: fm1_input_analog) */
+{
+    FM1_PR(FM1_PA, FM1_OUT) |= m;
+    FM1_PR(FM1_PA, FM1_DIR) &= ~m;
+}
+static void fm1__row_release(uint32_t m)           /* an input with its pull-up again (fm1_input_init's) */
+{
+    FM1_PR(FM1_PA, FM1_DIR) |= m;
+    FM1_PR(FM1_PA, FM1_OUT) &= ~m;
+}
+/* the readings on or off (KEYS VELOCITY): the rows' drive for their driven readings, HD0 alone, set once while they
+ * are read (an input's drive does nothing: the rows inputs between their driven readings), cleared after */
+static void fm1_input_analog(uint32_t on)
+{
+    uint32_t m = (1u << 7) | (1u << 8);
+    if (on) {
+        FM1_PR(FM1_PA, FM1_HD) &= ~m;
+        FM1_PR(FM1_PA, FM1_HD0) |= m;
+    } else
+        FM1_PR(FM1_PA, FM1_HD0) &= ~m;
+    fm1_an.on = (uint8_t)(on != 0u);
+}
+/* the conversion started last tick: the row released first (the rows are read next), its reading to the hook */
+static __attribute__((noinline)) void fm1__an_take(void)
+{
+    uint32_t kind = fm1_an.pend, drv = fm1_an.driven, v = 0xFFFFu;
+    fm1_an.pend = 0;
+    if (drv) {
+        fm1_an.driven = 0;
+        fm1__row_release(drv == 2u ? 1u << 8 : 1u << 7);
+    }
+    if (fm1_adc_done()) {
+        v = fm1_adc_take();
+    } else {
+        fm1_adc_abort();
+        fm1_an.lost++;
+    }
+    if (kind == 2u) {
+        if (v != 0xFFFFu) {
+            fm1_an.master = (uint16_t)v;
+            fm1_an.mvalid = 1;
+        }
+    } else {
+        FM1_INPUT_READ(fm1_an.note, v, drv != 0u);
+    }
+}
+/* column n is latched: its lines lit (dark while a held key is read), its slot's conversion started */
+static __attribute__((noinline)) void fm1__an_start(uint32_t n)
+{
+    uint32_t lit = fm1_led[n], odd, id;
+    if (n == 0u)
+        fm1_an.odd = (uint8_t)!fm1_an.odd;
+    odd = fm1_an.odd;
+    id = (uint32_t)FM1_KEYMAP[odd ? 4 : 3][n];
+    if (id < 14u) {                                /* OCT- (MASTER's slot), OCT+ (none) */
+        fm1__led_lines(lit);
+        if (n == 0u) {
+            fm1_an.pend = 2;
+            fm1_adc_start(FM1_ADC_MASTER, FM1_ADC_CON_SCAN);
+        }
+        return;
+    }
+    id -= 14u;
+    fm1__led_lines(FM1_INPUT_DARK(id) ? 0u : lit);
+    fm1_an.note = (uint8_t)id;
+    if (FM1_INPUT_DRIVE(id)) {
+        fm1__row_drive(odd ? 1u << 8 : 1u << 7);
+        fm1_an.driven = (uint8_t)(odd ? 2u : 1u);
+    }
+    fm1_an.pend = 1;
+    fm1_adc_start(odd ? FM1_ADC_ROW_PA8 : FM1_ADC_ROW_PA7, FM1_ADC_CON_SCAN);
+}
+/* the readings stopped at once: both rows inputs with their pull-ups, no conversion (interrupts off: a crash's
+ * screen, which scans the panel itself) */
+static void fm1_input_analog_off(void)
+{
+    fm1_input_analog(0);
+    fm1__row_release((1u << 7) | (1u << 8));
+    fm1_adc_abort();
+    fm1_an.pend = fm1_an.driven = 0;
+}
+#endif
+
 /* one column per call, from a timer ISR (see top). The glow of column p rides on the shift of
  * column n: the lines go lit | glow of p, the glow ends when its time is up (TIMER4, checked after
  * every bit), and the latch comes with the lines dark. */
@@ -309,6 +423,10 @@ static void fm1_input_tick(void)
     uint32_t w = 0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u);
     uint32_t lit = fm1_led[p], a = fm1_led_dim[p] & ~lit;
     uint32_t ta = a ? FM1__NS_T(FM1_GLOW_NS) : 0u;
+#ifdef FM1_INPUT_ANALOG
+    if (fm1_an.pend)
+        fm1__an_take();                            /* (column p's: before its rows are read) */
+#endif
     fm1__led_lines(0);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick (the lines dark) */
     if (ta) {
@@ -328,7 +446,12 @@ static void fm1_input_tick(void)
     } else {
         fm1__sr_word(w);
     }
-    fm1__led_lines(fm1_led[n]);
+#ifdef FM1_INPUT_ANALOG
+    if (fm1_an.on && !fm1_an.hold)
+        fm1__an_start(n);                          /* (column n's key read until the next tick) */
+    else
+#endif
+        fm1__led_lines(fm1_led[n]);
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
     if (n == 0u)

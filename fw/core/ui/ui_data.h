@@ -72,6 +72,10 @@ int ui_cart_order(uint8_t *nums, int n);
  * there */
 enum { UI_FAV_NOT, UI_FAV_EMPTY, UI_FAV_MISSING, UI_FAV_OK };
 int ui_fav(uint16_t ref, uint16_t *src);
+/* the built-in FAVORITES, the FM-1's one (specs/files/instruments.md#favorites): ADD TO FAVORITES, SEL + GLO and GLO +
+ * PRESETS use it alone; ui_fb() 1 while it is there as a FAVORITES cartridge (deleted, it is not) */
+#define UI_FB 0xFB
+int ui_fb(void);
 /* a slot holds something (an instrument; a favourite, missing or not); playable: an instrument, or a favourite whose
  * source is there (what PRESETS steps through) */
 int ui_slot_has(uint16_t ref, int playable);

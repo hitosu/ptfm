@@ -35,12 +35,15 @@ written 0.
 | 8-11 | CRC-32 of the payload |
 
 - **Each (type, number, sub) at most once.**
-- **Objects are whole:** a pattern with all its parts, the loops with all their parts; a sample is an object
-  of its own, its entry and its audio in one file (an old-form sampler came with its audio's files).
+- **Objects are whole:** a pattern with all its parts, the loops and each LOOPS set with all their parts, AUTOMATIONS
+  with every slot's parts; a sample is an object of its own, its entry and its audio in one file (an old-form sampler
+  came with its audio's files).
 - **Any set:** a whole library, one cartridge, or a song with its patterns, cartridges and samples.
   References may point at files the disk does not hold (a song without its cartridges, a sampler without its
   samples).
-- **Order:** settings, cartridges, the marks of deleted built-ins (kind 0x0F), songs, patterns, the loops, notes,
+- **Order:** settings (the MIDI map and AUTOMATIONS with them), cartridges, the marks of deleted built-ins (kind 0x0F),
+  songs, patterns, the loops, DJ's setup,
+  LOOPS' sets, notes,
   then the samples (and any old-form audio), each by number and sub.
 - **Deleted built-ins:** a disk made from an FM-1 (DOWNLOAD DISK, a backup) carries their marks, so an upload
   deletes them there too; a disk without them (the demo disk) brings every built-in back

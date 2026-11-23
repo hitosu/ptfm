@@ -60,7 +60,13 @@ state, change nothing in `draw`. Hooks the struct lacks can be added at its end 
 - **Texts:** every fixed text is `T("...")` where it is drawn (one literal; `ui_txt_v("TRACK # MUTED",
   ui_hex2(t))` for a value in it). `T()` is a call: not in static initializers (a screen's `.name`, a
   table of names: plain strings there). A packed text's buffer lasts only a few texts: the dialogs copy
-  what they keep.
+  what they keep, so a text made for one goes to it straight, no copy of its own.
+- **The helpers that take a fixed text by its number** (`TX("...")`: a table's `txt_t`, one call less a site):
+  `ui_txt_t(TX("SET # LOADED"), v)` (`ui_txt_v(T(...), v)`), `ui_txt_h(TX(...), n)` / `ui_txt_d(TX(...), n)` (its
+  `#` the number in hex / decimal), `ui_toast_t(TX(...))`, `ui_refuse_t(B_SEL, TX(...))` (the button blinks and the
+  toast says why), `ui_show_knob_t(TX("K3 VOLUME"), v)`, `ui_ask_t(lines, n, TX("YES"), TX("NO"), done)`;
+  `ui_hints(x, y, H)` draws a key-hint line from a `static const txt_t H[]` (keys yellow, what they do light grey, in
+  turns, 0 ends). And for any text: `g_text_r(xr, ...)` (ending at xr) and `g_text_c(x0, w, ...)` (centred in w).
 - **Numbers** as `specs/ui/frame.md` writes them: `ui_hex2`, `ui_dec`, `ui_of`, `ui_page_of`, `ui_fmt`.
 - **Colours** by role (`C_LGREY`, `C_DEEP + C_BLUE`, ...), never RGB; the engines' `ENG_COL[]`, the groups'
   `UI_GROUP_COL[]`.

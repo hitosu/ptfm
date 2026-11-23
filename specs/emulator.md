@@ -30,6 +30,12 @@ In short:
   web hardware layer replaces `fw/hal` and the device's drivers. The device's `ptfm.fwsc` cannot run
   there.
 - **The same app code** (`fw/core`) runs on both. The screen, LEDs and sound come from it unchanged.
+- **The keys' velocity** comes from where the panel's keys are pressed ([panel.md](panel.md)): the page hands each
+  press's landing to the firmware (`web_key_reading`), which maps it on KEYS VELOCITY's curve with the FM-1's own
+  code (`fw/device/keyvel.h`), the top row at the mean of the last four as on the FM-1; a velocity given (an FM-1 as
+  the controller, mirror mode) as it is; a key pressed from the computer's keyboard plays at KEYS VOLUME. A held
+  key dragged on hands its new reading in (MIDI CONTROLLER's aftertouch, general mode). No press waits: the page
+  knows its velocity at once.
 
 ## Files
 

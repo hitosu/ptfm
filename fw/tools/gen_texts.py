@@ -6,16 +6,23 @@
     python3 -I fw/tools/gen_texts.py OUTDIR --rewrite DIR      also copies of fw/core's sources in DIR,
                                                               each T("...") as T(n /* "..." */)
     python3 -I fw/tools/gen_texts.py OUTDIR --check            unpack every text again and compare
+    python3 -I fw/tools/gen_texts.py OUTDIR --no-help          the help's pages left out (the FM-1's debug build:
+                                                              specs/debug.md): every screen's help one line saying so
 
 Texts: every T("...") in fw/core's sources (one literal, no concatenation), then the help's pages: each
 screen's Help part (specs/ui/screens/<screen>.md) and the shared pages (specs/ui/help.md), one text a
 page, its lines split by a line break. A text used in several places is stored once.
 
 Packing: byte-pair encoding over all the texts together. The symbols start as the texts' characters; the
-commonest pair of symbols becomes a new token, again and again. A token is as many bits as the table's size
-needs (9 for up to 512, 10 for 1,024 ...), every size is tried and the smallest total of texts, table and
-index is kept. The table stores each token as its two halves, bit-packed as the texts' tokens are. The index:
-each text's length in tokens, a byte, and every 16th text's start (txt.c's TXT_STEP).
+commonest pair of symbols becomes a new token, again and again (the table's size: every size tried, the smallest
+total kept at a token's fixed width), each text then spelled with the fewest tokens. The tokens are Huffman-coded by
+how often the texts use them (canonical, CODE_MAX bits at most: the decoder keeps where each length's codes end and
+what turns a code of that length into its token), numbered in the codes' order. The table stores every token as its
+two halves at the width the tokens' count needs, a character's first half all ones and its second the character.
+The texts are numbered by their length in tokens, shortest first. The index: each text's length in tokens, 3 bits
+(all ones: 8 bits more), bit-packed, and for every 16th text the bit its codes start at (in bits of START_UNIT) and
+the bit its length is at (txt.c's TXT_STEP, TXT_LBITS, TXT_UNIT); a text is found by passing over the tokens before
+it in its sixteen.
 """
 import os
 import re
@@ -239,7 +246,7 @@ def spell(tok, base, pairs):
     return spell(a, base, pairs) + spell(b, base, pairs)
 
 
-IDX_STEP = 16                           # (SIZE) a text's start kept every 16 texts; each text's length a byte
+IDX_STEP = 16                           # (SIZE) a text's start kept every 16 texts, and the bit its length is at
 
 
 def index_len(n):
@@ -340,16 +347,168 @@ def comment(s):
     return s.replace("*/", "* /").replace("\n", "|")
 
 
-def unpack(bits, data, lens, starts, ptab, base, i):
-    """text i as txt.c unpacks it: its start from the one kept for its 16 and the lengths before it in them"""
-    k = starts[i // IDX_STEP] + sum(lens[i - i % IDX_STEP:i])
+LEN_BITS = 3                            # a text's length: 3 bits, or all ones and 8 bits more (txt.c's TXT_LBITS)
+CODE_MAX = 16                           # the longest code (txt.c's TXT_HLIM and TXT_HOFF: a code's 16 bits read at once)
+START_UNIT = 4                          # a sixteen's first bit, in bits of 4: its texts' codes start on such a bit
 
-    def spell_t(t):
-        if t < len(base):
-            return base[t]
-        j = t - len(base)
-        return spell_t(bits_at(ptab, 2 * j * bits, bits)) + spell_t(bits_at(ptab, (2 * j + 1) * bits, bits))
-    return "".join(spell_t(bits_at(data, (k + m) * bits, bits)) for m in range(lens[i]))
+
+def code_lengths(freq, limit):
+    """the tokens' code lengths, none over limit, the smallest stream for those counts (package-merge): {token: bits}
+    for every token counted"""
+    leaves = sorted((f, t) for t, f in freq.items() if f > 0)
+    n = len(leaves)
+    if n == 1:
+        return {leaves[0][1]: 1}
+    base = [(f, (t,)) for f, t in leaves]
+    cur = base
+    for _ in range(limit - 1):
+        pk = [(cur[i][0] + cur[i + 1][0], (cur[i][1], cur[i + 1][1])) for i in range(0, len(cur) - 1, 2)]
+        cur = sorted(base + pk, key=lambda x: x[0])
+    out = {}
+
+    def walk(node):
+        if len(node) == 1:
+            out[node[0]] = out.get(node[0], 0) + 1
+        else:
+            walk(node[0])
+            walk(node[1])
+    for _, node in cur[:2 * n - 2]:
+        walk(node)
+    return out
+
+
+def huffman(seqs, base, pairs):
+    """the canonical code (txt.c): the tokens numbered in the codes' order (by length, then their old number; the
+    tokens no text spells, only the halves of others, after them), so the decoder keeps only each length's count.
+    (order, counts, codes): order[new] = the old token; counts[l - 1]: the codes of l bits; codes[new] = (code, bits)"""
+    freq = {}
+    for s in seqs:
+        for t in s:
+            freq[t] = freq.get(t, 0) + 1
+    lens = code_lengths(freq, CODE_MAX)
+    coded = sorted(lens, key=lambda t: (lens[t], t))
+    order = coded + [t for t in range(len(base) + len(pairs)) if t not in lens]
+    counts = [0] * CODE_MAX
+    for t in coded:
+        counts[lens[t] - 1] += 1
+    codes, code, prev = [], 0, 0
+    for t in coded:
+        code <<= lens[t] - prev
+        prev = lens[t]
+        codes.append((code, lens[t]))
+        code += 1
+    return order, counts, codes
+
+
+def bitstream(seqs, codes, new):
+    """the texts' codes, each from its highest bit, bit-packed from a byte's highest bit; a sixteen's texts from a bit of
+    START_UNIT; (the stream with 2 spare bytes, the sixteens' starts in START_UNIT bits)"""
+    bitsl, starts = [], []
+    for i, s in enumerate(seqs):
+        if i % IDX_STEP == 0:
+            while len(bitsl) % START_UNIT:
+                bitsl.append(0)
+            starts.append(len(bitsl) // START_UNIT)
+        for t in s:
+            c, n = codes[new[t]]
+            bitsl += [(c >> (n - 1 - k)) & 1 for k in range(n)]
+    buf = bytearray((len(bitsl) + 7) // 8)
+    for k, b in enumerate(bitsl):
+        buf[k >> 3] |= b << (7 - (k & 7))
+    return bytes(buf) + b"\0\0", starts
+
+
+def code_tables(counts):
+    """the decoder's tables (txt.c): for each length l (1-16), lim[l - 1]: where the codes of l bits end, the next 16 bits
+    read as a number (the codes are complete: the longest's never read); off[l - 1]: a code of l bits plus it is its
+    token; and the lengths of the shortest and the longest code"""
+    lim, off, first, idx = [], [], 0, 0
+    for l, n in enumerate(counts, 1):
+        off.append(idx - first)
+        idx += n
+        first += n
+        lim.append((first << (CODE_MAX - l)) & 0xFFFF)
+        first <<= 1
+    used = [l for l, n in enumerate(counts, 1) if n]
+    off = [o if used[0] <= l <= used[-1] else 0 for l, o in enumerate(off, 1)]   # (the lengths no code has: unread)
+    lim = [m if used[0] <= l <= used[-1] else 0 for l, m in enumerate(lim, 1)]
+    return lim, off, used[0], used[-1]
+
+
+def h_token(data, tabs, b):
+    """the token at bit b, as txt.c reads it: the next 16 bits as a number, the codes' length the first whose end is
+    past it; and the bit after it"""
+    lim, off, lo, hi = tabs
+    q = b >> 3
+    v = ((data[q] << 16 | data[q + 1] << 8 | data[q + 2]) << (b & 7) >> 8) & 0xFFFF
+    l = lo
+    while l < hi and v >= lim[l - 1]:
+        l += 1
+    return off[l - 1] + (v >> (CODE_MAX - l)), b + l
+
+
+def h_unpack(data, tabs, hbits, ptab, lbuf, lstarts, starts, i):
+    """text i as txt.c unpacks it: its sixteen's start, the tokens before it there skipped, its own expanded"""
+    b, out = starts[i // IDX_STEP] * START_UNIT, ""
+    for j in range(i - i % IDX_STEP, i):
+        for _ in range(len_at(lbuf, lstarts, j)):
+            _, b = h_token(data, tabs, b)
+    ones = (1 << hbits) - 1
+    for _ in range(len_at(lbuf, lstarts, i)):
+        t, b = h_token(data, tabs, b)
+        stack = [t]
+        while stack:
+            t = stack.pop()
+            a = bits_at(ptab, 2 * t * hbits, hbits)
+            c = bits_at(ptab, (2 * t + 1) * hbits, hbits)
+            if a == ones:
+                out += chr(c)
+            else:
+                stack += [c, a]
+    return out
+
+
+def len_codes(lens):
+    """the lengths bit-packed (LEN_BITS, or its all ones and a byte), and the bit of each 16's first length"""
+    vals, lstarts, at = [], [], 0
+    esc = (1 << LEN_BITS) - 1
+    for i, n in enumerate(lens):
+        if i % IDX_STEP == 0:
+            lstarts.append(at)
+        if n < esc:
+            vals.append((n, LEN_BITS))
+            at += LEN_BITS
+        else:
+            vals += [(esc, LEN_BITS), (n, 8)]
+            at += LEN_BITS + 8
+    acc, nb, buf = 0, 0, bytearray()
+    for v, b in vals:
+        acc |= v << nb
+        nb += b
+        while nb >= 8:
+            buf.append(acc & 255)
+            acc >>= 8
+            nb -= 8
+    if nb:
+        buf.append(acc & 255)
+    return bytes(buf) + b"\0\0", lstarts
+
+
+def len_at(lbuf, lstarts, i):
+    """text i's length as txt.c reads it: from its 16's first length's bit"""
+    b, esc = lstarts[i // IDX_STEP], (1 << LEN_BITS) - 1
+    for j in range(i - i % IDX_STEP, i + 1):
+        n = bits_at(lbuf, b, LEN_BITS)
+        b += LEN_BITS
+        if n == esc:
+            n = bits_at(lbuf, b, 8)
+            b += 8
+        if j == i:
+            return n
+    raise AssertionError
+
+
+NO_HELP = "HELP IS STRIPPED IN THE DEBUG BUILD"   # (--no-help: every screen's help, its one page)
 
 
 def main():
@@ -358,7 +517,7 @@ def main():
         sys.exit(__doc__)
     out = os.path.abspath(args[0])
     src = source_texts()
-    own, shared = help_pages()
+    own, shared = ([], [NO_HELP]) if "--no-help" in args else help_pages()
     texts = list(src)
     help_ids = []
     for screen, pages in own:
@@ -401,28 +560,49 @@ def main():
             sys.exit("gen_texts: lowercase in %r (the screens show capitals only)" % t[:40])
     base = sorted(set("".join(texts)) | {" "})
     bits, pairs, seqs = packed(texts, base, out)
+    # numbered by their length in tokens, shortest first (the empty one 0): a text's sixteen holds texts of about its
+    # length, so the tokens skipped before it (the decoder's cost) stay few for the short ones, most drawn
+    perm = sorted(range(len(texts)), key=lambda i: (len(seqs[i]), i))
+    pos = {old: k for k, old in enumerate(perm)}
+    texts_in = texts
+    texts, seqs = [texts_in[i] for i in perm], [seqs[i] for i in perm]
     lens = [len(s) for s in seqs]
     if max(lens) > 255:
         sys.exit("gen_texts: a text of %d tokens: more than its length's byte holds" % max(lens))
-    starts, at = [], 0
-    for i, n in enumerate(lens):
-        if i % IDX_STEP == 0:
-            starts.append(at)
-        at += n
-    starts.append(at)
-    if at > 65535:
-        sys.exit("gen_texts: %d tokens: more than a start's uint16 holds" % at)
-    data = bitpack([t for s in seqs for t in s], bits)
-    ptab = bitpack([h for ab in pairs for h in ab], bits)
-    total = len(data) + len(ptab) + len(lens) + 2 * len(starts) + len(base)
+    # the tokens Huffman-coded (canonical, CODE_MAX bits at most): numbered in the codes' order; every token's halves
+    # in the table, a character's first half all ones and its second the character
+    order, counts, codes = huffman(seqs, base, pairs)
+    new = {t: k for k, t in enumerate(order)}
+    ntok = len(order)
+    hbits = max(8, ntok.bit_length())                   # (all ones is no token: ntok <= 2^hbits - 1)
+    ones = (1 << hbits) - 1
+    halves = []
+    for t in order:
+        if t < len(base):
+            halves += [ones, ord(base[t])]
+        else:
+            a, b = pairs[t - len(base)]
+            halves += [new[a], new[b]]
+    ptab = bitpack(halves, hbits)
+    data, starts = bitstream(seqs, codes, new)
+    if starts[-1] > 65535:
+        sys.exit("gen_texts: the texts' codes pass a start's uint16 (in bits of %d)" % START_UNIT)
+    lbuf, lstarts = len_codes(lens)
+    if lstarts[-1] > 65535:
+        sys.exit("gen_texts: the lengths' bits pass a uint16")
+    if [len_at(lbuf, lstarts, j) for j in range(len(lens))] != lens:
+        sys.exit("gen_texts: the lengths do not read back")
+    tabs = code_tables(counts)
+    total = len(data) + len(ptab) + len(lbuf) + 2 * len(starts) + 2 * len(lstarts) + 4 * CODE_MAX + 3
     depth = {}
     for k, (a, b) in enumerate(pairs):                  # the decoder's stack (txt.c: 64) holds a token's depth
         depth[len(base) + k] = 1 + max(depth.get(a, 0), depth.get(b, 0))
     if depth and max(depth.values()) > 60:
         sys.exit("gen_texts: a token %d deep: more than the decoder's stack" % max(depth.values()))
     for i, t in enumerate(texts):                       # the tool's own check: every text comes back
-        if unpack(bits, data, lens, starts, ptab, base, i) != t:
+        if h_unpack(data, tabs, hbits, ptab, lbuf, lstarts, starts, i) != t:
             sys.exit("gen_texts: text %d does not unpack" % i)
+    skip = max(sum(lens[g:g + IDX_STEP - 1]) for g in range(0, len(lens), IDX_STEP))
     if "--check" in args:
         print("gen_texts: %d texts unpack as written" % len(texts))
     plain = sum(len(t) for t in texts)
@@ -430,50 +610,62 @@ def main():
     lines = ["/* SPDX-License-Identifier: GPL-3.0-only",
              " * Copyright (C) 2026 Vasily Kazantsev */",
              "/* generated by fw/tools/gen_texts.py: do not edit. The fixed texts and the help, packed by",
-             " * byte-pair tokens (specs/ui/texts.md): %d texts, %d B plain, %d B packed in all; tokens of %d bits."
-             % (len(texts), plain, total, bits) + " */",
+             " * byte-pair tokens, Huffman-coded (specs/ui/texts.md): %d texts, %d B plain, %d B packed in all; %d"
+             % (len(texts), plain, total, ntok) + " tokens, codes of %d-%d bits. */" % tabs[2:],
              '#include "txt.h"', "",
-             "const uint8_t TXT_BITS = %d;" % bits,
-             "const uint16_t TXT_BASE = %d;                /* tokens below this are characters */" % len(base),
-             "const char TXT_CHARS[] = %s;" % cstr("".join(base)), ""]
-    lines.append("/* the merged tokens' halves, TXT_BITS each, a then b, bit-packed (low bits first); the tokens' words: */")
-    for k in range(len(pairs)):
-        lines.append("/*   0x%03X %s */" % (len(base) + k, comment(cstr(spell(len(base) + k, base, pairs)))[:100]))
+             "const uint8_t TXT_HBITS = %d;                /* a half's bits */" % hbits,
+             "const uint8_t TXT_HMIN = %d, TXT_HMAX = %d;  /* the shortest code's bits, the longest's */" % tabs[2:],
+             "/* for each code length, 1 to %d bits (codes of each: %s): where its codes end, as the next %d bits read as a"
+             " number; what makes a code of that length its token */" % (CODE_MAX, " ".join(map(str, counts)), CODE_MAX),
+             "const uint16_t TXT_HLIM[%d] = {%s};" % (CODE_MAX, ", ".join(map(str, tabs[0]))),
+             "const int16_t TXT_HOFF[%d] = {%s};" % (CODE_MAX, ", ".join(map(str, tabs[1]))), ""]
+    lines.append("/* every token's halves, TXT_HBITS each, a then b, bit-packed (low bits first): a character's a all ones,")
+    lines.append(" * b the character. The tokens in the codes' order, with their bits and words: */")
+    for k, t in enumerate(order):
+        lines.append("/*   0x%03X %2s %s */" % (k, codes[k][1] if k < len(codes) else "-", comment(cstr(spell(t, base, pairs)))[:100]))
     lines.append("const uint8_t TXT_PAIRS[%d] = {" % len(ptab))
     for i in range(0, len(ptab), 24):
         lines.append("    " + ", ".join(str(b) for b in ptab[i:i + 24]) + ",")
     lines += ["};", ""]
-    lines.append("/* the texts' tokens, TXT_BITS each, bit-packed (low bits first) */")
+    lines.append("/* the texts' tokens' codes, each from its first bit, bit-packed (low bits first); a sixteen's from a bit"
+                 " of %d */" % START_UNIT)
     lines.append("const uint8_t TXT_DATA[%d] = {" % len(data))
     for i in range(0, len(data), 24):
         lines.append("    " + ", ".join(str(b) for b in data[i:i + 24]) + ",")
     lines += ["};", ""]
-    lines.append("/* each text's length in tokens; text n starts at TXT_START[n / %d] plus the lengths before it there */"
-                 % IDX_STEP)
-    lines.append("const uint8_t TXT_LEN[%d] = {" % len(lens))
+    lines.append("/* each text's length in tokens, %d bits (all ones: 8 bits more), bit-packed; text n's codes start at"
+                 " bit %d x TXT_START[n / %d], after the tokens of the texts before it there, their lengths read from bit"
+                 " TXT_LSTART[n / %d] */" % (LEN_BITS, START_UNIT, IDX_STEP, IDX_STEP))
     for i, t in enumerate(texts):
-        lines.append("    %d,   /* %d %s */" % (lens[i], i, comment(cstr(t))[:110]))
+        lines.append("/*   %d: %d tokens %s */" % (i, lens[i], comment(cstr(t))[:100]))
+    lines.append("const uint8_t TXT_LEN[%d] = {" % len(lbuf))
+    for i in range(0, len(lbuf), 24):
+        lines.append("    " + ", ".join(str(b) for b in lbuf[i:i + 24]) + ",")
     lines += ["};"]
+    lines.append("const uint16_t TXT_LSTART[%d] = {%s};" % (len(lstarts), ", ".join(map(str, lstarts))))
     lines.append("const uint16_t TXT_START[%d] = {%s};" % (len(starts), ", ".join(map(str, starts))))
     lines += ["const uint16_t TXT_COUNT = %d;" % len(texts), ""]
     lines.append("const txt_help_t TXT_HELP[] = {")
     for screen, first, n in help_ids:
         lines.append('    {"%s", %d, %d},' % (screen, first - len(src), n))
+    if not help_ids:                                    # (--no-help: no help; the tables keep one unused entry)
+        lines.append('    {"", 0, 0},')
     lines += ["};", "const uint8_t TXT_HELP_N = %d;" % len(help_ids)]
-    pages = list(range(len(src), len(texts)))
-    lines.append("const uint16_t TXT_HELP_PAGES[%d] = {%s};" % (len(pages), ", ".join(map(str, pages))))
+    pages = [pos[i] for i in range(len(src), len(texts))]
+    lines.append("const uint16_t TXT_HELP_PAGES[%d] = {%s};" % (max(1, len(pages)), ", ".join(map(str, pages)) or "0"))
     lines.append("const uint16_t TXT_HELP_SHARED = %d;" % (shared_first - len(src)))
     lines.append("const uint8_t TXT_HELP_SHARED_N = %d;" % len(shared))
     lines.append("")
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "texts.c"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
-    print("gen_texts: %d texts (%d marked, %d help pages), %d B plain -> %d B packed, %d-bit tokens, %d merges"
-          % (len(texts), len(src), len(texts) - len(src), plain, total, bits, len(pairs)))
+    print("gen_texts: %d texts (%d marked, %d help pages), %d B plain -> %d B packed, %d tokens (%d merges) in codes of "
+          "%d-%d bits; a text's sixteen skips %d tokens at most" % (len(texts), len(src), len(texts) - len(src), plain, total,
+                                                                   ntok, len(pairs), tabs[2], tabs[3], skip))
 
     if "--rewrite" in args:
         dst = os.path.abspath(args[args.index("--rewrite") + 1])
-        ids = {t: i for i, t in enumerate(texts) if i < len(src)}
+        ids = {t: pos[i] for i, t in enumerate(texts_in) if i < len(src)}
         for p in sources():
             with open(p, encoding="utf-8") as fh:
                 s = fh.read()

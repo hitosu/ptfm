@@ -168,7 +168,7 @@ function planWrite(layout, st, heldBytes) {
     out.files = files;
     /* (kind, version) pairs the FM-1 does not take, each named */
     const bad = new Map();
-    for (const f of files) if (!acc.has(f.kind << 8 | f.ver)) bad.set(f.kind << 8 | f.ver, (S.KIND_NAME[f.kind] || "KIND " + f.kind) + " VERSION " + f.ver);
+    for (const f of files) if (!acc.has(f.kind << 8 | f.ver)) bad.set(f.kind << 8 | f.ver, (S.KIND_NAME[f.kind] || (f.kind === K.AUTO ? "AUTOMATIONS" : "KIND " + R.hex2(f.kind))) + " VERSION " + f.ver);
     for (const t of bad.values()) out.problems.push("THE FM-1 DOES NOT TAKE " + t + ": UPDATE ITS FIRMWARE");
     /* built-ins the FM-1's layout does not list */
     const has = new Set(layout.builtins.map(b => M.numSpace(b.kind) + b.num));
@@ -203,7 +203,8 @@ function planWrite(layout, st, heldBytes) {
             C.del = layout.records.filter(x => !x.deleted && !keys.has(recKey(x)))
                 .map(x => ({ kind: x.kind, num: x.num, sub: x.sub, ver: x.ver, len: 0, del: true, label: x.label }));
             P = C;
-        }
+        } else if (C.space.mapShort) P = C;    /* (past the FM-1's list even written anew: said with the panel's own count,
+                                                * not with the FM-1's records the first plan kept or deleted) */
     }
     if (P.ok && !P.upToDate) { const low = M.lowSpace(P.space.after, layout.reserve); if (low) out.warnings.push(low); }
     P.del = P.del.filter(d => !dimKeys.has(recKey(d)));
@@ -232,13 +233,19 @@ function planWrite(layout, st, heldBytes) {
 async function backupItems(session, layout, st, w, onProgress) {
     const need = new Set(w.backup.map(x => recKey(x) + "." + x.crc));
     const panel = new Map(w.files.map(f => [recKey(f) + "." + f.crc, f.payload]));     /* (as written: converted down too) */
+    /* an object backed up is backed up whole, every record of it the FM-1 holds (a pattern's parts, AUTOMATIONS' slots),
+     * those not read taken from the panel or from what the last READ or WRITE saw (the same CRC): never old parts beside
+     * new ones */
+    const seen = new Map(M.toRecords(st.base || []).map(r => [recKey(r) + "." + crcOf(r.payload), r.payload]));
+    const whole = new Set(w.backup.filter(x => x.kind !== K.AUDIO).map(x => x.kind + "." + x.num));
     const total = w.backup.reduce((n, x) => n + HDR + x.len, 0);
     let done = 0;
     const recs = [];
     for (const x of layout.records) {
         if (x.deleted) continue;
         const k = recKey(x) + "." + x.crc;
-        const payload = need.has(k) ? await readRecord(session, x, n => { done += n; if (onProgress) onProgress(done, total); }) : panel.get(k);
+        const payload = need.has(k) ? await readRecord(session, x, n => { done += n; if (onProgress) onProgress(done, total); })
+            : panel.get(k) || (whole.has(x.kind + "." + x.num) ? seen.get(k) : undefined);
         if (payload) recs.push({ kind: x.kind, num: x.num, sub: x.sub, ver: x.ver, payload });   /* (else one the page cannot read: left) */
     }
     const items = M.fromRecords(recs, { side: "R" }).items, m = M.byIdMap(items);
@@ -252,6 +259,9 @@ function removedNames(P, st) {
     for (const d of P.del) {
         const b = base.find(it => it.kind === d.kind && (it.kind === K.AUDIO ? (bm.get(it.owner) || {}).num === d.num && it.idx === d.sub : it.num === d.num));
         if (b && st.R.some(i => i.id === b.id && i.kind !== K.AUDIO && i.num !== b.num)) continue;  /* (it took another number: still there) */
+        /* (the panel still holds an object there, of fewer records: a part of it goes, the object is written, not removed;
+         * AUTOMATIONS' slots are one item) */
+        if (d.kind !== K.AUDIO && st.R.some(i => i.kind === d.kind && i.num === d.num && i.recs.length)) continue;
         out.add(b ? M.label(b, base) : S.describe(d).replace(/\.\d+$/, ""));
     }
     return [...out];
@@ -441,23 +451,24 @@ function downloadDisk() {
 /* DOWNLOAD AS DISK (the TABLE's selection bar): the TABLE's items picked with everything they use, numbered as the move to
  * an empty FM-1 panel numbers them (the move itself: the built-ins left out, a changed one they use at its number; each
  * item at the number it remembers when free, else the lowest free one, references rewritten); refused as that move
- * refuses (NO DISK SAVED for NOTHING MOVED), so also when it does not fit an empty FM-1. No panel changes.
+ * refuses (NO DISK SAVED for NOTHING MOVED), so also when it does not fit an empty FM-1. No panel changes. o.order: the
+ * TABLE's order, as the move takes it (of several FAVORITES items, the bottom-most goes on as FB).
  * -> { ok, msg (a refusal), items (the disk's, numbered), bytes, name, said (what the move left out, or "") } */
 function selectionDisk(L, ids, o) {
     o = o || {};
     ids = ids.filter(id => L.some(i => i.id === id));
     if (!ids.length) return { ok: false, msg: "PICK SOMETHING TO DOWNLOAD FIRST" };
     /* (an empty FM-1 panel: no records, the built-ins and defaults the firmware's, the user area's own layout) */
-    const r = M.transfer({ L, R: [], base: [] }, "L", ids, {});
+    const r = M.transfer({ L, R: [], base: [] }, "L", ids, { order: o.order });
     if (!r.ok) return { ok: false, msg: /NOTHING MOVED/.test(r.msg) ? r.msg.replace("NOTHING MOVED", "NO DISK SAVED") : r.msg + " · NO DISK SAVED" };
     const one = ids.length === 1 ? L.find(i => i.id === ids[0]) : null;
     /* (one item: its name as a file's, lowercase, spaces and signs a dash; several: the selection and the day) */
     const base = one ? M.nameOf(one, L).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") : "";
-    const said = r.msg.split(" · ").filter(p => /^THE FM-1 KEEPS ONE OF EACH/.test(p)).map(p => p.replace(/ NOT MOVED$/, " LEFT OUT")).join(" · ");
+    const said = r.said.map(s => s.part + (s.left ? " LEFT OUT" : "")).join(" · ");
     return { ok: true, items: r.st.R, bytes: diskOf(r.st.R), name: (base || "ptfm-selection-" + day(o.date || new Date())) + ".ptfmdsk", said };
 }
-function downloadSelection(ids) {
-    const u = U(), d = selectionDisk(app().st.L, ids);
+function downloadSelection(ids, o) {
+    const u = U(), d = selectionDisk(app().st.L, ids, o);
     if (!d.ok) { u.status(d.msg, { err: true }); return false; }
     ED.util.saveFile(d.bytes, d.name);
     u.status("DOWNLOAD AS DISK: " + d.name + ", " + u.plural(d.items.length, "ITEM") + ", " + u.kb(d.bytes.length) + (d.said ? " · " + d.said : ""), { ok: true });

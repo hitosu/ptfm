@@ -11,15 +11,22 @@
  * the recorder closed; RECORD again replaces the take. Closing (✕, Esc)
  * stops a take that runs and asks SAVE, DISCARD or STAY for one not saved; an input that goes away stops the take,
  * kept. Nothing is heard while recording. The input's chunks come from an AudioWorklet (a data: URL), else a
- * ScriptProcessorNode. */
+ * ScriptProcessorNode.
+ * A take that is a Juno's tape (specs/editor.md, Takes that are Juno tapes): read as it comes (a line under the
+ * waveform counting what came in right), read again at STOP and for each selection; then SAVE AS SAMPLE (SAVE) and
+ * SAVE AS CARTRIDGE (a Juno-106 cartridge named TAKE00 ..., no audio kept; greyed when the tape did not read). */
 (function (ED) {
 "use strict";
-const U = ED.ui, h = U.h, KEEP = "ptfm.editor.recorder.input";
+const U = ED.ui, h = U.h, KEEP = "ptfm.editor.recorder.input", J = () => ED.conv.juno;
 const LIVE_B = 256, LIVE_SPAN = 10;             /* a take's waveform while it runs: a min / max every 256 frames; the box
                                                  * 10 s wide till the take is longer */
 const WORKLET = `class R extends AudioWorkletProcessor { process(i) { const c = i[0]; if (c && c.length) this.port.postMessage(c.map(x => x.slice())); return true; } }
 registerProcessor("ptfm-rec", R);`;
 let r = null;                                   /* the open recorder */
+
+/* a take's source: RECORDING and the time it was made */
+const stampOf = take => "RECORDING " + take.at.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase() + " " +
+    String(take.at.getHours()).padStart(2, "0") + ":" + String(take.at.getMinutes()).padStart(2, "0");
 
 function remembered() { try { return localStorage.getItem(KEEP) || ""; } catch (e) { return ""; } }
 function remember(label) { try { localStorage.setItem(KEEP, label); } catch (e) { /* (no storage: not kept) */ } }
@@ -65,18 +72,23 @@ async function open() {
     const recBtn = h("button", { class: "btn primary", disabled: true }, "● RECORD"), say = h("div", { class: "hint" }, "ASKING FOR THE INPUT…");
     const wave = h("canvas", { width: 900, height: 120 }), len = h("span", { class: "hint" }, "");
     const play = h("button", { class: "btn small", disabled: true }, "▶"), save = h("button", { class: "btn primary", disabled: true }, "SAVE");
+    const saveCart = h("button", { class: "btn primary", hidden: true }, "SAVE AS CARTRIDGE"), tline = h("div", { class: "tapeline" }, "");
     const trimBtn = h("button", { class: "btn small", disabled: true }, "TRIM SILENCE"), wholeBtn = h("button", { class: "btn small", disabled: true }, "WHOLE TAKE");
     const box = h("div", { class: "dlg rec", role: "dialog", "aria-modal": "true", "aria-label": "RECORD" },
         h("h3", null, "RECORD", h("span", { class: "grow" }), h("button", { class: "btn small", title: "CLOSE (ESC)", onclick: () => close() }, "✕")),
         h("div", { class: "field" }, h("label", null, "INPUT"), sel), h("div", { class: "rowbtns" }, meter, clip), say,
-        h("div", { class: "rowbtns" }, recBtn), h("div", { class: "wavebox" }, wave),
-        h("div", { class: "rowbtns" }, play, trimBtn, wholeBtn, len, h("span", { class: "grow" }), save));
+        h("div", { class: "rowbtns" }, recBtn), h("div", { class: "wavebox" }, wave), tline,
+        h("div", { class: "rowbtns" }, play, trimBtn, wholeBtn, len, h("span", { class: "saves" }, save, saveCart)));
     const wrap = document.querySelector("#dlg");
     wrap.textContent = ""; wrap.append(box); wrap.hidden = false;
     r = { inp: null, take: null, saved: true, on: false, chunks: [], frames: 0, peak: 0, peakAt: 0, clipAt: 0, raf: 0,
         live: null,                             /* the running take's waveform: min / max a LIVE_B frames (channel 1's) */
         img: null, headX: -1, playNow: null,    /* the take's waveform drawn, where its white line is, what ▶ started */
         sel: null, playFrom: 0,                 /* the part selected ([a, b) frames; null: the whole take), where ▶ began */
+        saving: false,                          /* SAVE (AS SAMPLE) writing the take's original */
+        tape: null, tapeWhole: null, tapeRes: null, tapeKey: null, tapeT: 0,   /* the running take read as a tape; the
+                                                 * whole take's reading; the take's or its selection's (null: no tape), the
+                                                 * selection it is of; a re-reading's timer */
         chunk(ch) {
             let pk = 0;
             for (const c of ch) for (let i = 0; i < c.length; i++) { const v = Math.abs(c[i]); if (v > pk) pk = v; }
@@ -87,12 +99,14 @@ async function open() {
             if (r.on) {
                 r.chunks.push(ch); r.frames += ch[0].length;
                 const L = r.live, a = ch[0], b = ch[ch.length - 1];   /* (the channels mixed, as the take will be) */
+                const mix = new Float32Array(a.length);
                 for (let i = 0; i < a.length; i++) {
-                    const v = (a[i] + b[i]) * 0.5;
+                    const v = mix[i] = (a[i] + b[i]) * 0.5;
                     if (v < L.mn0) L.mn0 = v;
                     if (v > L.mx0) L.mx0 = v;
                     if (++L.k === LIVE_B) { L.mn.push(L.mn0); L.mx.push(L.mx0); L.k = 0; L.mn0 = 1; L.mx0 = -1; }
                 }
+                if (r.tape) r.tape.push(mix);
             }
         } };
     const paintMeter = () => {
@@ -102,7 +116,7 @@ async function open() {
         g.fillStyle = U.COL.lgreen; g.fillRect(0, 0, x(r.level || 0), Hh);
         g.fillStyle = U.COL.white; g.fillRect(x(r.peak) - 1, 0, 2, Hh);
         clip.style.opacity = performance.now() - r.clipAt < 1000 ? 1 : 0.15;
-        if (r.on) { len.textContent = "REC " + secs(r.frames / (r.inp ? r.inp.rate : 44100)); drawLive(); }
+        if (r.on) { len.textContent = "REC " + secs(r.frames / (r.inp ? r.inp.rate : 44100)); drawLive(); liveLine(); }
         else drawHead();
         r.raf = requestAnimationFrame(paintMeter);
     };
@@ -134,6 +148,38 @@ async function open() {
         r.headX = x;
         if (t < 0) r.playNow = null;
     }
+    /* a take running that is a tape: what came in right so far (a Juno-60's sliders' records, a Juno-106's patches whose
+     * every byte came with its start and stop bits right); nothing till a leader and a dump's first bytes are found */
+    function liveLine() {
+        const s = r.tape ? r.tape.state() : { machine: 0 };
+        let t = "";
+        if (s.machine) {
+            const dump = s.dumps > 1 ? "DUMP " + s.dumps + ": " : "";
+            if (s.machine === 106 && s.wrong) t = "JUNO-106 TAPE: BYTES COMING IN WRONG: CHECK THE LEVEL";
+            else t = J().machineName(s.machine) + " TAPE: " + dump + (s.reading ? "READING… " : "") + s.count + " OF " + s.of +
+                (s.damaged ? ", " + s.damaged + " DAMAGED" : "");
+        }
+        if (tline.textContent !== t) { tline.textContent = t; tline.className = "tapeline" + (s.wrong || s.damaged ? " warn" : ""); }
+    }
+    /* the take, or its selection, read as a tape (after STOP, a selection changed): the line says what it holds, and
+     * SAVE becomes SAVE AS SAMPLE and SAVE AS CARTRIDGE (greyed when it did not read) */
+    function readTape() {
+        clearTimeout(r.tapeT);
+        const s = r.sel, x = r.take && r.take.ch[0], key = s ? s[0] + "," + s[1] : "";
+        if (x && s && r.tapeKey === key) return keys();        /* (this part read already) */
+        r.tapeRes = !x ? null : s ? ED.junoTape.read({ rate: r.take.rate, ch: [x.subarray(s[0], s[1])] }) : r.tapeWhole;
+        r.tapeKey = s ? key : null;
+        keys();
+    }
+    function keys() {
+        const res = r.tapeRes;
+        save.textContent = res ? "SAVE AS SAMPLE" : "SAVE";
+        saveCart.hidden = !res;
+        saveCart.disabled = !res || !res.ok || r.saving;       /* (held while SAVE AS SAMPLE writes) */
+        tline.className = "tapeline" + (res && !res.ok ? " warn" : "");
+        tline.textContent = !res ? "" : res.ok ? J().tapeSays(res, "TAKE") : J().machineName(res.machine) + " TAPE? " + J().tapeWhy(res, true) +
+            (res.dumps.some(d => d.why === "ended") ? ": RECORD IT AGAIN, TO ITS END" : ": RECORD IT AGAIN (TRY ANOTHER LEVEL)");
+    }
     const secs = s => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0") + "." + Math.floor(s * 10 % 10);
     async function use(deviceId) {
         closeInput(r.inp); r.inp = null;
@@ -155,7 +201,8 @@ async function open() {
         if (r.playNow && ED.player && ED.player.now === r.playNow) ED.player.stop();   /* (the take ▶ played: stopped) */
         r.playNow = null; r.img = null; r.headX = -1; r.sel = null;
         r.live = { mn: [], mx: [], k: 0, mn0: 1, mx0: -1 };
-        r.chunks = []; r.frames = 0; r.on = true; r.take = null; r.saved = true;
+        r.chunks = []; r.frames = 0; r.on = true; r.take = null; r.saved = true; r.saving = false;
+        r.tape = new ED.junoTape.Reader(r.inp.rate); r.tapeRes = null; r.tapeKey = null; keys();
         recBtn.textContent = "■ STOP"; sel.disabled = true; play.disabled = save.disabled = trimBtn.disabled = wholeBtn.disabled = true;
     }
     function stop(why) {
@@ -171,11 +218,16 @@ async function open() {
         /* mixed to one channel at once, as PT/FM's samples are: what SAVE puts on the TABLE goes to the FM-1 as it is */
         r.take = n ? { rate: r.inp.rate, ch: nc > 1 ? [ED.slices.mono(ch)] : ch, bits: 16, at: new Date(), stereo: nc > 1 } : null;
         r.saved = !r.take;
+        /* (the whole take as the live reading read it: the same sound, mixed the same way) */
+        r.tape.end();
+        r.tapeWhole = r.take ? r.tape.result() : null;
+        r.tape = null;
         if (why) say.textContent = why;
         play.disabled = save.disabled = trimBtn.disabled = !r.take;
         wholeBtn.disabled = true;
         lenText();
         drawTake();
+        readTape();
     }
     /* the take's length, and the part SAVE keeps when one is selected */
     function lenText() {
@@ -213,6 +265,8 @@ async function open() {
         wholeBtn.disabled = !r.sel;
         lenText();
         drawTake();
+        clearTimeout(r.tapeT);                      /* (the part read as a tape once the drag rests) */
+        r.tapeT = setTimeout(() => { if (r && r.take) readTape(); }, 200);
     }
     /* dragging across the waveform selects (from the press to the let-go); near a selection's end, it moves that end */
     const frameAt = e => { const rc = wave.getBoundingClientRect(), n = r.take.ch[0].length; return Math.max(0, Math.min(n, Math.round((e.clientX - rc.left) / rc.width * n))); };
@@ -259,14 +313,15 @@ async function open() {
         const take = r && r.take, s = r && r.sel;
         if (!take) return false;
         const part = s ? { rate: take.rate, ch: take.ch.map(c => c.slice(s[0], s[1])), bits: take.bits, at: take.at } : take;
-        save.disabled = true;
+        save.disabled = saveCart.disabled = true;               /* (both keys held while the original is written) */
+        r.saving = true;
         const kept = await ED.keep.original(part.ch);
         if (!r || r.take !== take) return false;                 /* (closed, or RECORD again, meanwhile) */
-        if (!kept) { save.disabled = false; say.textContent = "THE BROWSER COULD NOT KEEP THE TAKE (ITS STORAGE IS FULL OR OFF): NOT SAVED"; return false; }
-        const t = take.at, stamp = "RECORDING " + t.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase() + " " +
-            String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
-        const res = ED.cutting.addSamples(ED.app.st, "L", [{ snd: part, how: { chan: "mix", rate: 44100, bits: 16 }, name: "TAKE" }], stamp);
-        if (!res.ok) { save.disabled = false; say.textContent = res.msg; return false; }
+        r.saving = false;
+        const failed = msg => { save.disabled = false; keys(); say.textContent = msg; return false; };
+        if (!kept) return failed("THE BROWSER COULD NOT KEEP THE TAKE (ITS STORAGE IS FULL OR OFF): NOT SAVED");
+        const res = ED.cutting.addSamples(ED.app.st, "L", [{ snd: part, how: { chan: "mix", rate: 44100, bits: 16 }, name: "TAKE" }], stampOf(take));
+        if (!res.ok) return failed(res.msg);
         const it = res.st.L.find(i => i.id === res.ids[0]), long = ED.model.isLong(it) ? " · " + ED.model.longText(it) + ": CUT IT IN ITS TAB" : "";
         ED.app.commit(res.st, "A TAKE SAVED ON THE TABLE: " + ED.model.sampleEntry(it, res.st.L).name + long, { ok: true, select: { side: "L", ids: res.ids } });
         r.saved = true;
@@ -274,16 +329,43 @@ async function open() {
     }
     save.onclick = () => saveTake().then(ok => { if (ok) close(true); });   /* (saved: the recorder closes; the status
                                                                              * line names the sample) */
+    /* SAVE AS CARTRIDGE: the tape (the selection's, or the whole take's) a Juno-106 cartridge on the TABLE, named from TAKE
+     * by the naming rule among the cartridges, its source RECORDING and the time; no audio kept */
+    function saveCartridge() {
+        if (!r || !r.take || r.saving) return false;          /* (SAVE AS SAMPLE under way) */
+        readTape();                                 /* (a selection just changed: read now) */
+        const res = r.tapeRes;
+        if (!res || !res.ok) return false;
+        const M = ED.model, L = ED.app.st.L;
+        /* (a cartridge a 128 patches, each its own name by the rule: TAKE00, TAKE01 ...) */
+        const taken = L.filter(x => ED.rec.isCart(x.kind)).map(x => M.nameOf(x, L)), names = [];
+        const n = Math.max(1, Math.ceil(J().tapePatches(res).patches.length / 128));
+        while (names.length < n) names.push(ED.slices.nameFor("TAKE", taken.concat(names)));
+        const t = J().tapeRecs(res, names[0], names[0], "TAKE", names);
+        const got = M.fromRecords(t.recs, { side: "L", src: stampOf(r.take) });
+        const st = Object.assign({}, ED.app.st, { L: L.concat(got.items) });
+        ED.app.commit(st, "A TAKE SAVED ON THE TABLE AS A JUNO-106 CARTRIDGE: " + got.items.map(x => M.nameOf(x, st.L)).join(", ") +
+            (t.warnings.length ? " (" + t.warnings.join("; ") + ")" : ""), { ok: true, select: { side: "L", ids: got.items.map(x => x.id) } });
+        r.saved = true;
+        return true;
+    }
+    saveCart.onclick = () => { if (saveCartridge()) close(true); };
     function close(force) {
         if (!r) return;
         if (r.on) stop();
         if (!r.saved && !force) {
-            U.dialog({ title: "THE TAKE IS NOT SAVED", body: h("p", null, "SAVE PUTS IT ON THE TABLE AS A SAMPLE; DISCARD DROPS IT."),
-                buttons: [{ label: "SAVE", cls: "primary", onClick: () => { reopen(); saveTake().then(ok => { if (ok) close(true); }); } },
-                    { label: "DISCARD", cls: "danger", onClick: () => { reopen(); close(true); } }, { label: "STAY", onClick: reopen }] });
+            if (r.take) readTape();                 /* (a selection just changed: its own reading) */
+            const tape = r.tapeRes, again = () => { reopen(); saveTake().then(ok => { if (ok) close(true); }); };
+            U.dialog({ title: "THE TAKE IS NOT SAVED", body: h("p", null, tape ? "SAVE AS SAMPLE PUTS IT ON THE TABLE AS A SAMPLE, SAVE AS CARTRIDGE AS A " +
+                    "JUNO-106 CARTRIDGE; DISCARD DROPS IT." : "SAVE PUTS IT ON THE TABLE AS A SAMPLE; DISCARD DROPS IT."),
+                buttons: (tape ? [{ label: "SAVE AS SAMPLE", cls: "primary", onClick: again },
+                    { label: "SAVE AS CARTRIDGE", cls: "primary", off: !tape.ok, onClick: () => { reopen(); if (saveCartridge()) close(true); } }]
+                    : [{ label: "SAVE", cls: "primary", onClick: again }]).concat([
+                    { label: "DISCARD", cls: "danger", onClick: () => { reopen(); close(true); } }, { label: "STAY", onClick: reopen }]) });
             return;
         }
         cancelAnimationFrame(r.raf);
+        clearTimeout(r.tapeT);                      /* (a re-reading due: not for a recorder closed) */
         closeInput(r.inp);
         document.removeEventListener("keydown", onKey, true);
         r = null;

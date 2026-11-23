@@ -71,9 +71,9 @@
     function advance() { const p = pat(); if (p.step) ed.row = U.clamp(ed.row + p.step, 0, p.rows - 1); }
 
     /* where a take's key lands by SETTINGS' QUANTIZE (specs/ui/screens/editor.md#realtime-takes), from where the take is
-     * heard (h): the nearest line of 2, 3 or 4 rows from the pattern's start (halves up), ROW the nearest row: waiting
-     * for it when it is ahead (past the pattern's end: row 0 of the next pass, the take looping); REAL TIME the row it
-     * falls in, its tick a note delay EDx (at most 15), at once. {pass, row, delay, wait} */
+     * heard (h): the nearest line of 2, 3 or 4 rows from the pattern's start (halves up), ROW the nearest row: wait when
+     * it is ahead (past the pattern's end: row 0 of the next pass, the take looping); REAL TIME the row it falls in, its
+     * tick a note delay EDx (at most 15). {pass, row, delay, wait} */
     function landing(h) {
         const rows = pat().rows, frac = U.clamp(P.rowFrac(), 0, .999), pos = h.row + frac, q = U.set("QUANTIZE");
         if (q === "REAL TIME") return { pass: h.pass, row: h.row, delay: Math.min(15, Math.floor(frac * P.rowTicks())), wait: false };
@@ -87,6 +87,32 @@
         return c;
     }
     const taking = () => live() && P.playing && P.what === "loop";    /* (a take heard, its count-in over) */
+    /* a held key's pressure in a take (the FM-1's scr_editor.c pressure): its volume alone on its track's next row, heard
+     * as the loop reaches it; a row with a note left as it is; the edit memory short (256 B left): none */
+    function pressure(n, vol) {
+        const hk = ed.held[n], h = taking() ? P.at() : null;
+        if (!hk || hk.pass == null || !h || h.pat !== U.pattern || h.pass == null || M.EDITS_MAX - M.editsUsed < 256) return;
+        const p = pat(), row = (h.row + 1) % p.rows, old = cellAt(row, hk.track);
+        if (h.pass * p.rows + h.row + 1 <= hk.pass * p.rows + hk.row) return;   /* (past its note's row: a note landing
+                                                         * ahead not yet there) */
+        if (old && old.note != null) return;
+        const c = old ? M.copyCell(old) : M.newCell(null, null, vol);
+        c.vol = vol;
+        /* the row playing slides toward it (Axy: x or y a tick, on its ticks but the first): from the volume in force there
+         * (the latest at or before it, its note's at the most), as near as the slide's whole steps get; the next row's
+         * volume sets it exactly; no slide where none comes nearer, nor where the row has no room for one (the FM-1's
+         * scr_editor.c pressure) */
+        let r = h.row, at = null;
+        for (let k = p.rows; k > 0 && !at; k--, r = (r ? r : p.rows) - 1) { const x = cellAt(r, hk.track); if (x && x.vol != null) at = x; }
+        const s = 2 * (P.rowTicks() - 1), d = vol - (at ? at.vol : vol), x = s > 0 ? Math.floor((Math.abs(d) + (s >> 1)) / s) : 0;
+        const cur = cellAt(h.row, hk.track), sl = cur ? M.copyCell(cur) : M.newCell(null, null, null);
+        const rest = sl.cmds.filter(y => y.c !== 0x0A), ok = !x || rest.length < 4;
+        if (ok) sl.cmds = x ? rest.concat([{ c: 0x0A, v: Math.min(15, x) << (d > 0 ? 4 : 0) }]) : rest;
+        U.edit(() => {
+            p.cells[row * 16 + hk.track] = c;
+            if (ok && (cur || x)) p.cells[h.row * 16 + hk.track] = sl;
+        });
+    }
     function keyDown(n) {
         const m = U.midi(n);
         if (m < 12 || m > 127) return;
@@ -97,10 +123,11 @@
             ed.armed = false;
             if (playHoldO) { U.close(playHoldO); playHoldO = null; }
             startTake(true);
-            if (put(ed.row, ed.track, delayed(write(ed.row, ed.track, m), 0))) ed.held[n] = { track: ed.track, row: ed.row, pass: 0, delay: 0 };
+            if (put(ed.row, ed.track, delayed(write(ed.row, ed.track, m, U.keyVol(n)), 0))) ed.held[n] = { track: ed.track, row: ed.row, pass: 0, delay: 0 };
             return;
         }
-        /* a take: the note lands as QUANTIZE says and is heard as written, by its track (at its line, or at once) */
+        /* a take: the note lands as QUANTIZE says and is heard at once by its track, standing in for its cell on a line
+         * ahead that pass */
         if (taking()) {
             const h = P.at();
             if (!h || h.pat !== U.pattern) return;
@@ -108,7 +135,7 @@
             let t = ed.track;
             const busy = new Set(Object.values(ed.held).map(x => x.track));
             while (busy.has(t) && t < p.tracks - 1) t++;
-            const c = delayed(write(at.row, t, m), at.delay);
+            const c = delayed(write(at.row, t, m, U.keyVol(n)), at.delay);
             if (put(at.row, t, c)) {
                 ed.held[n] = { track: t, row: at.row, pass: at.pass, delay: at.delay };
                 P.takeCell(t, c, at.wait ? at.pass : -1, at.row);
@@ -123,17 +150,18 @@
         if (heldNow.length && ed.chordRow != null) { row = ed.chordRow; t = Math.max(...heldNow.map(h => h.track)) + 1; }
         else { ed.chordRow = row; advance(); }
         if (t >= pat().tracks) return;
-        if (put(row, t, write(row, t, m))) ed.held[n] = { track: t, row };
+        if (put(row, t, write(row, t, m, U.keyVol(n)))) ed.held[n] = { track: t, row };
     }
-    /* a key's note at a cell: the current instrument and KEYS VOLUME; the cell's commands stay */
-    function write(r, t, m) {
-        const old = cellAt(r, t), c = M.newCell(m, U.inst, U.set("KEYS VOLUME"));
+    /* a note at a cell: the current instrument and its volume (a key's: U.keyVol; else KEYS VOLUME); the cell's commands
+     * stay */
+    function write(r, t, m, vol = U.set("KEYS VOLUME")) {
+        const old = cellAt(r, t), c = M.newCell(m, U.inst, vol);
         if (old) c.cmds = M.copyCell(old).cmds;
         return c;
     }
-    /* a key let go in a take: its note off on the nearest row (REAL TIME: a key off Kxx at its tick, on the row it falls
-     * in), at least a row after its note (past the pattern's end: the next pass's rows, the take looping), heard there
-     * as written; a note there ends it already */
+    /* a key let go in a take: its note let go now, its note off on the nearest row (REAL TIME: a key off Kxx at its tick,
+     * on the row it falls in), at least a row after its note (past the pattern's end: the next pass's rows, the take
+     * looping), standing in for itself there that pass; a note there ends it already (nothing written) */
     function keyUp(n) {
         U.keyOff(n);
         const h = ed.held[n];
@@ -150,13 +178,12 @@
             if (abs < from || (abs === from && k <= h.delay)) abs = from + 1;
         } else abs = Math.max(Math.floor(apos + .5), from + 1);
         const row = abs % rows, old = cellAt(row, h.track), own = abs === from;   /* (own: let go in its note's row, past its delay) */
-        if (old && old.note != null && !own) return;
         const c = old ? M.copyCell(old) : M.newCell(null, null, null);
-        if (k == null) c.note = M.OFF;
-        else { c.cmds = c.cmds.filter(x => x.c !== 0x14); if (c.cmds.length >= 4) return; c.cmds.push({ c: 0x14, v: k }); }
-        if (!put(row, h.track, c)) return;
-        if (own) P.takeCell(h.track, { note: null, inst: null, vol: null, cmds: [{ c: 0x14, v: k }] }, -1, row);   /* (heard: the key off now) */
-        else P.takeCell(h.track, c, abs > apos ? Math.floor(abs / rows) : -1, row);
+        let w = !(old && old.note != null && !own);
+        if (w && k == null) c.note = M.OFF;
+        else if (w) { c.cmds = c.cmds.filter(x => x.c !== 0x14); if (c.cmds.length >= 4) w = false; else c.cmds.push({ c: 0x14, v: k }); }
+        w = w && put(row, h.track, c);
+        P.takeCell(h.track, M.newCell(M.OFF, null, null), w && abs > apos ? Math.floor(abs / rows) : -1, row);   /* (let go now, written or not) */
     }
 
     /* the realtime take (specs/ui/screens/editor.md#realtime-takes): from the cursor's row, round the whole pattern
@@ -675,7 +702,7 @@
     }
 
     const scr = {
-        name: "EDITOR", group: "MAKE",
+        name: "EDITOR", group: "MAKE", pressure,
         does: [B.EDIT, B.SEL, B.ENV, B.GLO, B.SEQ, B.ARP, B.LFO, B.REC],
         combines: [B.ARP],
         /* ENV's hold is the EDITOR's own (ui.js asks with no h); past the hold delay (h): the pipette, a

@@ -6,7 +6,9 @@
  *
  * A voice renders the firmware's 64-frame blocks into a buffer of its own and hands them out as the worklet asks
  * (render(v, out, a, b)), so its blocks start where its note started. Its output is the 16-bit scale (E.GAIN.CHIP
- * takes it to the worklet's). At another sample rate the times are worked out for it (tablesFor). */
+ * takes it to the worklet's). At another sample rate the times are worked out for it (tablesFor). A ghost note's
+ * return is the firmware's forward work too (forward, heard, endBlocks): many blocks at once, without the sound, to
+ * where those blocks' skip() leaves what it keeps; v.nb counts the blocks since the note on. */
 window.PTFM = window.PTFM || {};
 PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     "use strict";
@@ -174,12 +176,17 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         if (le && !v.len_e) v.nx_e = le;
         v.len_o = lo; v.len_q = lq; v.len_n = ln; v.len_e = le;
     }
+    /* a frame's length, the step envelope's step and the sweep's (Q16 samples; 0: it does not step), on the
+     * instrument's clock and FPS (frame_len, env_iv, sweep_iv) */
+    const frameLen = p => T.FRAME[p.fps50 ? 3 : p.clock === BRK ? 0 : p.clock === BIT8 ? 1 : 2];
+    const envIv = p => T.ENV_STEP[(p.clock === BIT8 ? 8 : 0) + p.env_step];
+    const sweepIv = p => T.SWEEP_PACE[(p.clock === BIT8 ? 8 : 0) + p.sw_pace];
     function blockControl(v) {
-        const p = v.p, fl = T.FRAME[p.fps50 ? 3 : p.clock === BRK ? 0 : p.clock === BIT8 ? 1 : 2];
+        const p = v.p, fl = frameLen(p);
         v.f_acc += B;
         while (v.f_acc >= fl) { v.f_acc -= fl; frameTick(v); }
         if (p.env === ENV_DOWN || p.env === ENV_UP) {
-            const iv = T.ENV_STEP[(p.clock === BIT8 ? 8 : 0) + p.env_step];
+            const iv = envIv(p);
             if (iv) {
                 v.e_acc += B;
                 while (v.e_acc >= iv) {
@@ -188,7 +195,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 }
             }
         }
-        const iv = T.SWEEP_PACE[(p.clock === BIT8 ? 8 : 0) + p.sw_pace];
+        const iv = sweepIv(p);
         if (v.sweeping && iv) {
             v.s_acc += B;
             while (v.s_acc >= iv && v.sweeping) { v.s_acc -= iv; sweepTick(v); }
@@ -223,7 +230,9 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         if (v.p.osc === BUZZ) { if (++v.step >= (v.p.bz_steps ? 32 : 16)) { v.step = 0; v.bz_r++; } }
         else v.step = (v.step + 1) & 31;
     }
-    function stepEnv(v) { if (++v.e_pos >= (v.p.curve === 3 ? 32 : 16)) { v.e_pos = 0; v.e_r++; } }
+    function stepEnv(v) {                                 /* (its round kept mod 2^16, as the firmware's) */
+        if (++v.e_pos >= (v.p.curve === 3 ? 32 : 16)) { v.e_pos = 0; v.e_r = (v.e_r + 1) & 65535; }
+    }
     function amp(v, ns, nk) {
         const p = v.p;
         let V, mx = 15, a = 0;
@@ -302,6 +311,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     /* chip_render: a block into out (an Int32Array of N, zeroed) */
     function block(v, out) {
         const p = v.p;
+        v.nb++;                                           /* (the blocks since its note on: the forward work's count) */
         blockControl(v);
         for (let i = 0; i < KW; i++) { out[i] += v.tail[i]; v.tail[i] = 0; }
         if (v.len_n && v.len_n < 65536) stepsFast(v, out); else stepsExact(v, out);
@@ -323,6 +333,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         v.acc = acc; v.hx0 = hx0; v.hy0 = hy0; v.hx1 = hx1; v.hy1 = hy1; v.ly = ly;
     }
     function skip(v) {
+        v.nb++;
         blockControl(v);
         while (v.len_o && v.nx_o < B) { stepOsc(v); v.nx_o += v.len_o; }
         while (v.len_q && v.nx_q < B) { v.sq_step = (v.sq_step + 1) & 7; v.nx_q += v.len_q; }
@@ -345,10 +356,12 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                            tp: [0, 0, 0, 0, 0], tc: [0, 0, 0, 0, 0], arp: 0, lvol: 0, duty: 0, nrate: 0, cents: 0, evol: p.vol, rlev: 15,
                            rel_c: 0, step: 0, sq_step: 0, e_pos: 0, nbit: 1, bz_r: 0, e_r: 0, frames: 0, bend64: 0, f_acc: 0, e_acc: 0,
                            s_acc: 0, reg: 0, len_x: 0, len_o: 0, len_q: 0, len_n: 0, len_e: 0, nx_o: 0, nx_q: 0, nx_n: 0, nx_e: 0,
-                           lfsr: 1, last: 0, acc: 0, tail: new Int32Array(KW), hx0: 0, hy0: 0, hx1: 0, hy1: 0, ly: 0 });
+                           lfsr: 1, last: 0, acc: 0, tail: new Int32Array(KW), hx0: 0, hy0: 0, hx1: 0, hy1: 0, ly: 0, nb: 0 });
         frameTick(v);
         control(v);
     }
+    /* chip_note_off: let go (RELEASE 0: it ends at once) */
+    function noteOff(v) { v.gate = 0; if (!v.p.release) v.dead = 1; }
     /* chip_set: a parameter command on an instrument's settings, the value as the slot stores it */
     function set(p, code, val) {
         switch (code) {
@@ -408,9 +421,208 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         const x = Math.trunc((a - b) * 65536 / b), x2 = Math.floor(x * x / 65536), x3 = Math.floor(x2 * x / 65536);
         return { reg, c10: Math.floor(((x - Math.trunc(x2 / 2) + Math.trunc(x3 / 3)) * 17312 + 32768) / 65536) };
     }
+
+    /* ------------------------------------------------------------- the forward work --- */
+    /* the forward work (dsp-core.js: a ghost coming back, as the firmware's chip_forward, fw/core/eng/fwd.h): a note's
+     * time worked on many blocks at once, to where skip()'s blocks leave what it keeps (chip.h says what). What moves
+     * by the frames (the tables, the vibrato's count, the release), the step envelope and the PSG envelope each move by
+     * their counts in one sum, the sweep a tick at a time until it stands; a stretch's last block is skip()'s own,
+     * which makes what the next block reads (this frame's table values, the period, the volume, the width) as the
+     * steps' last block makes it. Where the firmware's long division (fdiv) gives a quotient and its remainder, here a
+     * floor division does: exact while a stretch's Q16 samples stay under 2^53 (2^31 blocks) */
+    const FWD_TICKS = 32;                                 /* CHIP_FWD_TICKS: the sweep's ticks a step */
+    /* the times `if (++c >= per) c = 0` comes round in m counts (per > 0), the count (o[key]) left as they leave it */
+    function wraps(o, key, per, m) {
+        let k = 0, x = o[key];
+        if (!m) return 0;
+        if (x >= per) { x = 0; m--; k = 1; }             /* (past a period made shorter: the first count comes round) */
+        x += m;
+        o[key] = x % per;
+        return k + Math.floor(x / per);
+    }
+    /* table k moved on m frames, as m frames' take() leave its place: on to its end, round its loop, or held past its
+     * end */
+    function tabGo(v, k, m) {
+        const n = v.p.tab[k];
+        if (!n || n > T.TAB_COUNT[k]) return;
+        const t = T.TAB[T.TAB_FIRST[k] + n - 1], len = t[1], lp = t[2];
+        let i = v.tp[k] + wraps(v.tc, k, v.p.spd[k], m);
+        if (i >= len) i = lp < 0 ? len : lp + (i - len) % (len > lp ? len - lp : 1);
+        v.tp[k] = i;
+    }
+    /* the VOL table's length when it ends silent and stays (its last value 0 or under, no loop: frameTick ends the note
+     * as its place reaches the end); 0 if not */
+    function volEnd(v) {
+        const n = v.p.tab[0];
+        if (!n || n > T.TAB_COUNT[0]) return 0;
+        const t = T.TAB[T.TAB_FIRST[0] + n - 1];
+        return t[2] < 0 && T.TV[t[0] + t[1] - 1] <= 0 ? t[1] : 0;
+    }
+    /* the sweep over m blocks, a tick a block at the most (its PACE's step is over a block), up to a ticks (the
+     * budget's): its ticks stepped until it stands, its clock as those blocks leave it. Returns the blocks the
+     * stretch's sums take (m, or fewer where the budget ends it before the next tick) and the ticks stepped */
+    function sweepGo(v, m, iv, a) {
+        const s0 = v.s_acc, reg = v.p.clock === EXACT ? "len_x" : "reg", x = s0 + m * B, most = Math.floor(x / iv);
+        let rest = x - most * iv, was, cut = 0, j = 0;   /* (most: its ticks in the m blocks) */
+        a = a <= Math.floor(most / FWD_TICKS) ? a * FWD_TICKS : most;
+        while (j < most) {
+            if (j === a) { cut = 1; break; }             /* (the budget: the stretch to the block before the next
+                                                          * tick) */
+            was = v[reg];
+            sweepTick(v);
+            j++;
+            if (!v.sweeping || was === v[reg]) break;     /* (out of its range: it stops in that tick's block; at its
+                                                           * limit: the ticks left move nothing) */
+        }
+        if (cut || !v.sweeping) {                         /* (the blocks to the tick j + cut's, less cut) */
+            const blocks = Math.floor(((j + cut) * iv - s0 + B - 1) / B) - cut;
+            if (cut) m = blocks;
+            rest = s0 + blocks * B - j * iv;
+        }
+        v.s_acc = rest;
+        return { m, ticks: j };
+    }
+    /* the frames of m blocks: all but the last in one sum each (the tables, the vibrato's count, the release: a level
+     * every RELEASE frames; the VOL table's or the release's end), the last by frameTick */
+    function framesGo(v, m) {
+        const p = v.p, fl = frameLen(p), x = v.f_acc + m * B;
+        let n = Math.floor(x / fl);
+        v.f_acc = x - n * fl;
+        if (!n--) return;
+        for (let k = 0; k < 5; k++) tabGo(v, k, n);
+        const end = volEnd(v);
+        if (end && v.tp[0] >= end) v.dead = 1;
+        v.frames += n;
+        if (!v.gate && n) {
+            if (!p.release) v.dead = 1;
+            else {
+                const levels = wraps(v, "rel_c", p.release, n);
+                if (levels >= v.rlev) v.dead = 1;
+                v.rlev -= levels;
+            }
+        }
+        frameTick(v);
+    }
+    /* the PSG envelope over m blocks, running (len_e): to where its first round's last step stops it (a shape that
+     * stops: running, its round is the first), or its steps there (the round mod 2^16, as stepEnv keeps it) */
+    function psgGo(v, m, st) {
+        const len = v.len_e, s = v.p.psg_shape, span = m * B, last = v.nx_e + (st - v.e_pos - 1) * len;
+        if ((!(s & 8) || (s & 1)) && last < span) {
+            v.nx_e = last % B + len;
+            v.e_pos = 0;
+            v.e_r = 1;
+            v.len_e = 0;
+        } else if (v.nx_e >= span) {
+            v.nx_e -= span;
+        } else {
+            const x = span - 1 - v.nx_e, q = Math.floor(x / len), n = q + 1 + v.e_pos;
+            v.e_pos = n % st;
+            v.e_r = (v.e_r + Math.floor(n / st)) & 65535;
+            v.nx_e = len - 1 - (x - q * len);
+        }
+    }
+    /* fwd_run: the voice moved on n blocks (n > 0): the first m = n - 1 in sums, then the last by skip() (the
+     * oscillator's, the gate's and the noise's phases, which the sums leave as they were, move on in it from there:
+     * they are not kept, and stay a step or less from their next steps). Its sweep moves a tick at a time, as far as
+     * the budget allows: past it the stretch ends at the block before the next tick, which the last block takes. One
+     * block alone where a sum does not hold: a register to find (the sweep's, found as the block ends), a count past
+     * its period (CURVE, a sweep's PACE turned). A stretch costs a step, or a step for each FWD_TICKS ticks of its
+     * sweep where they are more: never more than steps.n, so a call leaves it at 0 at the lowest. Returns the blocks
+     * gone, v.nb moved on by them */
+    function fwdRun(v, n, steps) {
+        const p = v.p, st = p.curve === 3 ? 32 : 16;
+        let m = n - 1, ticks = 0, iv = sweepIv(p);
+        if ((v.sweeping && iv && (v.s_acc >= iv || !(p.clock === EXACT ? v.len_x : v.reg))) || v.e_pos >= st) m = 0;
+        if (m) {
+            control(v);                                   /* (the first block's: the PSG envelope's step, started if it
+                                                           * starts) */
+            if (v.sweeping && iv) ({ m, ticks } = sweepGo(v, m, iv, steps.n));
+            framesGo(v, m);
+            iv = envIv(p);
+            if ((p.env === ENV_DOWN || p.env === ENV_UP) && iv) {   /* the step envelope */
+                const x = v.e_acc + m * B, k = Math.floor(x / iv);
+                v.e_acc = x - k * iv;
+                if (p.env === ENV_DOWN) v.evol = k < v.evol ? v.evol - k : 0;
+                else v.evol = k < 15 - v.evol ? v.evol + k : 15;
+            }
+            if (v.len_e) psgGo(v, m, st);
+            v.nb += m;                                    /* (skip() counts the last) */
+        }
+        skip(v);
+        steps.n -= ticks > FWD_TICKS ? Math.floor((ticks + FWD_TICKS - 1) / FWD_TICKS) : 1;
+        return m + 1;
+    }
+    /* chip_forward: a note just started (noteOn, its pitch set) worked on without its sound, in its 64-frame blocks:
+     * w.on blocks still to go held from its start, then (w.off >= 0; -1 while held) its note off and w.off blocks more,
+     * spending steps.n. True when done, false when the budget ran out first: called again it goes on from where it is
+     * (w.on, w.off and v). A note that has ended (dead) is done at once, its time left not worked: nothing of it sounds
+     * again */
+    function forward(v, w, steps) {
+        for (;;) {
+            if (!w.on && w.off >= 0 && v.gate) noteOff(v);   /* (once, free: its gate tells it was; the release counts
+                                                              * with the frames) */
+            if (v.dead) { w.on = 0; if (w.off >= 0) w.off = 0; }
+            if (!w.on && (w.off < 0 || !w.off)) return true;
+            if (steps.n <= 0) return false;
+            if (w.on) w.on -= fwdRun(v, w.on, steps);
+            else w.off -= fwdRun(v, w.off, steps);
+        }
+    }
+    /* chip_heard: the loudest level still to come, on block()'s scale, no gain of the player's in it: the envelope's
+     * highest (the step envelope rising: 15; the PSG envelope's round rising or coming round again: its top), the VOL
+     * table's highest from its place on (its loop's too), the release's level (it only falls), through amp()'s volume
+     * and the curve, x 1.5 (the edges' ringing and the high-pass, chip.h); BUZZ's the volume's share of the curve's
+     * top. 0 for a note ended or out of its sweep's range */
+    function heard(v) {
+        const p = v.p, n = p.tab[0], s = p.psg_shape;
+        let e = v.evol, l = v.lvol, mx = 15;
+        if (v.dead || v.sw_off) return 0;
+        if (p.env === ENV_PSG) {                          /* (envLevel's: stopped, at its end; in its first round
+                                                           * falling to its end, where it is; else its top) */
+            mx = p.curve === 3 ? 31 : 15;
+            if (envStopped(v)) e = (s & 8) && ((s >> 2 ^ s >> 1) & 1) ? mx : 0;
+            else if (!v.e_r && !(s & 4) && (!(s & 8) || (s & 3) === 1)) e = mx - (v.e_pos < mx ? v.e_pos : mx);
+            else e = mx;
+        } else if (p.env === ENV_UP && envIv(p)) {
+            e = 15;
+        }
+        if (n && n <= T.TAB_COUNT[0]) {
+            const t = T.TAB[T.TAB_FIRST[0] + n - 1], len = t[1];
+            let i = v.tp[0];
+            i = i < len ? i : len - 1;
+            if (t[2] >= 0 && t[2] < i) i = t[2];
+            for (; i < len; i++) if (T.TV[t[0] + i] > l) l = T.TV[t[0] + i] > 15 ? 15 : T.TV[t[0] + i];
+        }
+        e = Math.floor((e * l * v.rlev * 2 + 225) / 450);
+        e = p.osc === BUZZ ? Math.floor(e * 32768 / mx) : T.CURVE[p.curve * 64 + (mx === 31 ? 32 : 0) + e];
+        return Math.floor(e * OUT * 3 / 65536);
+    }
+    /* the frame (1: the next) at which a count `if (++c >= per) c = 0` comes round the a-th time (a > 0) */
+    const nth = (c, per, a) => (c >= per ? 1 : per - c) + (a - 1) * per;
+    /* chip_end_blocks: the block (1: the next) in which skip() ends the note by itself (dead): its release's last
+     * level, its VOL table ending silent. held false: as if let go now (noteOff before the next block). 0: it has
+     * ended (or ends at its let-go now: RELEASE 0); Infinity: it does not while held */
+    function endBlocks(v, held) {
+        const p = v.p, i = v.tp[0];
+        let f = Infinity, e = volEnd(v);
+        if (v.dead) return 0;
+        if (!held || !v.gate) {
+            if (!p.release && v.gate) return 0;          /* (let go now with no RELEASE: noteOff ends it) */
+            f = p.release ? nth(v.rel_c, p.release, v.rlev) : 1;
+        }
+        if (e) {
+            e = i >= e ? 1 : nth(v.tc[0], p.spd[0], e - i);
+            f = e < f ? e : f;
+        }
+        if (f === Infinity) return Infinity;
+        const t = f * frameLen(p);                        /* (f_acc past a frame made shorter by FPS or CLOCK: its
+                                                           * frames in block 1) */
+        return t > v.f_acc ? Math.floor((t - v.f_acc + B - 1) / B) : 1;
+    }
+
     /* the engine core, for the twin test (fw/tests/run_chip.sh) and the pages (PTFM.chip) */
     E.chip = { noteOn, block, skip, active, param, tuning, setRate: sr => { T = tablesFor(sr); },
-               noteOff: v => { v.gate = 0; if (!v.p.release) v.dead = 1; }, cut: v => { v.dead = 1; v.gate = 0; } };
+               noteOff, cut: v => { v.dead = 1; v.gate = 0; }, forward, heard, endBlocks };
 
     /* ----------------------------------------------------------------- in the worklet --- */
     E.GAIN = Object.assign(E.GAIN || {}, { CHIP: 1 / 32768 });
@@ -424,6 +636,27 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         },
         refresh: affect,                                  /* (a parameter command: dsp-core changed v.p already) */
         release(v) { v.gate = 0; if (!v.p.release) v.dead = 1; },
+        /* the forward work (dsp-core.js: a ghost coming back, as the firmware's chip_forward): in its 64-frame blocks,
+         * w.on held, then (w.off >= 0) its note off and w.off more, spending steps.n (a stretch a step, or one for each
+         * 32 ticks of a sweep); true when done, false when the budget ran out first (called again it goes on). Its
+         * frames, tables, envelopes, sweep, release and end come out as those blocks leave them; the oscillator's, the
+         * gate's and the noise's phases and the band-limited sum are not kept */
+        forward,
+        heard,                                            /* (the most it still reaches, on its render's scale) */
+        active,                                           /* (it still sounds: held or releasing) */
+        endBlocks,                                        /* (the blocks until it ends by itself; Infinity: never) */
+        units: (f, up) => up ? Math.ceil(f / N) : Math.floor(f / N),   /* (its blocks in f frames from its start) */
+        /* worked forward over the blocks before frame f of its note: the block f falls in made now and read from f's
+         * place in it, so its next blocks fall where the note never taken's do; let go within that block (rel), its
+         * note off after it */
+        resume(v, f, rel) {
+            const r = f % N;
+            v.bend64 = Math.round((v.bend || 0) * 64);   /* (its pitch now, for the block made here: render's own) */
+            v.buf.fill(0);
+            v.bi = N;
+            if (r && active(v)) { block(v, v.buf); v.bi = r; }
+            if (rel) noteOff(v);
+        },
         render(v, out, a, b) {
             v.bend64 = Math.round((v.bend || 0) * 64);
             for (let i = a; i < b; i++) {

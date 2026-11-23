@@ -53,7 +53,7 @@ The flash is 1 MiB of NOR, one of the two chips FM-1s carry ([../hardware.md](..
 The screens name the user area USER and the firmware space FWS ([../ui/saving.md](../ui/saving.md#fws)).
 
 - **The user area** (the fast regions) holds every save and everything uploaded: patterns, songs, the
-  loops, cartridges, settings, sample audio. An install never touches it, and a power-on reads and
+  loops and LOOPS' sets, cartridges, settings, sample audio. An install never touches it, and a power-on reads and
   checks it in about 40 ms ([Power-on](#power-on)).
 - **FWS is the firmware slot: the firmware and what it carries, written only by an install.** It holds the
   built-in instruments (cartridges `F0`-`FA`), the keys' song `FE`, the
@@ -97,7 +97,7 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 |---|---|
 | 0 | kind (0xFF: erased flash, the end of a block's records) |
 | 1 | number: which cartridge, pattern, song, sample (00-FF) |
-| 2 | sub: a pattern's or the loops' part (0-15); the old audio's index in its cartridge (00-3F, kind 0x10); else 0 |
+| 2 | sub: a pattern's, the loops' or a LOOPS set's part (0-15); the old audio's index in its cartridge (00-3F, kind 0x10); an automation's slot × 16 + its part (kind 0x32); else 0 |
 | 3 | the kind's format version |
 | 4-6 | the payload's length |
 | 7 | flags: bit 0 the last record of its save; bit 1 deleted (no payload) |
@@ -120,14 +120,16 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 | 0x21 | song ([songs.md](songs.md)) | 00-FF | 0 | 1 |
 | 0x22 | the loops ([loops.md](loops.md)) | 00 | the part, 0-15 | 4 |
 | 0x23 | DJ's setup ([dj.md](dj.md)) | 00 | 0 | 1 |
+| 0x24 | a LOOPS set: a copy of the loops with their solos ([loops.md](loops.md#sets)) | 00-EF (`F0`-`FF` kept for built-in sets, none yet) | the part, 0-15 (a part 16 made elsewhere kept, never read) | 1 |
 | 0x30 | settings ([settings.md](settings.md)) | 00 | 0 | 1 |
 | 0x31 | the MIDI map: MIDI learn's mappings ([midi.md](midi.md)) | 00 | 0 | 1 |
+| 0x32 | AUTOMATIONS: the controls recorded, 16 slots ([automations.md](automations.md)) | 00 | the slot × 16 + the part, 0-255 | 1 |
 
 **Version** is each kind's current layout, the one the device reads ([disk.md](disk.md#versions)).
 
 - **Records a SAVE writes are at most 4 KB** (a 4,080-byte payload) **and never cross a block.**
-- **The one-of-a-kind records** (the settings, the loops, DJ's setup, the MIDI map): with none in the
-  flash the device runs on the firmware's defaults (the loops empty, no mappings), and nothing is copied
+- **The one-of-a-kind records** (the settings, the loops, DJ's setup, the MIDI map, AUTOMATIONS): with none in the
+  flash the device runs on the firmware's defaults (the loops empty, no mappings, every slot empty), and nothing is copied
   at power-on; the record is written at the first SAVE that changes it, into the user area.
 - <a id="audio"></a>**Audio:** two kinds are audio, **0x11, the samples,** and **0x10, the old form's audio**
   (numbered under its sampler, from before samples were records of their own: [disk.md](disk.md#versions)). This
@@ -198,7 +200,10 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
   some of them (a sample's audio crosses blocks), what is left there is an older copy failing its CRC, or a piece at a
   block's start that is no record: no damage, as nothing in use is lost. When the scan finds anything it cannot read,
   it reads once more to count by that rule.
-- **The map:** what is live, and where, stays in RAM: 8 B an object, 4.4 KB for 560 objects.
+- **The map:** what is live, and where, stays in RAM: 8 B a record's key, 4.4 KB for the 560 it lists at most
+  ([The list of records](#the-list-of-records)). A store holding more keys, filled past them some other way, loses the
+  rest here: the scan, walking the blocks in address order, keeps the first 560 it meets, and the blocks that hold only
+  the others count free.
 - **The scan's worst case,** a header every 16 B over all of the user area, takes 8.6 ms (a cold
   header read: 1.3 us in place).
 
@@ -220,10 +225,46 @@ A 16-byte header, then the payload; the next record starts at the next multiple 
 - **Compaction,** when free blocks run short: the live records of the block with the fewest live bytes
   are written again at the head, as a save of their own, and the block becomes free. Audio is never
   moved. Compaction works on the user area only.
-- **A deleted record** (a header with flag bit 1, no payload) stays only as long as an older version
-  of its object is left in the flash; compaction then drops it.
+- **A deleted record** (a header with flag bit 1, no payload) stays as long as another record of its object (an
+  older version, deleted or not) is left in the flash outside its block: it hides them. Once none is, compaction drops
+  it and spoils the older versions in its own block with it (each one's kind byte programmed to 0, as a power-on
+  spoils a save cut short), so no later power-on finds them: the map lists what a power-on lists. The newest save's
+  last record is never spoilt nor dropped (a power-on would take that save as cut short): compaction carries it along.
 - **SAVE refuses** if it would leave fewer than 2 free blocks once compaction has run: compaction
-  always needs room to move into. The screen says what to delete ([../ui/saving.md](../ui/saving.md)).
+  always needs room to move into. The screen says what to delete ([../ui/saving.md](../ui/saving.md)). Before that,
+  it refuses a save the map could not list ([below](#the-list-of-records)).
+
+## The list of records
+
+The map ([Power-on](#power-on)) lists 560 records at most, a key each: the kind, the number and the sub.
+- **What counts:** every record of the user area a power-on takes, each under its key. A cartridge, a sample, a song,
+  the settings, DJ's setup, the MIDI map and a built-in cartridge's mark are one each; a pattern, the loops and a LOOPS
+  set one a part (a pattern of 16 × 128 cells, every one full, up to 8: [patterns.md](patterns.md#parts-sizes-and-reading));
+  the old form's audio one an index. A deleted record keeps its key listed while it is in the flash
+  ([Garbage and compaction](#garbage-and-compaction)). The built-in things as the firmware has them are no records.
+- **A save the map could not list is refused** whole, before anything of it is written (the deletions that can go
+  first apart, below), whichever way the edits are written: SAVE, the save after a MOVE, SWAP or DELETE answered
+  YES, CLEAN UP's, SAVE NOW, the MIDI CONTROLLER's.
+  Nothing is lost: the changes stay in RAM, and the FM-1 asks ([../ui/saving.md](../ui/saving.md#storage-full)).
+- **The count:** the keys listed, plus each record of the save whose key is not listed live (a deleted thing written
+  again counts: reclaimed, its key comes back; but not the deleted record ending the newest save, which no reclaim
+  takes: written again, it keeps its key). A thing written again in as many parts adds nothing; a deletion adds
+  nothing, its key listed after the save as before it.
+- **Deleted records make room at a later save:** a save that would list more than 560 first reclaims as many of the
+  deleted records the map lists as it is over, each one's older versions spoilt, then itself, its key listed no more;
+  the others stay listed till a later save at the limit needs them. Then it counts again. So a save is refused exactly
+  when the things live and the records it writes take more than 560 keys. The newest save's last record is never
+  spoilt: when it is a deleted record and the others are too few, the smallest live record (audio aside) is written
+  again first, as a save of its own, while compaction keeps more than its 2 free blocks; with only those left, that
+  deleted record stays listed, and the save may be refused by one more, unless it writes that thing again (its key is
+  still listed: it takes none). These writes change nothing that is read, and
+  a power cut among them leaves the same things live.
+- **Deletions first** ([below](#the-room-for-the-editors-pattern)) hold here too: at the limit, a SAVE that deletes a
+  song and makes a pattern goes through, its deletion written first and reclaimed by the rest; one that deletes a
+  pattern and makes another is refused whole, as that deletion cannot go first, and goes through once the deletion has
+  a SAVE of its own.
+- **The uploaders plan within it** ([blob.md](blob.md#seeding)); a store filled past it some other way loses records
+  at power-on ([above](#power-on)).
 
 ## The room for the EDITOR's pattern
 
@@ -239,13 +280,35 @@ always has room to be saved:
   while the rest of the flash is full needs its room a second time, and that SAVE asks as any SAVE that does
   not fit ([../ui/saving.md](../ui/saving.md#storage-full)): the changes stay in RAM, and once something is
   deleted SAVE writes them.
-- **Deletions first:** a SAVE that does not fit writes its deletions first, as a save of their own, then the
-  rest once compaction has freed their blocks; a power cut between the two leaves the deletions saved and the
+- **Deletions first:** a SAVE that does not fit (the user area's room, or [the list of records](#the-list-of-records))
+  writes its deletions first, as a save of their own, then the rest once compaction has freed their blocks (or the list
+  has reclaimed their keys); a power cut between the two leaves the deletions saved and the
   rest not. Only deletions nothing among the changes could be made from go first: a thing deleted whole whose
-  kind (patterns; songs; the cartridges; the samples) has no new thing among the changes (one the flash does not
+  kind (patterns; songs; the cartridges; the samples; LOOPS' sets) has no new thing among the changes (one the flash does not
   hold, or one made anew, as MOVE and CLONE make), the EDITOR's pattern and the keys' song apart. A sample's
   deletion always qualifies (the FM-1 makes no samples), so it goes first and the samplers whose instruments it
   deleted follow; a power cut between leaves those instruments naming a missing sample
-  ([instruments.md](instruments.md#samples)). Otherwise the SAVE writes nothing and asks.
+  ([instruments.md](instruments.md#samples)). Otherwise the SAVE goes [in parts](#a-save-in-parts).
 - **STATUS** counts the 40 KB as used ([../ui/screens/status.md](../ui/screens/status.md)). The uploader's
   64 KB reserve covers them.
+
+## A save in parts
+
+A SAVE of the changes that does not fit at once, compaction run and its deletions written first
+([above](#the-room-for-the-editors-pattern)), is saved in parts:
+- **A part** is the most whole things, in the changes' order (by kind, then number), that fit as a SAVE counts room
+  (above), a save of its own, all or nothing. Then their changes leave the edit memory (the flash holds them), the
+  next part's compaction frees the records they replaced, and the rest is saved again: at once if it fits now, else
+  in parts.
+- **A thing changed costs room only until its part is written,** its old record freed after; a thing added, or grown,
+  keeps its room. So a SAVE of changes alone (AUTO LEVEL ALL, an instrument's edits) asks only when one thing is bigger
+  than all the free room.
+- **Never ahead of the new:** a deletion something among the changes could be made from (a thing deleted whole whose
+  kind has a new thing among the changes, as a MOVE or a CLONE makes) is in no part; it waits until the new thing is
+  saved.
+- **Only when not even the first thing fits** does the SAVE stop and ask
+  ([../ui/saving.md](../ui/saving.md#storage-full)), the parts before saved; `# KB MORE NEEDED` is what that thing
+  lacks.
+- **A power cut between parts** leaves the parts before it saved and the rest not, each thing whole: a thing saved may
+  name one not saved yet ([references.md](references.md#a-reference-to-nothing)).
+- **Its progress** counts every part's records: one bar, 0 to 100.

@@ -27,17 +27,17 @@ module.exports = async t => {
     const asking = () => t.top() === "question" ? U.top().lines : [];
     /* a text as drawn: the frame's rows y..y+10 over the text's width from x, its ink against the text drawn alone on
      * black, pixel for pixel, some of it inked (as the firmware's text_as) */
-    function textAs(x, y, s, col) {
+    function textAs(x, y, s, col, f = D.F.T) {             /* (f: F.S's rows y..y+12, a highlight's foot left out) */
         t.frame();
-        const fb = D.fb, w = s.length * 6, frame = fb.slice();
+        const fb = D.fb, w = s.length * f.w, h = f.h === 16 ? 13 : 11, frame = fb.slice();
         D.px(0, 0, col);
         const ink = fb[0];
-        D.rect(x, y, w, 11, D.BLACK);
-        D.text(x, y, D.F.T, s, col);
+        D.rect(x, y, w, h, D.BLACK);
+        D.text(x, y, f, s, col);
         const alone = fb.slice();
         fb.set(frame);
         let same = true, inked = 0;
-        for (let j = 0; j < 11; j++) for (let i = x; i < x + w && i < 240; i++) {
+        for (let j = 0; j < h; j++) for (let i = x; i < x + w && i < 240; i++) {
             const a = alone[(y + j) * 240 + i] === ink, f = frame[(y + j) * 240 + i] === ink;
             inked += a;
             if (a !== f) same = false;
@@ -71,9 +71,10 @@ module.exports = async t => {
         return s;
     }
     const smY = (row, sel, n) => Y0 + 2 + 18 + (row - Math.max(0, Math.min(sel - 6, n - 14))) * 13;
-    const allLineY = () => {                                /* the ALL SAMPLES line's y, the cursor on it */
-        const n = M.state.carts.length, top = Math.max(0, Math.min(n - 6, n + 1 - 13));
-        return Y0 + 2 + 30 + (n - top) * 13;
+    const allLineY = () => {                                /* the ALL SAMPLES line's y, the cursor on it (10 in view, rows of
+                                                             * 16 px from 51, the cursor kept 4 down) */
+        const n = M.state.carts.length, top = Math.max(0, Math.min(n - 4, n + 1 - 10));
+        return Y0 + 2 + 32 + (n - top) * 16;
     };
     const cartListTo = async line => { await t.turn("SELECT", -300); await t.turn("SELECT", line); };
     async function allSamples() {                           /* the cartridge list's ALL SAMPLES line, ENV: THE SAMPLES list */
@@ -112,8 +113,9 @@ module.exports = async t => {
         await t.tap("ENV");
         await cartListTo(40);
         const ly = allLineY(), rows = M.sampleRows ? M.sampleRows() : [];
-        const size = M.kb(rows.reduce((a, r) => a + M.bytes.sample(r.s), 0));
-        ok(listOn() && textAs(26, ly, "ALL SAMPLES", D.WHITE) && textAs(110, ly, size, D.LGREY) && textAs(170, ly, "033/256", D.LGREY),
+        const size = M.kb(rows.reduce((a, r) => a + M.bytes.sampleRec(r.s), 0));   /* (the records as the FM-1 holds them) */
+        ok(listOn() && size === "157K" && textAs(32, ly, "ALL SAMPLES", D.WHITE, D.F.S) && textAs(134, ly + 2, size, D.LGREY) &&
+           textAs(192, ly + 2, "033/256", D.LGREY),
            "the cartridge list's last line: ALL SAMPLES " + size + " 033/256 (the cursor's white)");
         t.shot("instr_all_samples_line");
         await t.tap("SEL");
@@ -127,9 +129,9 @@ module.exports = async t => {
            "its keys play the highlighted sample as a new instrument would (WOBBLE 140, through FE:FF: " + (h && hex(h.ref >> 8)) + ")");
         t.shot("instr_samples_all");
         await t.tap("ENV");
-        ok(listOn() && !samplesOn() && textAs(26, ly, "ALL SAMPLES", D.WHITE), "ENV there: back to the line");
+        ok(listOn() && !samplesOn() && textAs(32, ly, "ALL SAMPLES", D.WHITE, D.F.S), "ENV there: back to the line");
         await t.tap("ENV"); await t.tap("HOME");
-        ok(listOn() && !samplesOn() && textAs(26, ly, "ALL SAMPLES", D.WHITE), "HOME there: back to the line");
+        ok(listOn() && !samplesOn() && textAs(32, ly, "ALL SAMPLES", D.WHITE, D.F.S), "HOME there: back to the line");
         /* CLONE of a sampler as any cartridge: its instruments name the same samples, no sample copied */
         const cl = M.freeCart();
         await cartListTo(M.cartIndex(0xA0));

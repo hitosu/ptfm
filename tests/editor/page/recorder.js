@@ -121,8 +121,9 @@ module.exports = async api => {
     await sleep(200);
     check(await evaluate(`!document.querySelector(".dlg.rec") && ED.app.st.L.length === ${n0 + 1}`), "recorder: DISCARD: closed, nothing more on the TABLE");
     /* a reload: the take's sample back with its original; the original dropped once no item names it */
+    await evaluate("window.__reloading = 1");   /* the old page's status may read BACK AS YOU LEFT IT already */
     await api.send("Page.reload", {});
-    await api.until("!!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
+    await api.until("!window.__reloading && !!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
     const back = await evaluate(`(() => { const L = ED.app.st.L, it = L[L.length - 1]; return [L.length, !!(it.sound && it.sound.ch && it.sound.ch[0].length > 5000), !!(it.sound && it.sound.oid)]; })()`);
     check(back[0] === n0 + 1 && back[1] && !back[2], "recorder: over a reload the take's sample keeps its original: " + JSON.stringify(back));
     /* an original an older page kept stereo (its CHANNELS on RIGHT): one channel at the next load, the right one */
@@ -132,8 +133,9 @@ module.exports = async api => {
             it.sound.oid = "stereo-old"; it.sound.cut = Object.assign({}, it.sound.cut, { chan: "r" });
             s.put({ ch: [new Float32Array(it.sound.cut.end).fill(0.25), new Float32Array(it.sound.cut.end).fill(-0.5)] }, "orig:stereo-old"); s.put(st, "state"); };
         tx.oncomplete = () => { db.close(); res(1); }; }; })`);
+    await evaluate("window.__reloading = 1");   /* the old page's status may read BACK AS YOU LEFT IT already */
     await api.send("Page.reload", {});
-    await api.until("!!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
+    await api.until("!window.__reloading && !!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
     const mono = await evaluate(`(() => { const L = ED.app.st.L, it = L[L.length - 1], s = it.sound; return [L.length, s && s.ch && s.ch.length, s && s.ch && s.ch[0][7], s && s.cut && s.cut.chan]; })()`);
     check(mono[0] === n0 + 1 && mono[1] === 1 && mono[2] === -0.5 && mono[3] === "mix",
         "recorder: an original kept stereo before: one channel at the load, as its CHANNELS had it (RIGHT): " + JSON.stringify(mono));

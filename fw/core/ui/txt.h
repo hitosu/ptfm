@@ -16,7 +16,7 @@ const char *ui_txt_n(int id);           /* a packed text by its number: unpacked
  * T(it->name) where it is drawn or copied. Compiled from the packed copies (UI_TXT_PACKED: the build's) it is the
  * text's number, else the text itself; 0 / NULL is none (no text is numbered 0) */
 #ifdef UI_TXT_PACKED
-typedef int txt_t;
+typedef uint16_t txt_t;                 /* (2 B a text in a table: the texts are numbered below 65,536) */
 #else
 typedef const char *txt_t;
 #endif

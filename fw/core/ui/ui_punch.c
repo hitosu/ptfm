@@ -43,7 +43,7 @@ int ui_punch_arp(void)
 {
     if (pin.k < 0 || pin.kept) return 0;
     pin.kept = 1;
-    ui_toast(ui_txt_v(T("# HELD ON: ITS KEY STOPS IT"), T(UI_PUNCH_NAME[pin.k])));
+    ui_toast(ui_txt_t(TX("# HELD ON: ITS KEY STOPS IT"), T(UI_PUNCH_NAME[pin.k])));
     return 1;
 }
 int ui_punch_now(void) { return pin.k; }

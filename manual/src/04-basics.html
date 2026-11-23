@@ -23,6 +23,8 @@ next key you press does one of these:</p>
 <a href="#playback">PLAYBACK</a>, which follows what plays.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP5</kbd></span></td><td>Opens <a href="#dj">DJ</a>,
 two songs mixed live.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP6</kbd></span></td><td>Opens
+<a href="#automations">AUTOMATIONS</a>, your controls recorded and played back.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">PIT</kbd></span></td><td>Opens
 <a href="#visual">VISUAL</a>, the sound made visible.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">GLO</kbd></span></td><td>Opens
@@ -34,7 +36,7 @@ two songs mixed live.</td></tr>
 <tr><td><kbd>FX</kbd></td><td>Opens <a href="#fx">FX</a>, the effects. FX has a button of its own, so it needs no
 HOME.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SELECT</kbd></span></td><td>Turns through the screens, one a
-click, round: STATUS, SONGS, EDITOR, INSTRUMENTS, PLAYBACK, VISUAL, FX, LOOPS, DJ, SETTINGS, and round again. Press
+click, round: STATUS, SONGS, EDITOR, INSTRUMENTS, PLAYBACK, VISUAL, FX, LOOPS, DJ, SETTINGS, AUTOMATIONS, and round again. Press
 HOME again to stay on the screen shown.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="w">white key</kbd></span></td><td>Mutes or unmutes a
 track: white key 1 is track 00, white key 16 track 0F (<samp class="msg" data-t="TRACK # MUTED">TRACK 02
@@ -46,6 +48,14 @@ instead (<samp class="msg" data-t="TRACK # SOLO">TRACK 02 SOLO</samp>). The same
 (<samp class="msg">SOLO OFF</samp>); on another track it moves the solo there.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SEQ</kbd> + <kbd class="w">white key</kbd></span></td><td>SEQ
 first switches the white keys to SOLO (and back to MUTE): then a tap solos.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd class="w">white key</kbd></span></td><td>ARP
+first switches the white keys to the automations (and back to MUTE): then a white key plays one, white key 1 slot 00 to
+white key 16 slot 0F, on the screen it was recorded on (<a href="#automations-play">chapter 18</a>). Here ARP does not
+switch the arpeggiator.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd>REC</kbd> + <kbd class="w">white key</kbd></span></td><td>REC
+after ARP switches the white keys from playing the automations to recording them (and back): then a white key records
+into its slot, on this screen; while one records, <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd>REC</kbd></span>
+ends it here (<a href="#automations-record">chapter 18</a>). Here REC is not the CUT.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span></td><td>Rewinds what plays (or played last) to
 its start: <samp class="msg">BACK TO THE START</samp> (<a href="#basics-play">below</a>). On DJ both decks go back
 to their cue points (<samp class="msg">BACK TO THE CUES</samp>, <a href="#dj-load-play">chapter 10</a>).</td></tr>
@@ -59,7 +69,10 @@ black key goes to a screen, and so on.</td></tr>
 </tbody>
 </table>
 <p>While the combination is open, the white keys show the tracks: dim while a track plays, dark while it is muted,
-bright while it is soloed. The black keys show the screens, the current one bright.</p>
+bright while it is soloed. After ARP they show the automations instead: dim where a slot holds one, dark where it is
+empty; after REC too, every one dim, as each can record. SEQ lights while the white keys solo, ARP while they play or
+record the automations, REC while they record. The black keys show the screens, the
+current one bright.</p>
 <p>Mutes and solos are part of the performance: they are not saved with the song. Once the combination has done
 something (a mute, say), any other key closes it and does its own job.</p>
 </section>
@@ -100,6 +113,8 @@ its flash memory, where they survive power-off. <b>Switching off loses unsaved e
 <samp class="msg">SAVED</samp>. With nothing to save: <samp class="msg">NOTHING TO SAVE</samp>.</li>
 <li>SAVE while playing waits for a pause (<samp class="msg">SAVE WAITS FOR A PAUSE</samp>); SAVE blinks meanwhile. A
 save still waiting is lost if the FM-1 is switched off.</li>
+<li>A save is made in silence: at SAVE every sound stops, ringing notes and echo and reverb tails too, as CUT stops
+them, and the sound comes back once the save is over.</li>
 <li><b>REVERT</b>, in a screen's <kbd>SEL</kbd> menu, takes the thing that screen shows back to what was saved (a
 pattern, a song, a cartridge, the loops ...), after a question: <samp class="msg">REVERTED</samp>.</li>
 <li><b>REVERT ALL</b> drops every edit since the last save: <span class="combo"><kbd>SAVE</kbd> +
@@ -115,15 +130,15 @@ the big actions ask first.</aside>
 <thead><tr><th>SAVE keeps</th><th>Never saved: gone at power-off</th></tr></thead>
 <tbody>
 <tr><td>Your songs, with their order, properties, mixer and effects</td><td>Track mutes and solos, and a loop's
-solo</td></tr>
+solo (a LOOPS set keeps its loops' solos)</td></tr>
 <tr><td>Your patterns, and the EDITOR's own pattern</td><td>SONGS' play mode (ONE PLAY, REPEAT SONG, PLAY
 NEXT)</td></tr>
 <tr><td>Your cartridges, and your changes to the built-in ones</td><td>PLAYBACK's speed and volume</td></tr>
 <tr><td>The settings, the MIDI map and your GATE patterns</td><td>The clipboards (blocks, slots)</td></tr>
-<tr><td>The loops, with their mutes; DJ's decks as they stand</td><td>LOOPS' stage, and the pattern recorder's
-steps</td></tr>
-<tr><td>THE KEYS' setup and tempo</td><td>The arpeggiator being on, and the octave (SETTINGS' KEYS OCTAVE sets the
-octave at power-on)</td></tr>
+<tr><td>The loops, with their mutes, and your LOOPS sets; DJ's decks as they stand</td><td>LOOPS' stage, and the
+pattern recorder's steps</td></tr>
+<tr><td>THE KEYS' setup and tempo; AUTOMATIONS' slots</td><td>The arpeggiator being on, and the octave
+(SETTINGS' KEYS OCTAVE sets the octave at power-on)</td></tr>
 <tr><td>The current instrument, and the pattern the EDITOR is on</td><td>What was playing, and where</td></tr>
 </tbody>
 </table>
@@ -136,16 +151,20 @@ the header reminds you: <b>SAVE CHANGES TO FREE MEMORY</b>. When it is full, an 
 a question asks you to save (<samp class="msg">MEMORY FOR EDITS IS FULL</samp>,
 <samp class="msg">SAVE BEFORE MAKING MORE EDITS</samp>): <kbd>OCT+</kbd> <samp class="msg">SAVE NOW</samp>,
 <kbd>OCT-</kbd> back. After the save, make the edit again.</p>
-<p><b>Storage full:</b> a save that does not fit writes nothing and asks
+<p><b>Storage full:</b> a save that does not fit at once is written in parts, a few changes at a time, each part
+freeing the room of what it replaced; only when not even one change fits does it ask
 (<samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp>): <kbd>OCT+</kbd> runs CLEAN UP, which offers to delete unused
 patterns, samples and instruments; or delete something yourself and save again. Your edits stay in memory
-meanwhile. STATUS shows the free storage.</p>
+meanwhile. STATUS shows the free storage. The FM-1 also lists at most 560 records (each song, sample and cartridge is
+one, a pattern or a LOOPS set one a part): a save past them asks the same way
+(<samp class="msg">TOO MANY RECORDS TO SAVE</samp>). What you delete makes room once the deletion is saved; a save writes
+deletions first, but not one of the same kind as something new in it (a pattern deleted while another is made).</p>
 </section>
 
 <section class="topic" id="basics-references">
 <h3>Things that use other things</h3>
 <p>A note uses an instrument, a song uses patterns, a FUSION instrument uses a pattern, a sampler instrument uses a
-sample. A sample is a thing of its own, numbered apart from the cartridges and played by instruments of any sampler
+sample, a loop uses its instrument (LOOPS' own and a set's alike). A sample is a thing of its own, numbered apart from the cartridges and played by instruments of any sampler
 (<a href="#instruments-sampler">chapter 8</a>); deleting it takes the instruments that play it with it, after a
 question. Moving, swapping or deleting something in use asks first
 (<samp class="msg" data-t="%s IS USED %d TIMES">PATTERN 1A IS USED 3 TIMES</samp>,
@@ -153,7 +172,9 @@ question. Moving, swapping or deleting something in use asks first
 <ul>
 <li><b>YES</b> (<kbd>OCT+</kbd>): everything that used it follows the change, and everything is saved at once
 (<samp class="msg" data-t="UPDATING # REFERENCES">UPDATING 3 REFERENCES</samp>, then
-<samp class="msg">REFERENCES UPDATED, SAVED</samp>).</li>
+<samp class="msg">REFERENCES UPDATED, SAVED</samp>). When the memory for edits cannot hold the whole change, nothing
+changes and nothing is saved: <samp class="msg">MEMORY FOR EDITS IS FULL</samp> asks you to save first
+(<a href="#basics-saving">above</a>).</li>
 <li><b>NO</b> (<kbd>OCT-</kbd>): the change is made, and what used it keeps the old number, now pointing at whatever
 is there.</li>
 <li><kbd>HOME</kbd>: nothing happens.</li>
@@ -219,8 +240,12 @@ control) and PRESETS turns the instruments again; <kbd>SEL</kbd> tapped again on
 <li><kbd>OCT-</kbd> and <kbd>OCT+</kbd> shift the keys by an octave, from -4 to +4
 (<samp class="msg" data-t="OCT #">OCT +3</samp>).</li>
 </ul>
-<p>The keys have no velocity: they play at SETTINGS' KEYS VOLUME. SETTINGS also sets the keys' default octave and how
-the effects treat them.</p>
+<p>How hard you press a key is how loud it plays: the FM-1 reads how deep each key sits as it lands (SETTINGS' KEYS
+VELOCITY, NORMAL at first; SOFT reaches the loudest with less force, HARD needs more; CONSTANT plays every key at KEYS
+VOLUME). The keys from F3 to C5 are read; the top seven, C#5 to G5, cannot be, and play at the mean of the last four
+keys read. Pressing near a key's edge reads softer than its middle. Pressing a held key harder makes its note louder,
+up to the loudest, and softer again as you ease it; a take in the EDITOR and the stage on LOOPS record that swell. The note sounds as the press is read, a millisecond
+or two after the key goes down. SETTINGS also sets the keys' default octave and how the effects treat them.</p>
 </section>
 
 <section class="topic" id="basics-arp">
@@ -241,6 +266,8 @@ starts a new set. OFF: a note stops with its key.</li>
 <li>To stop latched notes and keep the arpeggiator on, tap <kbd>ARP</kbd> with no key held: the first tap lets the
 latched notes go, and ARP stays on; the next tap switches it off.</li>
 <li>Changing screens switches it off.</li>
+<li>After a HOME tap (in HOME's combination), ARP switches the white keys to the automations
+(<a href="#basics-home">above</a>), not the arpeggiator.</li>
 </ul>
 </section>
 
@@ -250,6 +277,8 @@ latched notes go, and ARP stays on; the next tap switches it off.</li>
 <li><kbd>SEL</kbd> opens the menu of what is at the cursor (copy, paste, move, delete ...), its last choice ready.
 SELECT picks, SEL (or the key that opened it) chooses, HOME closes. Only what can act is listed: REVERT, for
 example, only when there is something not saved.</li>
+<li><b>Menus and lists</b> (properties, SETTINGS, the song and cartridge lists) are written in the header's big
+letters, a line a row; a row too long for one line takes two, its value under its name.</li>
 <li><b>Groups:</b> an item marked <b>&gt;</b> at the right holds more items (ROWS, TRANSFORM). SEL opens it; its
 first line, <b>&lt; BACK</b>, goes back up; HOME closes the whole menu from any level.</li>
 <li><b>MOVE:</b> SELECT carries the thing, SEL puts it down, HOME puts it back.</li>
@@ -315,6 +344,7 @@ combination.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP3</kbd></span></td><td>Opens INSTRUMENTS.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP4</kbd></span></td><td>Opens PLAYBACK.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP5</kbd></span></td><td>Opens DJ.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP6</kbd></span></td><td>Opens AUTOMATIONS.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">PIT</kbd></span></td><td>Opens VISUAL.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">GLO</kbd></span></td><td>Opens STATUS.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">MONO</kbd></span></td><td>Opens SETTINGS.</td></tr>
@@ -327,6 +357,8 @@ white key 1 is track 00. In LOOPS it mutes a loop.</td></tr>
 instead.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>SEQ</kbd> + <kbd class="w">white key</kbd></span></td><td>SEQ first
 switches the white keys to solo: then a tap solos the track.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd class="w">white key</kbd></span></td><td>ARP first
+switches the white keys to the automations: then a white key plays one, on its own screen.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>PLAY</kbd></span></td><td>Rewinds what plays to its start.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span></td><td>The CUT: all sound off at once.</td></tr>
 <tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span> held</td><td>Silent for as long as REC is held;

@@ -699,6 +699,7 @@ computer: USB AUDIO HERE on for its part</p>
 
   /* ---- the autotests' side of the messages ---- */
   const asks = [];                                       /* 40 STATE? waiting for their 41 */
+  const feeds = [], notesOut = [];                       /* 32 KEYS FEED waiting for their 33; the FM-1's notes out */
   let stNum = 0, stLost = 0, stLate = 0;                 /* the last answer's number; answers never got, came late */
   let atWin = null, atStop = false, atPrompt = null, atRun = null, atList = [];
   let figAt = 0;                                         /* (Date.now at the FM-1's last FIGURES answer) */
@@ -737,6 +738,10 @@ computer: USB AUDIO HERE on for its part</p>
       if (a) { WT.clear(a.t); a.r(st); } else stLate++;   /* (its question timed out already) */
       return;
     }
+    const fd = FG.decodeFed(e.data);                    /* 33 KEYS FED: an autotest's KEYS FEED answered */
+    if (fd) { const a = feeds.shift(); if (a) { WT.clear(a.t); a.r(fd); } return; }
+    if (e.data.length === 3 && (e.data[0] & 0xE0) === 0x80)   /* (the FM-1's Note On / Off: MIDI OUT, an autotest's) */
+      notesOut.push({ on: (e.data[0] & 0xF0) === 0x90 && e.data[2] > 0, ch: e.data[0] & 15, note: e.data[1], vel: e.data[2] });
     const rr = FG.decodeRecords(e.data);                /* 36 RECORDS: RESTARTS' */
     if (rr) { recs = rr; $("p-out").textContent = FG.recordsLines(rr).join("\n"); $("p-out").hidden = false; buttons(); return; }
     const c2 = FG.decode2(e.data);                      /* 37: core 2's window, into its 31's (kept, measured, live) */
@@ -1289,7 +1294,10 @@ computer: USB AUDIO HERE on for its part</p>
     }),
     measure: () => { atWin = []; },
     measured: () => { const w = atWin || []; atWin = null; return w; },
+    peek: () => (atWin ? atWin.length : 0),
     freeze: (on) => { flags |= on ? FG.FREEZE : FG.UNFREEZE; },   /* (with the next FIGURES' question, as FREEZE's button) */
+    split: (fixed) => { flags |= fixed ? FG.FIXED : FG.MOVING; },   /* (the voices' split fixed as before, or moving: the
+                                                                   * same) */
     heard: () => (figAt ? Date.now() - figAt : 1e9),   /* (the ms since the FM-1's last FIGURES answer) */
     /* the FIGURES windows come in since Date.now() was at: how many, the main loop's longest pass (us), the SysEx it
        lost on the way in (begun while others waited, cut short) */
@@ -1299,6 +1307,15 @@ computer: USB AUDIO HERE on for its part</p>
                lost: [0, 1].map((k) => w.reduce((a, f) => a + (f.c2 && f.c2.sxLost ? f.c2.sxLost[k] : 0), 0)) };
     },
     answers: () => ({ lost: stLost, late: stLate }),   /* (the state's answers lost on the way, or late) */
+    /* KEYS FEED (the debug build's): its message sent, its answer (33) or null after 800 ms; the FM-1's Note On / Off
+       since the last look (MIDI OUT) */
+    keysFeed: (m) => new Promise((r) => {
+      const w = { r, t: 0 };
+      w.t = WT.set(() => { const k = feeds.indexOf(w); if (k >= 0) feeds.splice(k, 1); r(null); }, 800);
+      feeds.push(w);
+      try { output.send(Array.from(m)); } catch (e) { WT.clear(w.t); feeds.splice(feeds.indexOf(w), 1); r(null); }
+    }),
+    notesOut: () => notesOut.splice(0),
     prompt: (text) => new Promise((r) => {
       atPrompt = r;
       atPause(true);                                    /* (the run's clock waits with it) */
@@ -1519,13 +1536,17 @@ computer: USB AUDIO HERE on for its part</p>
       const budget = f.halves * f.halfUs;
       let topSum = 0;
       const barCls = (p) => (p >= 30 ? "bad" : p >= 15 ? "warn" : "");
-      f.stages.forEach((st) => {
-        const inside = !!FG.INSIDE[st.name];
-        if (!inside) topSum += st.sum;
-        if (inside && !st.sum) return;
+      const gst = FG.ghostStage(f);                     /* (GHOSTS: VOICES' part, from the window's 37) */
+      const stageRow = (st, inside) => {
         const share = st.sum / budget * 100;
         rows.push(`<tr class="${inside ? "inside" : ""}"><td>${st.name}</td><td>${(st.sum / f.halves).toFixed(0)}</td>` +
           `<td>${share.toFixed(1)}%</td><td class="bar"><i class="${barCls(share)}" style="width:${Math.min(100, share).toFixed(1)}%"></i></td><td>${st.max}</td></tr>`);
+      };
+      f.stages.forEach((st) => {
+        const inside = !!FG.INSIDE[st.name];
+        if (!inside) topSum += st.sum;
+        if (!(inside && !st.sum)) stageRow(st, inside);
+        if (st.name === "VOICES" && gst && gst.sum) stageRow(gst, true);
       });
       const other = f.isrSum + (f.c2 ? f.c2.sum : 0) - topSum;   /* (the stages hold both cores' work) */
       rows.push(`<tr><td>(interrupt)</td><td>${(other / f.halves).toFixed(0)}</td><td>${(other / budget * 100).toFixed(1)}%</td>` +

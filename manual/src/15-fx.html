@@ -263,7 +263,8 @@ and on in every new song.</p>
 <figure data-shot="fx-duck"><figcaption>DUCK on EDIT: the dip and its release; no track ducks yet.</figcaption></figure>
 <dl class="params">
 <dt>SOURCE</dt><dd>The track that pushes the others down, or KEYS: every note the keys play, so the song can make
-room for a part played live. <span class="range">00-0F, KEYS; 00 at first</span></dd>
+room for a part played live. Muted, it still pushes the others down.
+<span class="range">00-0F, KEYS; 00 at first</span></dd>
 <dt>DEPTH</dt><dd>How far the others go down when the source hits (each also by its own DCK).
 <span class="range">60 % at first</span></dd>
 <dt>RELEASE</dt><dd>How long they take to come back up after it: short, a quick dip; long, a slow breathing pump.
@@ -316,8 +317,9 @@ SENDS, so each loop's send knobs act from the start.</dd>
 <kbd>LFO</kbd> resets it.</li>
 <li><b>KEYS</b>, the last column, is the keys' own strip, the same in every song (its LVL is SETTINGS' KEYS
 GAIN).</li>
-<li>In LOOPS the columns are the loops (MIXER: THE LOOPS). The KEYS column's CHO, DLY and REV are also the next loop's
-sends: the stage on + NEW LOOP sounds with them, and REC gives them to the loop it makes there.</li>
+<li>In LOOPS the columns are the loops (MIXER: THE LOOPS), and the last is <b>NEW</b> in KEYS' place: the next loop's
+own mix, the one the stage on + NEW LOOP sounds through and REC gives the loop it makes there. A change of it is for
+that one loop (it is not saved); LFO puts a value back to the default in LOOPS' properties.</li>
 <li>A value a song's command moved shows white, BY THE SONG; muted tracks are dark.</li>
 </ul>
 </section>

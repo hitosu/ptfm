@@ -25,7 +25,8 @@ pages are at the end of its file ([screens/](README.md#the-files)).
 
 For the screen it was opened on: the screen's controls (knobs, buttons, and what held buttons do
 there), then the shared pages ([below](#the-shared-pages)). On STATUS the shared pages come first
-instead ([screens/status.md](screens/status.md)).
+instead ([screens/status.md](screens/status.md)). The FM-1's debug build holds no help: every screen's is one page,
+`HELP IS STRIPPED IN THE DEBUG BUILD` ([../debug.md](../debug.md#made-and-installed)).
 
 ## How a page looks
 
@@ -44,8 +45,8 @@ Up to 17 lines of T, 40 characters each, colour-coded as the screens are.
   - a screen's name is in its group's colour (`EDITOR`, `FX`, `LOOPS`; [colours.md](colours.md));
   - the word `RED` is red;
   - engine names stay plain here: yellow belongs to the keys on these pages.
-- **The help names only what works.** A key kept for later (OP6, as a screen's key) is never mentioned
-  where it does nothing; DJ's help names OP6, which works there.
+- **The help names only what works.** A key kept for later (the blank black key, as a screen's key) is never
+  mentioned where it does nothing.
 
 ## Marks
 
@@ -114,8 +115,8 @@ later mention, on that page or the next ones, uses the label alone.
 
 The help is stored packed, with every other fixed text of the firmware, by one tokenizer: byte-pair
 encoding, one table, one decoder ([texts.md](texts.md)). What is the help's own:
-- **Its size:** 49 pages (43 of the screens' own, the EDITOR's 11 and INSTRUMENTS' 7 among them, 6 shared), about
-  25 KB as plain text; about half that packed.
+- **Its size:** 50 pages (44 of the screens' own, the EDITOR's 11 and INSTRUMENTS' 7 among them, 6 shared), about
+  26 KB as plain text; about 10 KB packed.
 - **Unpacking** is for the one page on screen, a line at a time.
 - **The readings:** on a screen's own pages the build writes them in, since it knows the page order.
   On the shared pages, a button that may need one is a token of its own, and the help adds the reading
@@ -206,18 +207,18 @@ THE HOME KEY
   WITH NOTHING OPEN: THE KEYS BELOW
 {HOME}, A KEY: TAP {HOME}, THEN THE KEY
   OR HOLD {HOME} AND PRESS THE KEY
-  {HOME} BREATHES WHILE IT WAITS
+  {HOME} BREATHES, THE KEYS THAT WORK LIT
 {HOME}, {BLACK KEY}: A SCREEN (NEXT PAGE)
-{HOME}, {WHITE KEY}: MUTE A TRACK
-  THE 16 WHITE KEYS: TRACKS 00-0F
+{HOME}, {WHITE KEY}: MUTE TRACK 00-0F
   HELD: SOLO IT INSTEAD
   {SEQ*} FIRST: SOLO
+{HOME}, {ARP*}
+  THEN {WHITE KEY}: PLAY AUTOMATION 00-0F
+  {REC}, {WHITE KEY}: RECORD; {REC}: END IT
 {HOME}, {PLAY}: BACK TO THE START
-{HOME}, {REC}: ALL SOUND OFF
-  SILENT WHILE {REC} IS HELD
+{HOME}, {REC}: SILENT WHILE {REC} IS HELD
   HELD 2 S: EVERY EFFECT SWITCHED OFF
 {HOME}, {LFO}: HELP, LOOK FOR ONSWERS
-{HOME} OPEN: THE KEYS THAT WORK LIGHT UP
 ```
 
 ```
@@ -227,6 +228,7 @@ SCREENS: {HOME}, THEN A {BLACK KEY}
 {OP3} (OPEN PAGE 3): [INSTRUMENTS]
 {OP4} (OPEN PAGE 4): [PLAYBACK]
 {OP5} (OPEN PAGE 5): [DJ]
+{OP6} (OPEN PAGE 6): [AUTOMATIONS]
 {PIT} (PICTURES IN TIME): [VISUAL]
 {GLO}: [STATUS]
 {MONO} (MY OWN NERDY OPTIONS): [SETTINGS]
@@ -235,7 +237,7 @@ SCREENS: {HOME}, THEN A {BLACK KEY}
 {HOME}, {SELECT}: SCREEN AFTER SCREEN
   [STATUS] [SONGS] [EDITOR] [INSTRUMENTS]
   [PLAYBACK] [VISUAL] [FX] [LOOPS] [DJ]
-  [SETTINGS], THEN ROUND AGAIN
+  [SETTINGS] [AUTOMATIONS], ROUND AGAIN
   {HOME} AGAIN: STAY ON THAT SCREEN
 ```
 

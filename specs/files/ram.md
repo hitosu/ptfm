@@ -1,9 +1,10 @@
 # Editing, saving and RAM
 
-Status: **settled** (2026-10-09), revised 2026-10-15, 2026-10-24 and 2026-11-03. The records: [the files
+Status: **settled** (2026-10-09), revised 2026-10-15, 2026-10-24, 2026-11-03 and 2026-11-12. The records: [the files
 proposal](../proposals/202610080050-fs.md), section 11; [the edits proposal](../proposals/202610151809-edits.md);
 [the loop station proposal](../proposals/202610240236-loops-station.md), section 12 (LOOPS in the edit memory);
-[the stage proposal](../proposals/202611030330-loops-redesign.md), section 17 (LOOPS' stage in the edit memory).
+[the stage proposal](../proposals/202611030330-loops-redesign.md), section 17 (LOOPS' stage in the edit memory);
+[the ghost notes proposal](../proposals/202611121830-ghost-notes.md), section 9 (the voice pool).
 
 How edits wait in RAM until SAVE, where the FM-1's 512 KB of RAM go, and what writing to the flash
 costs.
@@ -15,10 +16,11 @@ costs.
 
   | Record | Its pieces |
   |---|---|
-  | a pattern, and the loops | each track's stream, and each loop's stream; the pattern's head (tracks, rows, EDIT STEP) |
+  | a pattern, the loops and a LOOPS set | each track's stream, and each loop's stream; the pattern's head (tracks, rows, EDIT STEP) |
   | a cartridge | each slot; the cartridge's head (its name, its slots' count) |
-  | a song, the settings, DJ's setup, the MIDI map, LOOPS' head (the setup and the loop table) | the record whole (they are small) |
+  | a song, the settings, DJ's setup, the MIDI map, LOOPS' head (the setup and the loop table), a set's (its name and solos, then the same) | the record whole (they are small) |
   | a sample | never edited on the FM-1: only its deletion is kept, a piece with no bytes ([store.md](store.md#audio)) |
+  | AUTOMATIONS | each slot's part, whole: a recording gathers in RAM (192 B) and rewrites its slot's last part about once a second ([automations.md](automations.md)) |
 
 - **Reading never builds a record.** A pattern is read as each track's stream, from wherever it lies: the
   flash's tracks in place, the changed ones from the edit memory. A cartridge's slot is read the same way: the
@@ -103,9 +105,9 @@ the rest of the data region, lent to what borrows from it.
   4), so the list keeps each offset ÷ 4 in 16 bits, which reaches 256 KB with no RAM more. The state's figures of
   the edit memory count 4-byte units too ([../connections.md](../connections.md#the-state)).
 - **The spare zone is the data region's last part,** from the end of the variables up to the main loop's stack's
-  guard band: whatever the region leaves, so no RAM lies idle. About 32 KB with today's code (33,248 B; 32,576 B in the
-  debug build), 480 B over its minimum (832 B in the debug build), since core 2's room took 40 KB of the
-  region and its voices 9 KB more (the pool's 20 places, their block buffers and core 2's mixes:
+  guard band: whatever the region leaves, so no RAM lies idle. About 33 KB with the code as built (33,344 B; 32,128 B
+  in the debug build), 576 B over its minimum (384 B in the debug build), since core 2's room took 40 KB of the
+  region and its voice job 5.9 KB more (its block buffer, its three mixes and its control for 10 voices:
   [the second core](../second-core.md#ram)). The build refuses a zone under its own part, 24 KB (24,576 B: DJ's
   borrow with the 3,840 B more planned, and USB audio's buffers in reserve), and the spare (8 KB; 7 KB in the debug
   build), and prints its size. It holds no records: nothing in the
@@ -137,30 +139,33 @@ and screens as built for the FM-1.
 
 | What | Bytes |
 |---|---:|
-| the spare zone, the region's last part: what the rest leaves (at least 32,768: its own 24 KB and the spare the build keeps, 7,168 B of it in the debug build); DJ's or RECORD LIVE's borrow and USB audio's buffers taken from its top | 33,248 (32,576 in the debug build) |
+| the spare zone, the region's last part: what the rest leaves (at least 32,768: its own 24 KB and the spare the build keeps, 7,168 B of it in the debug build); DJ's or RECORD LIVE's borrow and USB audio's buffers taken from its top | 33,344 (32,128 in the debug build) |
 | the edit memory: the edits' pieces and their list, LOOPS' included; the edit modes' copies and LOOPS' stage beside them | 68,608 |
 | the DELAY line: 1 s at 29.4 kHz, so a 1/4 note down to 60 BPM (PING-PONG: 0.5 s) | 58,804 |
 | the screen's strip: half the screen at 16 bits a pixel | 57,600 |
 | the REVERB: its lines at 29.4 kHz (44,516) and PRE-DELAY's, up to 100 ms (5,884) | 50,400 |
 | the punch-in buffer: the last 0.5 s as its middle at 29.4 kHz (29,400) and its sides at 7.35 kHz (7,350) | 36,750 |
 | the DX7's tables: sine, exp2 and tanh of 8 KB each, the frequency table of 4 KB, built at power-on | 28,676 |
-| the screens' state (with the texts' 12 line buffers and the panels' kept texts) | 24,516 |
-| USB, the audio out, MIDI: USB audio's resampler table (4 KB, read for every sample sent; the firmware's image keeps half of it, the rows mirroring the other half, and the start fills in the rest) and ring of 512 frames (2 KB), the audio's double buffer (4 KB), SysEx and MIDI queues | 15,418 |
-| 20 voices' places, their scopes, core 2's voice buffer, the Juno-106's chorus bus, VISUAL's ring | 15,984 |
+| the screens' state (with the texts' 12 line buffers and the panels' kept texts) | 23,890 |
+| USB, the audio out, MIDI: USB audio's resampler table (4 KB, read for every sample sent; the firmware's image keeps half of it, the rows mirroring the other half, and the start fills in the rest) and ring of 512 frames (2 KB), the audio's double buffer (4 KB), SysEx and MIDI queues | 15,385 |
+| the voice pool (below): 16 engines (7,168) and their scopes (2,048), 40 voices (3,680), the ghosts' list and the fade notes (88); core 1's and core 2's engine block buffers (512), the Juno-106's chorus and buses (2,592), VISUAL's ring (512); core 2's voice job, its three mixes and its control (5,796) | 22,396 |
 | the keys heard dry ([../ui/screens/fx.md](../ui/screens/fx.md#the-keys-dry)): their mix a block's slot each (2,048), their own Juno-106 chorus lines and buses (2,592) | 4,640 |
-| the player's and the effects' state (a block's tracks, sends and mix, the requests); LOOPS' lanes, their requests and the pattern recorder's preview ~2 KB more ([loops.md](loops.md)), and LOOPS' stage about 200 B (its loop entry and 4 lanes, the keys' 4 lanes on it, the lanes held and their row, the loop told silent, each loop's SHIFT; its switch the screen's, told as the stage's rest), and the keys while the stage is off 288 B (16 lanes of their own, as many as the pool's voices can sound); RECORD LIVE's writer 1,100 B (its tap's ring of 64 events of 10 B, the song's 16 tracks and mixes) | 11,135 |
-| the store: the map of the flash ([store.md](store.md#power-on)), its 4 KB scratch, its variables | 9,917 |
+| the player's and the effects' state (a block's tracks, sends and mix, the requests); LOOPS' lanes, their requests and the pattern recorder's preview ~2 KB more ([loops.md](loops.md)), and LOOPS' stage about 200 B (its loop entry and 4 lanes, the keys' 4 lanes on it, the lanes held and their row, the loop told silent, each loop's SHIFT; its switch the screen's, told as the stage's rest), and the keys while the stage is off 288 B (16 lanes of their own, as many as the pool's voices can sound); RECORD LIVE's writer 1,100 B (its tap's ring of 64 events of 10 B, the song's 16 tracks and mixes); the EDITOR's take, the cells it left out ahead (128 B, a note and an end a track); the Juno-106's noise and the replay's own | 14,646 |
+| the store: the map of the flash ([store.md](store.md#power-on)), its 4 KB scratch, its variables | 9,860 |
 | the playing song's arena: the song built as the module the player runs | 6,400 |
-| the effects over a whole half: the mix and the sends of a half's four blocks | 4,480 |
-| room for the screens' next additions: their variables, the shared scratch's below with them, are capped at 28 KB (28,672 B; 28,612 B now, as `fw/tests/run_ui.sh` counts them) | 60 |
+| the effects over a whole half: the mix and the three sends (chorus, delay, reverb) of a half's four blocks (5,120), their clocks and settings (432) | 5,552 |
 | the screens' shared scratch: an editor's copy of a record, the help's text, AUTO LEVEL's voices | 4,096 |
 | the CHORUS's lines, 1 KB a side | 4,096 |
 | the screen's line buffer, lent to the update path, the USB rescue and incoming SysEx | 3,840 |
+| the linker's alignment between the variables | 589 |
+
+The rows add up to the region; the build prints its own count (the pool, the variables, the spare zone).
 
 - **Every large buffer of the sound is used in every audio block,** so none can share its room with another.
   The CPU is the limit, not the RAM.
 - **Where a note value does not fit** (a DELAY TIME, a punch-in loop), the longest one that does is used.
-- **The screens' cap is nearly reached** (60 B left). LOOPS' screen state with the stage is 638 B (the stage's switch
+- **The screens' cap:** their variables, the shared scratch with them, are capped at 28 KB (28,672 B; 27,983 B now,
+  as `fw/tests/run_ui.sh` counts them), 689 B left, which would come out of the spare zone's part past its minimum. LOOPS' screen state with the stage is 638 B (the stage's switch
   and the key each of the stage-off keys' 16 lanes holds, 18 B, among it; the held keys' spans 3 B a key; the cells the
   keys wrote in the line's pass a bit each, 64 B), and the properties dialog draws its items' names as it draws them (no copies of
   them); the pattern recorder's state is 40 B (each row's steps and ties a bit each), its step keys' holds CONTROL
@@ -187,10 +192,25 @@ hear; 29.4 kHz is close to the full rate by ear.
   a beat at 120 BPM. While anything plays, the middle goes through a 3:2 converter and the sides through a 6:1
   one; while a punch-in plays, both are read back through their converters.
 
-**The voice pool** is the same everywhere: 20 places, 16 heard at most (10 on core 1, 6 on core 2: 12 on core 1
-while core 2 does not run), the rest holding parked notes ([../ui/screens/settings.md](../ui/screens/settings.md#voices),
-[../second-core.md](../second-core.md#the-voices-on-core-2)); core 2's voices render one after another into one
-block buffer (256 B).
+**The voice pool** is the same everywhere ([../ui/screens/settings.md](../ui/screens/settings.md#voices),
+[../second-core.md](../second-core.md#the-voices-on-core-2)): 16 engines, 16 notes heard at most (split between the
+cores each block, 10 at most on core 2: [the split](../second-core.md#the-split); 12 on core 1 while core 2 does not
+run), and 40 voices, the notes sounding and the ghosts.
+- **An engine** is 448 B: the largest kind of engine's state (a DX7's, 444 B) after its kind, its voice's link, a
+  taken note's fade and a return waiting there. Its scope row (its last block) is 128 B more, kept apart. A note's
+  start zeroes the state where another kind's was, else starts from what the note before it there left (as a cut
+  leaves it). A Juno-106 fading out plays from a patch copy in its own engine's room (a Juno-106's state is under
+  half a DX7's).
+- **A voice** is 92 B: a note's control (whose it is, its instrument and note, its flags, level, gain, pan, pitch, a
+  sample's TUNE, its times on the block clock, a Juno-106's patch copy or the others' parameter commands, 8 of them),
+  a sampler ghost's place in its sample (6 B) or a CHIP ghost's release length, and the pitch a sampler ghost's
+  place is walked at, in the 2 bytes the struct's alignment leaves.
+- **The ghosts' list** is 24 B (a voice's number each, in the order made: no stamps), **the fade notes** 8 of 8 B
+  (the most fades a block: a taken note's track, column mark, pan and gain). The returns' budget takes no RAM: each
+  return keeps its work done in its voice's own room.
+- Core 2's voices render one after another into one block buffer (256 B), core 1's into one of its own; core 2's
+  voice job mixes them into three mixes of its own (5,376 B), which core 1 takes in, beside its control (420 B: sized
+  for the 10 voices a job may hand over, about 41 B each, their places, times and how each goes into the mix).
 
 ## The layout
 
@@ -198,12 +218,12 @@ block buffer (256 B).
 |---|---:|---|
 | 0x01C00000 | 4,096 | code in RAM: the flash driver (3,028 B), which runs while the flash cannot serve code; the link fails beyond |
 | 0x01C01000 | 449,536 | **the data region**: the pool, then the variables; everything set up at power-on |
-| 0x01C6EC00 | 40,960 | **core 2's room** ([the second core](../second-core.md#ram)): its jobs' stack (6,144 B) at the bottom, over the ROM's start stack (0x01C6F800-0x01C70000); its exceptions' stack (1,024 B); its code and tables, copied at power-on (30,384 B; 31,092 B in the debug build); its loop and park, queue, counters and fault record at or above 0x01C72000 (under 0.6 KB, its code's end rounded to 256 B); 2,908 B left (2,140 B in the debug build). The build checks it fits and the rest; the PC limits' RAM window reaches from 0x01C00000 to its code's end |
+| 0x01C6EC00 | 40,960 | **core 2's room** ([the second core](../second-core.md#ram)): its jobs' stack (6,144 B) at the bottom, over the ROM's start stack (0x01C6F800-0x01C70000); its exceptions' stack (1,024 B); its code and tables, copied at power-on (32,108 B; 32,436 B in the debug build); its loop and park, queue, counters and fault record at or above 0x01C72000 (under 0.6 KB, its code's end rounded to 256 B); 1,360 B left (848 B in the debug build). The build checks it fits and the rest; the PC limits' RAM window reaches from 0x01C00000 to its code's end |
 | 0x01C78C00 | 256 | guard band |
 | 0x01C78D00 | 16,128 | the main loop's stack |
 | 0x01C7CC00 | 256 | guard band |
 | 0x01C7CD00 | 12,032 | the interrupts' stack |
-| 0x01C7FC00 | 256 | records kept across restarts (the crash record, the boot guard and core 2's record, 96 B; 136 B in the debug build), where a restart changes nothing |
+| 0x01C7FC00 | 256 | records kept across restarts (the crash record, the boot guard, core 2's record, the freeze record and the sound's marks, 172 B; 212 B in the debug build), where a restart changes nothing |
 | 0x01C7FD00 | 76 | unused, write-protected with the chip's own |
 | 0x01C7FD4C | 692 | the chip's own: boot info, the boot-state mailbox, the update record, the vectors |
 
@@ -225,8 +245,10 @@ block buffer (256 B).
   a crash and on the way to the chip's USB update mode. The USB rescue starts neither.
 - **The records kept across restarts** sit at the top, where no restart changes anything: the crash record (72 B:
   with the stack found overflowed, if any, and whether core 2 was running), the boot guard (12 B: two failed starts
-  in a row end in the USB rescue) and core 2's record (12 B: whether it runs, and whether it is kept off until the
-  power goes off: [the second core](../second-core.md#start-switch-fallback)), 96 of their 256 B; the debug build
+  in a row end in the USB rescue), core 2's record (12 B: whether it runs, and whether it is kept off until the
+  power goes off: [the second core](../second-core.md#start-switch-fallback)), the freeze record (60 B: where the main
+  loop and the audio interrupt stood, for PT/FM FROZE: [../hardware.md](../hardware.md#updates-and-rescue)) and the
+  sound's marks (13 B: where the sound and a Juno-106 voice's render stood), 172 of their 256 B; the debug build
   keeps its proving's record there too (40 B more: [../debug.md](../debug.md#proving-the-layout)).
 - **The write protection of the chip's own area starts at 0x01C7FD00,** covering the boot info from its first
   byte (0x01C7FD4C), the mailbox, the update record and the vectors.
@@ -244,9 +266,10 @@ block buffer (256 B).
     and its deepest call, for the audio interrupt, TIMER5's on top of it and the fault handler on top of both;
     the build prints it with the stacks, so a change that deepens it shows, and fails when it is more than the
     stack. Every frame is counted whole wherever its function calls, and a tail call as a call: an upper bound.
-    5,888 B (5,916 B in the debug build), the effects now in core 2's job (6,632 B before the effects went over
-    the half; 6,068 B seen). Core 2's jobs' stack, worked out the same way: 4,744 B of its 5,888 usable (4,764 B in
-    the debug build).
+    7,040 B (7,092 B in the debug build): the audio interrupt making a block's effects itself, as while core 2 is
+    stopped (a punch-in's frame 2.2 KB, the DELAY's 1.5 KB), with TIMER5's 440 B and the fault handler's 556 B on top;
+    6,068 B seen. Core 2's jobs' stack, worked out the same way: 4,792 B of its 5,888 usable (4,820 B in the debug
+    build).
   - **The code cannot show where a call through a pointer goes,** so the build keeps a table of every hook the
     interrupts call and its possible targets (MIDI's note hook, USB audio's tap, the output's, ...), counts each call at its deepest target, and refuses a call through a
     pointer it does not list, and any recursion: else the worst case would only be a lower bound, as the deepest

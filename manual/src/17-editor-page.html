@@ -5,8 +5,8 @@
 <p class="lead">The EDITOR page, <b>editor.html</b>, is PT/FM's page for the computer (Chrome or Edge, offline). It
 comes with PT/FM, as install.html does: get it from PT/FM's home,
 <a href="https://hitosu.github.io/ptfm" target="_blank" rel="noopener">hitosu.github.io/ptfm</a>. It backs up the FM-1, brings new content to it (tracker modules, MIDI files,
-DX7 cartridges, sounds), and edits it with the FM-1's own pictures. It is a beta: its two panels are finished, its
-edit tabs work with plain controls.</p>
+DX7 cartridges, Juno-106 and Juno-60 banks, sounds), and edits it with the FM-1's own pictures: two
+panels to move things between, and an edit tab for each item.</p>
 
 <section class="topic" id="editor-page-panels">
 <h3>Two panels</h3>
@@ -21,8 +21,14 @@ items; UNDO takes back any step.</li>
 to change there as you like. Moved back to the FM-1 panel it takes a free number, a new cartridge beside
 the built-in, and a song pointing at it plays the copy. A song moved to the TABLE still plays the built-ins it uses:
 those never travel, and a changed one goes along keeping its number.</li>
-<li>Both panels group their items by kind: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES and SYSTEM (the settings,
-the MIDI map, the loops, DJ's setup, the EDITOR's own pattern and the keys' song). A click on a group's header folds
+<li><b>FAVORITES:</b> the TABLE keeps as many lists of favourites as you like (+ NEW makes one, MY FAVORITES); the
+FM-1 has one, FB. A FAVORITES item moved to the FM-1 panel takes FB's place: its favourites become FB's (the page asks
+first when FB holds some), FB keeps its name and number, and the cartridges they point at come along. Of several moved
+at once, the bottom-most on the TABLE goes on FB; a disk's UPLOAD puts the disk back as it is. FB moved to
+the TABLE becomes a list of its own, named FAVORITES.</li>
+<li>Both panels group their items by kind: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES, LOOPS SETS (the sets stored
+on LOOPS, each moving with the cartridges its loops play) and SYSTEM (the settings, the MIDI map, the loops, DJ's setup,
+the automations, the EDITOR's own pattern and the keys' song). A click on a group's header folds
 or opens it. Each panel shows its items as DETAILS (a row each, with sizes and what uses them), LIST or ICONS.</li>
 <li><b>A sample is an item of its own,</b> not a part of a sampler: on the FM-1 panel it has its number (<i>23 KICK</i>),
 on the TABLE none. A sampler holds instruments only (its row shows how many samples they play, <i>SAMPLER · 10 INSTR · 7
@@ -87,8 +93,21 @@ an instrument brings its sample along: nothing is copied when the panel holds th
 added at a free number; with none free the paste is refused (<b>NO FREE SAMPLE NUMBER</b>).</dd>
 <dt>SETTINGS, MIDI MAP, LOOPS, DJ SETUP</dt><dd>Every setting (and your 16 GATE patterns as rows of steps), each MIDI
 mapping, the loops, and DJ's crossfader, filter, decks and effects. LOOPS shows the length in its title (it is changed
-on the FM-1) and each loop's instrument, MONO or POLY, repeats and SHIFT: +3 plays the loop 3 rows later, -3 earlier
-(typed either way); the notes are shown as stored, and a line under them says how SHIFT plays them.</dd>
+on the FM-1) and each loop's instrument, MONO or POLY, repeats (or its cut) and SHIFT: +3 plays the loop 3 rows later,
+-3 earlier (typed either way); the notes are shown as stored, and a line under them says how SHIFT plays them. Its
+mixer mutes a loop, sets its level, pan, duck and sends (in hex, as the FM-1 shows them), moves it up or down the list
+and deletes it; its last row, NEW, sets a new loop's level and sends. Its setup has TEMPO, TICKS A ROW, SWING,
+QUANTIZE, MONO LEGATO, COUNT-IN, the keys' POLY or MONO, VIEW and the knobs' jobs. A LOOPS set opens in the same tab,
+with each loop's SOLO too. The notes, the length and a cut stay the FM-1's. Played, LOOPS and a set go round their
+length until STOP, as on the FM-1.</dd>
+<dt>AUTOMATIONS</dt><dd>The 16 slots of <a href="#automations">AUTOMATIONS</a>, each with its screen, length and number
+of events, and the slot you pick as a table of its events in words (<b>KEY C-4 DOWN</b>, <b>SEL UP</b>, <b>K1 +2</b>),
+each at its time from the start and its gap since the one before. Change an event's time, gap, control or clicks, the
+slot's screen, <b>INSERT</b> a row after the picked one or <b>DELETE</b> rows; a row the FM-1 would skip or cancel in
+one pass (a release of what is not down, say) is grey and says why, and what is still down at the end is listed under
+the table. Mark slots and <b>COPY</b> them, then <b>PASTE</b> them into this or another file's AUTOMATIONS from the
+slot you pick; it asks before replacing slots that hold one. The FM-1 panel holds one AUTOMATIONS, the TABLE any
+number. It has no preview: an automation plays the FM-1's own controls.</dd>
 </dl>
 </section>
 
@@ -121,6 +140,11 @@ itself over USB (on Windows its input is called <i>Line (FM-1 PT/FM)</i>). Pick 
 is, shown in the footer's player like anything else that plays; <b>SAVE</b>
 puts it on the TABLE as a sample, <i>TAKE00</i>, <i>TAKE01</i> and on, at the best quality the FM-1 holds (16 bits,
 44.1 kHz). RECORD again replaces the take in the dialog; nothing is heard while it records.</p>
+<p>A Juno-106's or a Juno-60's tape output can be recorded the same way: while the take runs, a line under its
+waveform counts the patches that came in right (a level too high or too low shows within seconds). At STOP the line
+says what the take holds, and SAVE becomes <b>SAVE AS SAMPLE</b> and <b>SAVE AS CARTRIDGE</b>; the cartridge,
+<i>TAKE00</i> and on, holds the patches and no audio. A take that did not read says why, SAVE AS CARTRIDGE greyed:
+record it again, at another level. Select a part of the take to read one dump out of a longer one.</p>
 <p>A recording of several hits, a drum played one stroke after another or a phrase of notes, is cut into
 <i>slices</i> in its tab: <b>DETECT SLICES</b> finds where each sound starts (SENSITIVITY 1-10 finds fewer or more),
 marking each slice on the waveform; the quiet parts between are silent slices, drawn dim. Drag a marker to move a
@@ -160,11 +184,14 @@ lets go.</p>
 <dt>READ</dt><dd>Reads what the FM-1 holds into the FM-1 panel (after the first time, only what changed). Samplers of an
 older PT/FM are converted as they are read (above).</dd>
 <dt>WRITE</dt><dd>Makes the FM-1 hold exactly the panel. Before writing it shows what it writes and what it removes (in
-red), warns when the FM-1 saved something since the last READ (READ FIRST, WRITE ANYWAY or CANCEL) and when fewer
-than the 16 advised blocks would stay free, and offers to back up first: what the write would
-replace goes onto the TABLE (BACKUP and the time). When the panel does not fit around what the FM-1 keeps but fits
-the FM-1 emptied, it writes the whole user area anew and says so first (it takes longer). The FM-1's sound stops while
-it writes. With unsaved edits on the FM-1 it is refused: SAVE OR REVERT FIRST. After a conversion, the first WRITE
+red; an item that only loses a part, a pattern's or an AUTOMATIONS slot, is written, not removed), warns when the FM-1
+saved something since the last READ (READ FIRST, WRITE ANYWAY or CANCEL) and when fewer than the 16 advised blocks
+would stay free, and offers to back up first: what the write would replace goes onto the TABLE, each thing whole as the
+FM-1 holds it (BACKUP and the time). When the panel does not fit around what the FM-1 keeps but fits the FM-1 emptied,
+it writes the whole user area anew and says so first (it takes longer). A panel of more records than the FM-1 lists
+(560: each song, sample and cartridge one, a pattern or a LOOPS set one a part) is refused, nothing written, its count
+said. The FM-1's sound stops while it writes. With unsaved edits on the FM-1 it is refused: SAVE OR REVERT FIRST.
+After a conversion, the first WRITE
 rewrites every sample, says so, and offers its backup of the old records first. When the FM-1 runs an older PT/FM
 that reads only the older form, WRITE converts down: each sampler is written as an older one holding copies of the
 samples its instruments play (the samples themselves are not sent), and <b>NOT KEPT</b> names what the older form cannot
@@ -176,10 +203,11 @@ READ, then DOWNLOAD DISK.</dd>
 <dt>DOWNLOAD AS DISK</dt><dd>On the TABLE, under its list: saves only what you picked there as a disk file, with
 everything it uses, numbered as it would land on an empty FM-1 (the built-ins left out, as every PT/FM has them). One
 item picked names the file (punch-in.ptfmdsk), several make ptfm-selection-2026-11-04.ptfmdsk. What would not fit an
-FM-1 is refused: <b>NO DISK SAVED</b>. UPLOAD DISK puts it in an FM-1 panel; dropped on a TABLE, it gives the items
-back.</dd>
+FM-1 is refused: <b>NO DISK SAVED</b>. A FAVORITES list goes on the disk as FB, as a move to the FM-1 puts it (one only,
+the bottom-most picked). UPLOAD DISK puts it in an FM-1 panel; dropped on a TABLE, it gives the items back, but a
+FAVORITES list comes back named FAVORITES.</dd>
 <dt>UPLOAD DISK</dt><dd>Puts a disk file in the FM-1 panel, numbers kept; WRITE then puts it on the FM-1. A backup put
-back is exactly as it was.</dd>
+back is exactly as it was, FAVORITES included.</dd>
 </dl>
 <aside class="note">Before installing another FM-1 firmware, READ and DOWNLOAD DISK: other firmwares erase PT/FM's
 memory. The same before going back to an older PT/FM: an older version does not read samples that are things of their
@@ -201,6 +229,18 @@ of 4 bars; each channel's instrument mapped onto a built-in sound (all 128 Gener
 onto FM DRUM KIT. Pitch bend and controllers are left out.</dd>
 <dt>DX7 cartridges</dt><dd>.syx, the 32-voice dump: a DX7 cartridge, exactly; a single voice's dump: a cartridge of
 one.</dd>
+<dt>Juno-106 banks</dt><dd>.syx files of the Juno-106's own patch messages (it sends one patch at a time), the
+Juno-106 Librarian's .106 libraries and .pat patch lists: a Juno-106 cartridge a file, every patch exactly, in the
+file's order (past 128, a second cartridge). Patches with no name of their own are <i>PATCH00</i>, <i>PATCH01</i> and
+on; a copy of the panel's sound that is also a patch of the file is left out.</dd>
+<dt>Juno tapes</dt><dd>Recordings of a Juno-106's or a Juno-60's cassette dumps (WAV or any sound): the page
+recognises one and asks <i>CARTRIDGE</i> or <i>SAMPLE</i>. CARTRIDGE makes a Juno-106 cartridge of the patches, both
+bank groups of a Juno-106 in one; a tape that does not read (its checksum wrong, cut short) adds nothing and says so.
+A Juno-60's patches are converted to the Juno-106 patches whose sound comes closest (the envelope's times, the
+filter's cutoff and its movements, the LFO, the levels): the two share one design, but a slider is a different sound
+on each. What the Juno-106 has no place for is left out: the Juno-60's PWM by the envelope becomes the closest manual
+setting, its LFO TRIGGER is dropped, and RANGE is 8'. A Juno-60 patch damaged on the tape leaves its slot
+empty, the others in their places.</dd>
 <dt>Sounds</dt><dd>WAV, FLAC, MP3, OGG and the rest: a sample, at the lowest rate that loses nothing heard.</dd>
 </dl>
 <p>Take only a part (some patterns, a cut of a sound) in the item's tab, then move it to the FM-1 panel and

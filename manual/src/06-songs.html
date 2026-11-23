@@ -17,6 +17,7 @@ turns green.</li>
 <li><kbd>ALGORITHM</kbd> moves the box: the position PLAY will start from (<b>PLAY FROM POS 03</b> in the header).
 While the song plays, only the box moves; it waits for the next PLAY.</li>
 <li>The header counts the songs (<b>3/18</b>); the footer's right side shows the current song's BPM and length.</li>
+<li>A length past 99:59 reads in hours and minutes (<b>1H41</b>).</li>
 <li>A position whose pattern is missing shows its number in red.</li>
 </ul>
 </section>
@@ -52,13 +53,13 @@ plays (a pattern in the EDITOR, LOOPS, DJ), and it is not saved.</p>
 <dl class="params">
 <dt>EDIT PATTERN</dt><dd>Opens the position's pattern in the EDITOR; <kbd>HOME</kbd> comes back here.</dd>
 <dt>NEW PATTERN</dt><dd>An empty pattern at the first free number, put in after the position
-(<samp class="msg" data-t="PATTERN %02X MADE">PATTERN 0C MADE</samp>).</dd>
+(<samp class="msg" data-t="PATTERN # MADE">PATTERN 0C MADE</samp>).</dd>
 <dt>INSERT</dt><dd>A position before the cursor's, with the same pattern.</dd>
 <dt>DELETE</dt><dd>Removes the position, as LFO does.</dd>
 <dt>COPY, PASTE</dt><dd>COPY takes the position's pattern number
 (<samp class="msg" data-t="PATTERN # COPIED">PATTERN 03 COPIED</samp>); PASTE puts it in after the position.</dd>
 <dt>CLONE PATTERN</dt><dd>Copies the position's pattern to a new number and uses the copy here
-(<samp class="msg" data-t="%02X CLONED TO %02X">03 CLONED TO 0C</samp>), so you can change it without changing the
+(<samp class="msg" data-t="# CLONED TO #">03 CLONED TO 0C</samp>), so you can change it without changing the
 other places that play the original.</dd>
 <dt>REVERT</dt><dd>The song as last saved (listed only while it has unsaved changes).</dd>
 </dl>

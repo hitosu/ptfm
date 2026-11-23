@@ -15,6 +15,7 @@
  * what lies outside goes. 0 done, -1 refused (too big, or the edit memory full) */
 typedef void (*ed_fn)(int t, int r, rec_cell_t *c, void *a);
 int ed_rewrite(uint8_t pat, int t0, int t1, ed_fn fn, void *a, int ntrk, int rows, int step);
+extern uint32_t *ed_need;               /* set: a rewrite only adds the edit memory it would take there, writes nothing */
 int ed_old(int t, int r, rec_cell_t *c);                /* during a rewrite: 1 a cell there (c filled), 0 none */
 
 int ed_put_cell(uint8_t pat, int row, int track, const rec_cell_t *c);  /* one cell (NULL or has 0: cleared) */

@@ -43,7 +43,7 @@ With the gaps between them, the page takes about 196 of the body's 210 px.
 | CPU 2, MAX | core 2's ([../../second-core.md](../../second-core.md)): its blocks' time over the half, the same way; `OFF` while core 2 is not running |
 | HALF | the longest audio interrupt (core 1's) since the reset, in µs (the limit is 5,804) |
 | LATE | audio halves not ready in time: each one is a dropout |
-| STEALS | notes that gave their voice up to a new note, the pool full: a held one parked until a voice is free, a tail faded out ([settings.md](settings.md#voices)) |
+| STEALS | notes that gave their engine up to a new note, the pool full: a held one goes on as a ghost until an engine is free, a tail fades out ([settings.md](settings.md#voices)); an engine a ghost's return held, silent, counts not |
 | VOICES, MAX | voices sounding, the most at once over the last tenth of a second / the limit in force (SETTINGS → VOICES; 16 counts as 12 while the second core does not run: [settings.md](settings.md#voices)); the most since the reset |
 | EDITS FREE | the room left for unsaved changes: the edit memory less what the changes take, as MEMORY's ([../saving.md](../saving.md)) |
 | FLASH FREE | free storage in the user area, where saves go |
@@ -164,7 +164,7 @@ CHIP         0 X 2.5%    EFFECTS      0.0%
 |--------------------------------------|   80 %
 |                                      |
 |--------------------------------------|   50 %
-|                          ||  ||||| ||||   2 px a sample, the newest right
+||| ||| | || |||| | || ||| || | || |||||   4 px a sample, the newest right, across the box
 +--------------------------------------+
 ```
 
@@ -180,8 +180,8 @@ CHIP         0 X 2.5%    EFFECTS      0.0%
 | the graph | 0, 125 | 240 × 100 | | a box |
 | – its label | 2, 127 | | T | `CPU, LAST 30 S` |
 | – 50 % and 80 % | 1, 175 and 145 | 238 × 1 | | lines |
-| – core 1 | 2 px a sample from the right | 1 × up to 98 | | bars, 1 px wide with a 1-px gap: a sample each half second, core 1's mean over it (AVERAGE: theirs since the counts were zeroed) |
-| – core 2 | the same samples | 2 × 1 | | a mark at the height of core 2's mean over each half second; none while it is not running |
+| – core 1 | 4 px a sample from the right: the newest at x 236 | 2 × up to 98 | | bars, 2 px wide with a 2-px gap, the 60 samples across the whole box (the oldest, at x 0, drawn 1 px wide at x 1, inside the box's edge): a sample each half second, core 1's mean over it (AVERAGE: theirs since the counts were zeroed) |
+| – core 2 | the same samples | 2 × 1 | | a mark over its bar at the height of core 2's mean over each half second; none while it is not running |
 
 Colours: the names and the cores' head cyan; each core's figures and WORST HALF in the CPU colours, `OFF` dark grey;
 LATE, STEALS dark grey at zero, red above; VOICES in a voice count's colours
@@ -253,7 +253,7 @@ after the other as one, a square a KB in the order the flash holds them.
 
 What a square shows, KB by KB:
 - **A KB that holds records** takes the colour of the kind with the most bytes in it: SAMPLES (the samples'
-  audio), INSTRUMENTS (the cartridges), PATTERNS, SONGS, LOOPS, OTHER (the settings, DJ's stand, the MIDI map,
+  audio), INSTRUMENTS (the cartridges), PATTERNS, SONGS, LOOPS (LOOPS and its sets), OTHER (the settings, DJ's stand, the MIDI map,
   the older form's sample audio, deleted records' headers). A KB of a block in use that holds no live record (an older copy, until
   compaction frees its block) takes its block's colour: it is not free yet.
 - **FREE:** a KB of a free block, and the rest of the block being written after its last record.
@@ -341,10 +341,16 @@ OUTPUT (`STEREO` / `MONO`), MASTER (`50%`), SCREEN FRAME (the frames a second in
 the last frame's time in 2 digits and ` MS`), UP (hh:mm:ss), VOICES (the limit in force), THEME, and SECOND CORE
 ([../../second-core.md](../../second-core.md)): `STARTING` (the start's first 2 s, SECOND CORE on), `ON` (running),
 `OFF` (SETTINGS' SECOND CORE off), or why it stopped for the rest of this start: `STOPPED: NO ANSWER`, `STOPPED:
-MISREAD`, `STOPPED: STUCK`, `STOPPED: FAULT`, `STOPPED: AFTER A CRASH`.
+MISREAD`, `STOPPED: STUCK`, `STOPPED: FAULT`, `STOPPED: AFTER A CRASH`. When a fill or copy of core 2's code was
+refused in this start, its destination out of the RAM ([../../hardware.md](../../hardware.md)), two lines under it,
+in the small font: `BAD FILL TO 01C80040 +256` (`BAD COPY TO`: the destination, `+` its length) and `ASKED FROM
+01C76E1C` (the caller).
 
-Colours: names cyan; BATTERY in the battery's colours, `USB POWER` light blue; SECOND CORE's `STOPPED: ...` red;
-the other values light grey.
+Colours: names cyan; BATTERY in the battery's colours, `USB POWER` light blue; SECOND CORE's `STOPPED: ...` and the
+bad write's lines red; the other values light grey.
+
+The debug build adds the keys' readings under them, four lines in T, and K1 there switches WAIT 1 / WAIT 2
+([../../debug.md](../../debug.md#the-keys-bytes)).
 
 ## Texts
 
@@ -364,7 +370,7 @@ the other values light grey.
   `VARIABLES`, `SPARE`, `DJ`, `SYSTEM`; `DIM: ITS ROOM NOT IN USE NOW`.
 - **DEVICE:** `BATTERY`, ` BARS`, `USB POWER`, `FIRMWARE`, `OUTPUT`, `MASTER`, `SCREEN FRAME`, ` FPS`, ` MS`,
   `UP`, `VOICES`, `THEME`, `SECOND CORE`, `STARTING`, `ON`, `OFF`, `STOPPED: NO ANSWER`, `STOPPED: MISREAD`,
-  `STOPPED: STUCK`, `STOPPED: FAULT`, `STOPPED: AFTER A CRASH`.
+  `STOPPED: STUCK`, `STOPPED: FAULT`, `STOPPED: AFTER A CRASH`, `BAD FILL TO`, `BAD COPY TO`, `ASKED FROM`.
 - **The footer's right side:** `FREE 237K`.
 - **Toasts:** `COUNTS ZEROED` (LFO).
 

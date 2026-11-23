@@ -125,7 +125,7 @@ static void ch_chain_new(uint8_t *s, void *a) { (void)a; fxd_set_chain(s, chain_
 static int edit(void (*fn)(uint8_t *, void *), void *arg, int button)
 {
     int r = fxt_edit(&tg, fn, arg, button);
-    if (r == -2) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+    if (r == -2) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
     if (!r) refresh();
     return r;
 }
@@ -184,9 +184,11 @@ static int mix_rows(uint8_t *rows)
     return n;
 }
 /* the columns: the tracks (the loops; none for the keys' song), then KEYS, the keys' own, one for every setup
- * (fx.md#mixer): its values ui_keys_mix's, its LVL KEYS GAIN as dB + 24 (0-36) */
+ * (fx.md#mixer): its values ui_keys_mix's, its LVL KEYS GAIN as dB + 24 (0-36). The loops' last is NEW instead, the next
+ * loop's own mix (loops_mix(loops_n()): RAM's, a loop's values, fxt's column loops_n()) */
 static int mix_ntrk(void) { return keys_song() ? 0 : fxt_mix_cols(&tg); }
-static int mix_keys(int c) { return c == mix_ntrk(); }
+static int mix_new(int c) { return tg.what == FT_LOOPS && c == mix_ntrk(); }
+static int mix_keys(int c) { return c == mix_ntrk() && !mix_new(c); }
 static void mix_get(int c, uint8_t *six)
 {
     if (!mix_keys(c)) { fxt_mix_get(&tg, c, six); return; }
@@ -263,9 +265,8 @@ static void draw_live(void)
         int fill = hi > lo ? ((v - lo) * 54 * 2 + (hi - lo)) / (2 * (hi - lo)) : 0;
         g_rect(x + 2, y + 28, fill < 1 ? 1 : fill, 3, col);
     }
-    g_run_t h[6] = {{T("SELECT"), C_YELLOW}, {T(" FX  "), C_LGREY}, {T("OCT"), C_YELLOW}, {T(" OFF/ON  "), C_LGREY},
-                    {T("EDIT"), C_YELLOW}, {T(" ITS PICTURE"), C_LGREY}};
-    g_runs(0, Y0 + 197, &FONT_T, h, 6);
+    static const txt_t H[] = {TX("SELECT"), TX(" FX  "), TX("OCT"), TX(" OFF/ON  "), TX("EDIT"), TX(" ITS PICTURE"), 0};
+    ui_hints(0, Y0 + 197, H);
 }
 
 static void picture(int e, int y, int h)
@@ -398,10 +399,12 @@ static void draw_mixer(void)
     int used = loops ? ntrk : fxt_tracks_used(&tg), left = fx.mix_t / 8 * 8, src = fxd_get(set_s, FE_DUCK, 0);
     g_text(2, Y0 + 2, &FONT_T, loops ? T("MIXER: THE LOOPS") : T("MIXER"), C_CYAN);
     for (int k = 0; k < 8 && left + k < ncol; k++) {
-        int c = left + k, x = 30 + k * 26, keys = mix_keys(c), dim = !keys && (c >= used || fxt_mix_muted(&tg, c));
+        int c = left + k, x = 30 + k * 26, keys = mix_keys(c), nw = mix_new(c);
+        int dim = !keys && !nw && (c >= used || fxt_mix_muted(&tg, c));
         uint8_t six[6];
         mix_get(c, six);
         if (keys) g_text(x - 2, Y0 + 16, &FONT_T, T("KEYS"), c == fx.mix_t ? C_WHITE : C_CYAN);
+        else if (nw) g_text(x + 1, Y0 + 16, &FONT_T, T("NEW"), c == fx.mix_t ? C_WHITE : C_CYAN);
         else g_text(x + 3, Y0 + 16, &FONT_T, ui_hex2(c), c == fx.mix_t ? C_WHITE : dim ? C_DGREY : C_CYAN);
         for (int j = 0; j < nr; j++) {
             int key = rows[j], v = six[key], y = Y0 + 30 + j * 26;
@@ -427,6 +430,8 @@ static void draw_mixer(void)
     if (mix_keys(fx.mix_t))
         ui_fmt(line, sizeof line, "%s  %s %s%s", T("KEYS, EVERYWHERE"), T(MIX_NAME[rows[fx.mix_r]]), w,
                ui_set[S_KEYS_FX] ? T("  DRY") : "");
+    else if (mix_new(fx.mix_t))
+        ui_fmt(line, sizeof line, "%s  %s %s", T("NEW LOOP"), T(MIX_NAME[rows[fx.mix_r]]), w);
     else
         ui_fmt(line, sizeof line, "%s%s  %s %s%s", loops ? T("LOOP ") : T("TRACK "), ui_hex2(fx.mix_t), T(MIX_NAME[rows[fx.mix_r]]),
                w, fxt_mix_muted(&tg, fx.mix_t) ? T("  MUTED") : "");
@@ -488,11 +493,11 @@ static void knob(int e, int s, int coarse)
             if (keys) ui_keys_mix_set(key, key == 0 ? v - 24 : v);   /* (a setting: every setup's) */
             else {
                 int r = fxt_mix_set(&tg, fx.mix_t, key, v, -1);
-                if (r == -2) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+                if (r == -2) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
                 if (r) return;
             }
             char nm[16], w[24];
-            ui_fmt(nm, sizeof nm, "%s %s", T(MIX_NAME[key]), keys ? T("KEYS") : ui_hex2(fx.mix_t));
+            ui_fmt(nm, sizeof nm, "%s %s", T(MIX_NAME[key]), keys ? T("KEYS") : mix_new(fx.mix_t) ? T("NEW") : ui_hex2(fx.mix_t));
             mix_words(w, fx.mix_t, key, v);
             ui_show_knob(nm, w);
         }
@@ -561,7 +566,7 @@ static void tempo_change(int d, int c)
     refresh();
     if (!fxt_time(&tg, &t, &sw)) return;
     t = ui_clamp(t + (d > 0 ? 1 : -1) * (c ? 10 : 1), (int)REC_TEMPO_MIN, (int)REC_TEMPO_MAX);
-    if (fxt_set_time(&tg, t, sw, B_GLO) == -2) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+    if (fxt_set_time(&tg, t, sw, B_GLO) == -2) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
 }
 static const char *swing_get(void)
 {
@@ -578,7 +583,7 @@ static void swing_change(int d, int c)
     refresh();
     if (!fxt_time(&tg, &t, &sw)) return;
     sw = ui_clamp(sw + (d > 0 ? 1 : -1) * (c ? 5 : 1), 50, 75);
-    if (fxt_set_time(&tg, t, sw, B_GLO) == -2) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+    if (fxt_set_time(&tg, t, sw, B_GLO) == -2) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
 }
 /* KEYS, EVERYWHERE: SETTINGS' KEYS, for every setup (fx.md#the-keys-dry): the keys heard through the effects, or dry */
 static const char *keys_get(void) { return T(UI_KEYS_FX[ui_set[S_KEYS_FX] ? 1 : 0]); }
@@ -603,11 +608,11 @@ static void menu_pick(int id)
     refresh();
     int e = menu_e;
     if (id == 1) {                                      /* MOVE */
-        if (fixed_fx(e)) { ui_refuse(B_SEL); ui_toast(ui_txt_v(T("# DOES NOT MOVE"), T(FX_EFF[e].name))); return; }
+        if (fixed_fx(e)) { ui_refuse(B_SEL); ui_toast(ui_txt_t(TX("# DOES NOT MOVE"), T(FX_EFF[e].name))); return; }
         fx.move = 1;
         fx.move_n = fxd_chain(set_s, fxb.move_chain);
         fx.move_sel = fx.sel;
-        ui_toast(T("SELECT MOVES IT, SEL PUTS IT DOWN"));
+        ui_toast_t(TX("SELECT MOVES IT, SEL PUTS IT DOWN"));
     } else if (id == 2 && e < FE_N) {                   /* RESET */
         chg_t c = {e, 0, 0, 0};
         if (!edit(ch_reset, &c, B_SEL) && tg.plays) player_fx_reload();
@@ -662,15 +667,17 @@ static int tap(int b)
     }
     if (b == B_ARP) return ui_punch_arp();              /* a punch-in's key held: held on (else the arpeggiator) */
     if (b == B_GLO) {                                   /* (titled whose setup it is: FX PROPERTIES FOR, its name) */
-        ui_prop_t items_[4];
-        int n = 0;
-        if (keys_song()) {
-            items_[n++] = (ui_prop_t){TX("TEMPO"), tempo_get, tempo_change, 0, 0, 0};
-            items_[n++] = (ui_prop_t){TX("SWING"), swing_get, swing_change, 0, 0, 0};
-        }
-        items_[n++] = (ui_prop_t){TX("ROUTING"), routing_get, is_dj() ? 0 : routing_change, 0, 0, 0};
-        if (!is_dj()) items_[n++] = (ui_prop_t){TX("KEYS, EVERYWHERE"), keys_get, keys_change, 0, 0, 0};   /* (DJ: no notes) */
-        ui_props(T("FX PROPERTIES FOR"), items_, n, B_GLO);
+        /* (the keys' song: TEMPO and SWING first; DJ: ROUTING fixed and no KEYS, no notes there) */
+        static const ui_prop_t ITEMS[4] = {{TX("TEMPO"), tempo_get, tempo_change, 0, 0, 0},
+                                           {TX("SWING"), swing_get, swing_change, 0, 0, 0},
+                                           {TX("ROUTING"), routing_get, routing_change, 0, 0, 0},
+                                           {TX("KEYS, EVERYWHERE"), keys_get, keys_change, 0, 0, 0}};
+        static const ui_prop_t DJ_ITEMS[3] = {{TX("TEMPO"), tempo_get, tempo_change, 0, 0, 0},
+                                              {TX("SWING"), swing_get, swing_change, 0, 0, 0},
+                                              {TX("ROUTING"), routing_get, 0, 0, 0, 0}};
+        int from = keys_song() ? 0 : 2;
+        if (is_dj()) ui_props(T("FX PROPERTIES FOR"), DJ_ITEMS + from, 3 - from, B_GLO);
+        else ui_props(T("FX PROPERTIES FOR"), ITEMS + from, 4 - from, B_GLO);
         ui_props_for(tg.name);
         return 1;
     }
@@ -683,8 +690,9 @@ static int tap(int b)
                 ui_keys_mix_set(key, key == 0 ? 0 : UI_KEYS_MIX_DEF[key]);
                 return 1;
             }
-            int r = fxt_mix_set(&tg, fx.mix_t, key, MIX_DEF[key], B_LFO);
-            if (r == -2) ui_toast(T("MEMORY FOR EDITS IS FULL"));
+            int r = fxt_mix_set(&tg, fx.mix_t, key, mix_new(fx.mix_t) ? loops_new_def()[key] : MIX_DEF[key], B_LFO);   /* (NEW: a
+                                                         * new loop's default) */
+            if (r == -2) ui_toast_t(TX("MEMORY FOR EDITS IS FULL"));
             return 1;
         }
         if (b == B_OCTM || b == B_OCTP) return 0;
@@ -708,16 +716,14 @@ static int tap(int b)
         return 1;
     }
     if (b == B_SEL) {
-        if (fx.move) { fx.move = 0; ui_toast(T("MOVED")); return 1; }
+        if (fx.move) { fx.move = 0; ui_toast_t(TX("MOVED")); return 1; }
         static ui_mitem_t m[3];
         int n = 0;
         if (!is_dj() && fx.page == EDIT) m[n++] = (ui_mitem_t){TX("MOVE"), 1, 0, 0};
         m[n++] = (ui_mitem_t){TX("RESET"), 2, 0, 0};
         if (fxt_unsaved(&tg)) m[n++] = (ui_mitem_t){TX("REVERT"), 3, 0, 0};
-        static char title[24];
-        ui_fmt(title, sizeof title, "%s", e == FE_SENDS ? T("SENDS") : T(FX_EFF[e].name));
         menu_e = e;
-        ui_menu("fx", title, m, n, menu_pick, B_SEL);
+        ui_menu("fx", e == FE_SENDS ? T("SENDS") : T(FX_EFF[e].name), m, n, menu_pick, B_SEL);   /* (it copies its title) */
         return 1;
     }
     if (b == B_EDIT && fx.page == LIVE) { fx.page = EDIT; fx.gate_edit = 0; fx.move = 0; return 1; }
@@ -840,7 +846,7 @@ static int back(void)
             if (!edit(ch_chain, 0, B_HOME) && tg.plays) player_fx_reload();
         }
         fx.sel = fx.move_sel;
-        ui_toast(T("NOT MOVED"));
+        ui_toast_t(TX("NOT MOVED"));
         return 1;
     }
     if (fx.gate_edit) {                                 /* HOME: dropping the changes */
@@ -852,7 +858,7 @@ static int back(void)
                 chg_t c = {FE_GATE, k, fx.gate_knob_was[k], 0};
                 if (!edit(ch_knob, &c, B_HOME)) sound_knob(FE_GATE, k);
             }
-            ui_toast(T("CHANGES DROPPED"));
+            ui_toast_t(TX("CHANGES DROPPED"));
         }
         return 1;
     }
@@ -946,6 +952,7 @@ static const char *footer(uint8_t *col)
     refresh();
     *col = C_LGREY;
     if (fx.page == MIXER && mix_keys(fx.mix_t)) return T("KEYS");
+    if (fx.page == MIXER && mix_new(fx.mix_t)) return T("NEW LOOP");
     if (fx.page == MIXER) { ui_fmt(b, sizeof b, "%s%s", tg.what == FT_LOOPS ? T("LOOP ") : T("TRACK "), ui_hex2(fx.mix_t)); return b; }
     int e = sel_e(), pm;
     if (e >= FE_N) return 0;

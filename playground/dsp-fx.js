@@ -12,7 +12,7 @@
  * are DJ's own, after them; PREVIEW splits the ears. */
 PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
     "use strict";
-    const SR = E.SR, BLK = E.BLK, TWO_PI = Math.PI * 2;
+    const SR = E.SR, BLK = E.BLK, U = E.U, TWO_PI = Math.PI * 2;   /* (U: the FM-1's block, dsp-core.js) */
     const DRIVE_BIAS = 2400 / 32768;                  /* DRIVE's bias into the clip: the even harmonics */
     const PUNCH_OUT = .08;                            /* a punch-in let go fades back into the mix (s) */
     const PUNCH_BUF = 6 * Math.round(SR * .5 / 6);    /* the punch-in buffer: the last 0.5 s, the device's (specs/files/ram.md) */
@@ -301,6 +301,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
             else if (m.t === "punch") punch(m.k, m.on);
             else if (m.t === "keysdry") fx.keysDry = !!m.on;    /* SETTINGS' KEYS: DRY (specs/ui/screens/fx.md#the-keys-dry) */
             else if (m.t === "keysmix") fx.keysMix = m.m;       /* FX MIXER's KEYS column: their PAN, DUCK and sends */
+            else if (m.t === "keysloop") fx.keysLoop = m.m;     /* LOOPS shown: the keys through a loop's mix (null: their own) */
             else if (m.t === "bypass") fx.bypass = m.on;
             else if (m.t === "bar") { if (m.deck != null && fx.decks) fx.decks[m.deck].anchor = m.time; else fx.anchor = m.time; }
             else if (m.t === "watch") fx.watch = m.on;
@@ -346,13 +347,25 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         /* LOOPS' stage (specs/ui/screens/loops.md#the-stage): a column of its own, carrying the mix of the loop's track it
          * stands for (fx.stageCol) but never its mute or a solo; as that track a DUCK source and a FILTER envelope's */
         const STAGE_T = E.STAGE, asStage = t => fx.stageCol != null && t === fx.stageCol;
-        const mixRow = t => {
-            if (t === KEYS_T) return Object.assign({ lvl: 127 }, fx.keysMix);  /* (the keys': their LVL is KEYS GAIN, on the voices) */
-            if (t === STAGE_T) return fx.stageCol != null && fx.stageCol !== STAGE_T ? mixRow(fx.stageCol) : null;
-            const row = fx.mixer && fx.mixer[t - fx.base];
-            return row ? Object.assign({}, row, fx.live[t]) : null;
+        /* track t's mix as it stands, into the one row `row` (no object made a call: it is read each block, and for each
+         * voice): its mixer row with a command's live values over it; the keys' their own (on LOOPS a loop's mix, its
+         * LEVEL too; else LVL 127, KEYS GAIN being on the voices); the stage its loop's. False: none */
+        const row = { lvl: 0, pan: 0, dck: 0, cho: 0, dly: 0, rev: 0 }, ROW_KEYS = Object.keys(row);
+        const rowOf = t => {
+            if (t === STAGE_T) return fx.stageCol != null && fx.stageCol !== STAGE_T && rowOf(fx.stageCol);
+            const keys = t === KEYS_T, base = keys ? fx.keysLoop || fx.keysMix : fx.mixer && fx.mixer[t - fx.base];
+            if (!base) return false;
+            const live = keys ? null : fx.live[t];
+            for (const k of ROW_KEYS) row[k] = live && live[k] !== undefined ? live[k] : base[k];
+            if (keys && !fx.keysLoop && base.lvl === undefined) row.lvl = 127;
+            return true;
         };
         fx.keysMix = { pan: 128, dck: 0, cho: 127, dly: 127, rev: 127 };
+        fx.keysLoop = null;
+        /* what the mix takes a track's notes at, before their mute: the half every voice enters at, its LEVEL, its DUCK
+         * now (the last block's dip): the pool's peaks and its -60 dB tests are on this scale, as the FM-1's voices'
+         * gains carry them (dsp-core.js) */
+        fx.levelOf = t => MIX * (rowOf(t) ? row.lvl / 127 : 1) * fx.duckG[t];
         function mixer(tracks, lo = 0, hi = tracks.length) {
             const S = fx.setup, sends = S && S.routing === "SENDS";
             const dL = fx.dryL, dR = fx.dryR;
@@ -367,12 +380,16 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 depth = kn("DUCK", 1) / 100;
                 fall = BLK / (kn("DUCK", 2) / 1000 * SR);
             }
+            fx.duckSrc = src;                            /* (DUCK's source in force: its muted notes keep their engines,
+                                                          * dsp-core.js; from the next block, as on the FM-1) */
             let level = 0;
             if (src >= 0 && tracks[src]) {
-                const r = mixRow(src);
-                for (const b of asStage(src) && tracks[STAGE_T] ? [tracks[src], tracks[STAGE_T]] : [tracks[src]])   /* (the stage as its loop) */
-                    for (let i = 0; i < BLK; i++) { const q = Math.abs(b[i]); if (q > level) level = q; }
-                level *= MIX * (r ? r.lvl / 127 : 1);
+                const lv = rowOf(src) ? row.lvl / 127 : 1;
+                for (let j = 0; j < 2; j++) {           /* (the source's track, then the stage as its loop) */
+                    const b = j ? (asStage(src) ? tracks[STAGE_T] : null) : tracks[src];
+                    if (b) for (let i = 0; i < BLK; i++) { const q = Math.abs(b[i]); if (q > level) level = q; }
+                }
+                level *= MIX * lv;
             }
             const d = fx.st.duck, to = Math.min(1, level * 4);
             d.env = src < 0 ? 0 : to > d.env ? to : Math.max(to, d.env - fall);
@@ -383,20 +400,22 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                 for (let i = 0; i < BLK; i++) { const q = b[i] < 0 ? -b[i] : b[i]; if (q > pk) pk = q; }
                 fx.levels[t] = Math.max(fx.levels[t] * .9, pk);
                 /* the dip this block, eased from the last block's over this one, so it never clicks */
-                const r = mixRow(t), dck = r ? r.dck / 127 : 0;
+                const r = rowOf(t), dck = r ? row.dck / 127 : 0;
+                let lvl = 1, pan = 0, cho = 0, dly = 0, rev = 0;
+                if (r) { lvl = row.lvl / 127; pan = (row.pan - 128) / 128; cho = row.cho / 127; dly = row.dly / 127; rev = row.rev / 127; }
                 const self = t === src || (t === STAGE_T && asStage(src));
                 const k0 = fx.duckG[t], k1 = src >= 0 && !self ? 1 - d.env * depth * dck : 1;
                 fx.duckG[t] = k1;
+                /* its mute: a ramp over the block's first U frames (the FM-1's block, 1.45 ms), as the FM-1 ramps a
+                 * mute; once at 0, the track's notes leave their engines at the block's end (dsp-core.js: ghosts) */
+                const m0 = fx.trackGain[t], m1 = fx.mutes[t] ? 0 : 1, dm = (m1 - m0) / U;
+                fx.trackGain[t] = m1;
                 if (!pk) continue;
-                let lvl = 1, pan = 0, cho = 0, dly = 0, rev = 0;
-                if (r) { lvl = r.lvl / 127; pan = (r.pan - 128) / 128; cho = r.cho / 127; dly = r.dly / 127; rev = r.rev / 127; }
-                const tg = fx.mutes[t] ? 0 : 1;
-                fx.trackGain[t] += (tg - fx.trackGain[t]) * .5;
-                const g = lvl * fx.trackGain[t] * MIX, dk = (k1 - k0) / BLK;
+                const g = lvl * MIX, dk = (k1 - k0) / BLK;
                 const gl = g * Math.min(1, 1 - pan), gr = g * Math.min(1, 1 + pan);
-                for (let i = 0; i < BLK; i++) { const x = b[i] * (k0 + dk * (i + 1)); dL[i] += x * gl; dR[i] += x * gr; }
+                for (let i = 0; i < BLK; i++) { const x = b[i] * (k0 + dk * (i + 1)) * (i < U ? m0 + dm * (i + 1) : m1); dL[i] += x * gl; dR[i] += x * gr; }
                 if (sends) {
-                    for (let i = 0; i < BLK; i++) { const x = b[i] * (k0 + dk * (i + 1)) * g; fx.sendCho[i] += x * cho; fx.sendDly[i] += x * dly; fx.sendRev[i] += x * rev; }
+                    for (let i = 0; i < BLK; i++) { const x = b[i] * (k0 + dk * (i + 1)) * (i < U ? m0 + dm * (i + 1) : m1) * g; fx.sendCho[i] += x * cho; fx.sendDly[i] += x * dly; fx.sendRev[i] += x * rev; }
                 }
             }
         }
@@ -495,9 +514,10 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
                     c.bufL[c.w & 4095] = xl; c.bufR[c.w & 4095] = xr;
                     c.ph += hz / SR;
                     const m = Math.sin(c.ph * TWO_PI);
-                    const rd = (dl) => { const r = c.w - dl * SR, ri = Math.floor(r), f = r - ri; return [ri & 4095, (ri + 1) & 4095, f]; };
-                    const [a0, a1, af] = rd(.004 + dep * (1 + m)), [b0, b1, bf] = rd(.004 + dep * (1 - m));
-                    const yl = c.bufL[a0] * (1 - af) + c.bufL[a1] * af, yr = c.bufR[b0] * (1 - bf) + c.bufR[b1] * bf;
+                    /* (each side's line read where its delay falls, between two samples: no object made a sample) */
+                    const ra = c.w - (.004 + dep * (1 + m)) * SR, ia = Math.floor(ra), af = ra - ia;
+                    const rb = c.w - (.004 + dep * (1 - m)) * SR, ib = Math.floor(rb), bf = rb - ib;
+                    const yl = c.bufL[ia & 4095] * (1 - af) + c.bufL[(ia + 1) & 4095] * af, yr = c.bufR[ib & 4095] * (1 - bf) + c.bufR[(ib + 1) & 4095] * bf;
                     c.w++;
                     if (wetOnly) { L[i] += yl * mix; R[i] += yr * mix; }
                     else { L[i] = xl * (1 - mix * .5) + yl * mix; R[i] = xr * (1 - mix * .5) + yr * mix; }
@@ -917,7 +937,7 @@ PTFM.dsp = (PTFM.dsp || []).concat(function (E) {
         /* the chain's DELAY / REVERB, not while ECHO THROW / REVERB SWELL holds the line / the plate */
         const taken = n => (n === "DELAY" && fx.dlyOver) || (n === "REVERB" && fx.revSwell);
         fx.process = function (tracks, L, R, t0) {
-            const dry = fx.keysDry && !fx.dj;
+            const dry = fx.keysDry && !fx.dj && !fx.keysLoop;   /* (on LOOPS never DRY: a loop's mix) */
             fx.ranDly = fx.ranRev = false;
             if (fx.dj) djMix(tracks, t0);
             else mixer(tracks, 0, dry ? KEYS_T : tracks.length);

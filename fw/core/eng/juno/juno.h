@@ -31,8 +31,12 @@
  *   juno_render(v, out, tick)         ADDS JUNO_N mono frames (16-bit scale) to out (times JUNO_OUT_Q16,
  *                                     the engine's output scale)
  *   juno_idle(v, tick)                a voice not rendered: its LFO runs on
- *   juno_skip(v, tick)                a sounding voice's block without its sound (parked): its envelope, LFO
- *                                     and oscillator go on
+ *   juno_skip(v, tick)                a sounding voice's block without its sound (what juno_forward's work stands
+ *                                     for): its envelope, LFO and oscillator go on
+ *   juno_forward(v, on, off, steps)   a note just started worked on over its time, in ticks, to where juno_skip's
+ *                                     ticks would leave its firmware loop (a ghost's return: ../fwd.h)
+ *   juno_heard(v)                     the most it still reaches, from its VCA (../fwd.h)
+ *   juno_release_ticks(patch)         the ticks after a let-go from which every note of the patch is silent
  *   juno_busy(v)                      still sounding
  *   juno_chorus_mode(patch)           0 off, 1 chorus I, 2 chorus II
  *   juno_chorus(c, mode, in, l, r)    a chorus bus: ADDS the stereo output of JUNO_N frames
@@ -40,6 +44,7 @@
 #ifndef JUNO_H
 #define JUNO_H
 #include <stdint.h>
+#include "../fwd.h"                      /* the forward work's contract, FWD_HELD */
 
 #define JUNO_N 64
 #define JUNO_PATCH_BYTES 18
@@ -104,7 +109,50 @@ void juno_cut(juno_voice_t *v);
 void juno_render(juno_voice_t *v, int32_t *out, int tick);
 void juno_idle(juno_voice_t *v, int tick);
 void juno_skip(juno_voice_t *v, int tick);
+/* the forward work (../fwd.h), in the firmware loop's ticks: the envelope, the LFO (its triangle, its sign, its delay)
+ * and what each tick makes from them (the cutoff's DAC value, the pitch, the pulse width, the VCA's target) come out as
+ * those ticks of juno_skip (and juno_note_off at the let-go) leave them, exactly, the cutoff's and the VCA's smoothing
+ * where they head; the oscillator's phase and the sub are left as the note on left them, and so are the filter's, the
+ * DC's and the HPF's states (as juno_skip leaves them). With no tick at all the note stands as its note on (and note
+ * off) left it. Its steps: the attack to its top a step; the DECAY and the RELEASE (calc_decay's ticks, truncated: no
+ * closed form over many) a stretch a step at 43 and up (while the distance's high byte and its low byte's band stand,
+ * each tick takes the same amount: 135 stretches at most, from anywhere), 4 ticks a step under 43 (544 ticks at most);
+ * the sustain and an ended release nothing; the LFO's move with the last tick a step, once for the held time and once
+ * for the release in each call; the note off a step. A call leaves *steps at -1 at the lowest (one entered with 1: a
+ * stretch, then the LFO's move and the last tick); its note off done once, its gate telling it was */
+int juno_forward(juno_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps);
+/* the most the note still reaches without a new stage rising (../fwd.h), on juno_render's scale, the note's level in
+ * it: its VCA (the larger of its target and where its smoothing stands; an attack still rising counted at its top),
+ * whose target holds level_q12 (the patch's VCA LEVEL x the level juno_note_on / juno_level gave: the player's lvl x
+ * its track's volume), times the output make-up and scale, as the filter's output at full scale (Q20's 1.0) would come
+ * out. So the player multiplies it only by what it applies to juno_render's output (pl_v_gain's PL_ENG_Q12 x the
+ * LEVEL's trim, the track's level and the rest), never by the level again. 0 with no patch, and for a voice cut.
+ * - The filter's output, measured (not proven: its resonance through the tanh, its seed noise, the DC coupling from
+ *   rest): 0.60 of full scale at the most (an adversarial search over every slider and switch, every note), so a
+ *   block peaks at 0.6 of juno_heard at the most with the HPF switch flat; high-passing (2, 3), measured too: 0.56
+ *   and 0.51 (a high-pass can briefly lift its input).
+ * - With the bass boost (the HPF switch's 0) four times that, by arithmetic on that measure: its two shelves' impulse
+ *   response is never negative, so its most gain is its gain at DC, exactly 3.35 by its table; 0.6 x 3.35 < 4.
+ * What forward_test asserts: a block peaks at most 1 over the larger of juno_heard before and after it, from a note's
+ * start (its filters at rest) through its release; with the HPF switch not flat, but for its filters' ringing once the
+ * VCA has fallen (their own memory, after the VCA): over a block k blocks before, at its juno_heard x (3/4)^k. For the
+ * instruments it stands far over their peaks (their filters, their oscillators' mix: forward_test prints how far) */
+int32_t juno_heard(const juno_voice_t *v);
+/* the ticks after its let-go from which every note of the patch (18 bytes) is silent, whatever its level: its VCA's
+ * gain at 0 for good (a release from its envelope's top until it is under JUNO_REL_SILENT, by RELEASE: a table
+ * fw/tools/gen_tables.py makes; the VCA's GATE: 1) */
+uint32_t juno_release_ticks(const uint8_t *patch);
 int juno_busy(const juno_voice_t *v);
 int juno_chorus_mode(const uint8_t *patch);
 void juno_chorus(juno_chorus_t *c, int mode, const int32_t *in, int32_t *l, int32_t *r);
+/* where juno_render stands (stores only, no effect on the sound): the part (JM_*), the voice and its patch as it
+ * began. On the FM-1 the bytes a watchdog restart keeps (PLAT_NOINIT), so PT/FM FROZE names the part; written by
+ * whichever core renders */
+enum { JM_TICK = 1, JM_DCO, JM_VCF, JM_VCA = JM_VCF + 4, JM_DONE };   /* (JM_VCF + the 16-frame quarter, 0-3) */
+typedef struct {
+    uint8_t at;
+    const juno_voice_t *v;
+    const uint8_t *p;
+} juno_mark_t;
+extern volatile juno_mark_t juno_mark;
 #endif

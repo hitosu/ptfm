@@ -3,8 +3,9 @@
 What changes in PT/FM from one version to the next: the firmware, its pages (install, emulator, editor, manual,
 site) and the demo disk. Between releases the top section, **Next version**, collects the changes made since the last
 release; at a release it takes that version's number and date, and the first change after it starts a new Next version
-above it. Earlier changes are in the
-git history.
+above it. A version is the firmware's: a change that leaves the firmware as it is (a page, the site, the manual) goes
+into the current version's section while no new firmware is on its way, and into Next version with it once one is.
+Earlier changes are in the git history.
 
 Each change is one entry, its kind first:
 
@@ -13,10 +14,265 @@ Each change is one entry, its kind first:
 - **BUG:** something fixed;
 - **REMOVED:** something taken out.
 
-## Next version
+## 1.0 (2026-11-23)
 
-- FEATURE: The site's landing shows the third video, WHAT'S NEW IN PT/FM 0.27: a card under the second video's, the
-  same kind.
+- FEATURE: The keys play as hard as you press them. The FM-1 reads how deep each key from F3 to C5 sits as it lands
+  (the carbon pill under it conducts more the harder it is pressed) and plays the note at that velocity, as a MIDI
+  note's: the instruments, the EDITOR's takes, LOOPS, the arpeggiator, MIDI OUT and MIDI CONTROLLER all take it. SETTINGS'
+  KEYS VELOCITY picks the curve, SOFT, NORMAL (at first) or HARD, or CONSTANT: every key at KEYS VOLUME, as before. The
+  top seven keys, C#5 to G5, cannot be read and play at the mean of the last four that were; a note sounds a
+  millisecond or two after its key goes down, as its press is read. The virtual FM-1's keys play harder the lower they
+  are pressed. A held key pressed harder makes its own notes louder, toward the loudest, and softer as it eases (on
+  LOOPS through the stage's lanes too); an EDITOR take and LOOPS' stage record it as volumes on the rows it changes on
+  (on the stage a note as loud as it was heard by its own row, a light landing pressed on at once included; in MONO the
+  key whose note sounds), and play it back smoothly (a take with volume slides, the stage gliding, a MONO stage and the
+  loop REC makes of it too). The debug build shows each press's readings on STATUS DEVICE and in its figures (each key at rest, the
+  last presses, so a RUN played soft and hard measures an FM-1's own keys), and its AUTOTEST's KEYS: VELOCITY feeds
+  presses to the FM-1's own velocity (KEYS FEED), checking each note's volume and MIDI OUT's, the keys at rest and the
+  scan's cost.
+- FEATURE: MIDI CONTROLLER's GENERAL mode sends aftertouch: a held key (F3 to C5) pressed harder than it rests sends
+  Channel Pressure, or each note's Polyphonic Key Pressure (SETTINGS' MIDI page, CONTROLLER AFTERTOUCH: CHANNEL at first,
+  POLY, OFF); none with KEYS VELOCITY CONSTANT. On the virtual FM-1, a held key dragged down.
+- FEATURE: AUTOMATIONS (HOME + OP6, last in HOME's round): 16 slots that record what you do on the FM-1, every key,
+  button and knob turn at its time (MIDI's learned controls as the controls they stand for; never MASTER), and play it
+  back. REC records from the screen you came from, starting at your first press; HOME + OP6 ends it, neither recorded.
+  PLAY goes to the recorded screen and plays it there once, in whatever state the FM-1 is in, a fast knob turn in the
+  steps it took when recorded; any key, button or knob of yours stops it, and MASTER stays yours. SELECT, ALGORITHM
+  or a white key picks a slot; SEL: RECORD, PLAY, COMPACT, CLEAR, REVERT. COMPACT shortens the slot's pauses while
+  nothing of it is held to 1, 0.5 or 0.3 s, so work on the screens plays back as fast as it can while held keys and
+  knob turns keep their time. From any screen HOME, ARP, then a white key plays that key's slot; with REC before
+  the white key it records into it there, and HOME, ARP, REC ends a recording where you are. While the FM-1 takes
+  no input (a save's progress) a playback's time stands still. SAVE keeps them, in a compact file of their own (about
+  1 KB a minute of busy playing); REVERT ALL, or a page writing to the FM-1, ends a recording or a playback. The
+  playground does the same, taking the controls a pass at a time as the firmware does.
+- FEATURE: The EDITOR page reads, edits and writes AUTOMATIONS: a system item, one on the FM-1 panel (DEFAULT while
+  the FM-1 holds none, and again once every slot is emptied) and any number on the TABLE (READ, WRITE, + NEW, the disks
+  and BACKUP carry it). Its tab lists the 16 slots and shows the picked one's events as a table in words (`KEY C-4
+  DOWN`, `SEL UP`, `K1 +2`): each event's time, gap, control and clicks edited, rows inserted and deleted, the
+  slot's screen changed, the rows the FM-1 skips or cancels in one pass grey, saying why; marked slots copied and pasted
+  into another file's AUTOMATIONS, asking before replacing slots that hold one.
+
+- FEATURE: LOOPS sets: SEL's STORE AS A SET, first of the menu's saves and loads, keeps all of LOOPS (every loop with
+  its notes, sound, mix, mute and solo, the length, the properties and LOOPS' own effects) under a number and a name of
+  its own, and LOAD A SET brings a set back, the loops stopped at their start: many jams on one FM-1. In the sets'
+  list EDIT renames a set and LFO deletes it; SAVE keeps them as any change. Moving, swapping or deleting an instrument
+  or a cartridge now counts the loops that play it, LOOPS' and the sets', among its uses, and YES makes them follow;
+  CLEAN UP keeps an instrument only a loop plays. The EDITOR page reads, writes, moves (with the cartridges their loops
+  play), downloads and plays sets, in a group of their own, LOOPS SETS. The playground does the same.
+- FEATURE: LOOPS can cut a loop: SEL's CUT HERE (or SEL held + EDIT) gives the selected loop a window from the loops'
+  start to the current position, and it wraps there while the length stays, running on across the length's end and
+  drifting against the other loops (loops of different lengths, phasing). SHIFT turns the loop's notes under the
+  window; REMOVE CUT (or SEL held + EDIT held) brings the whole loop back. The stage over a cut loop wraps there too.
+  The strip shows the whole loop with the notes past the mark dimmed, paged by where the cut loop plays so that place
+  is always on screen (the stage's over it too); SAVE TO PATTERN writes the first pass. An older
+  PT/FM plays a cut loop uncut. The EDITOR page and the playground do the same.
+- FEATURE: LOOPS: putting notes in and erasing by hand while stopped. Stopped with the stage on, the keys write at the
+  play position as they would were the loops playing, the loops and the play position standing still: a chord while
+  any key of it is held, each note as long as its key is held at TEMPO, drawn as it grows, OVERDUB and OVERWRITE as
+  ever; POLY four keys, MONO the first; the next insert at that row replaces it. PLAY with its keys held plays from
+  there, their notes growing on as long as the keys are held, each heard to its end in the first pass too; ALGORITHM
+  turned with them held ends their notes where they stand. LFO held + ALGORITHM erases the notes starting on each row
+  the play position moves across (ERASING). LFO used so switches nothing.
+- FEATURE: LOOPS: MOVE (SEL's menu) moves the selected loop up and down the list, SELECT a place a click, SEL keeping
+  it, HOME putting it back; SEL held + SELECT does the same a click at a time. A loop moves with its notes, sound,
+  colour, mix, mutes and solo. SEL's layer on LOOPS names both SEL + SELECT and SEL + ALGORITHM.
+- CHANGE: The DX7's voices answer velocity in their sound: a note's volume at its start (a cell's, a key's, a MIDI
+  note's) is its velocity for the operators that modulate, so harder is brighter, as each operator's KEY VEL SENS sets;
+  the operators heard stay at velocity 100, so the loudness is the volume's, as before. At volume 100 (`64`), or with
+  no KEY VEL SENS, a voice sounds as before.
+- CHANGE: LOOPS: the keys on the stage sound the moment they are pressed, with every QUANTIZE, and end when let go;
+  the stage still keeps each note on QUANTIZE's line and plays it there from the next pass. A key played early used to
+  wait for its line. POLY still plays 4 keys at most, MONO one, its MONO LEGATO now heard at the press. What the stage
+  keeps and plays is as before, and a song recording writes the keys as the stage keeps them.
+- CHANGE: The two cores share the voices by the work each block: the second core renders as many of the notes
+  sounding as evens out the two, at any VOICES while it runs (it rendered only notes past the tenth at VOICES 16, none
+  at 8 and 12). The same sound, with a full passage's work no longer mostly the first core's.
+- CHANGE: The EDITOR's realtime takes: a key sounds the moment it is pressed, with every QUANTIZE, and ends when let
+  go; its note is written on QUANTIZE's grid as before and plays there from the next pass. A note played early used to
+  wait for its line.
+- CHANGE: LOOPS: SEL held + ALGORITHM turns the selected loop's SHIFT a row a click (as ADJUST's K1), no longer the
+  play position a bar.
+- CHANGE: LOOPS: a new loop starts at LEVEL 40 with every send full, from defaults in GLO's properties (NEW LOOP LEVEL,
+  NEW LOOP CHORUS, DELAY and REVERB, saved with LOOPS; a properties list too long for the screen scrolls). FX
+  MIXER's last column on LOOPS is NEW in place of KEYS: the next loop's own mix, turned there or by K1-K4 on + NEW LOOP
+  for that one loop (not saved), the defaults again after REC makes it; the KEYS column's sends no longer go to a new
+  loop. The keys on LOOPS sound through the selected loop's mix (on + NEW LOOP NEW's), played freely while stopped too,
+  never through KEYS GAIN or DRY.
+- CHANGE: A SAVE that does not fit at once is saved in parts: as many whole things as fit, each part a save of its own,
+  the next once compaction has freed what the part replaced. A SAVE of changes alone (AUTO LEVEL ALL, an instrument's
+  edits) now asks NOT ENOUGH STORAGE TO SAVE only when one thing is bigger than all the free room, and its figure is
+  what that thing lacks. A deletion something new could be made from (a MOVE's) waits until the new thing is saved; a
+  power cut between parts leaves the parts before it saved. One progress bar across the parts.
+- CHANGE: LOAD FROM PATTERN (and LOAD A SET) checks the edit memory before the loops stop: refused, LOOPS stays as it
+  was and plays on. A REVERT that undoes a load leaves no solos.
+- BUG: LOOPS: a key's note no longer sounds on forever when ALGORITHM jumps over the row where it ends (a key let go or
+  held as the loops jump); it ends where they land.
+- BUG: LOOPS: the note keys lit only while stopped. They now light with their notes as on every screen, the stage on or
+  off: at the press, then by the note's loudness; in MONO a glide or a legato moves the light to the new key. A FUSION
+  key lights with its layers (it lit the keys of the notes its layers play).
+- BUG: LOOPS: a FUSION instrument on a loop of several lanes started its later layers, and slid their volumes, at the
+  volume of whichever of the loop's notes came last; each note now keeps its own lane's volume.
+- BUG: LOOPS: a MONO stage played a note held over the line on past it in the next pass (its end at row 0 was not
+  counted); it ends there now, as it was heard and as REC writes it. The playground does the same.
+- BUG: DX7: a released note on an algorithm where an operator adds into a modulators' bus (7-18, 20, 26, 27) counted
+  that operator as a carrier, so its voice stayed busy, silent, until that modulator's envelope ended; it ends with its
+  carriers now. The demo songs sound the same, bit for bit, at VOICES 8, 12 and 16.
+- BUG: DX7: a stored patch whose pitch envelope holds a rate or level past 99 (an imported dump's, say) read past the
+  engine's tables; it reads them at 99 now. Other values past 99 still play as stored.
+- BUG: LOOPS: a strip of 2, 3 or 4 lanes left up to 3 empty pixels under its last lane, like a fifth row. Its lanes now
+  sit in the middle, a pixel apart, as high as they fit, and the strips grew for them: a loop's from 14 to 17 px (its
+  notes 8, 5 or 3 px high at 2, 3 or 4 lanes, were 6, 4 and 2), the stage's from 18 to 19 px (9, 5 and 4, were 8, 5
+  and 3). The playground the same.
+- BUG: VISUAL LEVELS showed nothing while LOOPS played. Its meters are now the loops, a loop's number dark grey while it
+  is muted or silenced by a solo; the stage's notes show in the meter of the loop they sound as.
+- FEATURE: The EDITOR page's LOOPS tab edits more of LOOPS: each loop's mute and mix (LEVEL, PAN, DUCK and the three
+  sends), its place in the list and its deletion, a new loop's defaults, and the setup (QUANTIZE, MONO LEGATO, COUNT-IN,
+  the keys' POLY or MONO, VIEW and K1-K4's jobs beside TEMPO, TICKS A ROW and SWING). A LOOPS set now opens in the same
+  tab, with each loop's solo. The notes, the length and a cut stay the FM-1's.
+- CHANGE: The EDITOR page plays LOOPS and a LOOPS set on round their length until STOP, as LOOPS does, with no break
+  between passes. It used to rest a second after each pass and start the loops again.
+- CHANGE: The EDITOR page's LOOPS tab, while its loops play: every change is heard at once with the loops playing on, as
+  an edit on LOOPS (MUTE and SOLO, the mixer, TEMPO and the setup, the FX setup, an instrument, SHIFT, a loop moved or
+  deleted); each used to start them again. A LOOPS set's preview hears its solos. THE NOTES runs across, the rows left
+  to right and each lane three lines (notes, volumes, commands), where a loop of 128 rows was a tall list.
+- CHANGE: The EDITOR page is out of beta: its `BETA` mark is gone, from the page and the landing. What a page kept in
+  the browser stays.
+
+- FEATURE: Ghost notes: a note pushed out of the voices is no longer lost. A held note taken for a new one, past a
+  smaller VOICES, or when the second core stops, goes on unheard as a ghost, up to 24 at once (4 or 8 waited before),
+  still following everything played on it (its note off, slides, legato, bends, cuts, FILTER's envelope), and comes
+  back where it would be by then as soon as a voice frees, fading in; let go meanwhile, it comes back in its release.
+  A held ghost takes a ringing tail's voice to come back, so on LOOPS a pad pushed out in a busy bar is back at the
+  next bar line. VOICES caps the notes heard; up to 40 notes are kept (16 sounding, 24 ghosts). A muted loop or track
+  takes no voices: its notes keep time as ghosts and come back when it is heard again, so the voices go to what is
+  heard (DUCK's source's and a TB-303's muted notes keep theirs: DUCK still ducks while its source is muted). The
+  playground plays the same: there too a muted track's notes wait unheard, and a track's last note keeps following its
+  slides and its volume after its note off.
+- CHANGE: Ghost notes wait to come back while the first core is near its time (the load guard): in a half whose
+  counted work (the first core's sounding voices, the notes started and fades begun, DJ) is over the guard's cap, no
+  return begins or goes on, the next block tries again. Counted, never measured, so the FM-1, the emulator and the
+  playground decide alike. No demo song or DJ loop reaches it; DJ HEAVY's busiest halves, where a row starts many notes
+  over a full pool and the ghosts made then took the tails just let go, are back near 0.27's. The debug build's
+  ghosts' figures count the walks it held.
+- CHANGE: VISUAL: a muted track's notes have no VOICES tile and its LEVELS meter stays empty, as they take no voice
+  (DUCK's source's and a TB-303's sound on muted, their levels grey).
+- CHANGE: A save is made in silence: at SAVE all sound stops as CUT stops it (ringing notes, the effects' tails), and
+  comes back once the save is over. Nothing of the sound or the second core then runs between the save's flash steps.
+- BUG: A TUNE command on a sample instrument with a TUNE of its own (the demo disk's toms and congas have one) added
+  the two; it now sets the note's TUNE, as every parameter command sets its value. The playground already set it, and
+  now takes TUNE in the FM-1's steps of 1/64 semitone.
+- BUG: A held sample note looping FORWARD whose LOOP END a command turned under LOOP START ran its place out of the
+  sample and ended (on the FM-1; undefined on a computer). Its loop now stops there, as with LOOP OFF, and it plays on
+  to END. A note started on a loop with no room does not loop in the playground either, as on the FM-1.
+- BUG: A MIDI note played again at once was lost: a held note's off and its next on coming together (a sequencer's
+  repeated notes, back to back), or an on again without its off, left the key held, so the repeat played nothing and
+  was written nowhere (the EDITOR's REC, LOOPS' stage). The key is now let go, then pressed again a moment later; the
+  same for the learned controls and for the panel from a page (MIRROR), whose quick double taps were lost too.
+
+- CHANGE: The red PT/FM CRASH screen names who made a bad access: the debug unit's culprit registers in two rows
+  (`WR` the write limits hit by core 1, core 2 and the DMAs, `DMA` the one that hit one; `AXI W` / `R` the bus master
+  of an invalid write or read; `MMU W` / `R`), `CORE 2 RUNNING AT` where the second core was when the crash
+  paused it, and the second core's own fault: `CORE 2 FAULT AT` its PC, R its return address (it had shown where the
+  stopped core stood).
+- FEATURE: CORE 2 FAULTED at a start: a fault of the second core that no screen showed (it survives restarts and
+  installs until the power goes off) is shown once, its words and when it came.
+- CHANGE: The second core's fills and copies write only into the RAM: one aimed outside it (the crashes' invalid
+  write) is refused, the second core stops and the first goes on alone, STATUS' DEVICE naming the destination and the
+  caller, CORE 2 FAULTED after a restart too.
+- FEATURE: PT/FM FROZE. After a freeze (PT/FM stuck until the FM-1's watchdog restarts it), the next start shows where
+  it stood: the main loop (the store, drawing, a flash erase and its address ...) and when its last pass came; the
+  audio interrupt when it never finished (waiting for the second core, a flash read and its address, or where in
+  making the sound: the notes, the ghosts coming back, a voice and its engine, the part of a Juno-106 voice's render,
+  the effects, the output); whether the sound and the input went on after it; the second core's work handed over and
+  done, and its stop earlier in that run (why, when, where it stood); a crash that began in that run but never reached
+  its red screen; the core supplies as the run left them. A button goes on. An install's own restarts never show it.
+- FEATURE: The chip's core supplies are raised at every start, once the settings are read, to the levels the FM-1's
+  stock firmware sets (1.60 V, 1.38 V), from the boot loader's (1.40 V, 1.26 V), at which some FM-1s misread their
+  memory under load. SETTINGS' CORE SUPPLIES chooses: STOCK (the default) or LOWER, which leaves them at the boot
+  loader's levels from the next power-on.
+
+- CHANGE: Bigger letters where lists are read: menus, properties (GLO), SETTINGS and its MIDI page, the song list and
+  the cartridge list are drawn in the header's 8 × 16 letters instead of the small 6 × 12, rows of 16 pixels. Menus
+  span the screen's width, 11 items in view; properties show 11 lines, SETTINGS 12; the song and cartridge lists 10,
+  their names big and their figures small beside them on the same baseline (a song's length past 99:59 in hours and
+  minutes, `1H41`). A row too long for one line takes two, its value under its name (FX's KEYS, EVERYWHERE; a MIDI
+  mapping, its MIDI control and kind under the FM-1's control), and the row selected always shows whole; the MIDI page
+  with nothing learned says `NO MAPPINGS: EDIT ON LEARN`. A held button's layer is big when every line fits (SAVE's,
+  GLO's, LFO's help line, SEL's on most screens, LOOPS' ARP); the wide tables stay small (the pattern list, HOME's and
+  FX's layers, CHECK REFERENCES, CLEAN UP). The playground draws the same.
+- BUG: A held button's layer cut its keys to 10 characters: SEL held on the EDITOR's grid and on INSTRUMENTS while
+  browsing read `SELECT, AL: MARK ...`, and in a name being typed `SELECT IN : NEXT GROUP`. Every key reads in full
+  (SELECT, ALGORITHM; SELECT IN A NAME).
+- BUG: SEL held past its layer, then PRESETS: SEL's layer stayed over the cartridge list it opened. It now gives way
+  while the list shows, as GLO's does over its favourites.
+- CHANGE: STATUS PERFORMANCE: the CPU graph's last 30 seconds fill the whole box, 4 pixels a sample (a 2-pixel bar),
+  where they filled its right half.
+- CHANGE: One FAVORITES on the FM-1, the built-in FB. NEW CARTRIDGE and the cartridge list's NEW make no FAVORITES
+  cartridge and no FAVORITES cartridge has CLONE; ADD TO FAVORITES always adds into FB (no longer a choice of
+  cartridges), and on a sound FB holds already (with slots marked: every one of them) it reads REMOVE FROM FAVORITES and
+  takes it out of every slot of FB naming it (ALREADY IN FB:07 is gone); SEL + GLO and GLO + PRESETS use FB alone;
+  SEL + PRESETS (and MIDI's bank select) in a favourite's edit does nothing. The EDITOR's TABLE keeps any number of
+  FAVORITES: one moved onto the FM-1 panel replaces FB's favourites (asking first while FB holds some), of several moved
+  at once the bottom-most, and DOWNLOAD AS DISK puts one on the disk as FB, as that move does; UPLOAD DISK puts a disk
+  back as it is. The playground does the same.
+- FEATURE: DELETE CARTRIDGE in INSTRUMENTS' slot menu: the cartridge you are in deleted, as the cartridge list's DELETE
+  deletes it (asking about its uses when songs use it); not on a built-in cartridge.
+- BUG: A SAVE that took the FM-1 past the 560 records it lists (each song, sample and cartridge one, a pattern or a
+  LOOPS set one a part) lost the newest things at once (a new set gone from the list right after SAVE), and a later
+  power-on could drop others. Such a save is now refused before anything is written, the changes kept:
+  `TOO MANY RECORDS TO SAVE`, how many more, `DELETE SOMETHING, THEN SAVE`, OCT+ running CLEAN UP; a deletion
+  makes room once it is saved. The EDITOR page's WRITE, refusing a panel past the list, gives the panel's own count.
+  The playground does the same.
+- BUG: A MOVE, SWAP, a cartridge's MOVE or a DELETE answered YES with the edit memory nearly full could make part of
+  the change (the slots moved, some patterns or favourites following, the loops not) and save it. The room for the
+  whole change is now made first: refused, nothing changes and nothing is saved (`MEMORY FOR EDITS IS FULL`). The
+  playground already refused it whole.
+- BUG: CHECK REFERENCES never looked at the loops: it now lists LOOPS' loops and each LOOPS set's whose instrument is
+  gone (`LOOP 03: 0B:05`, `SET 02 LOOP 03: 0B:05`), after the other missing references and counted with them. The
+  playground does the same.
+- BUG: SETTINGS' TOOLS: AUTO LEVEL ALL measured a built-in cartridge once it had been changed and saved, which could
+  take more of the edit memory than SAVE had room for; it measures the user area's sounds alone now (a built-in
+  cartridge, changed or not, is measured from its own cartridge's menu), and its question counts them alone.
+
+- FEATURE: The debug build: the ghosts' figures (made, back, ended and dropped by kind, each engine's forward work
+  and its cost, the budget's use, the waits, the oldest note brought back; the GHOSTS stage under VOICES) and the
+  AUTOTEST's GHOST NOTES on LOOPS (20 held notes at VOICES 8 through mutes, a solo, VOICES changed, the keys over a
+  song and a long note).
+- BUG: The debug build's AUTOTEST: a LOOPS scenario run right after a DJ one (A BEAT without THE LOOP STATION before
+  it) no longer fails: it read LOOPS' tempo from the FM-1 while DJ, played last, still held the keys' tempo. LOOPS'
+  scenarios now let DJ go first (UNLOAD SONG).
+- FEATURE: The debug build's figures say what a stack read as used whole holds at its bottom (the bytes written there,
+  then the paint above them, and so how deep it went above them), on a line of their own: a word written at a
+  stack's very bottom read as the whole stack used, and a stack not painted at the start the same.
+- FEATURE: The debug build's AUTOTEST runs DJ HEAVY at VOICES 12 too (DJ HEAVY AT VOICES 12), beside VOICES 16: what
+  the notes ghost notes bring back cost at each count.
+- BUG: The debug build's AUTOTEST lost notes on LOOPS' stage now and then (KEYS: TB-303's 303 loops, GHOST NOTES' TB-303
+  line): it took the loops' pass to start when it first saw the playhead back at the start, which can be most of a row
+  late while the FM-1's main loop is slow, so every other chord landed on the row before it, replacing that row's. It
+  now takes the earliest start its looks over half a pass allow, and taps on the rows with passes of 50 ms too.
+- CHANGE: The debug build holds no help: every screen's help (HOME + LFO) is one page, `HELP IS STRIPPED IN THE DEBUG
+  BUILD`. The help's pages, about 10 KB, are the room the debug build's figures need in the firmware slot, where the
+  release keeps the help whole. The code that counts the ghosts' figures moved into the debug part, out of the slot,
+  too.
+- CHANGE: The firmware's texts are Huffman-coded on top of their tokens, about 1 KB less of the firmware slot, every
+  screen the same; a text takes a few microseconds more to unpack.
+
+- FEATURE: The EDITOR reads Juno-106 and Juno-60 banks as Juno-106 cartridges: `.syx` files of the Juno-106's patch
+  messages, the Juno-106 Librarian's `.106` libraries, `.pat` patch lists, and recordings of both machines' cassette
+  dumps, dropped as sounds (a sound that looks like one asks: CARTRIDGE or SAMPLE) or taken by the recorder, which
+  reads a take as it comes and offers SAVE AS CARTRIDGE. A Juno-106's patches come in exactly; a Juno-60's are
+  converted to the Juno-106 patches whose sound comes closest. Patches without names are PATCH00, PATCH01 ...
+- CHANGE: The EDITOR page: WRITE no longer names an item as removed when it only loses records (a pattern's part, an
+  AUTOMATIONS slot), and BACKUP takes an object whole as the FM-1 holds it, never old parts beside new ones.
+- BUG: The EDITOR page: a cartridge tab's empty slots line up with the others in its list again.
+- CHANGE: The EDITOR page's WRITE to an FM-1 whose PT/FM reads only the older LOOPS writes a cut loop as its first
+  pass and names it under NOT KEPT (`A LOOP'S CUT (PLAYED AS ITS FIRST PASS)`).
+- BUG: The playground's PLAYBACK: K4 TEMPO and K3 VOLUME moved a step a click however fast they were turned; a fast
+  turn takes KNOB SPEED's bigger steps now, as on the FM-1.
+- CHANGE: The manual follows 1.0: the AUTOMATIONS chapter (18), LOOPS' sets, CUT, MOVE and putting notes in and
+  erasing by hand, ghost notes, PT/FM FROZE and CORE 2 FAULTED in troubleshooting, the bigger lists, one FAVORITES,
+  CORE SUPPLIES, the 560 records, with pictures of a cut loop, MOVE, erasing by hand and VISUAL's LEVELS on LOOPS; the
+  demo disk's numbers in the data appendix and in MIDI's bank select are put right.
 
 ## 0.27 (2026-11-08)
 
@@ -357,3 +613,5 @@ Each change is one entry, its kind first:
   NEW and CLONE of a cartridge, which no longer go after the last. DELETE of a song frees its number, the other songs
   keep theirs, and it stops only that song if it plays.
 - BUG: SONGS' list showed songs that REVERT ALL had just taken away, until you left the screen.
+- FEATURE: The site's landing shows the third video, WHAT'S NEW IN PT/FM 0.27: a card under the second video's, the
+  same kind.

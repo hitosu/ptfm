@@ -12,11 +12,13 @@
 #include "rec.h"
 
 #define PL_TRACKS     16        /* a pattern's tracks at most */
-#define PL_VOICES     20        /* the voice pool's places: songs and the keys share them */
-#define PL_VOICES_MOST 16       /* the most notes take at once: 10 on core 1 and 6 on core 2 */
+#define PL_ENGINES    16        /* the voice pool's engines: the places VOICES counts (songs and the keys share them) */
+#define PL_VOICES     40        /* its voices: the notes it holds, those sounding in an engine and the ghosts, which have
+                                 * no engine */
+#define PL_VOICES_MOST 16       /* the most notes take at once: both cores (each block's split says whose a place is) */
 #define PL_VOICES_C1  12        /* the most on one core (core 2 not taking the halves) */
-#define PL_C2_FROM    10        /* at VOICES 16 core 1's places are the first 10, core 2's the next 6
-                                 * (specs/second-core.md#the-voices-on-core-2) */
+#define PL_C2_MOST    10        /* core 2's voices a block at most: its voice job's room; from the block's split on, the
+                                 * top places (specs/second-core.md#the-split) */
 #define PL_NO_NOTE    0xFF
 
 /* What plays: one thing at a time (specs/ui/transport.md#play). */
@@ -32,12 +34,26 @@ uint8_t player_voices_sounding(void);           /* (the debug build: the voices 
 typedef struct {                                /* (the debug build: core 2's voice jobs since the last call) */
     uint32_t jobs, us;                          /* the voice jobs handed over; their time summed (core 2's), us */
     uint32_t wait_sum, wait_max;                /* core 1's waits for them, us */
-    uint8_t most;                               /* the most of core 2's places sounding at once */
+    uint8_t most;                               /* the most voices in one job */
+    uint8_t low;                                /* the lowest split (PL_ENGINES: none counted) */
+    uint8_t fixed;                              /* 1: the debug switch's fixed split (player_split_fixed) */
+    int16_t margin;                             /* the split's margin now, units a block */
+    uint32_t k_sum, k_blocks;                   /* the split summed over the blocks core 2 took the voices' share in */
+    uint32_t v_sum;                             /* the voices summed over the jobs */
+    uint32_t waited;                            /* the jobs core 1 waited for at the join (not done when it got there) */
 } player_v2_t;
 void player_v2_figures(player_v2_t *f);         /* (and a new window started) */
+/* (the debug build: on, the split fixed as before it moved, places 11-16 core 2's at VOICES 16 and none at 8 and 12, and
+ * the load guard counting as then: AUTOTEST's "before", specs/debug.md) */
+void player_split_fixed(int on);
+void player_gh_figures(uint8_t *g);             /* (the debug build: the ghosts' figures, FIGURES 2's ghosts from their
+                                                 * 9th byte on, at g + 8, and a new window started) */
+void player_gh_fill(void);                      /* (the debug build's tests: every count of the window a value of its own,
+                                                 * the layout's round trip) */
 /* AUTO LEVEL's measurement (specs/files/instruments.md, LEVEL): instrument in's note alone, held 1 s of 1.2 s from
  * a clean start at unity gain; *ms the loudest 300 ms's mean square of (L + R) / 2 (16-bit scale), *peak either
- * side's. mem: its voices (size bytes, 8-aligned; a FUSION instrument's layers, a voice each, as many as fit).
+ * side's. mem: its notes (size bytes, 8-aligned; a FUSION instrument's layers, a voice and its engine each, as many as
+ * fit).
  * The main loop's (~826 blocks of each voice, each with the interrupts held back by lock / unlock: the platform's
  * plat_lock / plat_unlock; ~4.5 KB of stack). 1 measured, 0 none */
 int player_measure(pl_inst_t in, void *mem, uint32_t size, uint32_t (*lock)(void), void (*unlock)(uint32_t),
@@ -88,11 +104,13 @@ void player_store_changed(void);                /* the store was mounted or save
  * loop with the audio context held off; what plays reads it from its next row or note */
 void player_store_watch(uint8_t kind, uint8_t num, uint16_t id);
 void player_punch(int k, int down);             /* a punch-in (FX held + white key k, 0-15) pressed / let go */
-/* the EDITOR's realtime take (specs/ui/screens/editor.md#realtime-takes), its keys heard exactly as written: it wrote
- * track `track`'s cell at row `row` of the pattern loop. at 0: at once, its row started already: the cell's note sounds
- * now on the track as the replay would start it (its note delay EDx not waited for: it is played now), or with off the
- * track's note lets go now (a note off's, a key off's). Else the row's count (player_state().rows_played's there): the
- * replay plays it from the pattern when it gets there, or now if that row started before the cell was written */
+/* the EDITOR's realtime take (specs/ui/screens/editor.md#realtime-takes), its keys heard at once, written on the line:
+ * it wrote track `track`'s cell at row `row` of the pattern loop. The cell's note sounds now on the track as the replay
+ * would start it (its note delay EDx not waited for: it is played now), or with off the track's note lets go now (a
+ * note off's, a key off's). at 0: its row started already. Else the row's count (player_state().rows_played's there):
+ * still to come, the cell stands in for itself there that once: the replay does not start its note there (off: does not
+ * let the track's note go there) in this pass, then plays it as written; that row started already, read with the cell,
+ * it was heard there (nothing now) */
 void player_take_cell(int track, int row, uint32_t at, int off);
 
 /* ---- the FX screen ----
@@ -127,7 +145,8 @@ void player_fx_cost(uint32_t *us, uint32_t *halves);
 
 /* ---- VISUAL ---- */
 int player_master(int16_t *lr, int n);          /* the last n (<= 128) stereo frames out, interleaved */
-void player_levels(uint16_t *lv);               /* each track's peak since the last call, 0-32767 (16) */
+void player_levels(uint16_t *lv);               /* each track's peak since the last call, 0-32767 (16); while LOOPS
+                                                 * plays, each loop's */
 
 /* ---- another source of what plays (LOOPS; later a DJ deck) ----
  * Its "song" (TEMPO, TICKS A ROW, ROWS A BEAT, SWING, the flags, the global volume, its order, every track's
@@ -181,20 +200,24 @@ void player_lp_mutes_at_bar(uint32_t muted, uint32_t soloed, int bar_rows);
 /* A note on loop's lane, heard as it is written: at row `row` of the loops (when the replay starts it), or at once (row
  * < 0, a row already started, or one more than half the length away: past), its `delay` ticks (EDx) counted from then;
  * vol 00-7F (0xFF: the instrument's own); glide: a 3xx's xx (0 none; on a TB-303 any: a slide), or PL_LP_LEG: a legato
- * note (LEG). player_lp_off: the lane's note ends, the same way. A queue of 16 rows ahead; dropped when the loops stop;
- * a jump forward drops those for the rows it passes over (a jump back keeps them for when their rows come).
+ * note (LEG); | PL_LP_NOW: heard at once all the same, standing in for its cell at `row` (PL_LP_STAGE_KEYS' lanes 0-3:
+ * the stage's lane does not start it there, that once). player_lp_off: the lane's note ends, the same way. A queue of 16
+ * rows ahead; dropped when the loops stop; a jump forward drops those for the rows it passes over, its offs played where
+ * it lands (a jump back keeps them for when their rows come).
  * loop: 0-15 a loop's lanes, PL_LP_STAGE_KEYS the keys on the stage (below) */
 #define PL_LP_LEG 0x100u
+#define PL_LP_NOW 0x200u
 void player_lp_note(int loop, int lane, uint8_t note, uint8_t vol, int row, int delay, unsigned glide);
 void player_lp_off(int loop, int lane, int row);
 /* RECORD LIVE's tap (specs/ui/screens/loops.md#record-live): where notes enter the voices, an event in a ring for each
  * note that sounds and ends, whatever plays it: a lane's (the loops, the preview, the stage, its keys, the stage-off keys),
- * a key's on another screen, the pattern recorder's single notes. Only notes with a voice among the VOICES count: one given
- * none is not told; one losing it, taken or parked past the count, is told PT_LOST; a parked note coming back tells
- * nothing. A muted loop's notes are not heard, so not told; a change of the loops heard comes as PT_MUTE. An event per
- * note, never per frame; the audio context writes, the main loop reads. t: the low bits of the loops' replay's tick
- * (player_state().lp_ticks); note: 12-127 a note, else PT_*; fl: LF-style bits PTF_*, glide: its 3xx's xx. A lane holds
- * one note; PT_KEY's lane: a key's, told apart by its note. A ring too full loses the event (counted: player_tap_lost) */
+ * a key's on another screen, the pattern recorder's single notes. Only notes with an engine among the VOICES count: one
+ * given none (started as a ghost) is not told; one losing it, taken, past a smaller count or in a voice job core 2 lost
+ * (specs/second-core.md#start-switch-fallback), is told PT_LOST; a ghost coming back tells nothing. A muted loop's
+ * notes are not heard, so not told; a change of the loops heard comes as PT_MUTE. An event per note, never per frame;
+ * the audio context writes, the main loop reads. t: the low bits of the loops' replay's tick (player_state().lp_ticks);
+ * note: 12-127 a note, else PT_*; fl: LF-style bits PTF_*, glide: its 3xx's xx. A lane holds one note; PT_KEY's lane: a
+ * key's, told apart by its note. A ring too full loses the event (counted: player_tap_lost) */
 enum { PT_OFF, PT_LOST, PT_MUTE, PT_MOVE };     /* (a note's lane's: ends; its voice lost; the loops silent now are cart |
                                                  * slot << 8; lane's note goes on on lane vol, its source ch) */
 enum { PTF_ACC = 1, PTF_SLD = 2, PTF_LEG = 4, PTF_SLID = 8 };   /* its ACC, its SLD, its LEG, come by a TB-303's slide */
@@ -221,11 +244,13 @@ uint32_t player_tap_held(void);                 /* events waiting in the ring */
  *   of one row), an end counts only on the lane whose note sounds, as REC writes it (loops_stage_write): the merge
  *   counted from the stage's row 0, so a jump or an edit gives the same as playing it through. Switched to MONO, the
  *   notes of its lanes 1-3 end at its next row; POLY again, its lanes play their own from the next row.
- * - The keys on the stage (player_lp_note(PL_LP_STAGE_KEYS, lane, ...)): 4 lanes of their own, each note asked for at
- *   its landing row (ahead) or at once, with its note delay, glide, LEG or a TB-303's slide, in the stage's instrument,
- *   through the stage's column. A note asked for at a row ahead stands in for the stage's cell at that row and lane, that
- *   once (the stage's lane does not start it then: in MONO, the cell its merge takes), so a note is heard once as it is
- *   played, then from the stage each time the loops reach its row.
+ * - The keys on the stage (player_lp_note(PL_LP_STAGE_KEYS, lane, ...)): 4 lanes of their own, each note heard at once,
+ *   at its key's press (PL_LP_NOW), with its glide, LEG or a TB-303's slide, in the stage's instrument, through the
+ *   stage's column; its end at once, at its release. A note whose landing row (where QUANTIZE wrote it) is still ahead
+ *   stands in for the stage's cell at that row and lane, that once (the stage's lane does not start it then: in MONO, the
+ *   cell its merge takes), so a note is heard once as it is played, then from the stage each time the loops reach its
+ *   row. (A note or an end asked for at a row ahead without PL_LP_NOW is heard there, standing in for its cell too: an
+ *   insert's key held into PLAY, by its own time.)
  * - The keys while the stage is off (player_lp_note(PL_LP_STAGE_KEYS, 4 + lane, ...), lane 0 to PL_LP_OFF_LANES - 1):
  *   16 lanes more, each note at once, in the stage's instrument, through the stage's column, as the keys on it are, but
  *   standing in for nothing; the screen gives each POLY key a lane (as many as the pool's 16 voices can sound), MONO one,
@@ -349,6 +374,11 @@ void player_keys_dry(int on);
  * and the three sends; LEVEL is KEYS GAIN's, not read), one for every setup. PAN live; DUCK and the sends while the
  * keys go through the effects (not DRY), the sends in SENDS routing. From the next block */
 void player_keys_mix(const uint8_t *mix);
+/* LOOPS shown (specs/ui/screens/loops.md#the-instrument-and-mono-or-poly): the keys' own notes (their voices: the FM-1's
+ * keys, MIDI's notes) heard through a loop's mix (RM_*: its LEVEL, PAN, DUCK and sends, the selected loop's, on + NEW LOOP
+ * NEW's), as that loop's track is, in place of KEYS GAIN, the KEYS column and DRY; still the keys (DUCK's and FILTER's
+ * SOURCE KEYS). NULL: their own again. Copied; from the next block */
+void player_keys_loop(const uint8_t *mix);
 int32_t player_duck_env(void);          /* DUCK's level now, Q15 (FX EDIT's meter), the song's replay's */
 /* SONGS' play mode (specs/ui/screens/songs.md#the-play-modes): how a song ends while songs play, whatever its AT THE
  * END says: ONCE it stops, REPEAT it plays again (a looping one its own loop, one that stops from its start), NEXT
@@ -480,6 +510,9 @@ void player_arp_inst(pl_inst_t inst);           /* the current instrument change
  * instrument as a cell's would, through its cartridge's engine; a FUSION instrument plays its row. */
 void player_key_on(uint8_t note, pl_inst_t inst, uint8_t vel);
 void player_key_off(uint8_t note);
+/* key note's pressure (ui.c, specs/hardware.md#the-keys-velocity): its own sounding notes' level x g8 / 256 (the keys'
+ * voices, a FUSION's layers; not the arpeggiator's), till its next press or its release; 256 none */
+void player_key_press(uint8_t note, uint32_t g8);
 void player_keys_off(void);                     /* every key's note lets go */
 /* THE SAMPLES list's keys (specs/ui/screens/instruments.md#the-samples): a sample instrument's slot bytes, copied now,
  * that a key names as PL_KEYS_SAMPLE_CART:PL_KEYS_SAMPLE_SLOT (no cartridge has slot FF): what ENV would make of the
@@ -540,8 +573,9 @@ typedef struct {
     uint8_t voices_short;       /* the most at once over the last whole window of 17 halves (98.7 ms): STATUS's */
     uint8_t voices_long;        /* the most at once over the last 5 such windows (493 ms): the header's */
     uint8_t voice_count;        /* the limit in force: 8, 12 or 16 (16 is 12 while core 2 does not run) */
-    uint32_t steals;            /* voices taken from notes still sounding (a held one is parked) */
-    uint8_t parked;             /* held notes parked now: unheard, waiting for a free voice */
+    uint32_t steals;            /* engines taken from notes still sounding (a held one goes on as a ghost) */
+    uint8_t ghosts;             /* held notes without an engine now (ghosts): unheard, waiting for a free one, or (a
+                                 * muted track's) for an unmute */
     uint8_t hushed;             /* CUT on: the output silent */
     uint32_t muted;
     pl_track_t track[PL_TRACKS];
@@ -592,7 +626,8 @@ typedef struct {
 } player_state_t;
 void player_state(player_state_t *s, int reset_max);
 
-/* Each voice of the pool (STATUS, the scopes). */
+/* Each engine of the pool and the note sounding in it (STATUS, the scopes): entry i is engine i, the places VOICES
+ * counts first (a ghost has none: not shown). */
 enum { PL_ENG_NONE, PL_ENG_DX7, PL_ENG_JUNO, PL_ENG_TB303, PL_ENG_SAMPLER, PL_ENG_CHIP };
 typedef struct {
     int32_t pos;                /* a sample voice's place in its sample (the sampler's picture); -1 another voice */
@@ -602,8 +637,12 @@ typedef struct {
     uint8_t note;
     pl_inst_t inst;
     uint8_t level;              /* its loudness lately, 0-255 */
+    uint8_t key;                /* the note whose key lights with it (specs/ui/leds.md#keys): a key's (the key's own note,
+                                 * a FUSION's layers too), or on LOOPS a key's lane's (its note now: a glide's or a legato's
+                                 * there already); 0 none */
 } pl_voice_info_t;
-int player_voices_now(pl_voice_info_t *v, int max);     /* PL_VOICES entries at most */
-int player_scope(int voice, int16_t *dst, int n);       /* the voice's last n frames (n <= 64), mono */
+int player_voices_now(pl_voice_info_t *v, int max);     /* PL_ENGINES entries at most */
+int player_scope(int voice, int16_t *dst, int n);       /* engine `voice`'s last n frames (n <= 64), mono */
+int32_t player_gain_of(int note);       /* (the host tests: the gain of the held voice sounding that note, -1 none) */
 
 #endif

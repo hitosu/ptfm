@@ -4,10 +4,10 @@
 (demo-disk/patches/chip/chiptune.json) packed as its slot's bytes (tools/ptfm_records.py), at a low, a middle and
 two high notes, held 1 s and let go; one of them bent and one with a parameter command, the commands taken in turn;
 the engine's reference sound (specs/files/instruments.md); then random ones (a fixed seed): random settings, any
-note, parked a while (skipped, unheard), up to four more commands of any code and value. One scenario a line, for
-fw/tests/chip_test.c and fw/tests/chip_twin.js alike:
+note, skipped a while (its time going on unheard), up to four more commands of any code and value. One scenario a
+line, for fw/tests/chip_test.c and fw/tests/chip_twin.js alike:
 
-    SLOT(56 hex) NOTE BLOCKS OFF BEND_AT BEND64 PARAM_AT CODE VALUE PARK_FROM PARK_TO N [AT CODE VALUE]x N
+    SLOT(56 hex) NOTE BLOCKS OFF BEND_AT BEND64 PARAM_AT CODE VALUE SKIP_FROM SKIP_TO N [AT CODE VALUE]x N
                                                                                     (-1: none)
     python3 -I fw/tests/chip_scenarios.py [--quick]
 """
@@ -64,7 +64,8 @@ def main():
         code, value = PARAMS[k % len(PARAMS)]
         lines.append(f"{h} 60 {int(BLOCKS)} {OFF} 120 {150 - 300 * (k & 1)} 200 {code} {value} -1 -1 0")
         k += 1
-    # random: the fields' 121 bits at random (the rest, name and LEVEL, empty), any note, a park, more commands
+    # random: the fields' 121 bits at random (the rest, name and LEVEL, empty), any note, a stretch skipped, more
+    # commands
     rnd = random.Random(2610251)
     codes = sorted(set(c for c, _ in PARAMS) | set(range(0x40, 0x45)) | set(range(0x48, 0x53)) |
                    set(range(0x54, 0x5C)) | set(range(0x60, 0x65)) | set(range(0x68, 0x70)) | {0x45, 0x53, 0x70, 0x7F})
@@ -73,12 +74,12 @@ def main():
         b[15] &= 1                       # (bits 120-127: bit 120 the vibrato's depth, the name's from 121)
         blocks = rnd.randrange(80, 500)
         off = rnd.randrange(1, blocks) if rnd.random() < .8 else -1
-        park = sorted(rnd.sample(range(1, blocks), 2)) if rnd.random() < .5 else [-1, -1]
+        skip = sorted(rnd.sample(range(1, blocks), 2)) if rnd.random() < .5 else [-1, -1]
         cmds = [(rnd.randrange(0, blocks), rnd.choice(codes), rnd.choice((rnd.randrange(256), rnd.randrange(16))))
                 for _ in range(rnd.randrange(0, 5))]
         bend = rnd.randrange(-2000, 2000)
         lines.append(f"{bytes(b).hex()} {rnd.randrange(0, 128)} {blocks} {off} {rnd.randrange(-1, blocks)} {bend} -1 0 0 "
-                     f"{park[0]} {park[1]} {len(cmds)}" + "".join(f" {a} {c} {v}" for a, c, v in cmds))
+                     f"{skip[0]} {skip[1]} {len(cmds)}" + "".join(f" {a} {c} {v}" for a, c, v in cmds))
     print("\n".join(lines))
 
 

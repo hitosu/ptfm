@@ -75,6 +75,9 @@ static char rot[8][12];
 static unsigned nrot;                   /* (unsigned: it wraps, never negative) */
 const char *ui_hex2(int v) { char *b = rot[nrot++ % 8]; ui_fmt(b, 12, "%02X", v); return b; }
 const char *ui_dec(int v) { char *b = rot[nrot++ % 8]; ui_fmt(b, 12, "%d", v); return b; }
+const char *ui_txt_t(txt_t t, const char *v) { return ui_txt_v(T(t), v); }
+const char *ui_txt_h(txt_t t, int v) { return ui_txt_t(t, ui_hex2(v)); }
+const char *ui_txt_d(txt_t t, int v) { return ui_txt_t(t, ui_dec(v)); }
 void ui_ref_text(char *dst, uint16_t ref) { ui_fmt(dst, 8, "%02X:%02X", ref >> 8, ref & 255); }
 void ui_note_name(char *dst, int m)
 {
@@ -94,5 +97,11 @@ void ui_of(char *dst, int i, int n)
     ui_fmt(dst, 16, "%s/%s", a, b);
 }
 void ui_fmt_time(char *dst, uint32_t s) { ui_fmt(dst, 12, "%02u:%02u", s / 60, s % 60); }
+void ui_fmt_list_time(char *dst, uint32_t s)
+{
+    if (s < 6000u) ui_fmt_time(dst, s);                 /* (to 99:59) */
+    else if (s / 3600u > 99u) ui_fmt(dst, 12, "99H+");
+    else ui_fmt(dst, 12, "%uH%02u", s / 3600u, s / 60u % 60u);
+}
 /* a count of voices (specs/ui/colours.md) against the limit in force: red at it, yellow from 4 under it, light grey */
 int ui_voices_col(int n, int limit) { return n >= limit ? C_RED : n >= limit - 4 ? C_YELLOW : C_LGREY; }

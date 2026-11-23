@@ -35,25 +35,35 @@ void app_init(void)
 void app_poll(void)
 {
     if (app_ctl) {
+        plat_step(PLAT_STEP_CTL);
         ctlmode_poll();
         return;
     }
     if (app_ctl_asked && plat_ms() - app_ctl_t >= CTL_FADE_MS) {
         app_ctl = 1;                    /* (from here the tracker is never called again) */
-        ctlmode_start();
+        plat_step(PLAT_STEP_CTL);
+        ctlmode_start(ui_controller_aftertouch());   /* (CONTROLLER AFTERTOUCH as SETTINGS left it) */
         ctlmode_poll();
         return;
     }
+    plat_step(PLAT_STEP_SEED);          /* (each part as it runs: the freeze record's, plat.h) */
     seed_poll();                        /* seeding's time-out (10 s without a message: mount) */
     if (!seed_active()) {
+        plat_step(PLAT_STEP_STORE);
         store_poll();                   /* a SAVE under way, compaction */
+        plat_step(PLAT_STEP_AHEAD);
         ahead_poll();                   /* where the patterns about to play have their tracks */
     }
+    plat_step(PLAT_STEP_MIDI);
     midi_poll();                        /* what came in over MIDI (read even while seeding), MIDI OUT's state */
+    plat_step(PLAT_STEP_DJ);
     dj_poll();                          /* DJ's second deck's memory back to the spare zone once DJ has ended */
+    plat_step(PLAT_STEP_UI);
     ui_poll();                          /* input, the screens, LEDs; a seeding screen while seeding */
+    plat_step(PLAT_STEP_REMOTE);
     remote_poll();                      /* the state a page asked for */
 #ifdef PTFM_DEBUG
+    plat_step(PLAT_STEP_DEBUG);
     if (plat_dbg_part())
         dbg_poll();                     /* the figures the debug page asked for (the debug part's code) */
 #endif

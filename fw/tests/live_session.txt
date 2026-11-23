@@ -70,8 +70,10 @@ up PLAY
 36.3 keydown 17
 36.4 keyup 17
 37.0 up SEQ
-# (the quietest note, taken at row 45, is parked; it comes back as a voice comes free, nothing written of it, its note off neither)
-47.0 unheard 67
+# (the quietest note, taken at row 45, goes on as a ghost, unheard; at row 47 loop 05's four notes are let go and it comes
+# back into one of their tails' engines; nothing written of it, its note off neither)
+46.0 unheard 67
+47.0 heard 67
 # the stage overdubbed (QUANTIZE ROW): a key near its row, heard at once; one near the next, heard there; each key's end as
 # it lands; REC sends the stage on + NEW LOOP (a loop now, its note going on with it)
 48.2 keydown 12

@@ -226,13 +226,17 @@
                 D.text(0, Y0 + H - 11, F.T, "30", D.DGREY); D.text(108, Y0 + H - 11, F.T, "700", D.DGREY); D.text(210, Y0 + H - 11, F.T, "18K", D.DGREY);
                 return;
             }
-            /* LEVELS: a meter for each track */
-            const lv = A.stats.levels || [];
+            /* LEVELS: a meter for each track; LOOPS playing: each loop (the worklet's tracks 16 + the loop, the stage's
+             * column, STAGE_T, as the loop it sounds as), dark grey while muted or silenced by a solo */
+            const lv = A.stats.levels || [], onLoops = P.what === "loops", LL = M.state.loops.list;
+            const anySolo = LL.some(L => L && L.soloed);
+            const level = t => !onLoops ? lv[t] || 0 : Math.max(lv[16 + t] || 0, A.stageTrack === 16 + t ? lv[32] || 0 : 0);
+            const muted = t => !onLoops ? U.muted(t) : !!LL[t] && (anySolo ? !LL[t].soloed : LL[t].muted);
             for (let t = 0; t < 16; t++) {
-                const x = t * 15, h = Math.min(1, (lv[t] || 0) * g * 4) * (H - 20);
+                const x = t * 15, h = Math.min(1, level(t) * g * 4) * (H - 20);
                 D.rect(x + 2, Y0 + 2, 11, H - 20, D.DEEP + D.DGREY);
-                D.rect(x + 2, Y0 + H - 18 - h, 11, h, U.muted(t) ? D.DGREY : h > (H - 20) * .85 ? D.RED : D.GREEN);
-                D.text(x + 1, Y0 + H - 13, F.T, M.hex(t), U.muted(t) ? D.DGREY : D.CYAN);
+                D.rect(x + 2, Y0 + H - 18 - h, 11, h, muted(t) ? D.DGREY : h > (H - 20) * .85 ? D.RED : D.GREEN);
+                D.text(x + 1, Y0 + H - 13, F.T, M.hex(t), muted(t) ? D.DGREY : D.CYAN);
             }
         },
     });
@@ -251,7 +255,7 @@
         D.text(right ? right - D.tw(F.T, size) : x + 10 + D.tw(F.T, name) + 6, y, F.T, size, sizeCol);
     };
     /* (the FM-1's release build; LOOPS has no RAM of its own: its changes are edits, its lanes ~0.6 KB of SOUND) */
-    const RAM = { total: 512 * 1024, ramText: 4096, effects: 150050, screen: 57600 + 3840, dx7: 28676, sound: 22144 + 6400 + 614,
+    const RAM = { total: 512 * 1024, ramText: 4096, effects: 150050, screen: 57600 + 3840, dx7: 28676, sound: 24824 + 6400 + 614,
                   poolSystem: 8576 + 4096, variables: 49024, spare: 91472, dj: 13116 };
     const stat = { page: 0, up0: performance.now() };
     const kb = M.kb;
@@ -361,8 +365,10 @@
                 const gy = y + 106, gh = 100, g = S.graph || [], g2 = S.graph2 || [];
                 D.box(0, gy, 240, gh, D.DGREY);
                 for (const k of [50, 80]) D.hline(1, Math.round(gy + gh - k / 100 * gh), 238, D.DEEP + (k === 50 ? D.YELLOW : D.RED));
-                g.forEach((v, i) => { const h = Math.round(v / 100 * (gh - 2)); D.vline(239 - g.length * 2 + i * 2, gy + gh - 1 - h, h, cpuCol(v)); });
-                g2.forEach((v, i) => { if (v != null) D.rect(239 - g2.length * 2 + i * 2, gy + gh - 1 - Math.round(v / 100 * (gh - 2)), 2, 1, D.WHITE); });
+                /* (4 px a sample from the right, a 2-px bar and a 2-px gap; the 60th's bar 1 px, inside the box's edge) */
+                const bx = (n, i) => Math.max(1, 240 - (n - i) * 4), bw = (n, i) => 240 - (n - i) * 4 < 1 ? 1 : 2;
+                g.forEach((v, i) => { const h = Math.round(v / 100 * (gh - 2)); D.rect(bx(g.length, i), gy + gh - 1 - h, bw(g.length, i), h, cpuCol(v)); });
+                g2.forEach((v, i) => { if (v != null) D.rect(bx(g2.length, i), gy + gh - 1 - Math.round(v / 100 * (gh - 2)), bw(g2.length, i), 1, D.WHITE); });
                 D.text(2, gy + 2, F.T, "CPU, LAST 30 S", D.DGREY);
                 return;
             }
@@ -467,6 +473,9 @@
     /* VOICES 16 picked while the second core does not run: it counts as 12 till it runs (settings.md#voices) */
     function voicesTold(k) {
         if (k === "VOICES" && +U.set(k) === 16 && !A.c2On()) U.toast("16 VOICES: 12 WITHOUT CPU 2");
+        /* CORE SUPPLIES LOWER: raised supplies are never lowered, a power-off does it (the playground has none: said all
+         * the same) */
+        if (k === "CORE SUPPLIES" && U.set(k) === "LOWER") U.toast("LOWER FROM THE NEXT POWER-ON");
     }
     /* TOOLS' pick is no setting: never kept nor an edit, the first again at a power-on, SETTINGS' REVERT and REVERT ALL
      * (the firmware's settings read anew) */
@@ -517,25 +526,35 @@
             },
         });
     }
+    /* both pages in F.S (specs/ui/screens/settings.md#layout): rows of 16 px from y 19, 12 lines in view, the selected
+     * row whole and kept 5 lines down while it can; names at 4, values right-aligned to 236, on the next line when the
+     * row passes 29 characters; a mapping two lines, its FM-1 control, then its MIDI control and kind */
+    const LINES = 12;
+    /* an item, its name at 4 and its value right-aligned to 236 (on its row's second line when it has two) */
+    function itemRow(name, s, y, k, whole, on, col) {
+        if (on) D.box(0, y - 1, 240, U.ROW * k, D.WHITE);
+        D.text(4, y, F.S, name, on ? D.WHITE : D.CYAN);
+        if (whole) D.text(236 - D.tw(F.S, s), y + (k - 1) * U.ROW, F.S, s, on ? D.WHITE : col);
+    }
+    const midiValue = it => it.ctl ? "" : it.learn ? M.state.midi.length + " OF " + M.MIDI_MAX : fmt(it, U.set(it.k));
     function midiDraw() {
-        const ROWS = 14, n = midiRows(), top = U.clamp(set.msel - 6, 0, Math.max(0, n - ROWS));
-        for (let k = 0; k < Math.min(ROWS, n - top); k++) {
-            const i = top + k, y = Y0 + 3 + k * 15, on = i === set.msel;
-            if (on) D.box(0, y - 2, 240, 15, D.WHITE);
-            if (i < M.MIDI_SETTINGS.length) {
-                const it = M.MIDI_SETTINGS[i];
-                D.text(4, y, F.T, it.k, on ? D.WHITE : D.CYAN);
-                const s = it.ctl ? "" : it.learn ? M.state.midi.length + " OF " + M.MIDI_MAX : fmt(it, U.set(it.k)), def = it.learn || U.set(it.k) === it.def;
-                D.text(236 - D.tw(F.T, s), y, F.T, s, on ? D.WHITE : def ? D.LGREY : D.YELLOW);
-            } else {                                         /* a mapping: the FM-1's control, the MIDI one, its kind */
-                const mp = M.state.midi[i - M.MIDI_SETTINGS.length];
-                D.text(4, y, F.T, ctlName(mp.ctl), on ? D.WHITE : D.YELLOW);
-                D.text(94, y, F.T, midiName(mp), on ? D.WHITE : D.LGREY);
-                const kd = M.MIDI_KINDS[mp.kind];
-                D.text(236 - D.tw(F.T, kd), y, F.T, kd, on ? D.WHITE : D.DGREY);
-            }
+        /* the items (measured), MIDI CONTROLLER and LEARN (a line each), the mappings (two lines each) */
+        const nl = [];
+        for (let i = 0; i < midiRows(); i++) {
+            const it = M.MIDI_SETTINGS[i];
+            nl.push(!it ? 2 : it.ctl || it.learn ? 1 : U.rowLines(it.k, midiValue(it), 29));
         }
-        if (!M.state.midi.length && n - top < ROWS) D.text(4, Y0 + 3 + (n - top) * 15, F.T, "NO MAPPINGS YET: EDIT ON LEARN", D.DGREY);
+        const line = U.rowsDraw(set.msel, LINES, 5, nl, Y0 + 2, (i, y, k, whole, on) => {
+            const it = M.MIDI_SETTINGS[i];
+            if (it) { itemRow(it.k, midiValue(it), y, k, whole, on, it.learn || U.set(it.k) === it.def ? D.LGREY : D.YELLOW); return; }
+            if (on) D.box(0, y - 1, 240, U.ROW * k, D.WHITE);
+            const mp = M.state.midi[i - M.MIDI_SETTINGS.length];   /* a mapping: the FM-1's control; under it the MIDI one, its kind */
+            D.text(4, y, F.S, ctlName(mp.ctl), on ? D.WHITE : D.YELLOW);
+            if (!whole) return;                              /* (its first line alone at the bottom) */
+            const r = [[midiName(mp), on ? D.WHITE : D.LGREY], ["  ", D.LGREY], [M.MIDI_KINDS[mp.kind], on ? D.WHITE : D.DGREY]];
+            D.runs(236 - r.reduce((a, x) => a + D.tw(F.S, x[0]), 0), y + U.ROW, F.S, r);
+        });
+        if (!M.state.midi.length) D.text(4, Y0 + 2 + line * U.ROW, F.S, "NO MAPPINGS: EDIT ON LEARN", D.DGREY);
     }
     /* CHECK REFERENCES' answer: what is missing, a line each, the first `count` of them counted in the title (the old-form
      * samplers after them are not); SELECT scrolls, HOME closes */
@@ -582,9 +601,9 @@
         if (t === "CHECK STORAGE") { U.progress("CHECKING STORAGE", 600, () => U.toast("STORAGE OK")); return; }
         if (t === "CHECK REFERENCES") {
             /* every reference to something that is not there: a cell's instrument, a song position's or a FUSION slot's
-             * pattern, a favourite's source, a sample instrument's sample. What names an old-form sampler is none
-             * (specs/files/references.md: kept for a page to convert): each old sampler is listed once after them,
-             * OLDER FORM, and not counted */
+             * pattern, a favourite's source, a sample instrument's sample, a loop's instrument. What names an old-form
+             * sampler is none (specs/files/references.md: kept for a page to convert): each old sampler is listed once
+             * after them, OLDER FORM, and not counted */
             const miss = [], older = id => M.olderAt(id);
             for (const p of M.state.patterns) if (p && p.n !== M.EDITOR_PATTERN) p.cells.forEach((c, i) => {   /* (its own never by number) */
                 if (c && c.inst != null && !M.inst(c.inst) && !older(c.inst >> 8))
@@ -598,6 +617,10 @@
                 if (c.type === "FAVORITES" && sl && M.favMissing(sl) && !older(sl.src >> 8)) miss.push("FAVORITE " + M.refText(c.id << 8 | j) + ": " + M.refText(sl.src));
                 if (c.type === "SAMPLER" && sl && !M.sample(sl.p.sample)) miss.push("SAMPLER " + M.refText(c.id << 8 | j) + ": SAMPLE " + M.hex(sl.p.sample));
             });
+            [[-1, M.state.loops]].concat(M.setNums().map(n => [n, M.state.lsets[n].loops])).forEach(([n, j]) => j.list.forEach((l, i) => {
+                if (!M.inst(l.inst) && !older(l.inst >> 8))    /* (LOOPS' loops, then each set's: SET 02 LOOP 03: 0B:05) */
+                    miss.push((n < 0 ? "" : "SET " + M.hex(n) + " ") + "LOOP " + M.hex(i) + ": " + M.refText(l.inst));
+            }));
             const olds = M.state.older.map(o => o.id).sort((a, b) => a - b).map(id => "CARTRIDGE " + M.hex(id) + ": OLDER FORM");
             U.progress("CHECKING", 600, () => miss.length || olds.length ? missingList(miss.concat(olds), miss.length) : U.toast("NO MISSING REFERENCES"));
         }
@@ -713,14 +736,10 @@
         },
         draw() {
             if (set.page === 1) { midiDraw(); return; }
-            /* 14 rows show; more scroll, the selected one kept in the middle while it can */
-            const ROWS = 14, top = U.clamp(set.sel - 6, 0, Math.max(0, M.SETTINGS.length - ROWS));
-            M.SETTINGS.slice(top, top + ROWS).forEach((it, k) => {
-                const i = top + k, y = Y0 + 3 + k * 15, on = i === set.sel, v = val(it.k);
-                if (on) D.box(0, y - 2, 240, 15, D.WHITE);
-                D.text(4, y, F.T, it.k, on ? D.WHITE : D.CYAN);
-                const s = fmt(it, v), col = it.k === "THEME" ? D.LMAGENTA : v === it.def ? D.LGREY : D.YELLOW;
-                D.text(236 - D.tw(F.T, s), y, F.T, s, on ? D.WHITE : col);
+            const nl = M.SETTINGS.map(it => U.rowLines(it.k, fmt(it, val(it.k)), 29));
+            U.rowsDraw(set.sel, LINES, 5, nl, Y0 + 2, (i, y, k, whole, on) => {
+                const it = M.SETTINGS[i], v = val(it.k);
+                itemRow(it.k, fmt(it, v), y, k, whole, on, it.k === "THEME" ? D.LMAGENTA : v === it.def ? D.LGREY : D.YELLOW);
             });
         },
     });

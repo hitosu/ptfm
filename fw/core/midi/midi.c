@@ -119,55 +119,87 @@ const char *midi_kind_name(int kind) { return kind >= 0 && kind < 6 ? T(KIND_NAM
 
 /* ------------------------------------------------- what reaches the FM-1's input --- */
 /* Held, fresh (pressed since the last merge) and released-while-fresh: a press and its release that come
- * between two passes are still seen as a press, then a release. */
-static uint32_t btn_held, btn_fresh, btn_rel;
-static uint32_t key_held, key_fresh, key_rel;
-static uint32_t key_shown;              /* the keys the last merge showed held by MIDI (their velocity counts) */
+ * between two passes are still seen as a press, then a release. And the other way round: a control the last
+ * merge showed held, let go and pressed again before the next (a sequencer's repeated notes, back to back), is
+ * shown let go by the next merge and pressed by the one after (let go again since: a tap there). */
+typedef struct {
+    uint32_t held, fresh, rel;
+    uint32_t shown;                     /* what the last merge showed held (the keys: their velocity counts) */
+    uint32_t again, again_rel;          /* pressed again since then (and let go again): for the merge after next */
+} ctls_t;
+static ctls_t in_btn, in_key;
 static int16_t knob_add[K_COUNT];
 static int16_t knob_pre[K_COUNT];       /* the clicks before the first press since the last merge (knob_pre_on) */
 static uint8_t knob_pre_on;
-static uint8_t key_vel[27];             /* a key held by a MIDI note: its velocity */
+static uint8_t key_vel[27];             /* a key held by a MIDI note: its velocity; by MIRROR: 0x80 | its Note On's */
 static uint8_t note_key[128];           /* a MIDI note on: 1 + the key it holds; 0xFF: played past the keys */
 static uint8_t sustained[16];           /* notes whose note off waits for the sustain pedal */
 static uint8_t pedal;
 
-static void press(uint32_t *held, uint32_t *fresh, uint32_t *rel, int i, int down)
+static void press(ctls_t *c, int i, int down)
 {
     uint32_t b = 1u << i;
     if (down) {
+        if (c->shown & ~c->held & b) {          /* shown held, let go since: shown let go first */
+            c->again |= b;
+            c->again_rel &= ~b;
+            return;
+        }
         if (!knob_pre_on) {                     /* the clicks so far came before this press */
             memcpy(knob_pre, knob_add, sizeof knob_pre);
             knob_pre_on = 1;
         }
-        *held |= b;
-        *fresh |= b;
-        *rel &= ~b;
-    } else if (*held & b) {
-        if (*fresh & b)
-            *rel |= b;                  /* (seen once more as held, then let go) */
+        c->held |= b;
+        c->fresh |= b;
+        c->rel &= ~b;
+    } else if (c->again & b) {
+        c->again_rel |= b;              /* (let go again before it was shown pressed) */
+    } else if (c->held & b) {
+        if (c->fresh & b)
+            c->rel |= b;                /* (seen once more as held, then let go) */
         else
-            *held &= ~b;
+            c->held &= ~b;
     }
+}
+
+/* after a merge: what was let go while fresh goes; what was pressed again is pressed now, for the next one. 1: some */
+static int settle(ctls_t *c)
+{
+    uint32_t a = c->again;
+    c->held = (c->held & ~c->rel) | a;
+    c->fresh = a;
+    c->rel = c->again_rel;
+    c->again = c->again_rel = 0;
+    return a != 0;
 }
 
 void midi_merge(plat_input_t *in)
 {
     int k;
-    in->buttons |= btn_held;
-    in->notes |= key_held;
-    key_shown = key_held;
+    in->buttons |= in_btn.held;
+    in->notes |= in_key.held;
+    in_btn.shown = in_btn.held;
+    in_key.shown = in_key.held;
     for (k = 0; k < K_COUNT; k++) {             /* (no press since the last merge: every click came before one) */
         in->knob[k] = (int16_t)(in->knob[k] + knob_add[k]);
         in->knob_pre[k] = (int16_t)(in->knob_pre[k] + (knob_pre_on ? knob_pre[k] : knob_add[k]));
         knob_add[k] = 0;
     }
     knob_pre_on = 0;
-    btn_held &= ~btn_rel;
-    key_held &= ~key_rel;
-    btn_fresh = btn_rel = key_fresh = key_rel = 0;
+    if (settle(&in_btn) | settle(&in_key)) {   /* (pressed again: before any click still to come) */
+        memset(knob_pre, 0, sizeof knob_pre);
+        knob_pre_on = 1;
+    }
 }
 
-int midi_key_vel(int n) { return n >= 0 && n < 27 && ((key_held | key_shown) >> n & 1u) ? key_vel[n] : 0; }
+int midi_key_vel(int n)
+{
+    return n >= 0 && n < 27 && ((in_key.held | in_key.shown) >> n & 1u) && !(key_vel[n] & 0x80u) ? key_vel[n] : 0;
+}
+int midi_mirror_vel(int n)
+{
+    return n >= 0 && n < 27 && ((in_key.held | in_key.shown) >> n & 1u) && (key_vel[n] & 0x80u) ? key_vel[n] & 0x7F : 0;
+}
 
 /* ------------------------------------------------- MIRROR: the panel from a page ---
  * (specs/connections.md#mirror-the-panel-from-a-page) The PT/FM controller's mirror messages on MIRROR's
@@ -182,9 +214,9 @@ static struct {
 static void mirror_let_go(void)
 {
     for (int i = 0; i < B_COUNT; i++)
-        if (mir.btn >> i & 1u) press(&btn_held, &btn_fresh, &btn_rel, i, 0);
+        if (mir.btn >> i & 1u) press(&in_btn, i, 0);
     for (int i = 0; i < 27; i++)
-        if (mir.key >> i & 1u) press(&key_held, &key_fresh, &key_rel, i, 0);
+        if (mir.key >> i & 1u) press(&in_key, i, 0);
     mir.btn = mir.key = 0;
 }
 
@@ -222,15 +254,16 @@ static void mirror_msg(uint8_t type, uint8_t d1, uint8_t d2)
     if (type == 9u || type == 8u) {     /* a key: note 53 + k */
         int k = (int)d1 - 53, down = type == 9u && d2;
         if (k < 0 || k >= 27) return;
-        key_vel[k] = 0;                 /* (it plays as the FM-1's key: KEYS VOLUME) */
-        press(&key_held, &key_fresh, &key_rel, k, down);
+        key_vel[k] = (uint8_t)(0x80u | (down ? d2 & 0x7Fu : 0u));   /* (it plays as the FM-1's key: its velocity
+                                                 * heard as the key's own, KEYS VELOCITY on) */
+        press(&in_key, k, down);
         if (down) mir.key |= 1u << k; else mir.key &= ~(1u << k);
         return;
     }
     if (type != 11u) return;
     if (d1 >= 102u && d1 < 102u + B_COUNT) {    /* a button: CC 102 + id */
         int b = d1 - 102, down = d2 > 0;
-        press(&btn_held, &btn_fresh, &btn_rel, b, down);
+        press(&in_btn, b, down);
         if (down) mir.btn |= 1u << b; else mir.btn &= ~(1u << b);
     } else if (d1 >= 20u && d1 < 20u + K_COUNT) {   /* a knob: CC 20 + id, relative */
         int clicks = d2 < 64u ? d2 : d2 > 64u ? (int)d2 - 128 : 0;
@@ -671,13 +704,12 @@ static void control(int i, int val)
     }
     if (m.ctl < MC_COUNT) {
         int down = m.kind == MK_TOGGLE ? 1 : val > 0, b = m.ctl < MC_KEY ? m.ctl - MC_BUTTON : m.ctl - MC_KEY;
-        uint32_t *h = m.ctl < MC_KEY ? &btn_held : &key_held, *f = m.ctl < MC_KEY ? &btn_fresh : &key_fresh,
-                 *r = m.ctl < MC_KEY ? &btn_rel : &key_rel;
+        ctls_t *c = m.ctl < MC_KEY ? &in_btn : &in_key;
         if (m.ctl >= MC_KEY)
             key_vel[b] = 0;             /* (a pad on a key plays at KEYS VOLUME) */
-        press(h, f, r, b, down);
+        press(c, b, down);
         if (m.kind == MK_TOGGLE)
-            press(h, f, r, b, 0);       /* a tap on each press */
+            press(c, b, 0);             /* a tap on each press */
     }
 }
 
@@ -692,7 +724,7 @@ static void note_on(uint8_t note, uint8_t vel)
     sustained[note >> 3] &= (uint8_t)~(1u << (note & 7u));
     if (n >= 0 && n < 27) {
         key_vel[n] = vel;
-        press(&key_held, &key_fresh, &key_rel, n, 1);
+        press(&in_key, n, 1);
         note_key[note] = (uint8_t)(n + 1);
         return;
     }
@@ -710,7 +742,7 @@ static void note_end(uint8_t note)
     if (k == 0xFFu)
         player_key_off(note);
     else if (k)
-        press(&key_held, &key_fresh, &key_rel, k - 1, 0);
+        press(&in_key, k - 1, 0);
 }
 
 static void note_off(uint8_t note)
@@ -750,12 +782,12 @@ static void program(int p)              /* the cartridge's p-th used slot, as PR
 }
 
 static void bank(int b)                 /* the b-th cartridge in the lists' order (FAVORITES first), at its first used
-                                         * slot; in INSTRUMENTS' edit mode only one of the edit's own sort (as SEL +
-                                         * PRESETS there: a favourite's a FAVORITES cartridge, an instrument's another) */
+                                         * slot; in INSTRUMENTS' edit mode as SEL + PRESETS there: an instrument's
+                                         * a cartridge but a FAVORITES one, a favourite's none */
 {
     uint8_t nums[256];
     int n = ui_carts(nums, 256), e = scr_instr_edit();
-    if (b < n && (!e || (ui_cart_kind(nums[b]) == ENG_FAV) == (e == 2)))
+    if (b < n && (!e || (e == 1 && ui_cart_kind(nums[b]) != ENG_FAV)))
         ui_set_inst((uint16_t)(nums[b] << 8 | ui_cart_first(nums[b])));
 }
 

@@ -758,6 +758,58 @@ const key = r => r.kind + "." + r.num + "." + r.sub;
         no(dimHolder, kit.id, C2, /CANNOT READ/, "a cartridge the page cannot read holds the number");
     }
 
+    /* ---- a LOOPS set (specs/editor.md, items; specs/files/loops.md#sets): its group, name and DETAILS; moved with the
+     * cartridge its loop plays (and its samples), at a number of its own; on a disk and back; renumbering its cartridge
+     * follows; nothing refers to it; DELETE, ALSO WHAT ONLY IT USES taking its cartridge ---- */
+    {
+        const C2 = 0xA1, percL = L0.find(i => i.orig === C2 && M.isCart(i.kind));
+        const lset = (name, c, solos, length) => {   /* one loop naming c:03, a note at row 0; `length` rows at 1/16, 4 beats a bar */
+            const fx = new Uint8Array(64); fx[11] = 4;
+            const parts = R.packLoops({ tempo: 120, ticks: 6, countIn: 0, legato: 1, swing: 50, grid: 0, quantize: 0, nextMono: 0, n: 1, selected: 0,
+                length, fx, mix: [64, 128, 0, 127, 127, 127], view: 2, jobs: [0, 1, 5, 6], loops: [{ cart: c, slot: 3, colour: 0, mono: 0, muted: false,
+                lanes: 1, base: length, repeat: 1, shift: 0, mixer: [127, 128, 0, 0, 0, 0], cells: new Map([["0,0", { note: 60, ins: -1, vol: 100, cmds: [] }]]) }] });
+            const p0 = new Uint8Array(16 + parts[0].length);
+            p0.set(R.packName(name, 16), 0); p0[12] = solos & 255; p0[13] = solos >> 8; p0.set(parts[0], 16);
+            return [p0].concat(parts.slice(1));
+        };
+        const ps = lset("SUNDAY JAM", C2, 1, 64);
+        const one = M.fromRecords([{ kind: K.LSET, num: 3, sub: 0, ver: 1, payload: ps[0] }, { kind: K.SAMPLER, num: C2, sub: 0, ver: 2,
+            payload: percL.recs[0].payload }], { side: "L", src: "SETS.PTFMDSK" }).items;
+        const set = one.find(i => i.kind === K.LSET);
+        check(set && M.groupOf(set) === "LOOPS SETS" && M.nameOf(set, one) === "SUNDAY JAM" && M.kindText(set, one) === "SET · 1 LOOP · 4 BARS · TEMPO 120" &&
+            M.refs(set).length === 1 && M.refs(set)[0].sp === "c" && M.refs(set)[0].num === C2 && M.refs(set)[0].at === 16 + 80,
+            "a LOOPS set: LOOPS SETS, its name, DETAILS' SET · 1 LOOP · 4 BARS · TEMPO 120, its loop naming the cartridge: " + (set && M.kindText(set, one)));
+        const half = M.fromRecords([{ kind: K.LSET, num: 4, sub: 0, ver: 1, payload: lset("HALF", C2, 0, 72)[0] }], { side: "L" }).items[0];
+        check(M.kindText(half, [half]) === "SET · 1 LOOP · 4.5 BARS · TEMPO 120" && M.nameOf(half, [half]) === "HALF", "a part bar: 4.5 BARS");
+        /* moved with its cartridge, the cartridge's samples with it */
+        const sL = Object.assign({}, set, { link: { [M.lk("c", C2)]: percL.id } });
+        let mv = M.transfer({ L: L0.concat([sL]), R: [], base: [], fm1: {} }, "L", [sL.id], {});
+        const sR = mv.ok && mv.st.R.find(i => i.kind === K.LSET), pR = mv.ok && mv.st.R.find(i => i.kind === K.SAMPLER);
+        check(mv.ok && sR && pR && sR.num === 3 && pR.num === C2 && sR.recs[0].payload[96] === C2 && mv.st.R.some(i => i.kind === K.SAMPLE) &&
+            sR.link[M.lk("c", C2)] === pR.id, "moved to the FM-1 panel: at its number (03), with the sampler its loop plays and its samples: " + mv.msg);
+        check(!M.canRenumber(sR) && ![...(M.users(mv.st.R).get(sR.id) || [])].length, "nothing refers to a set; SET NUMBER is not for it");
+        const rec = M.toRecords(mv.st.R).find(r => r.kind === K.LSET);
+        check(rec && rec.num === 3 && rec.ver === 1 && eq(rec.payload, ps[0]), "its record: kind 24, number 03, version 1, its bytes as they came");
+        /* a second set remembering 03: the lowest free number */
+        const s2 = Object.assign({}, sL, { id: M.newId(), recs: [{ sub: 0, ver: 1, payload: lset("OTHER", C2, 0, 32)[0] }] });
+        mv = M.transfer(Object.assign({}, mv.st, { L: mv.st.L.concat([s2]) }), "L", [s2.id], {});
+        const s2R = mv.ok && mv.st.R.find(i => i.kind === K.LSET && i.num !== 3);
+        check(mv.ok && s2R && s2R.num === 0 && mv.st.R.filter(i => i.kind === K.SAMPLER).length === 1, "another set remembering 03: the lowest free number (00), the sampler there already used");
+        /* on a disk and back */
+        const disk2 = ED.fm1.diskOf(mv.st.R), back = ED.fm1.diskItems(disk2, "R", "SETS.PTFMDSK");
+        const bs = back.items.find(i => i.kind === K.LSET && i.num === 3);
+        check(bs && M.nameOf(bs, back.items) === "SUNDAY JAM" && eq(bs.recs[0].payload, ps[0]) && back.items.filter(i => i.kind === K.LSET).length === 2,
+            "DOWNLOAD DISK, UPLOAD DISK: both sets back, byte for byte");
+        /* its cartridge renumbered: the set follows */
+        const rn = M.renumber(Object.assign({}, mv.st, { base: mv.st.R }), pR.id, 0x30);
+        check(rn.ok && rn.st.R.find(i => i.id === sR.id).recs[0].payload[96] === 0x30, "its cartridge to 30: the set's loop follows (" + rn.msg + ")");
+        /* DELETE: the set alone; ALSO WHAT ONLY IT USES: the other set still uses the sampler, so it stays */
+        let d = M.remove(mv.st, "R", [sR.id], true);
+        check(!d.st.R.some(i => i.id === sR.id) && d.st.R.some(i => i.kind === K.SAMPLER), "DELETE a set: gone; the sampler another set plays stays");
+        d = M.remove(d.st, "R", [s2R.id], true);
+        check(!d.st.R.some(i => i.kind === K.LSET) && !d.st.R.some(i => i.kind === K.SAMPLER), "... the last set with ALSO WHAT ONLY IT USES: its sampler too");
+    }
+
     /* ---- UNDO ---- */
     const hist = new M.History(3);
     let cur = { L: [], R: [] };

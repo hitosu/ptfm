@@ -58,6 +58,38 @@ const RATE = 44100, Q = 128;
         mix: R.MIX_DEFAULT.slice(), loops: [{ cart: 1, slot: 0, colour: 0, mono: 0, muted: false, lanes: 1, base: 16, repeat: 1, shift: ED.defs.shiftParse("-8", 16),
         mixer: R.MIX_DEFAULT.slice(), cells: new Map() }] })).loops[0].shift;
     check(sh === 8, "-8 over 16 rows is the same SHIFT as 8 (" + sh + ")");
+
+    /* LOOPS plays on round its length, no rest between passes: the one note at row 0 heard each 1.92 s (16 rows of
+     * 120 ms), the job never resting, through three passes and more */
+    {
+        for (let f = 0; f < 3 * RATE; f += Q) { proc.msgs.length = 0; proc.process([], [[new Float32Array(Q), new Float32Array(Q)]]); g.currentTime += Q / RATE; }
+        const loops = { tempo: 125, ticks: 6, countIn: 0, legato: 0, swing: 50, grid: 0, quantize: 0, nextMono: 0, selected: 0, length: 16, fx,
+            mix: R.MIX_DEFAULT.slice(), loops: [{ cart: cart.num, slot: 0, colour: 0, mono: 0, muted: false, lanes: 1, base: 16, repeat: 1, shift: 0,
+            mixer: R.MIX_DEFAULT.slice(), cells: new Map([[R.cellKey(0, 0), { note: 60, ins: -1, vol: 0x7F, cmds: [] }],
+                [R.cellKey(2, 0), { note: R.NOTE_OFF, ins: -1, vol: -1, cmds: [] }]]) }] };
+        const recs = R.packLoops(loops).map((payload, sub) => ({ kind: K.LOOPS, num: 0, sub, ver: 4, payload }));
+        const isB = r => r.num >= 0xF0 && R.isCart(r.kind);
+        proc.msg({ t: "flash", blocks: ED.flash.image(recs.filter(r => !isB(r)).map(r => Object.assign({ crc: 0 }, r)), { preview: true }) });
+        proc.msg({ t: "play", job: { kind: "loops" } });
+        const out = [[new Float32Array(Q), new Float32Array(Q)]], lv = [];
+        let acc = 0, n = 0, rested = false;
+        for (let f = 0; f < 7 * RATE; f += Q) {
+            proc.msgs.length = 0;
+            proc.process([], out);
+            g.currentTime += Q / RATE;
+            if (!proc.job || proc.job.phase !== "run") rested = true;
+            for (let k = 0; k < Q; k++) acc += out[0][0][k] * out[0][0][k] + out[0][1][k] * out[0][1][k];
+            n += Q;
+            if (n >= RATE / 20) { lv.push(Math.sqrt(acc / n / 2)); acc = 0; n = 0; }
+        }
+        proc.msg({ t: "stop" });
+        /* the onsets: a twentieth loud after one quiet */
+        const ons = [];
+        for (let i = 1; i < lv.length; i++) if (lv[i] > 1e-3 && lv[i - 1] <= 1e-3) ons.push(+(i * 0.05).toFixed(2));
+        check(!rested, "LOOPS plays on with no rest between passes (7 s, its length 1.92 s)");
+        const steps = ons.slice(1).map((t, i) => t - ons[i]);
+        check(ons.length >= 3 && steps.every(s => Math.abs(s - 1.92) < 0.11), "the note heard in every pass, a pass apart (onsets " + ons.join(" ") + " s)");
+    }
     done("loops_preview");
     process.exit(0);
 })().catch(e => { console.log("FAIL: " + e.stack); process.exit(1); });

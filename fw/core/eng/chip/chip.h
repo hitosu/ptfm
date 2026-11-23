@@ -20,12 +20,17 @@
  *   chip_param(v, code, value)      the same on the sounding note
  *   chip_render(v, out)             CHIP_N frames into out, which must come zeroed (the engine sums its
  *                                   impulses there first); the 16-bit scale, CHIP_OUT its full level
- *   chip_skip(v)                    a block without its sound (a parked voice): its time goes on
+ *   chip_skip(v)                    a block without its sound (what chip_forward's work stands for): its time
+ *                                   goes on
  *   chip_active(v)                  it still sounds
+ *   chip_forward(v, on, off, steps) a note just started worked on over its time, in blocks (../fwd.h)
+ *   chip_heard(v)                   the most its blocks still peak at (../fwd.h)
+ *   chip_end_blocks(v, held)        the blocks until it ends by itself (CHIP_NEVER: it does not)
  */
 #ifndef CHIP_H
 #define CHIP_H
 #include <stdint.h>
+#include "../fwd.h"                      /* the forward work's contract, FWD_HELD */
 
 #define CHIP_N 64                        /* frames a block (= DX7_N = JUNO_N = TB_N) */
 #define CHIP_SLOT_BYTES 28
@@ -110,6 +115,40 @@ void chip_param(chip_voice_t *v, uint32_t code, uint32_t value);
 void chip_render(chip_voice_t *v, int32_t *out);
 void chip_skip(chip_voice_t *v);
 int chip_active(const chip_voice_t *v);
+/* the forward work (../fwd.h), in blocks of CHIP_N frames. What it keeps comes out as those blocks of chip_skip (and
+ * chip_note_off at the let-go) leave it, exactly: the frames' clock and what moves by it (each table's place, this
+ * frame's values of ARP, PITCH, DUTY, NOISE and VOL, the vibrato's count, the release's level and count), the step
+ * envelope (its volume and clock), the PSG envelope (its place, its round, its next step, stopped or not), the sweep
+ * (its register or EXACT's length, its clock, out of range), the period, the gate's and the noise's lengths and the
+ * silences the next block reads, the gate and the end (dead). Not kept: the oscillator's, the gate's and the noise's
+ * phases (step, sq_step, bz_r, the noise register, and their next steps, moved on by the stretch's last block from
+ * where the note on left them: a step or less from their next steps) and the band-limited sum with its filters (as a
+ * note on leaves them). After an N-SHORT or CLOCK command mid-note the noise register may sit on another of its
+ * cycles than the steps' (a timbre that differs, rarely: not only a phase). Its steps: a stretch a step (its blocks
+ * but the last in one sum each part, the last by the engine's own block), or one for each 32 ticks of a sweep still
+ * moving where they are more (stepped a tick at a time until it stands: at its range's end or at a value its SHIFT no
+ * longer moves); the note off is free (the release moves with the frames). A call leaves *steps at 0 at the lowest
+ * (a stretch's sweep stops where the budget runs out, the stretch at the block before its next tick). A note that has
+ * ended (dead: its VOL table or its release ran out) is done at once, its time left not worked: nothing of it sounds
+ * again */
+int chip_forward(chip_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps);
+/* the most the note still reaches without a new stage rising (../fwd.h), on chip_render's scale, no gain of the
+ * player's in it: 1.5 x CHIP_OUT times the curve at the volume the note's parts give at most from now on (the step
+ * envelope's volume, 15 while it rises; the PSG envelope's level, its top while its round rises or while it comes
+ * round again; the VOL table's highest value from its place on, its loop's included; the release's level), BUZZ's at
+ * the volume's share of the curve's top as tone() makes it. 0 for a note ended or out of its sweep's range. The 1.5 is
+ * the waveform over its level: the band-limited edges ring over it, and the output filter's high-pass keeps a louder
+ * level's swing for some blocks after the level falls. So a block peaks at most at the most chip_heard of that block
+ * and the blocks before it since the note started from rest (a note come back starts from rest): measured at 0.89 of
+ * it at the most over 600,000 instruments at random, every filter and oscillator, 40 blocks each, and asserted after
+ * the returns of fw/tests/sound/forward_test.c */
+int32_t chip_heard(const chip_voice_t *v);
+/* the block (1: the next) in which chip_skip ends the note by itself (dead): its release's last level, its VOL table
+ * ending silent (its last value 0 or under, no loop). held 0: as if let go now (chip_note_off before the next block).
+ * 0: it has ended (or ends at its let-go now: RELEASE 0); CHIP_NEVER: it does not while held. A PSG envelope or a
+ * step envelope at 0 silences a note but does not end it (chip_heard reads 0 for it once nothing rises again) */
+uint32_t chip_end_blocks(const chip_voice_t *v, int held);
+#define CHIP_NEVER 0xFFFFFFFFu
 void chip_tuning(const chip_patch_t *p, int note, uint32_t *reg, int32_t *cents10);   /* the screen's register and
                                                                                        * how far off true */
 /* the built-in tables for the screens: a kind's (CHIP_TVOL ...) table n (1 ...): its values, length and loop (-1: none),

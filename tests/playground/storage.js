@@ -32,6 +32,20 @@ module.exports = async t => {
     M.edit(() => { M.state.songs[0xA0].name = "NOT SAVED"; });
     ok(await M.startUp() && M.state.songs[0xA0].name === "KEPT" && !M.unsaved, "a power cycle: what was kept, the change not saved gone");
 
+    /* a built-in cartridge changed and saved stays built in (TOOLS' AUTO LEVEL ALL leaves it out: its own menu measures
+     * it), after a power cycle too; BACK TO BUILT-IN after */
+    M.edit(() => { M.cart(0xF9).name = "CHANGED"; });
+    M.save();
+    await M.kept();
+    const b1 = M.cart(0xF9).builtin === true && !M.cart(0xF9).rom;
+    await M.startUp();
+    const fb = M.cart(0xF9) || {};
+    ok(b1 && fb.builtin === true && fb.name === "CHANGED", "a built-in cartridge changed and saved stays built in (" + b1 + ", " + fb.builtin +
+       " after a power cycle): AUTO LEVEL ALL leaves it out");
+    M.edit(() => { M.state.carts[M.cartIndex(0xF9)] = M.builtinOriginal("cart", 0xF9); });
+    M.save();
+    await M.kept();
+
     /* LOOPS' mutes are saved, its solos never (specs/files/loops.md): a solo leaves nothing unsaved, a REVERT keeps it,
      * a power cycle drops it */
     const loop = (muted, soloed) => ({ inst: 0xF000, col: 0, mono: false, lanes: 1, base: 16, repeats: 1, muted, soloed,

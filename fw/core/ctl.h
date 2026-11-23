@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Vasily Kazantsev */
+ * Copyright (C) 2026 Vasily Kazantsev
+ * The keys' pressure: press.h */
 /* The controller without hardware (MIDI CONTROLLER, specs/controller.md): the panel's state in, MIDI out; the
  * page's LED messages in. specs/controller.md is the protocol. Code in a header, as hal/'s: one includer,
  * ctlmode.c (its platform), and the host test, fw/tests/ctl_test.c; portable.
@@ -10,13 +11,20 @@
  *                                       once a millisecond: what changed goes out through ctl_emit()
  *   ctl_midi_in(c, pkt)                 a USB-MIDI event packet from the host (mirror: the LEDs)
  *   ctl_answer(c, b)                    the handshake's answer; ctl_answered() then sends the state
+ *   ctl_at_poll(c, ms)                  general mode's aftertouch (c->at_mode): the held keys' pressure worked out every
+ *                                       5 ms from their readings (the main loop's: never in the scan's tick); the next
+ *                                       ctl_tick sends what changed
  *
  * The includer defines ctl_emit(e): one message (its bytes, and what it was for the screen); it
- * returns 1 when the message was queued. Ids are the firmware's: keys 0-26 (F3-G5), buttons 0-13,
+ * returns 1 when the message was queued; ctl_vel(k): the velocity of key k's press, 1-127 (KEYS VELOCITY's), 0
+ * none: then a key's Note On carries the mode's own, 127 mirror, 100 general; and ctl_reading(k): key k's latest driven
+ * reading while it is held (F3-C5, KEYS VELOCITY not CONSTANT; lower, harder), 0 none. Ids are the firmware's: keys 0-26 (F3-G5), buttons 0-13,
  * knobs 0-6 (SELECT, ALGORITHM, K1-K4, PRESETS); LED ids are the buttons', 14 + key, 41 PLAY's green. */
 #ifndef CTL_H
 #define CTL_H
 #include <stdint.h>
+#include <string.h>
+#include "press.h"                       /* the keys' pressure: the tracker's too */
 
 enum { CTL_MIRROR = 0, CTL_GENERAL = 1 };
 enum { CTL_NKEY = 27, CTL_NBTN = 14, CTL_NENC = 7, CTL_NLED = 42, CTL_LED_GREEN = 41 };
@@ -37,8 +45,15 @@ enum { CTL_BTN_OCTDN = 0, CTL_BTN_OCTUP = 1, CTL_BTN_PLAY = 12, CTL_ENC_PRESETS 
 /* what a message was, for the screen's log */
 enum {
     CTL_EV_NOTE_ON, CTL_EV_NOTE_OFF, CTL_EV_BUTTON, CTL_EV_KNOB, CTL_EV_MASTER, CTL_EV_PROGRAM,
-    CTL_EV_MMC, CTL_EV_ALL_OFF, CTL_EV_ANSWER, CTL_EV_HELLO, CTL_EV_MODE
+    CTL_EV_MMC, CTL_EV_ALL_OFF, CTL_EV_ANSWER, CTL_EV_HELLO, CTL_EV_MODE, CTL_EV_PRESSURE, CTL_EV_POLY
 };
+/* general mode's aftertouch (SETTINGS' CONTROLLER AFTERTOUCH, specs/controller.md#3-general-mode): none, Channel
+ * Pressure (the highest of the held keys'), Polyphonic Key Pressure (each held key's note) */
+enum { CTL_AT_OFF, CTL_AT_CHANNEL, CTL_AT_POLY };
+#define CTL_AT_KEYS 20u                  /* the keys read: F3-C5 */
+#define CTL_AT_MS 5u                     /* the pressures worked out every 5 ms */
+/* a key's pressure state, packed: its rest (the resistance it rests at, x16), the pressure smoothed (Q8), when it
+ * landed (ms), its pressure taken (0 none) */
 typedef struct {
     uint8_t kind, id;    /* id: the key, button or knob */
     int16_t val;         /* NOTE_*: the note; BUTTON: 127 / 0; KNOB: mirror the clicks, general the value;
@@ -48,6 +63,14 @@ typedef struct {
 } ctl_ev_t;
 
 static int ctl_emit(const ctl_ev_t *e);
+static uint32_t ctl_vel(uint32_t k);
+static uint32_t ctl_reading(uint32_t k);
+/* a key's Note On's velocity: its press's, else the mode's own */
+static uint32_t ctl_note_vel(uint32_t mode, uint32_t k)
+{
+    uint32_t v = ctl_vel(k);
+    return v >= 1u && v <= 127u ? v : mode == CTL_MIRROR ? 127u : 100u;
+}
 
 typedef struct {
     uint8_t mode;
@@ -67,6 +90,12 @@ typedef struct {
     volatile uint8_t resync;             /* mirror: send the state at the next tick (after an answer) */
     volatile uint8_t all_off;            /* general: All Notes Off at the next tick (USB came up) */
     volatile uint8_t page;               /* mirror: a page has asked or sent an LED since USB came up */
+    uint8_t at_mode;                     /* general: CTL_AT_* (SETTINGS' CONTROLLER AFTERTOUCH) */
+    volatile uint8_t press[CTL_AT_KEYS]; /* general: each held key's pressure now, 0-127 (ctl_at_poll's) */
+    uint8_t at_sent[CTL_AT_KEYS];        /* general POLY: each key's pressure as sent last */
+    uint8_t ch_sent;                     /* general CHANNEL: the pressure as sent last */
+    uint32_t at_t;                       /* ctl_at_poll's last step */
+    uint32_t at[CTL_AT_KEYS];            /* each key's pressure word (press.h) */
 } ctl_t;
 
 static const uint8_t CTL_GENERAL_CC[CTL_NENC] = {1, 21, 74, 71, 73, 72, 0};   /* SELECT .. K4; PRESETS: PC */
@@ -74,9 +103,8 @@ static const uint8_t CTL_GENERAL_VAL0[CTL_NENC] = {0, 0, 64, 64, 64, 64, 0};
 
 static void ctl_init(ctl_t *c, uint32_t mode, uint32_t ch, uint32_t keys, uint32_t btns)
 {
-    static const ctl_t ZERO;
     uint32_t i;
-    *c = ZERO;
+    memset(c, 0, sizeof *c);                             /* (no zero copy of it in the flash: it is big) */
     c->mode = (uint8_t)(mode == CTL_GENERAL ? CTL_GENERAL : CTL_MIRROR);
     c->ch = (uint8_t)(ch & 15u);
     c->ign_keys = keys;
@@ -92,7 +120,7 @@ static int ctl_msg(uint32_t kind, uint32_t id, int32_t val, uint32_t b0, uint32_
     e.kind = (uint8_t)kind;
     e.id = (uint8_t)id;
     e.val = (int16_t)val;
-    e.n = (b0 & 0xF0u) == 0xC0u ? 2u : 3u;          /* Program Change has one data byte */
+    e.n = (b0 & 0xE0u) == 0xC0u ? 2u : 3u;          /* Program Change and Channel Pressure have one data byte */
     e.b[0] = (uint8_t)b0;
     e.b[1] = (uint8_t)b1;
     e.b[2] = (uint8_t)b2;
@@ -108,11 +136,48 @@ static void ctl_key(ctl_t *c, uint32_t k, int down)
         int32_t n = (int32_t)(CTL_NOTE0 + k) + (c->mode == CTL_GENERAL ? 12 * c->oct : 0);
         note = (uint32_t)n;
         c->note[k] = (uint8_t)note;
-        ctl_msg(CTL_EV_NOTE_ON, k, (int32_t)note, 0x90u | ch, note, c->mode == CTL_MIRROR ? 127u : 100u);
+        ctl_msg(CTL_EV_NOTE_ON, k, (int32_t)note, 0x90u | ch, note, ctl_note_vel(c->mode, k));
     } else {
         note = c->note[k];
+        if (k < CTL_AT_KEYS && c->at_sent[k]) {         /* (POLY: its pressure back to 0 first) */
+            c->at_sent[k] = 0;
+            ctl_msg(CTL_EV_POLY, k, 0, 0xA0u | ch, note, 0);
+        }
         ctl_msg(CTL_EV_NOTE_OFF, k, (int32_t)note, 0x80u | ch, note, 0);
     }
+}
+
+/* general mode, the main loop: every CTL_AT_MS the held keys' pressures (press.h; sent by the next ctl_tick) */
+static void ctl_at_poll(ctl_t *c, uint32_t now)
+{
+    uint32_t k, dt = now - c->at_t;
+    if (c->mode != CTL_GENERAL || c->at_mode == CTL_AT_OFF || dt < CTL_AT_MS)
+        return;
+    c->at_t = now;
+    for (k = 0; k < CTL_AT_KEYS; k++)
+        c->press[k] = (uint8_t)press_step(&c->at[k], (c->keys >> k & 1u) ? ctl_reading(k) : 0u, dt);
+}
+/* general mode, the tick: the pressures that changed sent (CHANNEL: the highest held; POLY: each held key's) */
+static void ctl_at_send(ctl_t *c)
+{
+    uint32_t k, m = 0, ch = ctl_ch(c);
+    if (c->mode != CTL_GENERAL || c->at_mode == CTL_AT_OFF)
+        return;
+    if (c->at_mode == CTL_AT_CHANNEL) {
+        for (k = 0; k < CTL_AT_KEYS; k++)
+            if ((c->keys >> k & 1u) && c->press[k] > m)
+                m = c->press[k];
+        if (m != c->ch_sent) {
+            c->ch_sent = (uint8_t)m;
+            ctl_msg(CTL_EV_PRESSURE, 0, (int32_t)m, 0xD0u | ch, m, 0);
+        }
+        return;
+    }
+    for (k = 0; k < CTL_AT_KEYS; k++)
+        if ((c->keys >> k & 1u) && c->press[k] != c->at_sent[k]) {
+            c->at_sent[k] = c->press[k];
+            ctl_msg(CTL_EV_POLY, k, c->press[k], 0xA0u | ch, c->note[k], c->press[k]);
+        }
 }
 
 static void ctl_mmc(ctl_t *c)                            /* general PLAY: Play, then Stop, in turn */
@@ -246,7 +311,7 @@ static void ctl_tick(ctl_t *c, uint32_t now, uint32_t keys, uint32_t btns, const
                 ctl_master_send(c, c->master_now);
             for (i = 0; i < CTL_NKEY; i++)
                 if ((c->keys >> i) & 1u)
-                    ctl_msg(CTL_EV_NOTE_ON, i, (int32_t)c->note[i], 0x90u | ctl_ch(c), c->note[i], 127);
+                    ctl_msg(CTL_EV_NOTE_ON, i, (int32_t)c->note[i], 0x90u | ctl_ch(c), c->note[i], ctl_note_vel(c->mode, i));
             for (i = 0; i < CTL_NBTN; i++)
                 if ((c->btns >> i) & 1u)
                     ctl_msg(CTL_EV_BUTTON, i, 127, 0xB0u | ctl_ch(c), CTL_CC_BTN + i, 127);
@@ -265,8 +330,10 @@ static void ctl_tick(ctl_t *c, uint32_t now, uint32_t keys, uint32_t btns, const
     for (i = 0; i < CTL_NENC; i++)
         ctl_knob(c, i, steps ? steps[i] : 0, now);
     ctl_master(c, m10);
-    if (c->mode == CTL_GENERAL)
+    if (c->mode == CTL_GENERAL) {
+        ctl_at_send(c);
         ctl_leds_local(c, now);
+    }
 }
 
 /* an LED level from the page: 0 off, 1-63 dim, 64-127 lit */

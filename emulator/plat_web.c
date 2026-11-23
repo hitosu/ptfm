@@ -22,6 +22,7 @@
 #include "store.h"
 #include "ui_core.h"
 #include "../fw/device/out.h"
+#include "../fw/device/keyvel.h"          /* the keys' velocity: the FM-1's map and its top row (specs/emulator.md) */
 
 #ifdef WEB_NATIVE
 #define WEB_EXPORT(name)
@@ -71,11 +72,62 @@ static void web_pressed(void)            /* a button or key down: the clicks so 
 }
 static int16_t web_clamp16(int32_t s) { return (int16_t)(s > 32767 ? 32767 : s < -32768 ? -32768 : s); }
 
+/* The keys' velocity (specs/hardware.md#the-keys-velocity): the panel gives each press the driven landing the FM-1's
+ * scan would read (web_key_reading, from where the key was pressed: keyvel.h maps it on KEYS VELOCITY's curve), or a
+ * velocity itself (web_key_vel: an FM-1 as the controller, its own keys' velocity); a key pressed with neither (the
+ * computer's keyboard, a test) has none: KEYS VOLUME. The top row (notes 20-26) as on the FM-1: the mean of the last
+ * four sensed, its press point only telling a hand pressed it */
+static uint32_t web_hand;                /* the presses the panel gave a landing (bit n), till let go */
+static uint16_t web_reading[27];         /* each held key's reading now: its landing, then as the panel moves it (a
+                                          * drag down on a held key: pressed harder; MIDI CONTROLLER's aftertouch) */
+static uint8_t web_vel[27];              /* the presses given a velocity, till let go */
+void plat_key_touch(int curve)
+{
+    uint32_t c = curve >= 1 && curve <= 3 ? (uint32_t)curve : 0u, n, keep[KV_KEYS];
+    if (c == kv.curve)
+        return;
+    for (n = 0; n < KV_KEYS; n++)
+        keep[n] = kv.key[n];
+    kv_set(c, web_notes | KV_FAKE);
+    for (n = 0; n < KV_KEYS; n++)                       /* (the landings the keys held were given: kept) */
+        kv.key[n] = keep[n];
+}
+int plat_key_vel(int n)
+{
+    if (n < 0 || n >= 27 || !kv.curve || !((web_notes | KV_FAKE) >> n & 1u))
+        return 0;
+    return web_vel[n] ? web_vel[n] : (int)kv_vel((uint32_t)n);
+}
+WEB_EXPORT("web_key_reading") void web_key_reading(uint32_t n, uint32_t d)
+{
+    if (n >= 27u)
+        return;
+    d = d < 1u ? 1u : d > 1023u ? 1023u : d;
+    if (!(web_notes >> n & 1u)) {        /* (a press's: its landing) */
+        if (n < KV_KEYS)
+            kv.key[n] = d << 10;
+        web_hand |= 1u << n;
+    }
+    web_reading[n] = (uint16_t)d;        /* (held: the reading as it moves) */
+}
+int plat_key_reading(int n)
+{
+    return n >= 0 && n < (int)KV_KEYS && kv.curve && (web_notes >> n & 1u) && (web_hand >> n & 1u) ? web_reading[n] : 0;
+}
+WEB_EXPORT("web_key_vel") void web_key_vel(uint32_t n, uint32_t v)
+{
+    if (n < 27u)
+        web_vel[n] = (uint8_t)(v > 127u ? 127u : v);
+}
+
 void plat_input(plat_input_t *in)
 {
     int k;
     in->buttons = web_buttons;
-    in->notes = web_notes;
+    in->notes = kv_shown(web_notes | KV_FAKE);   /* (KV_FAKE: the debug build's KEYS FEED's presses, the one waiting
+                                          * for its velocity held back as on the FM-1) */
+    if (kv.curve)
+        kv_take(in->notes, web_hand | KV_FAKE);   /* (the new presses' velocities, as the FM-1's) */
     for (k = 0; k < K_COUNT; k++) {
         in->knob[k] = web_clamp16(web_knobs[k]);
         in->knob_pre[k] = web_clamp16(web_pre_on ? web_knobs_pre[k] : web_knobs[k]);
@@ -85,7 +137,7 @@ void plat_input(plat_input_t *in)
     in->master = web_master;
 }
 
-uint32_t plat_notes(void) { return web_notes; }
+uint32_t plat_notes(void) { return kv_shown(web_notes | KV_FAKE); }
 
 /* ---------------------------------------------------------------- LEDs --- */
 static uint8_t web_leds[LED_COUNT];
@@ -174,12 +226,19 @@ static void web_usb_block(const int32_t *lr, const int16_t *click, int n)
 }
 
 /* the second core: one core here, so a block's job runs at once where it is handed over (the device's order, the
- * same sound) and its time is core 2's; core 1's figure is the half's time without it */
+ * same sound) and its time is core 2's; core 1's figure is the half's time without it, and with what core 1 would have
+ * waited for core 2 at a block's voices: a timeline of the half on core 1's time, core 2 starting each job when both it
+ * is handed over and core 2 is done with the one before (so the block's split follows these times as the FM-1's) */
 #define WEB_C2_START_US 2000000u         /* the device's time when core 2 is ready (STARTING before) */
 static int web_c2_sw = 1;                    /* SETTINGS' SECOND CORE */
 static double web_c2_half_us;                /* core 2's jobs' time this half */
 static uint32_t web_c2_half_n;               /* the blocks handed over this half */
+static int web_in_half;                      /* (app_audio running: the half's timeline) */
+static double web_half_t0, web_c2_free, web_c1_waits;   /* the half's start (the page's clock); on core 1's time in
+                                              * the half, where core 2 is done with what it was handed, and core 1's
+                                              * waits for it so far */
 static int web_c2_on(void) { return web_c2_sw; }
+static double web_c1_now(void) { return web_clock_us() - web_half_t0 - web_c2_half_us + web_c1_waits; }
 
 void plat_cpu(plat_cpu_t *c, int reset)
 {
@@ -197,14 +256,25 @@ int plat_c2_half(void) { return web_us >= WEB_C2_START_US && web_c2_on(); }
 
 void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 {
-    double t0 = web_clock_us();
+    double at = web_in_half ? web_c1_now() : 0, t0 = web_clock_us(), d;
     job(j);
-    web_c2_half_us += web_clock_us() - t0;
+    d = web_clock_us() - t0;
+    web_c2_half_us += d;
     web_c2_half_n += j != PLAT_C2_VOICE_JOB;     /* (the blocks: their effects' jobs; the voice jobs the player's) */
+    web_c2_free = (at > web_c2_free ? at : web_c2_free) + d;
 }
 
 void plat_c2_enable(int on) { web_c2_sw = on != 0; }
-void plat_c2_wait(void) {}                   /* (the jobs are done where they were handed over) */
+/* (the jobs are done where they were handed over: 1 when core 2, on the half's timeline, would not have been done yet,
+ * core 1's time then counting the wait) */
+int plat_c2_wait(void)
+{
+    double now;
+    if (!web_in_half || web_c2_free <= (now = web_c1_now()))
+        return 0;
+    web_c1_waits += web_c2_free - now;
+    return 1;
+}
 
 /* --------------------------------------------------------------- flash --- */
 /* 1 MiB, erased (0xFF) at first; the firmware's part below plat_fw_end() written (0x00). The user
@@ -387,6 +457,57 @@ void plat_dbg(plat_dbg_t *d)
     d->c2.late1 = d->late;
     memset(&web_dbg, 0, sizeof web_dbg);
 }
+/* the keys' readings (dbg.h): no scan here (flags 0, no reading at rest, no MASTER slot, no battery), the presses fed
+ * (KEYS FEED) and the panel's landings as the FM-1's ring has them */
+void plat_keys(plat_keys_t *k, int wait)
+{
+    uint32_t vel, rd, n = kv_dbg_last(&vel, &rd), i;
+    if (wait == 1 || wait == 2)
+        kv.wait2 = (uint8_t)(wait == 2);
+    memset(k, 0, sizeof *k);
+    k->curve = kv.curve;
+    k->wait = (uint8_t)(1u + kv.wait2);
+    k->key = (uint8_t)n;
+    k->vel = (uint8_t)vel;
+    k->touch = (uint16_t)(rd & 1023u);
+    k->d1 = (uint16_t)(rd >> 10 & 1023u);
+    k->d2 = (uint16_t)(rd >> 20 & 1023u);
+    k->land = kv_dbg.last_land;
+    k->presses = kv_dbg.presses;
+    k->grazes = kv_dbg.grazes;
+    k->lates = kv_dbg.lates;
+    k->m_slot = k->m_direct = k->batt = 0xFFFFu;
+    k->landed = kv_dbg.landed;
+    for (i = 0; i < KV_RING; i++) {
+        uint32_t j = (kv_dbg.landed - 1u - i) & (KV_RING - 1u), kv_ = kv_dbg.ring_kv[j], rd_ = kv_dbg.ring_rd[j];
+        k->ring[i].key = (uint8_t)((kv_ & 31u) ? (kv_ & 31u) - 1u : 0xFFu);
+        k->ring[i].vel = (uint8_t)(kv_ >> 5 & 127u);
+        k->ring[i].wait = (uint8_t)(kv_ >> 12);
+        k->ring[i].touch = (uint16_t)(rd_ & 1023u);
+        k->ring[i].d1 = (uint16_t)(rd_ >> 10 & 1023u);
+        k->ring[i].d2 = (uint16_t)(rd_ >> 20 & 1023u);
+    }
+}
+/* KEYS FEED (dbg.h): as the FM-1's, on this keyvel.h's state; frames by the device's milliseconds */
+void plat_key_feed(int key, const uint8_t *op, int len, plat_feed_t *r)
+{
+    uint32_t n = key >= 0 && key < (int)KV_NOTES ? (uint32_t)key : 0u, s;
+    if (len > 0)
+        kv_feed(n, op, (uint32_t)len, (uint32_t)web_ms_now);
+    s = n < KV_KEYS ? kv.key[n] : 0u;
+    memset(r, 0, sizeof *r);
+    r->state = s;
+    r->land = (uint16_t)KV_LAND(s);
+    r->presses = kv_dbg.presses;
+    r->grazes = kv_dbg.grazes;
+    r->lates = kv_dbg.lates;
+    r->flags = (uint8_t)((kv.pend >> n & 1u) | (s & KV_LATE ? 2u : 0u) | (kv_dbg.fake >> n & 1u) << 2);
+    r->vel[0] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 1u) : 0u);
+    r->vel[1] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 2u) : 0u);
+    r->vel[2] = (uint8_t)(KV_LAND(s) ? kv_map(KV_LAND(s), 3u) : 0u);
+    r->taken = (uint8_t)kv_vel(n);
+    r->wait = (uint8_t)(1u + kv.wait2);
+}
 #endif
 
 /* ------------------------------------------------------- the device's time --- */
@@ -423,11 +544,14 @@ static void web_one_half(void)           /* the device's time to this half's end
         web_ms();
     web_c2_half_us = 0;
     web_c2_half_n = 0;
-    t0 = web_clock_us();
+    web_c2_free = web_c1_waits = 0;      /* (core 2 done with the half before, as the device's at a half's start) */
+    t0 = web_half_t0 = web_clock_us();
+    web_in_half = 1;
     app_audio(web_half, PLAT_HALF);
+    web_in_half = 0;
     dt = web_clock_us() - t0;
     c2 = web_c2_half_us <= 0 ? 0u : web_c2_half_us >= 4e9 ? 4000000000u : (uint32_t)web_c2_half_us;
-    dt -= web_c2_half_us;                /* core 1's: the half's time without core 2's jobs */
+    dt += web_c1_waits - web_c2_half_us; /* core 1's: the half's time without core 2's jobs, with its waits for them */
     us = dt <= 0 ? 0u : dt >= 4e9 ? 4000000000u : (uint32_t)dt;
     web_cpu.c2_last_us = c2;
     web_cpu.c2_sum_us += c2;
@@ -559,6 +683,13 @@ WEB_EXPORT("web_note") void web_note(uint32_t n, uint32_t down)
     if (down && !(web_notes & 1u << n))
         web_pressed();
     web_notes = down ? web_notes | 1u << n : web_notes & ~(1u << n);
+    if (!down) {                         /* (its landing and velocity were this press's) */
+        web_hand &= ~(1u << n);
+        web_vel[n] = 0;
+        web_reading[n] = 0;
+        if (n < KV_KEYS)
+            kv.key[n] = 0;
+    }
 }
 
 WEB_EXPORT("web_knob") void web_knob(uint32_t id, int32_t step)

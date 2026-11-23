@@ -24,8 +24,16 @@ int ui_cart_nums(uint8_t *nums)
     for (int c = 0; c < 256; c++) if (cart_bits[c >> 3] >> (c & 7) & 1) nums[n++] = (uint8_t)c;
     return ui_cart_order(nums, n);                      /* (the lists' order) */
 }
+/* the song list's and the cartridge list's lines in view, rows of 16 px from 51, the highlight kept 4 down while it can */
+#define LIST_LINES 10
+#define LIST_MID 4
+static int list_top(int sel, int n)     /* the first line shown of n */
+{
+    int top = sel - LIST_MID < n - LIST_LINES ? sel - LIST_MID : n - LIST_LINES;
+    return top > 0 ? top : 0;
+}
 /* the lines shown's slots used (two lookups of the cartridge a slot), kept while the store stays as it was */
-#define CL_LINES 13
+#define CL_LINES LIST_LINES
 static struct { uint32_t gen; uint16_t ok; uint8_t who[CL_LINES], used[CL_LINES]; } clc;
 static int cart_used(int line, uint8_t c)
 {
@@ -43,30 +51,35 @@ void ui_cart_lines(const char *title, const uint8_t *ids, const uint8_t *who, in
 {
     ui_cart_lines_more(title, ids, who, n, 0, sel, afloat);
 }
+/* the ID and the name in FONT_S at 8 and 32, the type and the slots in FONT_T at 134 and 192 on the names' baseline; the
+ * column heads in FONT_T, each over its column; rows of 16 px from 51 */
 int ui_cart_lines_more(const char *title, const uint8_t *ids, const uint8_t *who, int n, int more, int sel, int afloat)
 {
     int y = BODY_Y + 2, all = n + more;
-    ui_panel(2, y, 236, 206, title, C_CYAN);
-    g_text(8, y + 16, &FONT_T, T("ID NAME         TYPE      SLOTS"), C_DGREY);
-    int top = ui_clamp(sel - 6, 0, all - CL_LINES > 0 ? all - CL_LINES : 0);
+    ui_panel_s(2, y, 236, 206, title, C_CYAN);
+    g_text(8, y + 19, &FONT_T, T("ID"), C_DGREY);
+    g_text(32, y + 19, &FONT_T, T("NAME"), C_DGREY);
+    g_text(UI_CL_TYPE, y + 19, &FONT_T, T("TYPE"), C_DGREY);
+    g_text(UI_CL_SLOTS, y + 19, &FONT_T, T("SLOTS"), C_DGREY);
+    int top = list_top(sel, all);
     for (int i = top; i < n && i < top + CL_LINES; i++) {
         uint8_t c = who[i];
-        int yy = y + 30 + (i - top) * 13, on = i == sel, k = ui_cart_kind(c);
+        int yy = y + 32 + (i - top) * UI_ROW, on = i == sel, k = ui_cart_kind(c);
         char nm[16], cnt[12];
         if (!k) continue;                               /* (gone meanwhile) */
-        if (on) g_box(4, yy - 1, 232, 13, afloat ? C_YELLOW : C_WHITE);
-        g_text(8, yy, &FONT_T, ui_hex2(ids[i]), ins_builtin(c) ? C_BROWN : on ? C_WHITE : C_LGREY);   /* (built in: brown) */
+        if (on) g_box(4, yy - 1, 232, UI_ROW, afloat ? C_YELLOW : C_WHITE);
+        g_text(8, yy, &FONT_S, ui_hex2(ids[i]), ins_builtin(c) ? C_BROWN : on ? C_WHITE : C_LGREY);   /* (built in: brown) */
         if (!ui_cart_name(c, nm)) nm[0] = 0;
         nm[12] = 0;
-        g_text(26, yy, &FONT_T, nm, on ? C_WHITE : C_LGREY);
-        g_text(110, yy, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
+        g_text(32, yy, &FONT_S, nm, on ? C_WHITE : C_LGREY);
+        g_text(UI_CL_TYPE, yy + UI_T_ON_S, &FONT_T, T(ENG_TYPE[k]), ENG_COL[k]);
         ui_fmt(cnt, sizeof cnt, "%03d/%03d", cart_used(i - top, c), ENG_SLOTS[k]);
-        g_text(170, yy, &FONT_T, cnt, C_LGREY);
+        g_text(UI_CL_SLOTS, yy + UI_T_ON_S, &FONT_T, cnt, C_LGREY);
     }
-    return more && n >= top && n < top + CL_LINES ? y + 30 + (n - top) * 13 : -1;
+    return more && n >= top && n < top + CL_LINES ? y + 32 + (n - top) * UI_ROW : -1;
 }
-/* PRESETS' lists, big: the ID at 6 and the name at 36 in FONT_B (twice FONT_T: 7 lines of 26 px where FONT_T's list has
- * 13 of 13), the type in FONT_T right-aligned in its engine's colour, the name cut short only where it would reach it */
+/* PRESETS' lists, big: the ID at 6 and the name at 36 in FONT_B (twice FONT_T: 7 lines of 26 px where the ENV list has
+ * 10 of 16), the type in FONT_T right-aligned in its engine's colour, the name cut short only where it would reach it */
 #define CL_BIG 7
 void ui_cart_big(uint8_t c, int y, int on)
 {
@@ -120,29 +133,30 @@ static void sl_play(ui_overlay_t *o)
 static void sl_draw(ui_overlay_t *o)
 {
     (void)o;
-    int y = BODY_Y + 2, rows = 13;
+    /* the number and the name in FONT_S at 8 and 32, the tempo (right-aligned to 196) and the length (at 202, hours and
+     * minutes past 99:59) in FONT_T on the names' baseline */
+    int y = BODY_Y + 2;
     player_state_t st;
     ui_player_state(&st);
     int playing = st.playing && st.what == PL_SONG ? st.song : -1;
-    ui_panel(2, y, 236, 206, sl.title, C_CYAN);
-    g_text(8, y + 16, &FONT_T, T("NR"), C_DGREY);      /* (the column heads, each over its column) */
-    g_text(26, y + 16, &FONT_T, T("NAME"), C_DGREY);
-    g_text(152 - g_tw(&FONT_T, T("BPM")), y + 16, &FONT_T, T("BPM"), C_DGREY);
-    g_text(164, y + 16, &FONT_T, T("TIME"), C_DGREY);
-    int top = sl.sel - 6 < sl.n - rows ? sl.sel - 6 : sl.n - rows;
-    if (top < 0) top = 0;
-    for (int i = top; i < sl.n && i < top + rows; i++) {
+    ui_panel_s(2, y, 236, 206, sl.title, C_CYAN);
+    g_text(8, y + 19, &FONT_T, T("NR"), C_DGREY);      /* (the column heads, each over its column) */
+    g_text(32, y + 19, &FONT_T, T("NAME"), C_DGREY);
+    g_text_r(196, y + 19, &FONT_T, T("BPM"), C_DGREY);
+    g_text(202, y + 19, &FONT_T, T("TIME"), C_DGREY);
+    int top = list_top(sl.sel, sl.n);
+    for (int i = top; i < sl.n && i < top + LIST_LINES; i++) {
         ui_song_t s;
         if (!ui_song(sl.nums[i], &s)) continue;
-        int yy = y + 30 + (i - top) * 13, on = i == sl.sel, col = on ? C_WHITE : sl.nums[i] == playing ? C_GREEN : C_LGREY;
-        if (on) g_box(4, yy - 1, 232, 13, C_WHITE);
-        g_text(8, yy, &FONT_T, ui_hex2(sl.nums[i]), col);
-        g_text(26, yy, &FONT_T, s.name, col);
+        int yy = y + 32 + (i - top) * UI_ROW, on = i == sl.sel, col = on ? C_WHITE : sl.nums[i] == playing ? C_GREEN : C_LGREY;
+        if (on) g_box(4, yy - 1, 232, UI_ROW, C_WHITE);
+        g_text(8, yy, &FONT_S, ui_hex2(sl.nums[i]), col);
+        g_text(32, yy, &FONT_S, s.name, col);
         const char *bpm = ui_dec(ui_song_bpm(&s));
-        g_text(152 - g_tw(&FONT_T, bpm), yy, &FONT_T, bpm, on ? C_WHITE : C_CYAN);
+        g_text_r(196, yy + UI_T_ON_S, &FONT_T, bpm, on ? C_WHITE : C_CYAN);
         char t[12];
-        ui_fmt_time(t, ui_song_secs(&s));
-        g_text(164, yy, &FONT_T, t, col);
+        ui_fmt_list_time(t, ui_song_secs(&s));
+        g_text(202, yy + UI_T_ON_S, &FONT_T, t, col);
     }
 }
 void ui_song_list(const char *title, int current, void (*pick)(int song), void (*play)(int song))

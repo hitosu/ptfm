@@ -4,13 +4,19 @@
  * session gathered into sections, the statistics, and the report to copy. No DOM, no MIDI: debug.html does
  * those; Node runs this as it is (fw/tests/figures_test.js).
  *
- *   PTFM_figures.ask(flags)          -> Uint8Array: 30 FIGURES? (flags: RESET 1, FREEZE 2, UNFREEZE 4)
+ *   PTFM_figures.ask(flags)          -> Uint8Array: 30 FIGURES? (flags: RESET 1, FREEZE 2, UNFREEZE 4, FIXED 8: the
+ *                                       voices' split fixed as before it moved, MOVING 16: moving again)
  *   PTFM_figures.decode(message)     -> a window's figures, or null (not a FIGURES message); its dj: the decks as
  *                                       they play and DJ's record (a section DJ played in lists its settings); win:
  *                                       the window's number
  *   PTFM_figures.decode2(message)    -> core 2's window (37 FIGURES 2), or null; join(fig, c2) puts it in its window
- *                                       (fig.c2) when their numbers match (true), as the 37 comes right after its 31
+ *                                       (fig.c2) when their numbers match (true), as the 37 comes right after its 31;
+ *                                       its gh: the window's ghosts (the GHOSTS stage, made, back, gone, the budget)
+ *   PTFM_figures.ghostStats(windows) -> a list's ghosts summed (null without them); ghostLines(g) their report lines;
+ *                                       GH_MADE_AT, GH_GONE_AT, GH_GAVE_AT, GH_CHECK_AT, GH_RANK_AT, GH_ENGINE_AT: each
+ *                                       kind's place in its list (a figure read by these, never by its text)
  *   PTFM_figures.c2Text(c2)          -> core 2's state as a word (STARTING, ON, OFF, STOPPED: FAULT ...)
+ *   PTFM_figures.keysLines(c2.keys)  -> the keys' readings as report lines (37's: KEYS VELOCITY, the last press, the counts)
  *   PTFM_figures.session()          -> the RUNS: { add(fig, now): kept while recording, last: the latest always;
  *                                         record(name, now), stop(now), recording, reset(), sections (the runs),
  *                                         all, of(i), remove(i), stats(list), runReport(i, now), report(now) }
@@ -25,7 +31,10 @@
 (function (root) {
 "use strict";
 const PREFIX = [0xF0, 0x7D, 0x50, 0x54], ASK = 0x30, FIGS = 0x31, VERSION = 11;
-const FIGS2 = 0x37, VERSION2 = 2, LEN2 = 56;      /* 37 FIGURES 2: core 2's window */
+const FIGS2 = 0x37, VERSION2 = 6, LEN2 = 56 + 310 + 8 + 16 + 90;   /* 37 FIGURES 2: core 2's window, the ghosts', the
+                                                          * stacks' bottoms, the voices' split, the keys' readings */
+const KEYS_CURVE = ["CONSTANT", "SOFT", "NORMAL", "HARD"];
+const NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"];
 const HALF_US = 5804;                                     /* an audio half, us (the worst half's share) */
 const C2_STATE = ["STARTING", "ON", "OFF", "STOPPED"];
 const C2_WHY = ["", "NO ANSWER", "MISREAD", "STUCK", "FAULT", "AFTER A CRASH"];
@@ -99,7 +108,7 @@ function decode2(m) {
     const b = unpack7(m.subarray ? m.subarray(5, m.length - 1) : m.slice(5, m.length - 1));
     if (b.length < LEN2 || b[0] !== VERSION2) return null;
     const u16 = (o) => b[o] | b[o + 1] << 8, u32 = (o) => (u16(o) + u16(o + 2) * 65536);
-    return { win: b[1], state: b[2], why: b[3], setting: !!(b[4] & 1), clk: !!(b[4] & 4),
+    return { win: b[1], state: b[2], why: b[3], setting: !!(b[4] & 1), fixed: !!(b[4] & 2), clk: !!(b[4] & 4),
              whole: !!(b[4] & 8), start10ns: u16(6), sum: u32(8), max: u16(12), blocks: u16(14), misreads: u16(16),
              waitSum: u32(18), waitMax: u16(22), late1: u16(24), late2: u16(26), stackUsed: u16(28), stackSize: u16(30),
              faultVec: u32(32), faultPc: u32(36),
@@ -107,7 +116,289 @@ function decode2(m) {
               * waits for them */
              vUs: u32(40), vJobs: u16(44), vMost: b[46], vWaitSum: u32(48), vWaitMax: u16(52),
              /* the window's SysEx lost on the way in: begun while others waited, cut short by another message */
-             sxLost: [b[54], b[55]] };
+             sxLost: [b[54], b[55]],
+             gh: ghostsAt(b, 56),
+             /* the stacks' bottoms (the main loop's, the interrupts'): from the deepest point up, the bytes not painted,
+              * then the paint above them */
+             stackIsland: [u16(366), u16(370)], stackPaint: [u16(368), u16(372)],
+             /* the voices' split: summed over the blocks core 2 took the voices' share in, those blocks, the lowest
+              * (16: none); the margin now (units a block, signed); core 2's voices summed over its jobs; the jobs core 1
+              * waited for at the join */
+             kSum: u32(374), kBlocks: u16(378), kLow: b[380], margin: u16(382) << 16 >> 16, vSum: u32(384),
+             vWaited: u16(388),
+             /* the keys' readings (specs/debug.md#the-keys-bytes): KEYS VELOCITY, WAIT; the last landing's key (255
+              * none), its velocity, its touch, first two driven readings and landing; the counts since power-on; the
+              * scan's tick, 10 ns */
+             keys: { curve: b[390], wait: b[391], key: b[392], vel: b[393], touch: u16(394), d1: u16(396), d2: u16(398),
+                     land: u16(400), presses: u16(402), grazes: u16(404), lates: u16(406), lost: u16(408),
+                     tick10ns: u16(410), tickMost10ns: u16(412),
+                     /* the keys scanned (the FM-1), MASTER read both ways, the battery read; each key's lowest pulled-up
+                      * reading in the window (/ 4, 0 none); MASTER from the slot and directly; the battery's reading and
+                      * its readings so far; the landings so far, the last four (the newest first) */
+                     scanned: !!(b[414] & 1), masterBoth: !!(b[414] & 2), battRead: !!(b[414] & 4),
+                     rest: Array.from(b.slice(415, 435), (x) => x * 4), mSlot: u16(435), mDirect: u16(437),
+                     batt: u16(439), battN: u16(441), landed: b[443],
+                     ring: [0, 1, 2, 3].map((i) => { const o = 444 + 9 * i; return { key: b[o], vel: b[o + 1], wait: b[o + 2],
+                            touch: u16(o + 3), d1: u16(o + 5), d2: u16(o + 7) }; }) } };
+}
+/* ---- KEYS FEED (specs/debug.md#keys-feed): 32 feeds a key's readings, 33 answers what the FM-1 made of them ---- */
+const FEED = { READ: 0, DRIVEN: 1, NONE: 2, PRESS: 3, RELEASE: 4, FRAMES: 5 };
+function feedMsg(key, ops) {
+    const m = [0xF0, 0x7D, 0x50, 0x54, 0x32, key & 0x7F];
+    for (const [kind, v] of ops) m.push(kind << 3 | ((v || 0) >> 7 & 7), (v || 0) & 0x7F);
+    m.push(0xF7);
+    return m;
+}
+function decodeFed(m) {
+    if (!m || m.length < 7 || m[m.length - 1] !== 0xF7 || m[4] !== 0x33) return null;
+    for (let i = 0; i < 4; i++) if (m[i] !== PREFIX[i]) return null;
+    const b = unpack7(m.subarray ? m.subarray(5, m.length - 1) : m.slice(5, m.length - 1));
+    if (b.length < 24 || b[0] !== 1) return null;
+    const u16 = (o) => b[o] | b[o + 1] << 8;
+    return { key: b[1], curve: b[2], pending: !!(b[3] & 1), late: !!(b[3] & 2), held: !!(b[3] & 4), none: !!(b[3] & 0x80),
+             state: (u16(4) + u16(6) * 65536) >>> 0, land: u16(8), vel: [b[10], b[11], b[12]], taken: b[13], vol: b[14],
+             keysVolume: b[15], midiOut: b[16], wait: b[17], presses: u16(18), grazes: u16(20), lates: u16(22) };
+}
+const KEY_FRAME_MS = 1.1;                                /* the scan's frame: 11 columns of 100 us */
+const keyName = (n) => { const m = 53 + n; return NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1); };
+/* the keys' readings over a list of windows (each its 37's): the last window's, with the presses the windows' rings
+ * held (each once, by its landing's number; missed: landings no ring kept, more than four in a window), each key's
+ * lowest reading at rest over them (0 none), the scan's tick (the mean of the windows', the longest) */
+function keysStats(list) {
+    const ks = list.filter((f) => f.c2 && f.c2.keys).map((f) => f.c2.keys);
+    if (!ks.length) return null;
+    const last = ks[ks.length - 1], seen = new Map();
+    let missed = 0, prev = null;
+    for (const k of ks) {
+        for (let i = 0; i < k.ring.length; i++) {
+            const r = k.ring[i], seq = (k.landed - 1 - i + 256) & 255;
+            if (r.key < 27) seen.set(seq, r);           /* (a later window's: its velocity and second reading filled) */
+        }
+        if (prev !== null) missed += Math.max(0, ((k.landed - prev + 256) & 255) - k.ring.length);
+        prev = k.landed;
+    }
+    const first = ks[0].landed, order = [...seen.keys()].sort((a, b) => ((a - first + 256) & 255) - ((b - first + 256) & 255));
+    const rest = last.rest.map((_, n) => Math.min(...ks.map((k) => k.rest[n] || 9999)));
+    return { ...last, list: order.map((s) => seen.get(s)), missed, restMin: rest.map((x) => (x === 9999 ? 0 : x)),
+             tickMean10ns: ks.reduce((a, k) => a + k.tick10ns, 0) / ks.length,
+             tickMostAll10ns: Math.max(...ks.map((k) => k.tickMost10ns)), battN0: ks[0].battN };
+}
+/* the keys' readings as a report's line (the last window's: their counts run since power-on) */
+function keysLines(k) {
+    if (!k) return [];
+    const nm = keyName;
+    const last = k.key < 27 ? `the last press ${nm(k.key)}: velocity ${k.vel || "none (late, or not taken yet)"}, touch ${k.touch}, ` +
+        `driven ${k.d1}${k.d2 ? " / " + k.d2 : ""}, landing ${k.land}` : "no press read yet";
+    const tick = k.tickMean10ns === undefined ? [k.tick10ns, k.tickMost10ns] : [k.tickMean10ns, k.tickMostAll10ns];
+    const L = wrap([`keys' velocity: ${KEYS_CURVE[k.curve] || "?"}${k.curve ? `, WAIT ${k.wait}` : ""}`, last,
+                    `presses ${k.presses}, grazes ${k.grazes}, late ${k.lates}, conversions lost ${k.lost}`,
+                    `the scan's tick ${(tick[0] / 100).toFixed(2)} us, the longest ${(tick[1] / 100).toFixed(2)} us`], "");
+    const rest = k.restMin || k.rest;
+    if (k.scanned && rest && rest.some(Boolean)) {      /* (at rest: how open each key reads; the lowest, and any low) */
+        const got = rest.map((x, n) => [x, n]).filter(([x]) => x), low = got.filter(([x]) => x < 896);   /* (16 apart) */
+        const lo = got.reduce((a, b) => (b[0] < a[0] ? b : a));
+        L.push(`the keys' lowest pulled-up readings: ${got.length} of 20 read, the lowest ${lo[0]} (${nm(lo[1])})` +
+               (low.length ? `; under 900: ${low.map(([x, n]) => `${nm(n)} ${x}`).join(", ")}` : ", all open"));
+    }
+    if (k.masterBoth && k.mSlot !== 0xFFFF)
+        L.push(`MASTER from the slot ${k.mSlot}, read directly ${k.mDirect}${k.battRead ? `; the battery ${k.batt} (${k.battN} ` +
+               `readings)` : "; the battery not read"}`);
+    if (k.list && k.list.length) {                      /* (a RUN's presses, each once) */
+        L.push(`presses read (${k.list.length}${k.missed ? `, ${k.missed} more not kept: over four in a window` : ""}):`);
+        for (const r of k.list)
+            L.push(`  ${nm(r.key)}: touch ${r.touch}, driven ${r.d1}${r.d2 ? " / " + r.d2 : ""}, velocity ` +
+                   `${r.vel || "KEYS VOLUME"}, ${r.wait >= 15 ? "waited too long (shown late)" : `waited ${(r.wait * KEY_FRAME_MS).toFixed(1)} ms`}`);
+    }
+    return L;
+}
+
+/* ---- the ghosts (FIGURES 2's ghosts: specs/debug.md): the notes without an engine, made, come back, gone ----
+ * The kinds' lists below mirror fw/core/play/player.c's enums, in their order: GH_MADE and GH_MADE_AT its GM_*,
+ * GH_GONE and GH_GONE_AT its GO_*, GH_GAVE and GH_GAVE_AT its GG_*, GH_CHECKS and GH_CHECK_AT its GK_*, GH_RANKS
+ * and GH_RANK_AT its GR_*, GH_ENGINES and GH_ENGINE_AT its PL_GF_E slots (a change there is a change here; figures_test's
+ * round trip fails on either side alone) */
+const GH_ENGINES = ["DX7", "JUNO-106", "SAMPLER", "CHIP"];
+/* made: taken for a new note; started as ghosts (the keys holding the engines; a muted track's); muted; past a smaller
+ * VOICES; core 2's fallback, its job begun; never begun */
+const GH_MADE = ["taken", "started", "started muted", "muted", "a smaller count", "core 2's begun", "core 2's never begun"];
+/* gone, by why (the device's order): the ends, then the drops */
+const GH_GONE = ["cut", "let go 10 s ago", "ended by themselves", "found ended at their return", "instruments gone",
+                 "list full: let go", "list full: muted", "list full: songs' held", "list full: keys' held",
+                 "under hearing at their return", "JUNO-106 RELEASE over", "their track off their instrument",
+                 "FUSION cell or track changed", "an older note's FUSION layer", "sampler ended by its commands"];
+const GH_ENDS = 5;                                       /* (GH_GONE's first five: ended; the rest dropped) */
+const GH_GAVE = ["a new note", "a smaller count", "a command", "a mute"];
+const GH_CHECKS = ["others'", "samplers'", "FUSION layers'"];
+/* each kind's place in its list, as the device's order (made, gone, given up, the list's ranks, the engines): what
+ * reads a figure reads it by these, never by its text */
+const GH_MADE_AT = { TAKEN: 0, BORN: 1, BORN_MUTED: 2, MUTED: 3, COUNT: 4, C2_BEGUN: 5, C2_NEVER: 6 };
+const GH_GONE_AT = { CUT: 0, KEEP: 1, SELF: 2, SELF_BACK: 3, INST: 4, FULL_LET: 5, FULL_MUTED: 6, FULL_SONG: 7,
+                     FULL_KEY: 8, QUIET: 9, JREL: 10, OFF_INST: 11, FUS_CELL: 12, FUS_OLD: 13, SAMP_END: 14 };
+const GH_GAVE_AT = { NOTE: 0, COUNT: 1, CMD: 2, MUTE: 3 };
+const GH_CHECK_AT = { PLAIN: 0, SAMP: 1, FUS: 2 };
+const GH_RANK_AT = { LET: 0, MUTED: 1, SONG: 2, KEY: 3 };
+const GH_ENGINE_AT = { DX7: 0, JUNO: 1, SAMPLER: 2, CHIP: 3 };
+/* the budget's unit, us: about 1 us of the FM-1's time, each weight its cost measured there (fixed: a budget changed
+ * changes how many units a block has, not what a unit is). A firmware giving no sampler's checks' weight (byte 343: 0)
+ * counted in its first units, about 32 of the FM-1's instructions, 480 of them 15,700 cycles at 360 MHz */
+const UNIT_US = 1, UNIT_FIRST_US = 15700 / 480 / 360;
+function ghostsAt(b, o) {
+    const u16 = (x) => b[o + x] | b[o + x + 1] << 8, u32 = (x) => u16(x) + u16(x + 2) * 65536;
+    const four = (at, step, f) => [0, 1, 2, 3].map((i) => f(at + step * i));
+    return {
+        stageSum: u32(0), stageMax: u16(4), worst: u16(6),     /* the GHOSTS stage: summed, its longest half, the worst
+                                                                * half's (FIGURES') */
+        now: { ghosts: b[o + 8], held: b[o + 9], muted: b[o + 10], keys: b[o + 11], letGo: b[o + 12], way: b[o + 13],
+               keysOn: b[o + 14], songsOn: b[o + 15], byEngine: four(16, 1, (x) => b[o + x]), tracks: u32(20),
+               tracksOn: u32(24) },
+        most: b[o + 28], wayMost: b[o + 29], backMost: b[o + 30],
+        returns: b[o + 31], budget: u16(32), readyW: b[o + 34], seekW: b[o + 35], readyS: b[o + 287],   /* the numbers
+                                                                * in force */
+        cost: four(36, 2, (x) => [b[o + x], b[o + x + 1]]),
+        made: GH_MADE.map((_, i) => u16(44 + 2 * i)), madeTb: u16(58),
+        backFree: u16(60), backTail: u16(62), tailLost: u16(64), backMute: u16(66), backMuted: u16(68),
+        gone: GH_GONE.map((_, i) => [u16(70 + 4 * i), u16(72 + 4 * i)]),   /* [held, let go] */
+        deferred: u16(130), backQuiet: u16(132), gave: GH_GAVE.map((_, i) => u16(134 + 2 * i)),
+        fwd: four(142, 10, (x) => ({ n: u16(x), steps: u32(x + 2), us: u32(x + 6) })),
+        starts: four(182, 6, (x) => ({ n: u16(x), us: u32(x + 2) })),
+        first: four(206, 6, (x) => ({ n: u16(x), us: u32(x + 2) })),
+        checks: [0, 1, 2].map((i) => ({ n: u16(230 + 6 * i), us: u32(232 + 6 * i) })),
+        search: { n: u16(248), us: u32(250) }, idle: { n: u16(254), us: u32(256), inside: u16(304) },
+        ends: { n: u16(260), us: u32(262) },             /* (idle's inside: the timed pieces in those walks) */
+        units: u32(266), unitsMost: u16(270), blocks: u16(272), stop4: u16(274), stopB: u16(276),
+        waitMost: u16(278), wayLong: u16(280), oldest: u32(282), oldestFl: b[o + 286],
+        fullNew: four(288, 2, u16),                     /* the list full: notes not kept (never ghosts), by rank */
+        look: { n: u16(296), us: u32(298) },            /* the waits' own look after each walk (the debug build's, in
+                                                         * no stage) */
+        /* a timer pair's own cost, us: 32 timer reads back to back at the window's first look, over 32 (null: none
+         * measured); every time above holds one for each of its calls. A section keeps its windows' least */
+        probe: u16(302) === 0xFFFF ? null : u16(302) / 32,
+        held: u16(306), loadCap: u16(308),             /* the walks the load guard held (among those spending nothing);
+                                                         * its cap in force */
+    };
+}
+/* a list of windows' ghosts (those with their FIGURES 2): summed, the most, the last's now; null when none has them */
+function ghostStats(w) {
+    const g = w.filter((f) => f.c2 && f.c2.gh).map((f) => f.c2.gh);
+    if (!g.length) return null;
+    const S = (k) => sum(g.map(k)), M = (k) => Math.max(...g.map(k)), last = g[g.length - 1];
+    const both = (k) => ({ n: S((x) => k(x).n), us: S((x) => k(x).us) });
+    const old = g.reduce((a, x) => (x.oldest > a.oldest ? x : a), g[0]);
+    return {
+        windows: g.length, now: last.now, most: M((x) => x.most), wayMost: M((x) => x.wayMost), backMost: M((x) => x.backMost),
+        returns: last.returns, budget: last.budget, readyW: last.readyW, seekW: last.seekW, readyS: last.readyS,
+        unit: last.readyS ? UNIT_US : UNIT_FIRST_US, cost: last.cost,
+        made: GH_MADE.map((_, i) => S((x) => x.made[i])), madeTb: S((x) => x.madeTb),
+        backFree: S((x) => x.backFree), backTail: S((x) => x.backTail), tailLost: S((x) => x.tailLost),
+        backMute: S((x) => x.backMute), backMuted: S((x) => x.backMuted),
+        gone: GH_GONE.map((_, i) => [S((x) => x.gone[i][0]), S((x) => x.gone[i][1])]),
+        deferred: S((x) => x.deferred), backQuiet: S((x) => x.backQuiet), gave: GH_GAVE.map((_, i) => S((x) => x.gave[i])),
+        fwd: [0, 1, 2, 3].map((i) => ({ n: S((x) => x.fwd[i].n), steps: S((x) => x.fwd[i].steps), us: S((x) => x.fwd[i].us) })),
+        starts: [0, 1, 2, 3].map((i) => both((x) => x.starts[i])), first: [0, 1, 2, 3].map((i) => both((x) => x.first[i])),
+        checks: [0, 1, 2].map((i) => both((x) => x.checks[i])),
+        search: both((x) => x.search), idle: Object.assign(both((x) => x.idle), { inside: S((x) => x.idle.inside) }),
+        ends: both((x) => x.ends), look: both((x) => x.look),
+        probe: g.some((x) => x.probe !== null) ? Math.min(...g.filter((x) => x.probe !== null).map((x) => x.probe)) : null,
+        units: S((x) => x.units), unitsMost: M((x) => x.unitsMost), blocks: S((x) => x.blocks),
+        stop4: S((x) => x.stop4), stopB: S((x) => x.stopB), waitMost: M((x) => x.waitMost), wayLong: M((x) => x.wayLong),
+        held: S((x) => x.held), loadCap: last.loadCap,
+        oldest: old.oldest, oldestFl: old.oldestFl, stageSum: S((x) => x.stageSum), stageMax: M((x) => x.stageMax),
+        fullNew: [0, 1, 2, 3].map((i) => S((x) => x.fullNew[i])),
+        /* the held notes dropped: ghosts (by any why but a cut, their own end or a let-go's 10 s), and held notes the
+         * list full did not keep */
+        heldDropped: sum(GH_GONE.map((_, i) => (i >= GH_ENDS ? S((x) => x.gone[i][0]) : 0))) +
+                     S((x) => x.fullNew[GH_RANK_AT.MUTED] + x.fullNew[GH_RANK_AT.SONG] + x.fullNew[GH_RANK_AT.KEY]),
+    };
+}
+const GH_RANKS = ["let go", "muted", "songs' held", "keys' held"];   /* (the list's drop order, the first first: GR_*) */
+/* a window's GHOSTS stage as a stage row (a part of VOICES), from its FIGURES 2; null without it */
+function ghostStage(f) {
+    return f.c2 && f.c2.gh ? { name: "GHOSTS", sum: f.c2.gh.stageSum, max: f.c2.gh.stageMax } : null;
+}
+const BLOCK_S = 64 / 44100;                              /* a block, s */
+const n0 = (x) => x.n;
+/* a section's ghosts' timer reads: those the GHOSTS stage holds, in timer pairs' worth (each walk's and each ends walk's
+ * own pair, and each timed piece inside a walk whole: its two reads, two pairs' worth), and those of the walks that spent
+ * units alone (the walks spending nothing and their pieces left out) */
+function ghostPairs(g) {
+    const inner = sum(g.checks.map(n0)) + g.search.n + sum(g.starts.map(n0)) + sum(g.fwd.map(n0));
+    return { stage: g.ends.n + g.idle.n + g.blocks + 2 * inner, work: g.blocks + 2 * (inner - g.idle.inside) };
+}
+/* a section's ghosts as lines: now and the most, made, back, gone, given up; the budget, each engine's work (us a step,
+ * against the weight in force at the budget's unit), the checks, the walks; the waits. Each time of a count is net of its
+ * calls' timer pairs (a pair's cost measured on the FM-1: the probe), the GHOSTS stage as measured; a time its pairs
+ * would take below nothing (held at 0), or a stage's timer reads past its time, says "probe over the measure" */
+const GH_OVER = "probe over the measure";
+function ghostLines(g) {
+    if (!g || !(sum(g.made) || g.backFree || g.backTail || g.most || g.now.ghosts)) return [];
+    const L = [], nz = (names, vals) => names.map((n, i) => [n, vals[i]]).filter(([, v]) => v).map(([n, v]) => `${n} ${v}`);
+    const us = (t, n) => (n ? (t / n).toFixed(t / n < 10 ? 2 : 1) : "-");
+    const P = g.probe, net = (t, pairs) => (P === null ? t : Math.max(0, t - pairs * P));
+    /* (a time t of `pairs` timer pairs over n: its figure a call, then unit, flagged when its pairs are over it) */
+    const over = (t, pairs) => P !== null && pairs * P > t;
+    const each = (t, pairs, n, unit = " us") => us(net(t, pairs), n) + unit + (n && over(t, pairs) ? ` (${GH_OVER})` : "");
+    const per = (x, unit) => each(x.us, x.n, x.n, unit);   /* (a count's time a call, its pairs out) */
+    const pairs = ghostPairs(g);
+    const n = g.now, blocks = (k) => `${k} block${k === 1 ? "" : "s"}`;
+    const by = nz(GH_ENGINES, n.byEngine);
+    L.push(...wrap([`ghosts: now ${n.ghosts} (held ${n.held}, muted ${n.muted}, the keys' ${n.keys}, let go ${n.letGo}; ` +
+                    `returning ${n.way})`].concat(by.length ? [`by engine ${by.join(", ")}`] : [],
+                   [`the most ${g.most} at once`, `in the engines now the keys' notes ${n.keysOn}, the songs' ${n.songsOn}`]), ""));
+    const made = sum(g.made), back = g.backFree + g.backTail;
+    L.push(...wrap([`  made ${made}${made ? ":" : ""} ${nz(GH_MADE, g.made).join(", ")}`.trimEnd()]
+                   .concat(g.madeTb ? [`A TB-303'S ${g.madeTb}`] : []), ""));
+    L.push(...wrap([`  back ${back}: into free engines ${g.backFree}`, `into tails' ${g.backTail}` +
+                    (g.tailLost ? ` (tails cut for returns that never came back ${g.tailLost})` : "")]
+        .concat(g.backMute ? [`after a mute ${g.backMute}`] : [], back ? [`the most ${g.backMost} a block`] : [],
+                g.backMuted ? [`WHILE MUTED ${g.backMuted}`] : []), ""));
+    const gone = (from, to) => GH_GONE.map((name, i) => [name, g.gone[i]]).slice(from, to).filter(([, v]) => v[0] + v[1])
+        .map(([name, v]) => `${name} ${v[0] + v[1]}${v[0] ? ` (${v[0]} held)` : ""}`);
+    const ends = sum(g.gone.slice(0, GH_ENDS).map((v) => v[0] + v[1])), drops = sum(g.gone.slice(GH_ENDS).map((v) => v[0] + v[1]));
+    if (ends) L.push(...wrap([`  ended ${ends}: ${gone(0, GH_ENDS)[0]}`].concat(gone(0, GH_ENDS).slice(1)), ""));
+    if (drops || g.backQuiet) L.push(...wrap([`  dropped ${drops}${drops ? ": " + gone(GH_ENDS)[0] : ""}`]
+        .concat(gone(GH_ENDS).slice(1), g.deferred ? [`at a deferred start ${g.deferred}`] : [],
+                g.backQuiet ? [`back let go, then quiet at once ${g.backQuiet}`] : []), ""));
+    if (sum(g.fullNew)) L.push(...wrap([`  not kept, the list full ${sum(g.fullNew)}: ${nz(GH_RANKS, g.fullNew)[0]}`]
+        .concat(nz(GH_RANKS, g.fullNew).slice(1)), ""));
+    if (sum(g.gave)) L.push(...wrap([`  returns given up ${sum(g.gave)}: ${nz(GH_GAVE, g.gave)[0]}`].concat(nz(GH_GAVE, g.gave).slice(1)), ""));
+    const work = g.stageSum - g.ends.us - g.idle.us, reads = P === null ? 0 : pairs.stage * P;   /* (work: the walks
+                                                         * that spent units) */
+    L.push(...wrap([`  the budget ${g.budget} a block, ${g.returns} returns: spent ${g.units} in ${blocks(g.blocks)}` +
+                    (g.blocks ? ` (${(g.units / g.blocks).toFixed(0)} a block)` : ""), `the most ${g.unitsMost}`,
+                    `walks stopped by the count ${g.stop4}, by the budget ${g.stopB}`,
+                    `held by the load guard ${g.held} (its cap ${g.loadCap})`,
+                    `GHOSTS ${g.stageSum} us` + (P === null ? "" : ` (its timer reads ${reads.toFixed(0)}` +
+                                                 `${reads > g.stageSum ? `: ${GH_OVER}` : ""})`)]
+        .concat(g.units ? [`${us(net(work, pairs.work), g.units)} us a unit spent (the unit ${g.unit.toFixed(3)}` +
+                           `${over(work, pairs.work) ? `; ${GH_OVER}` : ""})`] : []), ""));
+    L.push(...wrap([P === null ? "  the times as measured (no timer pair's cost measured)"
+                               : `  the times net of their timer pairs, ${P.toFixed(3)} us each`,
+                    "the GHOSTS stage as measured"], ""));
+    g.fwd.forEach((f, i) => {
+        const s = g.starts[i], fb = g.first[i], c = g.cost[i];
+        if (!f.n && !s.n && !fb.n) return;
+        L.push(...wrap([`  ${GH_ENGINES[i]}: steps ${f.steps} x ${each(f.us, f.n, f.steps)} (weight ${c[1]} = ` +
+                        `${(c[1] * g.unit).toFixed(2)})`,
+                        `starts ${s.n} x ${per(s)} (${c[0]} = ${(c[0] * g.unit).toFixed(1)})`,
+                        `first blocks back ${fb.n} x ${per(fb)}` +
+                        (i === GH_ENGINE_AT.SAMPLER ? ` (its seek ${g.seekW} = ${(g.seekW * g.unit).toFixed(1)})` : "")], ""));
+    });
+    const ck = { n: sum(g.checks.map(n0)), us: sum(g.checks.map((x) => x.us)) };
+    if (ck.n || g.search.n || g.idle.n || g.ends.n)
+        L.push(...wrap([`  checks ${ck.n} x ${per(ck)} (weight ${g.readyW} = ${(g.readyW * g.unit).toFixed(2)}` +
+                        (g.readyS ? `, a sampler's ${g.readyS} = ${(g.readyS * g.unit).toFixed(1)}` : "") + ")"]
+            .concat(g.checks.map((x, i) => (x.n ? `${GH_CHECKS[i]} ${x.n} x ${per(x, "")}` : "")).filter(Boolean),
+                    [`searches ${g.search.n} x ${per(g.search)}`,
+                     `walks spending nothing ${g.idle.n} x ${each(g.idle.us, g.idle.n + 2 * g.idle.inside, g.idle.n)}`],
+                    g.ends.n ? [`the ends' walks ${g.ends.n} x ${per(g.ends)}`] : [],
+                    g.look.n ? [`the debug build's look at the waits ${g.look.n} x ${per(g.look)}`,
+                                "in no stage (in the interrupt's own)"] : []), ""));
+    const fl = g.oldestFl;
+    L.push(...wrap([`  the longest wait ${blocks(g.waitMost)} (${(g.waitMost * BLOCK_S * 1000).toFixed(1)} ms, from the first ` +
+                    `block it could have begun)`, `the longest under way ${blocks(g.wayLong)}, ${g.wayMost} at once at most`]
+        .concat(g.oldest ? [`the oldest note back ${(g.oldest * BLOCK_S).toFixed(1)} s (${fl & 1 ? "held" : "let go"}` +
+                            `${fl & 2 ? ", a key's" : ""}${fl & 4 ? ", into a tail's" : ""})`] : []), ""));
+    return L;
 }
 /* a 37 into its window (the 31 just before it, the same number): false when they do not match (that window's 31 lost) */
 function join(f, c) {
@@ -304,11 +595,27 @@ function stats(list) {
         frames: sum(w.map((f) => f.frames)), frameSum: sum(w.map((f) => f.frameSum)), frameMax: Math.max(...w.map((f) => f.frameMax)),
         passMax: Math.max(...w.map((f) => f.passMax)),
         flash: { reads: sum(w.map((f) => f.flashReads)), us: sum(w.map((f) => f.flashUs)) },
-        stacks: [0, 1].map((k) => ({ used: Math.max(...w.map((f) => f.stackUsed[k])), size: w[w.length - 1].stackSize[k] })),
+        stacks: [0, 1].map((k) => {                 /* (the bottoms as the last window with its 37 read them) */
+            const lc = w.filter((f) => f.c2 && f.c2.stackIsland).pop();
+            return { used: Math.max(...w.map((f) => f.stackUsed[k])), size: w[w.length - 1].stackSize[k],
+                     island: lc ? lc.c2.stackIsland[k] : 0, paint: lc ? lc.c2.stackPaint[k] : 0 };
+        }),
         frozen: w.filter((f) => f.frozen).length,
         stopped: all.length - w.length,             /* windows left out: the FM-1 stopped */
         worst: w.reduce((a, f) => (f.worst.us > a.us ? f.worst : a), w[0].worst),   /* the worst half's own stages */
     };
+    {   /* the ghosts (FIGURES 2's): their stage, a part of VOICES, its row apart (stages keeps FIGURES' order); the worst
+         * half's GHOSTS; the section's ghost figures */
+        const gw = w.filter((f) => ghostStage(f)), wf = w.reduce((a, f) => (f.worst.us > a.worst.us ? f : a), w[0]);
+        const gh = sum(gw.map((f) => f.halves)), gb = sum(gw.map((f) => f.halves * f.halfUs));   /* (the windows with
+                                                         * their 37 only: one lost counts no ghost work) */
+        r.ghostStage = gw.length ? { name: "GHOSTS", inside: "VOICES", mean: sum(gw.map((f) => ghostStage(f).sum)) / gh,
+                                     share: sum(gw.map((f) => ghostStage(f).sum)) / gb * 100,
+                                     p95: quantile(gw.map((f) => ghostStage(f).sum / f.halves), 0.95),
+                                     worst: Math.max(...gw.map((f) => ghostStage(f).max)), windows: gw.length } : null;
+        r.worstGhosts = wf.c2 && wf.c2.gh ? wf.c2.gh.worst : 0;
+        r.ghosts = ghostStats(w);
+    }
     /* CPU 2: core 2's blocks' time (each window's 37), over the windows that have one; null when none has */
     const w2 = w.filter((f) => f.c2);
     r.cpu2 = null;
@@ -318,6 +625,7 @@ function stats(list) {
         const c = w2.map((f) => f.c2), last = c[c.length - 1], states = new Map();
         const fault = c.filter((x) => x.faultVec || x.faultPc).pop();   /* (the last window holding its fault record) */
         for (const x of c) states.set(c2Text(x), (states.get(c2Text(x)) || 0) + 1);
+        r.keys = keysStats(w2) || last.keys;
         r.cpu2 = { mean: sum(c.map((x) => x.sum)) / b2 * 100, median: quantile(cpu2, 0.5), p95: quantile(cpu2, 0.95),
                    worst: Math.max(...w2.map((f) => f.c2.max / f.halfUs * 100)), worstUs: Math.max(...c.map((x) => x.max)) };
         r.core2 = { windows: w2.length, of: w.length, states: [...states.entries()], whole: c.filter((x) => x.whole).length,
@@ -328,7 +636,11 @@ function stats(list) {
                     start10ns: last.start10ns, clk: last.clk, fault: fault ? { vec: fault.faultVec, pc: fault.faultPc } : null,
                     v: { jobs: sum(c.map((x) => x.vJobs)), most: Math.max(...c.map((x) => x.vMost)),
                          share: sum(c.map((x) => x.vUs)) / b2 * 100, waitSum: sum(c.map((x) => x.vWaitSum)),
-                         waitMax: Math.max(...c.map((x) => x.vWaitMax)) } };
+                         waitMax: Math.max(...c.map((x) => x.vWaitMax)) },
+                    split: { kSum: sum(c.map((x) => x.kSum)), kBlocks: sum(c.map((x) => x.kBlocks)),
+                             kLow: Math.min(...c.map((x) => x.kLow)), vSum: sum(c.map((x) => x.vSum)),
+                             waited: sum(c.map((x) => x.vWaited)), margin: last.margin,
+                             fixed: c.filter((x) => x.fixed).length } };
     }
     /* the stages hold both cores' work (CPU time): what they leave of both cores' time is the interrupt's own (and
      * core 2's between its stages) */
@@ -369,12 +681,14 @@ function context(w) {
 
 /* a worst half (worstAt) as lines: its time, voices, notes started; its stages (parts in small letters) and its
  * voice blocks, wrapped under 100 characters */
-function worstLines(w, indent) {
+function worstLines(w, indent, ghosts) {
     const L = [], parts = [];
     if (!w || !w.us) return L;
     L.push(`${indent}worst half ${w.us} us (${pct(w.us / HALF_US * 100)}%): voices ${w.voices}, notes started ${w.notes}`);
-    for (const s of w.stages)
+    for (const s of w.stages) {
         if (s.us) parts.push(`${INSIDE[s.name] ? s.name.toLowerCase() : s.name} ${s.us}`);
+        if (s.name === "VOICES" && ghosts) parts.push(`ghosts ${ghosts}`);   /* (VOICES' part, FIGURES 2's) */
+    }
     const bl = ENGINES.map((e, i) => w.blocks[i] ? `${e} ${w.blocks[i]} x ${(w.stages[ENGINE_AT + i].us / w.blocks[i]).toFixed(1)} us` : "")
         .filter(Boolean);
     if (bl.length) parts.push("voice blocks: " + bl.join(", "));
@@ -397,9 +711,14 @@ function core2Lines(c) {
                `core 1 waited for it ${c.waitMean.toFixed(1)} us a half, the longest ${c.waitMax} us`,
                `late halves: core 1's ${c.late1}, core 2's ${c.late2}`,
                `misreads ${c.misreadsIn}${c.misreads !== c.misreadsIn ? ` (${c.misreads} since its start)` : ""}`);
-    if (c.v.jobs) parts.push(`voices on core 2: ${c.v.jobs} voice jobs, ${c.v.most} places at most, ${pct(c.v.share)} % of a half`,
+    if (c.split.fixed) parts.push(`THE SPLIT FIXED AS BEFORE (the debug switch) in ${c.split.fixed} windows`);
+    if (c.split.kBlocks) parts.push(`the voices' split after place ${(c.split.kSum / c.split.kBlocks).toFixed(1)} on ` +
+                                    `average, ${c.split.kLow} at the lowest`);
+    if (c.v.jobs) parts.push(`voices on core 2: ${c.v.jobs} voice jobs, ${(c.split.vSum / c.v.jobs).toFixed(1)} voices a ` +
+                             `job, ${c.v.most} at most, ${pct(c.v.share)} % of a half`,
                              `core 1 waited for them ${(c.v.waitSum / c.v.jobs).toFixed(1)} us a job, the longest ` +
-                             `${c.v.waitMax} us`);
+                             `${c.v.waitMax} us, at the join in ${pct(c.split.waited / c.v.jobs * 100)} % of them`);
+    if (c.split.kBlocks) parts.push(`the split's margin at the end ${c.split.margin} units a block`);
     if (c.stackSize) parts.push(`its stack ${c.stackUsed} of ${c.stackSize} B`);   /* (none where it has no stack: the
                                                                                     * emulator) */
     if (c.start10ns) parts.push(`its start answered in ${(c.start10ns / 100).toFixed(2)} us` +
@@ -424,15 +743,18 @@ function sectionLines(title, s) {
         L.push(...core2Lines(s.core2));
     }
     L.push(`voices: mean ${s.voices.mean.toFixed(1)}  most ${s.voices.most}  notes taken ${s.voices.steals}`);
+    if (s.keys) L.push(...keysLines(s.keys));
+    L.push(...ghostLines(s.ghosts));
     L.push("stage        us/half  share   p95 us  worst us");
     const row = (n, mean, share, p95, worst) => `${n.padEnd(12)} ${mean.toFixed(0).padStart(7)} ${(pct(share) + "%").padStart(6)} ` +
         `${p95 === "" ? "".padStart(8) : p95.toFixed(0).padStart(8)} ${worst === "" ? "" : String(worst).padStart(9)}`;
     for (const st of s.stages) {
-        if (st.inside && !st.mean) continue;
-        L.push(row((st.inside ? "  " : "") + st.name, st.mean, st.share, st.p95, st.worst));
+        if (!(st.inside && !st.mean)) L.push(row((st.inside ? "  " : "") + st.name, st.mean, st.share, st.p95, st.worst));
+        const gs = s.ghostStage;                        /* (GHOSTS: VOICES' first part, the voices pass's ghost work) */
+        if (st.name === "VOICES" && gs && gs.mean) L.push(row("  " + gs.name, gs.mean, gs.share, gs.p95, gs.worst));
     }
     L.push(row("(interrupt)", s.other.mean, s.other.share, "", ""));
-    L.push(...worstLines(s.worst, ""));
+    L.push(...worstLines(s.worst, "", s.worstGhosts));
     if (s.moments.length) {                             /* (wrapped under 100 characters, as the worst half) */
         let line = `moments${s.momentsAll > s.moments.length ? ` (${s.moments.length} of ${s.momentsAll})` : ""}: `;
         for (const m of s.moments) {
@@ -448,6 +770,12 @@ function sectionLines(title, s) {
            `worst ${(s.frameMax / 1000).toFixed(1)} ms; main loop worst pass ${(s.passMax / 1000).toFixed(1)} ms`);
     L.push(`stacks: main loop ${s.stacks[0].used} of ${s.stacks[0].size} B, interrupts ${s.stacks[1].used} of ${s.stacks[1].size} B; ` +
            `flash reads in the sound: ${s.flash.reads} (${s.flash.us} us)`);
+    ["the main loop's", "the interrupts'"].forEach((nm, k) => {   /* (a stack read as used whole: what its bottom holds) */
+        const t = s.stacks[k];
+        if (t.size && t.used >= t.size)
+            L.push(t.paint ? `  ${nm} stack: ${t.island} B written at its bottom, then ${t.paint} B untouched: ` +
+                             `${t.used - t.island - t.paint} B deep above` : `  ${nm} stack: no paint above its bottom (not painted at this start?)`);
+    });
     const u = s.usb;
     if (!u) L.push("USB audio: nothing recording");
     else {
@@ -579,8 +907,11 @@ function recordsLines(r) {
 }
 
 const F = { ask, decode, decode2, join, c2Text, unpack7, stats, session, quantile, sectionLines, unsentIn, STAGES,
-            INSIDE, ENGINES, LEN, LEN2, C2_STATE, C2_WHY, RESET: 1, FREEZE: 2, UNFREEZE: 4, proveAsk, decodeRecords,
-            recordsLines };
+            INSIDE, ENGINES, LEN, LEN2, C2_STATE, C2_WHY, RESET: 1, FREEZE: 2, UNFREEZE: 4, FIXED: 8, MOVING: 16, proveAsk,
+            decodeRecords, keysLines, keysStats, keyName, FEED, feedMsg, decodeFed,
+            recordsLines, ghostStats, ghostLines, ghostStage, ghostPairs, GH_ENGINES, GH_MADE, GH_GONE, GH_ENDS, GH_GAVE,
+            GH_CHECKS, GH_RANKS, GH_MADE_AT, GH_GONE_AT, GH_GAVE_AT, GH_CHECK_AT, GH_RANK_AT, GH_ENGINE_AT, GH_OVER, UNIT_US,
+            UNIT_FIRST_US, BLOCK_S };
 if (typeof module !== "undefined" && module.exports) module.exports = F;
 else root.PTFM_figures = F;
 })(typeof window !== "undefined" ? window : globalThis);

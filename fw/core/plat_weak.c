@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "plat.h"
 
+__attribute__((weak)) volatile uint8_t plat_sound_at;   /* (the FM-1's own: in memory a restart keeps) */
 __attribute__((weak)) void plat_idle(void) {}
 __attribute__((weak)) uint32_t plat_spare_room(void) { return 0; } /* (the spare zone's array alone) */
 /* (the FM-1's RAM and its code in RAM; the variables and screen buffers unknown here: SYSTEM takes them) */
@@ -29,16 +30,41 @@ __attribute__((weak)) uint32_t plat_usb_resets(void) { return 0; }
 __attribute__((weak)) int plat_usb_up(void) { return 1; }
 __attribute__((weak)) int plat_usb_power(void) { return 1; }
 __attribute__((weak)) int plat_fast(void (*fn)(const plat_input_t *in, uint32_t ms)) { (void)fn; return 0; }
+__attribute__((weak)) void plat_step(uint32_t step) { (void)step; }   /* (no freeze record) */
+/* (no readings of the keys: every press without a velocity, at KEYS VOLUME) */
+__attribute__((weak)) void plat_key_touch(int curve) { (void)curve; }
+__attribute__((weak)) int plat_key_vel(int n) { (void)n; return 0; }
+__attribute__((weak)) int plat_key_reading(int n) { (void)n; return 0; }
 
 /* (one core: no half goes to core 2; a job handed over all the same runs at once, nothing ever waits) */
 __attribute__((weak)) int plat_c2_half(void) { return 0; }
 __attribute__((weak)) void plat_c2_post(void (*job)(uint32_t), uint32_t j) { job(j); }
 __attribute__((weak)) void plat_c2_enable(int on) { (void)on; }
-__attribute__((weak)) void plat_c2_wait(void) {}
+__attribute__((weak)) void plat_supplies(int stock) { (void)stock; }   /* (no supplies to raise) */
+__attribute__((weak)) int plat_c2_wait(void) { return 0; }
 
 #ifdef PTFM_DEBUG
 /* (the debug part: linked in with the rest everywhere but on the FM-1) */
 __attribute__((weak)) int plat_dbg_part(void) { return 1; }
-__attribute__((weak)) void plat_dbg_part_recheck(void) {}
+__attribute__((weak)) volatile uint8_t plat_dbg_in = 1;
+__attribute__((weak)) void plat_dbg_part_recheck(int written) { (void)written; }
 __attribute__((weak)) void plat_dbg_part_stop(void) {}
+#include "dbg.h"
+/* (no readings of the keys: zeros) */
+__attribute__((weak)) void plat_keys(plat_keys_t *k, int wait)
+{
+    int i;
+    (void)wait;
+    *k = (plat_keys_t){0};
+    k->key = 0xFFu;
+    k->m_slot = k->m_direct = k->batt = 0xFFFFu;
+    for (i = 0; i < PLAT_KEYS_RING; i++)
+        k->ring[i].key = 0xFFu;
+}
+__attribute__((weak)) void plat_key_feed(int key, const uint8_t *op, int len, plat_feed_t *r)
+{
+    (void)key, (void)op, (void)len;
+    *r = (plat_feed_t){0};
+    r->flags = 0x80u;
+}
 #endif

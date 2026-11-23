@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Vasily Kazantsev
 # The editor's host tests (Node): the firmware's WebAssembly with the editor's part built first (editor/build.py),
-# then the records against tools/ptfm_records.py, the loops' record (its version 3 converted), the FS against the virtual
-# FM-1, the converters (modules given as
+# then the records against tools/ptfm_records.py, the loops' record (its version 3 converted), AUTOMATIONS' coding (the
+# firmware's vectors, fw/tests/auto_vectors.json), the FS against the virtual FM-1, the converters (modules given as
 # arguments: MOD, S3M, XM files). From ptfm/:
 #   sh tests/editor/run_tests.sh [MODULE...]        (NO_WASM=1: the WebAssembly built last, only the page again)
 set -e
@@ -14,10 +14,13 @@ python3 -I tests/editor/py_dump.py dist/firmware/demo.ptfmdsk build/editor/py_du
 node tests/editor/records_test.js build/editor/py_dump.json
 node tests/editor/loops_test.js
 node tests/editor/loops_preview_test.js
+node tests/editor/automations_test.js
 node tests/editor/model_test.js
 node tests/editor/device_test.js
 node tests/editor/preview_test.js
 node tests/editor/conv_test.js "$@"
+node tests/editor/juno_test.js
+node tests/editor/juno60_test.js
 node tests/editor/slices_test.js
 node tests/editor/favorites_test.js
 node tests/editor/slotops_test.js

@@ -5,6 +5,7 @@
  * screens shot (PPM) and what they do checked: the records changed in the edit memory, what the sound gets.
  *
  *   ui3_test DISK.ptfmdsk OUTDIR */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,7 @@
 #include "ui/fx_target.h"
 #include "ui/ui_punch.h"
 #include "ui/ui_lp.h"
+#include "ui/ui_storage.h"
 #include "eng/juno/juno.h"
 const char *ui_toast_now(void);
 
@@ -76,7 +78,8 @@ static void fake_usb(const int32_t *lr, const int16_t *click, int n)   /* USB au
 }
 static uint8_t caught[4][640];          /* (FIGURES: 632 B on the wire) */
 static uint32_t caught_n[4], ncaught;
-static uint8_t caught2[4][80];          /* each FIGURES' 37 FIGURES 2 (70 B on the wire), in the same order */
+static uint8_t caught2[4][640];         /* each FIGURES' 37 FIGURES 2 (about 560 B on the wire, its keys' readings with it),
+                                         * in the same order */
 static uint32_t caught2_n[4], ncaught2;
 #endif
 void plat_input(plat_input_t *in)
@@ -86,6 +89,10 @@ void plat_input(plat_input_t *in)
     memset(in_now.knob_pre, 0, sizeof in_now.knob_pre);
 }
 uint32_t plat_notes(void) { return in_now.notes; }
+static uint8_t kvel_now[27];            /* the keys' velocity as the FM-1's scan gives it (0 none: KEYS VOLUME) */
+int plat_key_vel(int n) { return n >= 0 && n < 27 && (in_now.notes >> n & 1u) ? kvel_now[n] : 0; }
+static uint16_t kread_now[20];          /* the keys' driven readings while held (0 none: no pressure; test_key_pressure) */
+int plat_key_reading(int n) { return n >= 0 && n < 20 && (in_now.notes >> n & 1u) ? kread_now[n] : 0; }
 void plat_led(int id, uint8_t level) { if (id >= 0 && id < LED_COUNT) leds[id] = level; }
 void plat_lcd_rows(int y, int h, const uint16_t *px) { memcpy(screen + y * 240, px, (size_t)h * 240 * 2); }
 int plat_screen_lost(void) { return 0; }
@@ -112,6 +119,8 @@ void plat_cpu(plat_cpu_t *c, int reset)
     c->c2_why = c2_why;
 }
 void plat_c2_enable(int on) { c2_enabled = on; }
+static int sup_stock = -1, sup_calls;                   /* SETTINGS' CORE SUPPLIES as last given to the platform, how often */
+void plat_supplies(int stock) { sup_stock = stock; sup_calls++; }
 void plat_output(int mono, int db) { (void)mono; (void)db; }
 void plat_usb_gain(int db) { (void)db; }
 static int user(uint32_t a, uint32_t n)
@@ -202,7 +211,7 @@ static void run(uint32_t ms)
     static uint32_t audio_at;
     for (uint32_t t = 0; t < ms; t++) {
         now_ms++;
-        while (audio_at * 5804u / 1000u < now_ms) {
+        while ((uint64_t)audio_at * 5804u / 1000u < now_ms) {   /* (64 bits: past 4,295 s of halves too) */
 #ifdef PTFM_DEBUG
             uint32_t t0 = plat_us();
             app_audio(lr, PLAT_HALF);
@@ -449,6 +458,26 @@ static void test_status_second_core(void)
         snprintf(nm, sizeof nm, "DEVICE, core 2 %s: SECOND CORE's line %s", C2[i].name, i == 2 ? "red" : "light grey");
         check(i == 2 ? red > 0 && !lgrey : lgrey > 0 && !red, nm);
     }
+    /* PERFORMANCE's graph full (60 samples, 30 s): 4 px a sample across the whole box, a 2-px bar and a 2-px gap from the
+     * right (the newest at 236-237), the oldest's bar 1 px at x 1, inside the box's edge */
+    {
+        char nm[200];
+        c2_state = PLAT_C2_OFF;
+        turn(K_SELECT, -4);                             /* PERFORMANCE */
+        run(31000);
+        ui_render();
+        static const int LIT[6] = {1, 4, 5, 232, 236, 237}, DARK[6] = {2, 3, 6, 234, 235, 238};
+        int lit = 0, dark = 0;
+        for (int k = 0; k < 6; k++) {
+            lit += count_px(LIT[k], 200, LIT[k] + 1, 224, C_GREEN) > 0;
+            dark += count_px(DARK[k], 200, DARK[k] + 1, 224, C_GREEN) == 0;
+        }
+        snprintf(nm, sizeof nm, "PERFORMANCE's graph full: 4 px a sample across the whole box, the newest at 236-237, the oldest 1 px "
+                 "at x 1 (%d of 6 bars' columns lit, %d of 6 gaps dark)", lit, dark);
+        check(lit == 6 && dark == 6 && count_px(0, 126, 1, 224, C_DGREY) == 98, nm);
+        shot("ui3_status_performance_full");
+        turn(K_SELECT, 4);
+    }
     int keep = ui_set[S_THEME];
     ui_set[S_THEME] = 10;                               /* DAYLIGHT */
     ui_settings_apply(S_THEME);
@@ -603,6 +632,52 @@ static void test_settings_second_core(void)
     tap(B_SAVE); run(1500);
     ui_settings_reload();
     check(ui_set[S_SECOND_CORE] == 0 && c2_enabled == 1 && !ui_unsaved, "SECOND CORE ON again, saved");
+    tap(B_HOME); run(200);
+}
+
+/* SETTINGS' CORE SUPPLIES (specs/ui/screens/settings.md, specs/hardware.md#the-chip), after SECOND CORE: STOCK, LOWER;
+ * given to the platform at the start (STOCK: raised) and at once when changed; LOWER told as from the next power-on;
+ * kept in the settings record's byte 123, bit 3 set for LOWER (specs/files/settings.md) */
+static void test_settings_supplies(void)
+{
+    char msg[200];
+    check(sup_stock == 1 && sup_calls >= 1, "CORE SUPPLIES: STOCK at power-on (no record says otherwise), given to the platform");
+    home_key(20);                                       /* SETTINGS */
+    turn(K_SELECT, -30); turn(K_SELECT, 5);             /* ..., VOICES, SECOND CORE, CORE SUPPLIES */
+    uint8_t cur[8] = {0};
+    ui_screen_now()->cursor(cur);
+    check(cur[1] == S_SUPPLIES && S_SUPPLIES == S_SECOND_CORE + 1 && !strcmp(T(UI_SETTINGS[S_SUPPLIES].name), "CORE SUPPLIES") &&
+          UI_SETTINGS[S_SUPPLIES].n == 2 && !strcmp(T(UI_SETTINGS[S_SUPPLIES].list[0]), "STOCK") &&
+          !strcmp(T(UI_SETTINGS[S_SUPPLIES].list[1]), "LOWER") && ui_set[S_SUPPLIES] == 0,
+          "SETTINGS: CORE SUPPLIES after SECOND CORE, its values STOCK, LOWER; STOCK");
+    uint32_t unsaved0 = ui_unsaved;
+    turn(K_K1, 1);
+    shot("ui3_settings_supplies_lower");
+    snprintf(msg, sizeof msg, "CORE SUPPLIES LOWER: given to the platform at once, unsaved, told (%s)", ui_toast_now() ? ui_toast_now() : "-");
+    check(ui_set[S_SUPPLIES] == 1 && sup_stock == 0 && ui_unsaved == unsaved0 + 1 && ui_toast_now() &&
+          !strcmp(ui_toast_now(), "LOWER FROM THE NEXT POWER-ON"), msg);
+    uint32_t len;
+    uint8_t ver, rec[128];
+    const uint8_t *p = store_get(REC_SETTINGS, 0, 0, &len, &ver);
+    check(p && (p[123] & 9) == 9 && !(p[123] & 0xF6), "... the settings record's byte 123: bit 3 (LOWER), bit 0 (the instrument kept)");
+    tap(B_SAVE); run(1500);
+    store_mount();
+    ui_settings_load();
+    for (int k = 0; k < S_COUNT; k++) ui_settings_apply(k);   /* (as power-on: read, then applied) */
+    check(!ui_unsaved && ui_set[S_SUPPLIES] == 1 && sup_stock == 0, "... saved, then read again from the flash: LOWER, given to the "
+          "platform");
+    p = store_get(REC_SETTINGS, 0, 0, &len, &ver);
+    memcpy(rec, p, sizeof rec);
+    rec[123] = 1;                                       /* a record from before CORE SUPPLIES: bit 3 clear */
+    store_edit_put(REC_SETTINGS, 0, 0, 1, rec, 126);
+    ui_settings_reload();
+    check(ui_set[S_SUPPLIES] == 0 && sup_stock == 1, "a record from before (byte 123 bit 3 clear): CORE SUPPLIES STOCK, raised");
+    ui_edit_revert(REC_SETTINGS, 0, 0);                 /* (the flash's again: LOWER) */
+    tap(B_LFO);                                         /* (LFO: the default, STOCK, saved again: the flash as it was) */
+    check(ui_set[S_SUPPLIES] == 0 && sup_stock == 1, "LFO on CORE SUPPLIES: STOCK, raised at once");
+    tap(B_SAVE); run(1500);
+    ui_settings_reload();
+    check(ui_set[S_SUPPLIES] == 0 && sup_stock == 1 && !ui_unsaved, "CORE SUPPLIES STOCK again, saved");
     tap(B_HOME); run(200);
 }
 
@@ -1240,8 +1315,11 @@ static void test_fusion_song(void)
  * recorder, the state's LOOPS bytes. LOOPS is left with no loops. The loops' timing: 16 rows a bar, a row 6 ticks */
 static int menu_to(const char *item);
 static void menu_pick(const char *item);
+static int menu_has(const char *item);
 static int pr_open(void);
 static void test_loops_tap(void);
+static void test_loops_sets(void);
+static void test_loops_sets_more(void);
 static const char *asking(void);
 static int lv_free(void);
 static int lv_row(void);
@@ -1320,6 +1398,14 @@ static int lp_wait(int bit, int on)                     /* run until the cursor'
     for (int i = 0; i < 10000; i++) { if (!(lp_cur(3) & bit) == !on) return 1; run(1); }
     return 0;
 }
+/* a loop made by the tests' constructor (loops_new) with a plain mix, a new song's track's, as the loops the tests make
+ * always had: NEW made plain for it first (it is the defaults again after); a loop REC makes takes NEW as it is */
+static int lp_new(uint8_t cart, uint8_t slot)
+{
+    static const uint8_t PLAIN[RM_N] = {0x7F, 0x80, 0, 0, 0, 0};
+    for (int k = 0; k < RM_N; k++) loops_set_mix(loops_n(), k, PLAIN[k]);
+    return loops_new(cart, slot);
+}
 /* no loops, nothing playing; a loop more as a test wants it: the current instrument, base rows played reps times (the
  * first: the length len), MONO, its cells (row, lane, note: REC_NOTE_OFF an off) in their order */
 static void lp_none(void)
@@ -1337,7 +1423,7 @@ static int lp_make(int len, int base, int reps, int mono, const lpc_t *c, int n)
     rec_cell_t x;
     int lanes = 1;
     loops_set_keys_mono(mono);
-    int i = loops_new((uint8_t)(ui_cur.inst >> 8), (uint8_t)ui_cur.inst);
+    int i = lp_new((uint8_t)(ui_cur.inst >> 8), (uint8_t)ui_cur.inst);
     if (i < 0) return -1;
     if (!i) loops_set_rows(len);
     loops_enc_start(&e, b, sizeof b);
@@ -1427,9 +1513,23 @@ static void loops_as_playground(void)
     press(B_PLAY); release(B_PLAY); run(100);
     kdown(0); kdown(4); kdown(7); run(500); kup(0); kup(4); kup(7); run(60);
     kdown(11); run(220); kup(11); run(30);
+    kvel_now[9] = 77;                                   /* (the last one pressed at velocity 77) */
     kdown(9); run(220); kup(9); run(30);
+    kvel_now[9] = 0;
     shot("28_loops_first");
     tap(B_REC);
+    {   /* the keys' velocity on the stage: the note's volume as written */
+        int v9 = -1, v11 = -1;
+        rec_cell_t c;
+        for (int r = 0; r < loops_base(0); r++)
+            for (int l = 0; l < 4; l++)
+                if (loops_cell(0, r, l, &c) && loops_is_note(&c)) {
+                    if (c.note == ui_midi(9)) v9 = c.vol;
+                    if (c.note == ui_midi(11)) v11 = c.vol;
+                }
+        snprintf(msg, sizeof msg, "LOOPS: a key pressed at velocity 77 written at 77, one without at KEYS VOLUME (%d, %d)", v9, v11);
+        check(v9 == 77 && v11 == ui_set[S_KEYS_VOLUME], msg);
+    }
     snprintf(msg, sizeof msg, "LOOPS: armed, PLAY, a chord and two notes onto the stage; REC: loop 00, its lanes the chord's (%d loops, "
              "%d lanes, %s)", loops_n(), loops_n() ? loops_lanes(0) : 0, ui_toast_now() ? ui_toast_now() : "-");
     check(loops_n() == 1 && loops_rows() == 64 && loops_lanes(0) == 3 && !loops_mono(0) && !staged() && lp_toast("STAGE AS LOOP 00"), msg);
@@ -1545,7 +1645,7 @@ static void loops_as_playground(void)
         uint32_t l0 = lp_stream(0, s0, sizeof s0), l1 = lp_stream(1, s1, sizeof s1);
         for (int k = 2; k < LP_MAX; k++) {
             loops_set_keys_mono(k & 1);
-            int i = loops_new((uint8_t)(loops_inst(k & 1) >> 8), (uint8_t)loops_inst(k & 1));
+            int i = lp_new((uint8_t)(loops_inst(k & 1) >> 8), (uint8_t)loops_inst(k & 1));
             if (i >= 0) loops_set_stream(i, k & 1 ? s1 : s0, k & 1 ? l1 : l0);
         }
         loops_set_muted(5, 1);
@@ -1813,13 +1913,13 @@ static void test_loops_live(void)
     lp_at(12, 0); ui_punch_up(2); run(2);
     ui_edit_loops(loops_set_quant(LQ_4_ROWS), ui_edit_used());
     lp_at(13, 0); memcpy(fx, loops_fx(), FX_SETUP_LEN); fx[16 + 0xA7 - 0x90] = 70; ui_edit_loops(loops_set_fx(fx), ui_edit_used());
-    lp_at(14, 2); kdown(4);                             /* (4 ROWS: 14.33 lands on 16, ahead: it waits for it) */
+    lp_at(14, 2); kdown(4);                             /* (4 ROWS: 14.33 lands on 16, ahead: heard at once all the same) */
     lp_at(15, 1); ui_edit_loops(loops_set_tempo(160), ui_edit_used());
     int early = lv_key_voice(k4);
     lv_at(16, 2);
     int heard = lv_key_voice(k4);
     lv_at(17, 5); kup(4);
-    check(!early && heard, "RECORD LIVE: ... a key's note heard as written: on the stage at its line, not before");
+    check(early && heard, "RECORD LIVE: ... a key's note heard at once, before its line (written on it: below)");
     check(loops_muted(1) && staged(), "RECORD LIVE: ... the mute is live; the keys overdub the stage as ever");
     run(40);
     {
@@ -2168,6 +2268,33 @@ static void test_cross0(void)
     lv_drop(n);
     lp_none();
 }
+/* the stage's keys heard at once, written as they land on the stage (4 ROWS; tests/playground/loops.js, the same session):
+ * a key played early and held past its line written on that line, its end on the row the stage gives it, ahead of its
+ * release; a quick tap let go before its line: its note and its end both landing ahead of where they were heard, on their
+ * rows, nothing where they were heard */
+static void test_live_early(void)
+{
+    static const lpc_t a[2] = {{0, 0, 60}, {4, 0, REC_NOTE_OFF}};
+    char msg[260];
+    int n = lv_start(a, 2, 0, 0, 1, 0, 0), k0 = ui_midi(0), k4 = ui_midi(4);
+    ui_edit_loops(loops_set_quant(LQ_4_ROWS), ui_edit_used());
+    lv_at(6, 4); kdown(0);                              /* (6.67: on 8) */
+    run(30);
+    int h0 = lv_key_voice(k0);
+    lv_at(8, 4); kup(0);                                /* (8.67: its end on 9) */
+    lv_at(10, 3); kdown(4); run(30);                    /* (10.5: on 12) */
+    int h4 = lv_key_voice(k4);
+    kup(4);                                             /* (let go at once: its end on 13) */
+    lv_at(14, 1);
+    int p = lv_end(), t0 = p >= 0 ? lv_trk((uint8_t)p, 8, k0) : -1, t4 = p >= 0 ? lv_trk((uint8_t)p, 12, k4) : -1;
+    snprintf(msg, sizeof msg, "RECORD LIVE, 4 ROWS: keys heard at once (%d %d), written as they land: 6.67 on 8 (track %d), let go at "
+             "8.67, its end on 9; a quick tap at 10.5 on 12 (track %d), its end on 13; nothing where they were heard", h0, h4, t0, t4);
+    check(h0 && h4 && t0 >= 0 && lv_ends((uint8_t)p, 9, t0) && lv_trk((uint8_t)p, 6, k0) < 0 && t4 >= 0 && lv_ends((uint8_t)p, 13, t4) &&
+          lv_trk((uint8_t)p, 10, k4) < 0 && !lv_ends((uint8_t)p, 10, t4) && !lv_ends((uint8_t)p, 11, t4) && !lv_ends((uint8_t)p, 12, t4), msg);
+    ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
+    lv_drop(n);
+    lp_none();
+}
 /* armed with the loops stopped, keys played on FX (the ring would fill: 2 events a press): none of it counts as left out,
  * and the song starts as ever */
 static void test_armed_keys(void)
@@ -2414,6 +2541,116 @@ static void test_loops_tap(void)
     ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
     loops_changed(1);
 }
+/* the keys on LOOPS (specs/ui/screens/loops.md#the-instrument-and-mono-or-poly): played freely, the loops stopped, they
+ * sound through the selected loop's mix, on + NEW LOOP NEW's: its LEVEL in place of KEYS GAIN, its sends whatever KEYS DRY
+ * says; off LOOPS their own strip again (KEYS GAIN heard). A note the same key plays the same way each time */
+static void test_loops_keys_mix(void)
+{
+    static const lpc_t a[1] = {{0, 0, 60}};
+    uint8_t fx0[64], fx[64];
+    int64_t e[4], tail[3], off[2];
+    char msg[300];
+    if (!screen_is("LOOPS")) home_key(22);
+    lp_none();
+    sg_empty();
+    if (stage_off()) tap(B_ARP);
+    lp_make(16, 16, 1, 0, a, 1);
+    lp_make(16, 16, 1, 0, a, 1);
+    ui_edit_loops(loops_set_mix(1, RM_LEVEL, 0x20), ui_edit_used());
+    loops_changed(1);
+    for (int k = 0; k < RM_N; k++) loops_set_mix(2, k, k == RM_LEVEL ? 0x20 : k == RM_PAN ? 0x80 : 0);   /* (NEW: LEVEL 20, no
+                                                         * sends) */
+    for (int c = 0; c < 4; c++) {                       /* loop 00 (LEVEL 7F), 01 (20), + NEW LOOP (NEW's 20), 00 at KEYS GAIN -12 */
+        lp_select(c == 3 ? 0 : c);
+        ui_set[S_KEYS_GAIN] = (int16_t)(c == 3 ? -12 : 0);
+        ui_settings_apply(S_KEYS_GAIN);
+        run(3000);                                      /* (what rang before, rung out) */
+        key(12, 1);
+        e[c] = listen(400);
+        key(12, 0);
+    }
+    double r1 = e[0] ? (double)e[1] / (double)e[0] : 0, r2 = e[0] ? (double)e[2] / (double)e[0] : 0, r3 = e[0] ? (double)e[3] / (double)e[0] : 0;
+    snprintf(msg, sizeof msg, "LOOPS, stopped: a key played freely through the selected loop's LEVEL (7F %lld; loop 01's 20: x %.4f, "
+             "(20 / 7F)^2 is 0.0635), on + NEW LOOP NEW's (20: x %.4f); KEYS GAIN -12 dB not heard there (x %.4f)", (long long)e[0], r1,
+             r2, r3);
+    check(e[0] > 0 && r1 > 0.045 && r1 < 0.085 && r2 > 0.045 && r2 < 0.085 && r3 > 0.9 && r3 < 1.1, msg);
+    ui_set[S_KEYS_GAIN] = 0;
+    ui_settings_apply(S_KEYS_GAIN);
+    /* FX's MIXER from LOOPS: its last column NEW, no KEYS (the footer NEW LOOP): K1 turns NEW's LEVEL (no edit, KEYS GAIN as
+     * it was), LFO puts a new loop's default back */
+    {
+        uint8_t fc;
+        tap(B_FX);
+        for (int i = 0; i < 3 && strcmp(ui_screen_now()->sub(), "MIXER"); i++) tap(B_SEQ);
+        turn(K_ALG, 20);
+        turn(K_SELECT, -6);
+        int g0 = ui_set[S_KEYS_GAIN], n0 = loops_mix(2)[RM_LEVEL];
+        uint32_t u0 = store_edit_used();
+        turn(K_K1, 3);
+        char ft[24];                                    /* (copied: T() hands out rotating buffers) */
+        const char *f0 = ui_screen_now()->footer ? ui_screen_now()->footer(&fc) : 0;
+        snprintf(ft, sizeof ft, "%s", f0 ? f0 : "-");
+        int k1 = loops_mix(2)[RM_LEVEL], words = 0;
+        ui_render();
+        shot("ui3_loops_mixer_new");
+        words = count_px(2, 213, 60, 225, C_LGREY) > 0;
+        tap(B_LFO);
+        int lfo = loops_mix(2)[RM_LEVEL];
+        snprintf(msg, sizeof msg, "FX's MIXER from LOOPS: the last column NEW (footer %s): K1 NEW's LEVEL %02X to %02X, no edit, KEYS GAIN "
+                 "%d as it was; LFO a new loop's default (%02X)", ft, n0, k1, ui_set[S_KEYS_GAIN], lfo);
+        check(screen_is("FX") && !strcmp(ft, "NEW LOOP") && n0 == 0x20 && k1 == 0x23 && store_edit_used() == u0 &&
+              ui_set[S_KEYS_GAIN] == g0 && words && lfo == loops_new_def()[RM_LEVEL], msg);
+        loops_set_mix(2, RM_LEVEL, 0x20);
+        for (int i = 0; i < 3 && strcmp(ui_screen_now()->sub(), "LIVE"); i++) tap(B_SEQ);   /* (FX as it was: LIVE) */
+        tap(B_FX);
+        check(screen_is("LOOPS"), "... FX again: LOOPS");
+    }
+    /* KEYS DRY not heeded on LOOPS: REVERB on in LOOPS' FX, loop 00's REVERB SEND 7F: the key's tail through it, DRY or not;
+     * its send 00 with DRY: none */
+    memcpy(fx0, loops_fx(), 64);
+    memcpy(fx, fx0, 64);
+    fxd_set_on(fx, FE_REVERB, 1);
+    ui_edit_loops(loops_set_fx(fx), ui_edit_used());
+    lp_select(0);
+    for (int c = 0; c < 3; c++) {                       /* REVERB SEND 7F through FX; 7F, KEYS DRY; 00, KEYS DRY */
+        ui_edit_loops(loops_set_mix(0, RM_REVERB, c == 2 ? 0 : 0x7F), ui_edit_used());
+        ui_set[S_KEYS_FX] = (int16_t)(c > 0);
+        ui_settings_apply(S_KEYS_FX);
+        loops_changed(0);
+        run(6000);
+        key(12, 1); run(300); key(12, 0);
+        run(400);
+        tail[c] = listen(2000);
+    }
+    ui_set[S_KEYS_FX] = 0;
+    ui_settings_apply(S_KEYS_FX);
+    snprintf(msg, sizeof msg, "LOOPS: KEYS DRY not heeded: the key's reverb tail through loop 00's REVERB SEND 7F %lld, with DRY on %lld; "
+             "its send 00 %lld", (long long)tail[0], (long long)tail[1], (long long)tail[2]);
+    check(tail[0] > tail[2] * 2 && tail[1] > tail[2] * 2 && tail[1] * 2 > tail[0], msg);   /* (DRY heeded: no tail, as the
+                                                         * KEYS column's test finds; the reverb's own wander aside) */
+    ui_edit_loops(loops_set_fx(fx0), ui_edit_used());
+    ui_edit_loops(loops_set_mix(0, RM_REVERB, 0), ui_edit_used());
+    loops_changed(0);
+    /* off LOOPS the keys' own strip: KEYS GAIN heard again */
+    home_key(1);
+    for (int c = 0; c < 2; c++) {
+        ui_set[S_KEYS_GAIN] = (int16_t)(c ? -12 : 0);
+        ui_settings_apply(S_KEYS_GAIN);
+        run(6000);
+        key(12, 1);
+        off[c] = listen(400);
+        key(12, 0);
+    }
+    ui_set[S_KEYS_GAIN] = 0;
+    ui_settings_apply(S_KEYS_GAIN);
+    run(3000);
+    double r = off[0] ? (double)off[1] / (double)off[0] : 0;
+    snprintf(msg, sizeof msg, "... LOOPS left: the keys' own strip again, KEYS GAIN -12 dB heard (x %.4f, a sixteenth is 0.0631)", r);
+    check(screen_is("SONGS") && off[0] > 0 && r > 0.05 && r < 0.08, msg);
+    home_key(22);
+    lp_none();                                          /* (NEW the defaults again too) */
+    sg_empty();                                         /* (the keys played stopped: inserts on the stage) */
+}
 /* the old screen's parts that stay: mutes and solos, CONTROL mode, HOME's combination; DOUBLE, LENGTH, CLEAR LOOPS,
  * APPLY INSTRUMENT, REVERT; a song armed; SAVE TO / LOAD FROM PATTERN; RECORD LIVE; K1-K4, ENV; PLAY held; leaving
  * LOOPS (the pattern recorder: test_loops_recorder) */
@@ -2548,16 +2785,21 @@ static void test_loops_more(void)
               "(LOOP 00: 07:00 ...)");
     }
     ui_set_inst(UI_FIRST_INST);
+    loops_set_mix(loops_n(), RM_LEVEL, 0x22);           /* (NEW turned: CLEAR LOOPS puts the defaults back) */
     tap(B_SEL); check(menu_to("CLEAR LOOPS"), "LOOPS' menu: CLEAR LOOPS"); tap(B_SEL);
     check(!strcmp(asking(), "CLEAR ALL 2 LOOPS?"), "CLEAR LOOPS asks (CLEAR ALL 2 LOOPS? / THE STAGE TOO; THE LENGTH STAYS)");
     tap(B_OCTP);
     check(!loops_n() && loops_rows() && lp_toast("LOOPS CLEARED"), "LOOPS: ... CLEAR: every loop gone, the length stays (LOOPS CLEARED)");
+    check(!memcmp(loops_mix(0), loops_new_def(), RM_N), "LOOPS: ... CLEAR LOOPS: NEW the defaults again");
     lp_make(16, 16, 1, 0, a0, 1);
+    loops_set_mix(loops_n(), RM_LEVEL, 0x23);           /* (NEW turned: REVERT keeps it) */
     tap(B_SEL); check(menu_to("REVERT"), "LOOPS' menu with LOOPS unsaved: REVERT"); tap(B_SEL);
     check(!strcmp(asking(), "REVERT LOOPS TO SAVED?"), "LOOPS: REVERT asks first (REVERT LOOPS TO SAVED?)");
     tap(B_OCTP);
     check(!loops_n() && lp_toast("REVERTED") && !ui_edit_unsaved(REC_LOOPS, 0, 0), "LOOPS: ... REVERT: LOOPS as saved (none), nothing "
           "of LOOPS unsaved");
+    check(loops_mix(loops_n())[RM_LEVEL] == 0x23, "LOOPS: ... REVERT keeps NEW (RAM's)");
+    loops_new_reset();
     tap(B_SEL); check(menu_to("RECORD LIVE"), "LOOPS' menu: RECORD LIVE"); tap(B_SEL);
     check(lp_toast("NO LOOPS YET"), "LOOPS: RECORD LIVE with no loops: NO LOOPS YET");
 
@@ -2571,26 +2813,34 @@ static void test_loops_more(void)
     tap(B_SEL); check(menu_to("CANCEL RECORD LIVE"), "LOOPS' menu while armed: CANCEL RECORD LIVE"); tap(B_SEL);
     check(!(lp_cur(3) & 32) && lp_toast("CANCELLED"), "LOOPS: CANCEL RECORD LIVE: disarmed (CANCELLED)");
     test_loops_patterns();
+    test_loops_sets();
+    test_loops_sets_more();
     test_loops_live();
     test_loops_live_mono();
     test_loops_tap();
     test_cross();
     test_cross0();
+    test_live_early();
     test_armed_keys();
+    test_loops_keys_mix();
     lp_none();
     lp_make(16, 16, 1, 0, a0, 1);
 
-    /* K1-K4 the selected loop's mix (on + NEW LOOP the next loop's), ALGORITHM the play position; ENV the cartridges */
+    /* K1-K4 the selected loop's mix (on + NEW LOOP NEW's, the next loop's own), ALGORITHM the play position; ENV the
+     * cartridges */
     lp_select(0);
     int lv0 = loops_mix(0)[RM_LEVEL], p0 = lp_cur(5);
     turn(K_K1, -2);
     check(loops_mix(0)[RM_LEVEL] == lv0 - 2 && ui_knob_now() && !strncmp(ui_knob_now(), "LEVEL ", 6), "LOOPS: K1: the loop's LEVEL (shown "
           "in the header)");
     lp_select(1);
-    int kr0 = ui_keys_mix[RM_REVERB];
+    int kr0 = ui_keys_mix[RM_REVERB], nr0 = loops_mix(1)[RM_REVERB];
+    uint32_t used0 = store_edit_used();
     turn(K_K3, -3);
-    check(ui_keys_mix[RM_REVERB] == kr0 - 3 && loops_mix(1)[RM_REVERB] == kr0 - 3 && loops_mix(0)[RM_REVERB] == 0,
-          "LOOPS: K3 on + NEW LOOP: the next loop's REVERB SEND, the KEYS column's");
+    check(loops_mix(1)[RM_REVERB] == nr0 - 3 && nr0 == 0x7F && ui_keys_mix[RM_REVERB] == kr0 && loops_mix(0)[RM_REVERB] == 0 &&
+          store_edit_used() == used0 && ui_knob_now() && !strcmp(ui_knob_now(), "REVERB SEND 7C 98%"),
+          "LOOPS: K3 on + NEW LOOP: NEW's REVERB SEND (7F at first: a new loop's default), RAM's alone (no edit); the KEYS column "
+          "untouched");
     turn(K_ALG, 1);
     check(lp_cur(5) == p0 + 1 && ui_knob_now() && !strncmp(ui_knob_now(), "PLAY FROM ", 10), "LOOPS: ALGORITHM, stopped: the play "
           "position (PLAY FROM ...)");
@@ -2656,6 +2906,12 @@ static int sg_cmd(int r, int l, int code)
     return -1;
 }
 static int staged(void) { return store_stage(0) != 0; }
+static int stage_lanes_now(void)        /* the lanes the stage's notes use (its highest lane + 1), 0 empty */
+{
+    int n = 0;
+    for (int r = 0; r < 64; r++) for (int l = 0; l < 4; l++) if (sg_is_note(r, l) && l + 1 > n) n = l + 1;
+    return n;
+}
 static const char *sg_notes(void)       /* the stage's notes as row:lane:note, joined by commas */
 {
     static char b[400];
@@ -2703,7 +2959,7 @@ static int lp_add(uint16_t in, int base, int reps, int mono, int shift, const lp
     static uint8_t b[600];
     lp_enc_t e;
     rec_cell_t x;
-    int lanes = 1, i = loops_new((uint8_t)(in >> 8), (uint8_t)in);
+    int lanes = 1, i = lp_new((uint8_t)(in >> 8), (uint8_t)in);
     if (i < 0) return -1;
     loops_enc_start(&e, b, sizeof b);
     for (int k = 0; k < n; k++) {
@@ -2778,9 +3034,9 @@ static void test_loops_first(void)
     turn(K_ALG, 3);
     check(lp_cur(5) == 3, "ALGORITHM, stopped: the play position a row a click (row 3)");
     press(B_SEL); turn(K_ALG, 1); release(B_SEL); run(250);
-    check(lp_cur(5) == 19 && !ui_top(), "... SEL held: a bar a click (row 19), no menu after");
-    press(B_SEL); turn(K_ALG, -2); release(B_SEL); run(250);
-    check(lp_cur(5) == 51, "... round the length (19 - 32: row 51)");
+    check(lp_cur(5) == 3 && !ui_top(), "... SEL held: the selected loop's SHIFT; on + NEW LOOP nothing, no menu after");
+    turn(K_ALG, -16);
+    check(lp_cur(5) == 51, "... round the length (3 - 16: row 51)");
     tap(B_REC);
     check((lp_cur(3) & 1) && !lp_here(), "REC stopped, the stage empty: armed (a note or PLAY starts)");
     run(400);
@@ -2796,13 +3052,14 @@ static void test_loops_first(void)
     tap(B_PLAY); run(50);
     check(!lp_here() && staged(), "PLAY: stopped; the stage keeps its notes");
     {
-        const char *before = sg_notes();
-        static char was[400];
-        strcpy(was, before);
+        int at = lp_cur(5), lane = -1;
         kdown(12); run(30);
         int heard = lp_voice(ui_midi(12), -1) >= 0;
         kup(12); run(30);
-        check(!strcmp(sg_notes(), was) && heard && !lp_here(), "stopped (not armed): a key plays freely, nothing onto the stage");
+        for (int l = 0; l < 4; l++) if (sg_note(at, l) == ui_midi(12)) lane = l;
+        snprintf(msg, sizeof msg, "stopped (not armed), the stage on: a key the insert, its note at the play position (row %d, "
+                 "lane %d), heard as played; nothing plays, the position kept", at, lane);
+        check(lane >= 0 && heard && !lp_here() && lp_cur(5) == at, msg);
     }
     turn(K_ALG, 5);
     press(B_PLAY); run((uint32_t)ui_set[S_HOLD_DELAY] + 100); release(B_PLAY); run(50);
@@ -2828,6 +3085,473 @@ static void test_loops_first(void)
           sg_note(0, 3) == ui_midi(11), msg);
     lp_stop();
     sg_empty();
+}
+
+/* ---- LFO held with the loops stopped (specs/ui/screens/loops.md#lfo-held-erasing): ALGORITHM erases the rows it
+ * passes; the keys are the insert, as without it (#the-insert); LFO used so switches nothing; playing, none of it ---- */
+static void lp_to(int row) { if (lp_cur(5) != row) turn(K_ALG, row - lp_cur(5)); }
+static void lfo_chord(const int *keys, int n, int at_once)
+{
+    press(B_LFO);
+    if (at_once) {
+        for (int k = 0; k < n; k++) kdown(keys[k]);
+        run(40);
+        for (int k = 0; k < n; k++) kup(keys[k]);
+    } else
+        for (int k = 0; k < n; k++) { kdown(keys[k]); run(40); kup(keys[k]); run(40); }
+    run(40);
+    release(B_LFO);
+    run(100);
+}
+static void test_loops_lfo_tools(void)
+{
+    char msg[300];
+    static const int ch[3] = {11, 4, 7}, two[2] = {0, 9};
+    lp_fresh(64, 120);
+    sg_empty();
+    run(100);
+    int over = leds[B_LFO] == LV_FULL;
+    lfo_chord(ch, 3, 1);                                /* (row 0: a chord, its keys held together) */
+    snprintf(msg, sizeof msg, "LFO held + a chord, stopped: the insert, as without LFO: a lane each in the keys' order at "
+             "the play position, each ended on the next row (held under a row); LFO used: OVERDUB / OVERWRITE as it was (%s)",
+             sg_notes());
+    check(sg_note(0, 0) == ui_midi(11) && sg_note(0, 1) == ui_midi(4) && sg_note(0, 2) == ui_midi(7) &&
+          sg_off(1, 0) && sg_off(1, 1) && sg_off(1, 2) && !lp_here() && (leds[B_LFO] == LV_FULL) == over, msg);
+    lfo_chord(two, 2, 0);                               /* (row 0 again: two keys one after the other) */
+    snprintf(msg, sizeof msg, "... again, keys one after the other: the last alone replaces the row (%s)", sg_notes());
+    check(sg_note(0, 0) == ui_midi(9) && sg_note(0, 1) < 0 && sg_note(0, 2) < 0 && sg_off(1, 0) && sg_note(1, 1) < 0, msg);
+    lp_to(4);  lfo_chord(ch, 1, 1);                      /* (one note at rows 4, 8, 12) */
+    lp_to(8);  lfo_chord(ch + 1, 1, 1);
+    lp_to(12); lfo_chord(ch + 2, 1, 1);
+    lp_to(2);
+    press(B_LFO);
+    turn(K_ALG, 1);                                     /* (2 -> 3: 2 stays, the row the hold began on) */
+    turn(K_ALG, 2);                                     /* (3 -> 5: 3 and 4 erased) */
+    snprintf(msg, sizeof msg, "LFO held + ALGORITHM: the rows entered and left erased (row 4's note and its end), the "
+             "row the hold began on and the one it stands on kept (%s; at %d)", sg_notes(), lp_cur(5));
+    check(lp_cur(5) == 5 && sg_note(4, 0) < 0 && sg_note(5, 0) < 0 && sg_is_note(8, 0) && sg_is_note(0, 0), msg);
+    turn(K_ALG, -1);                                    /* (5 -> 4: 5 left) */
+    release(B_LFO);
+    run(100);
+    lp_to(8);
+    press(B_LFO);
+    turn(K_ALG, 1); turn(K_ALG, -1);                    /* (8 -> 9 -> 8: 9 erased, 8 entered again) */
+    check(sg_is_note(8, 0), "... back onto the row the hold began on: kept while it stands there");
+    turn(K_ALG, -1);                                    /* (8 -> 7: 8 entered in the hold and left) */
+    release(B_LFO);
+    run(100);
+    snprintf(msg, sizeof msg, "... left again: erased; the other notes kept; LFO used: nothing switched (%s)", sg_notes());
+    check(sg_note(8, 0) < 0 && sg_note(9, 0) < 0 && sg_is_note(12, 0) && sg_is_note(0, 0) && (leds[B_LFO] == LV_FULL) == over,
+          msg);
+    /* playing: ALGORITHM jumps as ever, nothing erased */
+    lp_to(10);
+    tap(B_PLAY); run(100);
+    press(B_LFO); turn(K_ALG, 2); release(B_LFO); run(100);
+    tap(B_PLAY); run(100);
+    check(sg_is_note(12, 0) && sg_is_note(0, 0), "LFO held + ALGORITHM while playing: a jump, nothing erased");
+    tap(B_LFO); run(100);
+    check(lp_toast(over ? "OVERDUB" : "OVERWRITE"), "LFO tapped alone: switches as ever");
+    tap(B_LFO); run(100);
+    sg_empty();
+    /* SEL held + ALGORITHM: the selected loop's SHIFT a row a click, as ADJUST's K1; no menu after */
+    {
+        static const lpc_t one[1] = {{0, 0, 60}};
+        lp_make(64, 16, 4, 0, one, 1);
+        ui_edit_loops(LP_OK, ui_edit_used());
+        loops_changed(1);
+        lp_select(0);
+        run(100);
+        int at = lp_cur(5);
+        press(B_SEL); turn(K_ALG, 2); release(B_SEL); run(250);
+        snprintf(msg, sizeof msg, "SEL held + ALGORITHM: loop 00's SHIFT +2 rows (%d), the play position kept, no menu",
+                 loops_shift(0));
+        check(loops_shift(0) == 2 && lp_cur(5) == at && !ui_top(), msg);
+        press(B_SEL); turn(K_ALG, -2); release(B_SEL); run(250);
+        check(loops_shift(0) == 0, "... back: SHIFT 0");
+        lp_none();
+        ui_edit_loops(LP_OK, ui_edit_used());
+        loops_changed(1);
+    }
+    /* CUT (specs/ui/screens/loops.md#cut): SEL's CUT HERE and REMOVE CUT, SEL held + EDIT (tapped: cut; held: removed),
+     * the strip (the mark, the notes past it dimmed, CUT on the slot's line), the stage over a cut loop wrapping there */
+    {
+        static const lpc_t one[1] = {{1, 0, 60}};
+        lp_make(16, 4, 4, 0, one, 1);                   /* (base 4 x4 over 16 rows: its note at 1, 5, 9, 13) */
+        ui_edit_loops(LP_OK, ui_edit_used());
+        loops_changed(1);
+        lp_select(0);
+        run(100);
+        check(!menu_has("CUT HERE") && !menu_has("REMOVE CUT"), "CUT: at the loops' first row no CUT HERE; no REMOVE CUT with no cut");
+        turn(K_ALG, 6);
+        check(menu_has("CUT HERE") && !menu_has("REMOVE CUT"), "... at 1.2.3 (stopped: the play position) CUT HERE listed");
+        menu_pick("CUT HERE");
+        run(100);
+        snprintf(msg, sizeof msg, "CUT HERE: loop 00 cut at 6, written out (base 16, once): LOOP 00: CUT AT 1.2.3 (%s)",
+                 ui_toast_now() ? ui_toast_now() : "-");
+        check(loops_cut(0) == 6 && loops_base(0) == 16 && loops_repeats(0) == 1 && lp_toast("LOOP 00: CUT AT 1.2.3"), msg);
+        check(menu_has("REMOVE CUT"), "... REMOVE CUT listed then");
+        turn(K_ALG, 4);
+        combo(B_SEL, B_EDIT);
+        snprintf(msg, sizeof msg, "SEL held + EDIT tapped at 1.3.3: the cut moved there, no menu, the stage kept (%s)",
+                 ui_toast_now() ? ui_toast_now() : "-");
+        check(loops_cut(0) == 10 && !ui_top() && lp_toast("LOOP 00: CUT AT 1.3.3"), msg);
+        turn(K_ALG, -3);                                /* (the play line off the mark: at 7) */
+        ui_render();
+        int lc = g_rgb565(LP_COL[loops_colour(0)]), lg = 0;
+        for (int y = 33; y < 45; y++) for (int x = 100; x < 118; x++) lg |= px(x, y) == g_rgb565(C_LGREY);
+        snprintf(msg, sizeof msg, "the strip: the mark at 10 in the loop's colour, a note before it in its colour, one past it dimmed; "
+                 "CUT on the slot's line (%04X %04X %04X %d, the colour %04X)", px(139, 45), px(97, 50), px(188, 50), lg, lc);
+        check(px(139, 45) == lc && px(97, 50) == lc && px(188, 50) == g_rgb565(C_DGREY) && lg, msg);
+        turn(K_ALG, 3);
+        press(B_SEL); press(B_EDIT); run((uint32_t)ui_set[S_HOLD_DELAY] + 60); release(B_EDIT); release(B_SEL); run(250);
+        check(!loops_cut(0) && lp_toast("LOOP 00: CUT REMOVED") && !ui_top(), "SEL held + EDIT held past the hold delay: the cut removed, no menu");
+        turn(K_ALG, -10);
+        combo(B_SEL, B_EDIT);
+        check(!loops_cut(0) && !ui_top(), "SEL held + EDIT at the first row: nothing (EDIT blinks)");
+        lp_select(1);
+        combo(B_SEL, B_EDIT);
+        check(!loops_cut(0) && !ui_top(), "... on + NEW LOOP: nothing (SEL blinks)");
+        /* the stage over a cut loop: a key at the loops' row 9 lands on its row 9 round a cut at 4, row 1 */
+        lp_select(0);
+        turn(K_ALG, 4);
+        menu_pick("CUT HERE");
+        turn(K_ALG, -4);
+        check(loops_cut(0) == 4, "(cut at 4, the play position back at the start)");
+        tap(B_PLAY);
+        player_state_t ps;
+        for (int t = 0; t < 4000; t++) { player_state(&ps, 0); if (ps.row == 9) break; run(1); }
+        key(12, 1); run(150); key(12, 0); run(150);
+        snprintf(msg, sizeof msg, "a key at the loops' row 9 over loop 00 cut at 4: onto the stage's row 1, its window's (%s)", sg_notes());
+        check(ps.row == 9 && (sg_is_note(1, 0) || sg_is_note(2, 0)) && !sg_is_note(9, 0), msg);
+        player_stop();
+        run(30);
+        sg_empty();
+        lp_none();
+        ui_edit_loops(LP_OK, ui_edit_used());
+        loops_changed(1);
+    }
+    /* a cut loop's strip pages by its own place (specs/ui/screens/loops.md#the-strips): LENGTH 4 bars, VIEW 1 bar, loop 00
+     * cut at 1 bar, its note at 2; loop 01's at 40. Playing at 36 (bar 3): loop 00's strip on bar 1's page, its note
+     * there, its own line (row 4, x 72) in its colour and no play line; loop 01's on bar 3's, the white play line at 36
+     * (x 72 too); the stage over the cut loop as loop 00's strip; the length's bar on bar 3. Stopped, the play position at
+     * 38: where PLAY would start it (row 6, x 94) */
+    {
+        static const lpc_t a2[2] = {{2, 0, 60}, {3, 0, REC_NOTE_OFF}}, b2[2] = {{40, 0, 64}, {41, 0, REC_NOTE_OFF}};
+        int v0 = loops_view();
+        lp_none();
+        sg_empty();
+        lp_make(64, 64, 1, 0, a2, 2);
+        lp_make(64, 64, 1, 0, b2, 2);
+        ui_edit_loops(loops_set_cut(0, 16), ui_edit_used());
+        ui_edit_loops(loops_set_view(1), ui_edit_used());
+        loops_changed(1);
+        lp_select(0);
+        run(100);
+        if (lp_cur(5)) turn(K_ALG, -lp_cur(5));
+        tap(B_PLAY);
+        lp_at(36, 2);
+        ui_render();
+        int lc = g_rgb565(LP_COL[loops_colour(0)]), l1 = g_rgb565(LP_COL[loops_colour(1)]), wh = g_rgb565(C_WHITE);
+        int bar3 = count_px(118, 199, 124, 211, C_WHITE) > 0 && !count_px(28, 199, 34, 211, C_WHITE);
+        snprintf(msg, sizeof msg, "a cut loop's strip by its own place: at 36, VIEW 1 bar, loop 00 cut at 16: bar 1's page (its note "
+                 "at 2 %04X), its line at 4 (%04X, over it %04X); loop 01's bar 3 (40: %04X, play line %04X); the stage (%04X, %04X); "
+                 "the length's bar 3 (%d)", px(54, 50), px(72, 50), px(72, 45), px(122, 82), px(72, 82), px(72, 180), px(72, 175), bar3);
+        check(loops_cut(0) == 16 && loops_view() == 1 && px(54, 50) == lc && px(72, 50) == lc && px(72, 45) != wh && px(72, 82) == wh &&
+              px(122, 82) == l1 && px(72, 180) == lc && px(72, 175) != wh && bar3, msg);
+        tap(B_PLAY);                                    /* (stopped: the play position back at the start) */
+        run(100);
+        turn(K_ALG, 38);
+        ui_render();
+        snprintf(msg, sizeof msg, "... stopped, the play position at 38: loop 00's strip where PLAY would start it (row 6: %04X, over it "
+                 "%04X), bar 1's page (%04X); loop 01's play line there on bar 3's (%04X); the stage's (%04X)", px(94, 50), px(94, 45),
+                 px(54, 50), px(94, 82), px(94, 180));
+        check(lp_cur(5) == 38 && px(94, 50) == lc && px(94, 45) != wh && px(54, 50) == lc && px(94, 82) == wh && px(94, 180) == lc &&
+              px(94, 175) != wh, msg);
+        turn(K_ALG, -38);
+        ui_edit_loops(loops_set_view(v0), ui_edit_used());
+        lp_none();
+        ui_edit_loops(loops_set_rows(16), ui_edit_used());   /* (as the CUT checks above left it) */
+        loops_changed(1);
+    }
+}
+
+/* ---- the insert (specs/ui/screens/loops.md#the-insert): stopped, the stage on, the keys put their notes at the play
+ * position as keys pressed there while the loops play would, the time going on at TEMPO while they are held, the
+ * position still: POLY a chord, each note as long as its key was held; past four keys neither written nor heard; MONO the
+ * first key alone; drawn as it grows; the next insert at that row replaces it; held past the length's end, ended there;
+ * OVERWRITE over all four lanes; PLAY with keys held: they write on as the loops play ---- */
+static int sg_find(int row, int midi)   /* the lane holding midi's note on that row, -1 none */
+{
+    for (int l = 0; l < 4; l++) if (sg_note(row, l) == midi) return l;
+    return -1;
+}
+static int sg_end(int row, int lane)    /* the row lane's note on that row ends on (its off, or the next note), -1 none */
+{
+    for (int r = row + 1; r < loops_rows(); r++) if (sg_off(r, lane) || sg_is_note(r, lane)) return r;
+    return -1;
+}
+static void test_loops_insert(void)
+{
+    char msg[300];
+    lp_fresh(64, 120);
+    sg_empty();
+    run(100);
+    int rms = loops_ticks() * 2500 / loops_tempo();     /* (a row's ms at TEMPO) */
+    lp_to(8);
+    kdown(0); run(rms);                                 /* (a chord: the second key a row later; held 2 and 3 rows) */
+    kdown(4); run(rms);
+    int both = sg_find(8, ui_midi(0)) >= 0 && sg_find(8, ui_midi(4)) >= 0, heard = lp_voice(ui_midi(4), -1) >= 0;
+    ui_render();
+    shot("ui3_loops_insert_held");
+    kup(0); run(2 * rms);
+    kup(4); run(100);
+    int la = sg_find(8, ui_midi(0)), lb = sg_find(8, ui_midi(4));
+    int ea = la >= 0 ? sg_end(8, la) : -1, eb = lb >= 0 ? sg_end(8, lb) : -1;
+    snprintf(msg, sizeof msg, "the insert, POLY: two keys a row apart, held 2 and 3 rows: both on the play position's row 8 "
+             "(lanes %d %d), heard, each as long as it was held (to rows %d and %d); nothing played, the position kept", la, lb,
+             ea, eb);
+    check(both && heard && la >= 0 && lb >= 0 && la != lb && ea == 10 && eb == 11 && !lp_here() && lp_cur(5) == 8,
+          msg);
+    lp_to(16);
+    static const int five[5] = {0, 2, 4, 5, 7};
+    for (int k = 0; k < 5; k++) kdown(five[k]);
+    run(40);
+    int fifth = lp_voice(ui_midi(7), -1) >= 0;
+    for (int k = 0; k < 5; k++) kup(five[k]);
+    run(100);
+    int n4 = 0;
+    for (int k = 0; k < 4; k++) n4 += sg_find(16, ui_midi(five[k])) >= 0;
+    snprintf(msg, sizeof msg, "... five keys: four on the row (%d), the fifth neither written nor heard (%s)", n4, sg_notes());
+    check(n4 == 4 && sg_find(16, ui_midi(7)) < 0 && !fifth, msg);
+    lp_to(24);
+    ui_edit_loops(loops_set_keys_mono(1), ui_edit_used());
+    run(50);
+    kdown(2); run(40);
+    kdown(9); run(40);
+    int second = lp_voice(ui_midi(9), -1) >= 0;
+    kup(9); kup(2); run(100);
+    ui_edit_loops(loops_set_keys_mono(0), ui_edit_used());
+    run(50);
+    check(sg_find(24, ui_midi(2)) >= 0 && sg_find(24, ui_midi(9)) < 0 && !second, "... MONO: the first key alone, the second "
+          "neither written nor heard");
+    lp_to(32);
+    kdown(9); run(40); kup(9); run(50);
+    kdown(11); run(40); kup(11); run(50);
+    check(sg_find(32, ui_midi(11)) >= 0 && sg_find(32, ui_midi(9)) < 0, "... again at that row: the last insert replaced");
+    lp_to(62);
+    kdown(5); run(4 * rms); kup(5); run(50);
+    int l5 = sg_find(62, ui_midi(5));
+    snprintf(msg, sizeof msg, "... held past the length's end: its note to the end, its off on row 0 (lane %d, %s)", l5,
+             sg_notes());
+    check(l5 >= 0 && sg_end(62, l5) < 0 && sg_off(0, l5), msg);
+    lp_to(41);                                          /* (OVERWRITE: two notes on row 41, then an insert from 40, 3 rows) */
+    kdown(2); kdown(4); run(40); kup(2); kup(4); run(50);
+    tap(B_LFO); run(50);
+    lp_to(40);
+    kdown(0); run(3 * rms); kup(0); run(50);
+    int gone = sg_find(41, ui_midi(2)) < 0 && sg_find(41, ui_midi(4)) < 0, l0 = sg_find(40, ui_midi(0));
+    tap(B_LFO); run(50);
+    snprintf(msg, sizeof msg, "... OVERWRITE: its span over all four lanes (row 41's notes gone; its own to row %d)",
+             l0 >= 0 ? sg_end(40, l0) : -1);
+    check(gone && l0 >= 0 && sg_end(40, l0) == 43, msg);
+    sg_empty();
+    run(50);
+    lp_to(4);
+    kdown(9);
+    uint32_t t9 = now_ms;
+    run(2 * rms);
+    tap(B_PLAY); run(50);
+    int on = lp_here();
+    run(2 * rms);
+    int sounding = lp_voice(ui_midi(9), -1) >= 0;
+    kup(9);
+    int sp9 = loops_ticks(), pos9 = 4 * sp9 + (int)((now_ms - t9) * (uint32_t)loops_tempo() / 2500u), want9 = (2 * pos9 + sp9) / (2 * sp9);
+    run(100);
+    tap(B_PLAY); run(100);
+    int l9 = sg_find(4, ui_midi(9));
+    snprintf(msg, sizeof msg, "... PLAY with its key held: it writes on as the loops play, its note as long as it was held "
+             "(row 4 to %d, %d wanted), heard from the loops meanwhile (%s)", l9 >= 0 ? sg_end(4, l9) : -1, want9, sg_notes());
+    check(on && sounding && l9 >= 0 && want9 > 8 && sg_end(4, l9) == want9, msg);
+    sg_empty();
+}
+
+/* ---- the keys' ends round PLAY and a jump (specs/ui/screens/loops.md#the-insert, #the-play-position-play-and-jumps): a
+ * key's end a jump passes over heard where it lands (a key pressed while playing, ALGORITHM late in its row; a key held
+ * into PLAY, its own time ahead); an end more than half the length ahead of the play line heard at its row, its first
+ * pass too (let go, or held to the length's end); one let go as PLAY starts the loops, before they are heard, ends at its
+ * own time; an insert's key that stopped writing (its time at the length's end, a new instrument, ALGORITHM moving the
+ * play position) is taken at PLAY, its free sound let go, never written again ---- */
+static int lp_sounds(int note) { return lp_voice(note, -1) >= 0; }
+static int sg_count(int midi)           /* the stage's notes of midi, on every row and lane */
+{
+    int k = 0;
+    for (int r = 0; r < loops_rows(); r++) for (int l = 0; l < 4; l++) k += sg_note(r, l) == midi;
+    return k;
+}
+static int ins_want(int row, uint32_t t0)   /* an insert's key pressed at t0 on row: its end's row were it let go now */
+{
+    int sp = loops_ticks(), pos = row * sp + (int)((now_ms - t0) * (uint32_t)loops_tempo() / 2500u);
+    return (2 * pos + sp) / (2 * sp);
+}
+static void test_loops_insert_play(void)
+{
+    char msg[300];
+    uint16_t was = ui_cur.inst;
+    lp_fresh(64, 120);
+    ui_set_inst(0xF900);                                /* (CHIP F9:00: its release short, a note let go soon gone) */
+    run(100);
+    int rms = loops_ticks() * 2500 / loops_tempo(), sp = loops_ticks(), m = ui_midi(9);
+    /* a key pressed while playing, ALGORITHM late in a row: its end on the next row, the one the jump passes over */
+    lp_play_from0();
+    lp_at(8, 0); kdown(9);
+    lp_at(10, sp - 1);
+    turn(K_ALG, 1);
+    run(1000);
+    int l = sg_find(8, m), e = l >= 0 ? sg_end(8, l) : -1, gone = !lp_sounds(m);
+    kup(9); run(50);
+    snprintf(msg, sizeof msg, "the keys' ends round a jump: a key held as ALGORITHM jumps late in its row: its end on the next "
+             "row (to %d), the one the jump passes over: heard where it lands, the note not left sounding (%s)", e,
+             gone ? "gone" : "sounding");
+    check(e == 11 && gone, msg);
+    lp_stop(); sg_empty();
+    /* a key held into PLAY, its own time ahead of the play line: its end on the row the jump passes over */
+    lp_to(4);
+    kdown(9); run(rms * 3 / 10);
+    press(B_PLAY); release(B_PLAY);
+    lp_at(6, 2);
+    turn(K_ALG, 1);
+    run(1000);
+    l = sg_find(4, m); e = l >= 0 ? sg_end(4, l) : -1; gone = !lp_sounds(m);
+    kup(9); run(50);
+    snprintf(msg, sizeof msg, "... a key held into PLAY, its own time ahead: its end (row %d) on the row the jump passes over: "
+             "heard where it lands (%s)", e, gone ? "gone" : "sounding");
+    check(e == 7 && gone, msg);
+    lp_stop(); sg_empty();
+    /* 16 rows: a key held into PLAY 10 rows, let go just after: its end 10 rows ahead of the play line, more than half */
+    ui_edit_loops(loops_set_rows(16), ui_edit_used());
+    loops_changed(1);
+    run(50);
+    lp_to(2);
+    kdown(9);
+    uint32_t t9 = now_ms;
+    run(10 * rms);
+    press(B_PLAY); release(B_PLAY);
+    run(20);
+    int want = ins_want(2, t9);
+    kup(9);
+    lp_at(10, 0);
+    int held = lp_sounds(m);
+    lp_at(want + 1 < 16 ? want + 1 : 15, 0); lp_at(0, 0);
+    gone = !lp_sounds(m);
+    l = sg_find(2, m); e = l >= 0 ? sg_end(2, l) : -1;
+    snprintf(msg, sizeof msg, "... 16 rows: a key held into PLAY 10 rows, let go at once: its end (row %d, %d wanted) more than "
+             "half the length ahead: heard at its row, the first pass too (row 10 %s; after its end %s)", e, want,
+             held ? "sounding" : "silent", gone ? "gone" : "sounding");
+    check(e == want && want > 10 && held && gone, msg);
+    lp_stop(); sg_empty();
+    /* ... in REAL TIME, let go mid-row: its end a key off at its tick (Kxx), the first pass heard to that tick, not cut at
+     * its row's start */
+    ui_edit_loops(loops_set_quant(LQ_REAL), ui_edit_used());
+    run(50);
+    lp_to(2);
+    kdown(9);
+    run(10 * rms);
+    press(B_PLAY); release(B_PLAY);
+    run(20);
+    kup(9);
+    l = sg_find(2, m);
+    int er = -1, et = -1;
+    for (int r = 0; r < 16 && l >= 0 && er < 0; r++) if (sg_cmd(r, l, 0x14) >= 0) { er = r; et = sg_cmd(r, l, 0x14); }
+    if (er > 0 && et > 0) lp_at(er, et - 1);
+    held = lp_sounds(m);
+    if (er > 0) lp_at(er + 2 < 16 ? er + 2 : 15, 0);
+    gone = !lp_sounds(m);
+    snprintf(msg, sizeof msg, "... REAL TIME, let go mid-row: its end a key off at its tick (row %d, tick %d of %d), more than half "
+             "the length ahead: the first pass heard to that tick (%s), not cut at its row's start, then gone (%s)", er, et, sp,
+             held ? "sounding" : "silent", gone ? "gone" : "sounding");
+    check(er > 10 && et >= 2 && held && gone, msg);
+    lp_stop(); sg_empty();
+    ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
+    /* ... held on as they play to the length's end: a note off on row 0 then, heard there, not before */
+    lp_to(4);
+    kdown(9); run(9 * rms);
+    press(B_PLAY); release(B_PLAY);
+    lp_at(12, 0);
+    held = lp_sounds(m);
+    lp_at(0, 0); lp_at(3, 0);
+    gone = !lp_sounds(m);
+    kup(9); run(50);
+    l = sg_find(4, m);
+    snprintf(msg, sizeof msg, "... held on to the length's end as they play: its off on row 0 (lane %d, %s), heard there, the "
+             "first pass's sound not cut before (row 12 %s; row 3 %s)", l, sg_notes(), held ? "sounding" : "silent",
+             gone ? "gone" : "sounding");
+    check(l >= 0 && sg_end(4, l) < 0 && sg_off(0, l) && held && gone, msg);
+    lp_stop(); sg_empty();
+    /* let go as PLAY starts the loops, before they are heard: its end at its own time */
+    lp_to(2);
+    kdown(9);
+    t9 = now_ms;
+    run(3 * rms);
+    in_now.buttons |= 1u << B_PLAY; run(1);
+    kup(9);
+    want = ins_want(2, t9);
+    in_now.buttons &= ~(1u << B_PLAY); run(30);
+    lp_at(want - 1, 0);
+    held = lp_sounds(m);
+    lp_at(want + 3, 0);
+    gone = !lp_sounds(m);
+    l = sg_find(2, m); e = l >= 0 ? sg_end(2, l) : -1;
+    snprintf(msg, sizeof msg, "... let go as PLAY starts the loops, before they are heard: its end at its own time (row %d, %d "
+             "wanted), heard to it (%s), not ringing round the loop (%s)", e, want, held ? "sounding" : "silent",
+             gone ? "gone" : "sounding");
+    check(e == want && want > 3 && held && gone, msg);
+    lp_stop(); sg_empty();
+    /* an insert's key held to the length's end, stopped: it writes no more, sounds on; PLAY while it is held */
+    lp_to(12);
+    kdown(9); run(6 * rms);
+    int free_ = lp_voice(m, 0xFF) >= 0;
+    tap(B_PLAY); run(300);
+    int n1 = sg_count(m), taken = lp_voice(m, 0xFF) < 0;
+    kup(9); run(100);
+    snprintf(msg, sizeof msg, "an insert's key held to the length's end, then PLAY: sounding on freely till then (%d), taken at "
+             "PLAY (its free sound let go: %d), never written again (%s)", free_, taken, sg_notes());
+    check(free_ && taken && n1 == 1 && sg_count(m) == 1 && sg_find(12, m) >= 0, msg);
+    lp_stop(); sg_empty();
+    /* ... stopped by a new instrument */
+    lp_to(8);
+    kdown(9); run(2 * rms);
+    ui_set_inst(0xF901);
+    run(50);
+    tap(B_PLAY); run(300);
+    n1 = sg_count(m); taken = lp_voice(m, 0xFF) < 0;
+    kup(9); run(100);
+    ui_set_inst(0xF900);
+    run(50);
+    l = sg_find(8, m);
+    snprintf(msg, sizeof msg, "... one stopped by a new instrument, then PLAY: its note as it stood (to row %d), taken at PLAY "
+             "(%d), never written again (%s)", l >= 0 ? sg_end(8, l) : -1, taken, sg_notes());
+    check(l >= 0 && sg_end(8, l) == 10 && taken && n1 == 1 && sg_count(m) == 1, msg);
+    lp_stop(); sg_empty();
+    /* ALGORITHM while an insert's key is held: it stops writing, its note ends as it stands; PLAY then from the new place */
+    lp_to(4);
+    kdown(9); run(2 * rms);
+    turn(K_ALG, 4);
+    int at = lp_cur(5);
+    tap(B_PLAY); run(300);
+    n1 = sg_count(m); taken = lp_voice(m, 0xFF) < 0;
+    run(500);
+    gone = !lp_sounds(m);
+    kup(9); run(100);
+    l = sg_find(4, m);
+    snprintf(msg, sizeof msg, "ALGORITHM with an insert's key held: the play position moved (to %d), the key's note ended as it "
+             "stood (row 4 to %d), PLAY from there: the key taken (%d), never written again, nothing of it heard (%s; %s)", at,
+             l >= 0 ? sg_end(4, l) : -1, taken, gone ? "silent" : "sounding", sg_notes());
+    check(at == 8 && l >= 0 && sg_end(4, l) == 6 && taken && gone && n1 == 1 && sg_count(m) == 1, msg);
+    lp_stop(); sg_empty();
+    ui_edit_loops(loops_set_rows(64), ui_edit_used());
+    loops_changed(1);
+    ui_set_inst(was);
+    run(50);
 }
 
 /* ---- the stage: where a note lands by QUANTIZE (each key pressed at row.tick, let go a row on) ---- */
@@ -2884,6 +3608,120 @@ static void test_loops_quantize(void)
     check(sg_cmd(15, 0, 0x14) == 3 && sg_note(15, 0) < 0, "REAL TIME: a key's end a key off at its tick (K03 on row 15)");
     lp_stop();
     ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
+}
+
+/* ---- the stage's keys heard at once (specs/ui/screens/loops.md#the-stage): each key sounds at its press and ends at its
+ * release, with every QUANTIZE, and is written where QUANTIZE lands it; a note landing ahead is not started again at its
+ * row in that pass, then the stage plays it there; a quick tap let go before its row heard short, kept from its row; MONO
+ * LEGATO at the press (LEGATO's one voice, GLIDE's glide), written as before; POLY's fifth key neither heard nor written;
+ * REAL TIME at its press (tests/playground/loops.js, the same steps) ---- */
+static int kv_keys, kv_stage;
+static void lp_kv(int note)             /* the voices sounding that note: the keys' lanes' (their key lit by it), the others' */
+{
+    pl_voice_info_t vi[PL_VOICES];
+    int n = player_voices_now(vi, PL_VOICES);
+    kv_keys = kv_stage = 0;
+    for (int i = 0; i < n; i++)
+        if (vi[i].on && vi[i].note == note) { if (vi[i].key) kv_keys++; else kv_stage++; }
+}
+static int lp_keyed(void)               /* the voices of the keys' lanes sounding */
+{
+    pl_voice_info_t vi[PL_VOICES];
+    int n = player_voices_now(vi, PL_VOICES), k = 0;
+    for (int i = 0; i < n; i++) k += vi[i].on && vi[i].key;
+    return k;
+}
+static int lp_row_now(void) { player_state_t st; player_state(&st, 0); return st.row; }
+static int key_voice(int note);
+static void test_loops_at_once(void)
+{
+    char msg[360];
+    uint16_t was = ui_cur.inst;
+    lp_fresh(64, 120);
+    ui_set_inst(0xF900);                                /* (CHIPTUNE F9:00: a note that holds, its release short) */
+    ui_edit_loops(loops_set_quant(LQ_4_ROWS), ui_edit_used());
+    run(100);
+    int sp = loops_ticks(), m = ui_midi(9), mt = ui_midi(5);
+    lp_play_from0();
+    /* 4 ROWS: a key at 10.5, a row and a half before the line at 12, held past it */
+    lp_at(10, sp / 2); kdown(9); run(20);
+    lp_kv(m);
+    int pk = kv_keys, ps = kv_stage, pr = lp_row_now();
+    lp_at(12, 2); lp_kv(m);
+    int ak = kv_keys, as = kv_stage;
+    lp_at(13, sp / 2); kup(9); run(20);
+    int l = sg_find(12, m), e = l >= 0 ? sg_end(12, l) : -1;
+    snprintf(msg, sizeof msg, "the stage's keys at once: 4 ROWS, a key at 10.5: heard at its press (row %d: %d voice of the keys', %d "
+             "of the stage's), not started again at its line 12 (%d, %d), written there (lane %d, its end on %d)", pr, pk, ps, ak, as, l, e);
+    check(pk == 1 && !ps && pr == 10 && ak == 1 && !as && l >= 0 && e == 14, msg);
+    /* a quick tap at 26.5 (its line 28), let go at once: heard short, nothing at its row in that pass, kept from its row */
+    lp_at(26, sp / 2); kdown(5); run(20);
+    lp_kv(mt);
+    int tk = kv_keys;
+    kup(5);
+    lp_at(27, sp / 2 + 1); lp_kv(mt);
+    int tg = !kv_keys && !kv_stage;
+    lp_at(28, 3); lp_kv(mt);
+    int tr = !kv_keys && !kv_stage, tl = sg_find(28, mt), te = tl >= 0 ? sg_end(28, tl) : -1;
+    snprintf(msg, sizeof msg, "... a quick tap at 26.5 let go at once: heard at its press (%d), ended at once (gone a row on: %d), "
+             "nothing at its line 28 that pass (%d), kept from there (lane %d, its end on %d)", tk, tg, tr, tl, te);
+    check(tk == 1 && tg && tr && tl >= 0 && te == 29, msg);
+    lp_at(12, 2); lp_kv(m);                             /* (the next pass) */
+    int nk = kv_keys, ns = kv_stage;
+    lp_at(28, 3); lp_kv(mt);
+    snprintf(msg, sizeof msg, "... the next pass: both from the stage, at their lines (12: %d of the stage's, %d of the keys'; 28: %d, %d)",
+             ns, nk, kv_stage, kv_keys);
+    check(ns == 1 && !nk && kv_stage == 1 && !kv_keys, msg);
+    /* MONO LEGATO at the press: a key over a held one, its line ahead */
+    ui_edit_loops(loops_set_keys_mono(1), ui_edit_used());
+    ui_edit_loops(loops_set_legato(LG_LEGATO), ui_edit_used());
+    lp_at(34, sp / 2); kdown(0);                        /* (on 36) */
+    lp_at(38, sp / 2); kdown(4); run(20);               /* (on 40) */
+    int lg = key_voice(ui_midi(4)) && !key_voice(ui_midi(0)) && lp_keyed() == 1;
+    lp_at(39, 1); kup(4); kup(0);
+    run(20);
+    snprintf(msg, sizeof msg, "... MONO, LEGATO: a key at 38.5 over a held one: at its press the one voice held moves to its note "
+             "(%d); written as before, LEG on its line 40 (%d, %d)", lg, sg_note(40, 0), sg_cmd(40, 0, 0xD3));
+    check(lg && sg_note(40, 0) == ui_midi(4) && sg_cmd(40, 0, 0xD3) >= 0 && sg_note(36, 0) == ui_midi(0), msg);
+    ui_edit_loops(loops_set_legato(LG_GLIDE), ui_edit_used());
+    lp_at(42, sp / 2); kdown(0);                        /* (on 44) */
+    lp_at(46, sp / 2); kdown(4); run(20);               /* (on 48) */
+    int gl = key_voice(ui_midi(4)) && !key_voice(ui_midi(0)) && lp_keyed() == 1;
+    lp_at(47, 1); kup(4); kup(0);
+    run(20);
+    snprintf(msg, sizeof msg, "... GLIDE: at its press the one voice glides to the new note (%d); written as before, 320 on its line 48 "
+             "(%d)", gl, sg_cmd(48, 0, 0x03));
+    check(gl && sg_note(48, 0) == ui_midi(4) && sg_cmd(48, 0, 0x03) == 0x20, msg);
+    /* POLY: four keys at once ahead of their line, a fifth neither heard nor written */
+    ui_edit_loops(loops_set_keys_mono(0), ui_edit_used());
+    static const int K5[5] = {2, 4, 5, 7, 9};
+    lp_at(50, sp / 2);
+    for (int k = 0; k < 5; k++) kdown(K5[k]);
+    run(20);
+    int four = lp_keyed();
+    lp_kv(ui_midi(9));
+    int fifth = kv_keys + kv_stage;
+    lp_at(51, 1);
+    for (int k = 0; k < 5; k++) kup(K5[k]);
+    run(20);
+    snprintf(msg, sizeof msg, "... POLY, four keys at 50.5 heard at their press (%d voices), a fifth neither heard (%d) nor written "
+             "(%s)", four, fifth, sg_notes());
+    check(four == 4 && !fifth && sg_note(52, 0) == ui_midi(2) && sg_note(52, 3) == ui_midi(7) && sg_find(52, ui_midi(9)) < 0, msg);
+    /* REAL TIME: heard at its press, written with its tick */
+    ui_edit_loops(loops_set_quant(LQ_REAL), ui_edit_used());
+    lp_at(58, 3); kdown(2); run(15);
+    lp_kv(ui_midi(2));
+    int rk = kv_keys;
+    lp_at(59, 1); kup(2); run(20);
+    int rl = sg_find(58, ui_midi(2));
+    snprintf(msg, sizeof msg, "... REAL TIME: a key at 58 tick 3 heard at its press, not 3 ticks on (%d), written there with ED3 "
+             "(lane %d, %d)", rk, rl, rl >= 0 ? sg_cmd(58, rl, 0x0E) : -1);
+    check(rk == 1 && rl >= 0 && sg_cmd(58, rl, 0x0E) == 0xD3, msg);
+    lp_stop();
+    sg_empty();
+    ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
+    ui_set_inst(was);
+    run(50);
 }
 
 /* ---- MONO: one lane, legato as MONO LEGATO says; POLY: up to 4 notes at once; REC on + NEW LOOP ---- */
@@ -2961,6 +3799,609 @@ static void test_loops_mono_poly(void)
           lp_note(0, 40, 3) == ui_midi(7) && !staged() && loops_sel() == 1 && lp_toast("STAGE AS LOOP 00"), msg);
     release(B_REC); run(100);
     lp_stop();
+}
+
+/* ---- a POLY stage and five keys at once (specs/ui/screens/loops.md, a chord at the play position): four lanes, the
+ * fifth key neither written nor heard, nor its pressure; the stage's strip four rows at most, nothing under them: while
+ * the loops play, while they stand (an insert), a chord held into PLAY ---- */
+static int strip_bands(int x)            /* the stage's strip at column x: its rows of cells (runs not black, top to bottom) */
+{
+    int n = 0, was = 0;
+    for (int y = 176; y < 196; y++) { int on = screen[y * 240 + x] != 0; if (on && !was) n++; was = on; }
+    return n;
+}
+static int strip_most(void)              /* the most rows of cells at any column of the strip */
+{
+    int most = 0;
+    for (int x = 28; x < 238; x++) { int b = strip_bands(x); if (b > most) most = b; }
+    return most;
+}
+/* the keys' pressure on the stage, played back (the user's: "press key lightly and the aftertouch to full volume ...
+ * stage playback makes some or all notes sound very quiet"): a long note at 100 on one lane, a light one swelled to the
+ * full on another; each voice's level row by row live, then the next pass: the same within a row's glide, the other note
+ * untouched */
+static int lvl_of(int note) { int32_t g = player_gain_of(note); return g < 0 ? -1 : (int)(g >> 4); }
+/* notes of the stage at different velocities, as plain playing records them: each note's gain row by row live, then the
+ * next pass: the same */
+static void test_stage_vols(void)
+{
+    static const struct { uint8_t key, vel, on, off; } N[5] = {{0, 20, 2, 10}, {2, 100, 4, 12}, {4, 60, 6, 8}, {5, 127, 9, 14}, {7, 35, 11, 13}};
+    int live[5][16], back[5][16], bad = 0;
+    char msg[700] = "", tmp[120];
+    uint16_t was = ui_cur.inst;
+    lp_fresh(32, 120);
+    ui_set_inst((uint16_t)(getenv("SWELL_INST") ? strtol(getenv("SWELL_INST"), 0, 16) : 0xF914));
+    lp_play_from0();
+    for (int r = 1; r < 16; r++) {
+        lp_at(r, 0);
+        for (int k = 0; k < 5; k++) {
+            if (N[k].on == r) { kvel_now[N[k].key] = N[k].vel; kdown(N[k].key); }
+            if (N[k].off == r) kup(N[k].key);
+        }
+        lp_at(r, 3);
+        for (int k = 0; k < 5; k++) live[k][r] = lvl_of(ui_midi(N[k].key));
+    }
+    for (int r = 1; r < 16; r++) {
+        lp_at(r, 3);
+        if (r == 1) lp_at(1, 3);
+        for (int k = 0; k < 5; k++) back[k][r] = lvl_of(ui_midi(N[k].key));
+    }
+    for (int k = 0; k < 5; k++) {
+        snprintf(tmp, sizeof tmp, " vel %d:", N[k].vel);
+        strcat(msg, tmp);
+        for (int r = N[k].on + 1; r < N[k].off; r++) {
+            snprintf(tmp, sizeof tmp, " %d/%d", live[k][r], back[k][r]);
+            if (strlen(msg) + strlen(tmp) < sizeof msg - 1) strcat(msg, tmp);
+            if (abs(live[k][r] - back[k][r]) > 2) bad++;
+        }
+    }
+    check(!bad, msg);
+    if (getenv("SWELL_DUMP")) printf("VOLS live/back%s\n", msg);
+    lp_stop();
+    sg_empty();
+    for (int k = 0; k < 5; k++) kvel_now[N[k].key] = 0;
+    ui_set_inst(was);
+    run(100);
+}
+/* a press as the FM-1's keys make it: a light landing, the key going on down after it (the driven reading falling within
+ * tens of ms): what is heard against what the stage plays back */
+static void test_stage_press(int late)
+{
+    char msg[700] = "", tmp[64];
+    uint16_t was = ui_cur.inst;
+    int k = 2, m = ui_midi(k), live[200], back[200], n = 0;
+    lp_fresh(32, 120);
+    ui_set_inst((uint16_t)(getenv("SWELL_INST") ? strtol(getenv("SWELL_INST"), 0, 16) : 0xF914));
+    if (getenv("SWELL_Q")) { ui_edit_loops(loops_set_quant(atoi(getenv("SWELL_Q"))), ui_edit_used()); run(50); }
+    lp_play_from0();
+    if (late) lp_at(3, 4);                              /* (late in row 3: its note quantized onto row 4, heard before it) */
+    else lp_at(4, 0);
+    kvel_now[k] = 20;
+    kread_now[k] = 880;
+    in_now.notes |= 1u << k;
+    for (int t = 0; t < 400; t++) {                     /* (the key down 400 ms: on down to 600 over its first 20 ms) */
+        kread_now[k] = (uint16_t)(t < 20 ? 880 - t * 14 : 600);
+        run(1);
+        if (t % 10 == 0 && n < 200) live[n++] = lvl_of(m);
+        if (getenv("SWELL_DUMP") && t % 50 == 49) {
+            printf("PRESS t %d row %d cells:", t, lp_row_now());
+            for (int r = 0; r < 32; r++) for (int l = 0; l < 4; l++) { rec_cell_t c; if (sg_cell(r, l, &c)) printf(" %d/%d:%s%d", r, l, c.has & RC_NOTE ? "N" : "", c.has & RC_VOL ? c.vol : -1); }
+            printf("\n");
+        }
+    }
+    kup(k);
+    if (getenv("SWELL_DUMP")) {
+        run(5);
+        printf("PRESS after the release, cells:");
+        for (int r = 0; r < 32; r++) for (int l = 0; l < 4; l++) { rec_cell_t c; if (sg_cell(r, l, &c)) printf(" %d/%d:%s%d", r, l, c.has & RC_NOTE ? "N" : "", c.has & RC_VOL ? c.vol : -1); }
+        printf("\n");
+    }
+    kread_now[k] = 0;
+    lp_at(4, 0);
+    for (int t = 0, j = 0; t < 400; t++) { run(1); if (t % 10 == 0 && j < 200) back[j++] = lvl_of(m); }
+    int most_l = 0, most_b = 0;
+    for (int i = 0; i < n; i++) { if (live[i] > most_l) most_l = live[i]; if (back[i] > most_b) most_b = back[i]; }
+    for (int i = 0; i < n && strlen(msg) < sizeof msg - 20; i += 2) { snprintf(tmp, sizeof tmp, " %d/%d", live[i], back[i]); strcat(msg, tmp); }
+    if (getenv("SWELL_DUMP")) printf("PRESS live/back (every 20 ms):%s\nPRESS the loudest live %d, played back %d; the cells %s\n", msg, most_l, most_b, sg_notes());
+    {
+        char m2[1400];
+        snprintf(m2, sizeof m2, "a light landing pressed on down at once (the pressure heard %s): the stage plays it back as "
+                 "loud as heard, its note's volume the loudest heard there (live / back every 20 ms:%s; the loudest %d, %d; "
+                 "the cells %s)", late ? "before its note's row, the note quantized onto it" : "in its note's own row", msg,
+                 most_l, most_b, sg_notes());
+        check(most_l > 0 && most_b * 100 >= most_l * 95, m2);
+    }
+    lp_stop();
+    sg_empty();
+    kvel_now[k] = 0;
+    ui_set_inst(was);
+    run(100);
+}
+/* takes of a light landing pressed on at several places (one landing late in a row, one held over the line), the stage
+ * played back, then REC: the loop it becomes holds the same cells, draws the same, plays the same */
+static int lpc_at(int i, int r, int l, rec_cell_t *c)    /* loop i's cell there: 1 */
+{
+    const uint8_t *end, *s = loops_stream(i, &end);
+    rec_cur_t cu;
+    if (!s) return 0;
+    rec_cur_set_end(&cu, s, end);
+    return rec_cur_at(&cu, 4 * r + l, c);
+}
+static void cells_text(char *b, size_t n, int loop)
+{
+    size_t k = 0;
+    b[0] = 0;
+    for (int r = 0; r < 64; r++)
+        for (int l = 0; l < 4; l++) {
+            rec_cell_t c;
+            if (!(loop < 0 ? sg_cell(r, l, &c) : lpc_at(loop, r, l, &c)) || k + 24 > n) continue;
+            k += (size_t)snprintf(b + k, n - k, " %d/%d:", r, l);
+            if (c.has & RC_NOTE) k += (size_t)snprintf(b + k, n - k, c.note == REC_NOTE_OFF ? "OFF" : "N%d", c.note);
+            if (c.has & RC_VOL) k += (size_t)snprintf(b + k, n - k, "v%d", c.vol);
+            for (int j = 0; j < c.n; j++) k += (size_t)snprintf(b + k, n - k, "+%02X%02X", c.cmd[j][0], c.cmd[j][1]);
+        }
+}
+static void test_stage_rec(int mono)
+{
+    static const int TK[4] = {2, 5, 9, 12}, AT[4] = {4, 20, 37, 58}, TICK[4] = {0, 0, 4, 0};
+    static char b1[3000], b2[3000];
+    uint16_t was = ui_cur.inst;
+    int live[4][12], back[4][12], loop[4][12];
+    lp_fresh(64, mono ? 95 : 120);
+    if (mono) { ui_edit_loops(loops_set_keys_mono(1), ui_edit_used()); run(50); }
+    ui_set_inst((uint16_t)(getenv("SWELL_INST") ? strtol(getenv("SWELL_INST"), 0, 16) : mono ? 0xF800 : 0xF914));
+    lp_play_from0();
+    for (int j = 0; j < 4; j++) {                       /* (each: landed at 15, pressed on over a second, let go) */
+        int k = TK[j], m = ui_midi(k);
+        lp_at(AT[j], TICK[j]);
+        kvel_now[k] = 15;
+        kread_now[k] = 880;
+        in_now.notes |= 1u << k;
+        for (int t = 0; t < 1200; t++) {               /* (the second pressed on to its release: a volume on its last row) */
+            kread_now[k] = (uint16_t)(j == 1 ? 880 - t * 320 / 1200 : t < 1000 ? 880 - t * 320 / 1000 : 560);
+            run(1);
+            if (t % 100 == 50) live[j][t / 100] = lvl_of(m);
+        }
+        kup(k);
+        kread_now[k] = 0;
+        kvel_now[k] = 0;
+    }
+    lp_at(1, 0);
+    cells_text(b1, sizeof b1, -1);
+    if (getenv("SWELL_DUMP")) printf("REC the stage:%s\n", b1);
+    for (int j = 0; j < 4; j++) {                       /* (the next pass) */
+        int m = ui_midi(TK[j]);
+        lp_at(AT[j], TICK[j]);
+        for (int t = 0; t < 1200; t++) { run(1); if (t % 100 == 50) back[j][t / 100] = lvl_of(m); }
+    }
+    shot(mono ? "ui3_stage_rec_mono_stage" : "ui3_stage_rec_stage");
+    lp_at(62, 0);
+    tap(B_REC);
+    for (int i = 0; i < 200 && !loops_n(); i++) run(10);
+    run(200);
+    cells_text(b2, sizeof b2, 0);
+    if (getenv("SWELL_DUMP")) printf("REC loop 00 (%d loops, base %d):%s\n", loops_n(), loops_n() ? loops_base(0) : -1, b2);
+    for (int j = 0; j < 4; j++) {
+        int m = ui_midi(TK[j]);
+        lp_at(AT[j], TICK[j]);
+        for (int t = 0; t < 1200; t++) { run(1); if (t % 100 == 50) loop[j][t / 100] = lvl_of(m); }
+    }
+    shot(mono ? "ui3_stage_rec_mono_loop" : "ui3_stage_rec_loop");
+    {
+        char msg[1600], tmp[48];
+        int ok = 1, ends = 0, n = 0;
+        msg[0] = 0;
+        for (int j = 0; j < 4; j++) {
+            if (getenv("SWELL_DUMP")) printf("REC take %d at %d: live/stage/loop", j, AT[j]);
+            for (int i = 0; i < 12; i++) {
+                if (getenv("SWELL_DUMP")) printf(" %d/%d/%d", live[j][i], back[j][i], loop[j][i]);
+                if (live[j][i] < 0 || back[j][i] < 0 || loop[j][i] < 0) ok &= !i || i > 6;   /* (a note heard before its row,
+                                                         * or ended at the line a moment apart: those moments only) */
+                else ok &= back[j][i] * 100 >= live[j][i] * 85 && back[j][i] * 100 <= live[j][i] * 115 + 300 &&
+                           abs(loop[j][i] - back[j][i]) * 100 <= back[j][i] * 4 + 100;
+                if (i % 3 == 1 && n < 1400) { snprintf(tmp, sizeof tmp, " %d/%d/%d", live[j][i], back[j][i], loop[j][i]); strcat(msg, tmp); n += (int)strlen(tmp); }
+            }
+            if (getenv("SWELL_DUMP")) printf("\n");
+            strcat(msg, j < 3 ? ";" : "");
+        }
+        for (int r = 0; r < 64; r++) ends += lp_note(0, r, 0) == REC_NOTE_OFF;
+        char m2[2200];
+        snprintf(m2, sizeof m2, "%sfour takes landed lightly and pressed on (one landing late in a row, one pressed on to its "
+                 "release, one held over the line), then REC: the loop holds the stage's cells as they were (%s), each note "
+                 "ended (%d note offs), and plays as the stage did, as heard (live / stage / loop:%s)", mono ? "MONO, 95 BPM, "
+                 "a JUNO-106: " : "", strcmp(b1, b2) ? "NOT the same" : "the same", ends, msg);
+        check(ok && !strcmp(b1, b2) && ends == 4 && loops_n() == 1, m2);
+    }
+    lp_stop();
+    lp_none();
+    sg_empty();
+    if (mono) ui_edit_loops(loops_set_keys_mono(0), ui_edit_used());
+    ui_set_inst(was);
+    run(100);
+}
+/* MONO, MONO LEGATO GLIDE, a JUNO-106 at 95 BPM: a key landed lightly, a second landed lightly while the first is held
+ * (the line glides to it) and pressed on, the first pressed hard meanwhile: only the key whose note sounds writes and is
+ * heard; then REC: the loop the stage's cells, each note ended, playing as the stage did */
+static int gain_either(int a, int b) { int g = lvl_of(a); return g >= 0 ? g : lvl_of(b); }
+static void test_stage_mono_glide(void)
+{
+    static char b1[3000], b2[3000];
+    char msg[1800], tmp[40];
+    uint16_t was = ui_cur.inst;
+    int ka = 2, kb = 7, ma = ui_midi(ka), mb = ui_midi(kb), live[16], back[16], loop[16], most_b_held = 0, vb = 0;
+    lp_fresh(64, 95);
+    ui_edit_loops(loops_set_keys_mono(1), ui_edit_used());
+    ui_edit_loops(loops_set_legato(LG_GLIDE), ui_edit_used());
+    run(50);
+    ui_set_inst(0xF800);
+    lp_play_from0();
+    lp_at(4, 0);
+    kvel_now[ka] = 15; kread_now[ka] = 880; in_now.notes |= 1u << ka;
+    for (int t = 0; t < 1600; t++) {
+        if (t == 600) { kvel_now[kb] = 15; kread_now[kb] = 880; in_now.notes |= 1u << kb; }
+        if (t < 600) kread_now[ka] = (uint16_t)(880 - t * 180 / 600);          /* (the first pressed on a little) */
+        else if (t < 1100) kread_now[ka] = 520;                                  /* (... then hard, its note no longer sounding) */
+        if (t == 1100) { kup(ka); kread_now[ka] = 0; kvel_now[ka] = 0; }
+        if (t >= 900 && t < 1500) kread_now[kb] = (uint16_t)(880 - (t - 900) * 320 / 600);   /* (the second pressed on after 300 ms) */
+        run(1);
+        if (t % 100 == 50) live[t / 100] = gain_either(mb, ma);
+        if (t >= 650 && t < 900 && gain_either(mb, ma) > most_b_held) most_b_held = gain_either(mb, ma);
+        if (t == 640) vb = gain_either(mb, ma);
+    }
+    kup(kb); kread_now[kb] = 0; kvel_now[kb] = 0;
+    lp_at(1, 0);
+    cells_text(b1, sizeof b1, -1);
+    lp_at(4, 0);
+    for (int t = 0; t < 1600; t++) { run(1); if (t % 100 == 50) back[t / 100] = gain_either(mb, ma); }
+    shot("ui3_stage_mono_glide_stage");
+    lp_at(62, 0);
+    tap(B_REC);
+    for (int i = 0; i < 200 && !loops_n(); i++) run(10);
+    run(200);
+    cells_text(b2, sizeof b2, 0);
+    lp_at(4, 0);
+    for (int t = 0; t < 1600; t++) { run(1); if (t % 100 == 50) loop[t / 100] = gain_either(mb, ma); }
+    shot("ui3_stage_mono_glide_loop");
+    int ok = 1, ends = 0;
+    msg[0] = 0;
+    for (int i = 0; i < 16; i++) {
+        ok &= back[i] * 100 >= live[i] * 85 && back[i] * 100 <= live[i] * 115 + 300 && abs(loop[i] - back[i]) <= 3;
+        snprintf(tmp, sizeof tmp, " %d/%d/%d", live[i], back[i], loop[i]);
+        strcat(msg, tmp);
+    }
+    for (int r = 0; r < 64; r++) ends += lp_note(0, r, 0) == REC_NOTE_OFF;
+    if (getenv("SWELL_DUMP")) printf("GLIDE the stage:%s\nGLIDE loop 00:%s\nGLIDE live/stage/loop:%s (held, the first pressed hard: %d, %d at the glide)\n", b1, b2, msg, most_b_held, vb);
+    char m2[2600];
+    snprintf(m2, sizeof m2, "MONO, LEGATO GLIDE, a JUNO-106 at 95 BPM: two keys landed lightly, the line gliding to the second, "
+             "the first pressed hard meanwhile (not heard: %d, %d at the glide), the second pressed on; REC: the loop the "
+             "stage's cells (%s; %.700s), each note ended (%d note offs), playing as the stage did, as heard (live / stage / "
+             "loop:%.1400s)", most_b_held, vb, strcmp(b1, b2) ? "NOT the same" : "the same", b2, ends, msg);
+    check(ok && !strcmp(b1, b2) && ends >= 1 && most_b_held <= vb + 8 && loops_n() == 1, m2);
+    lp_stop();
+    lp_none();
+    sg_empty();
+    ui_edit_loops(loops_set_legato(LG_JUMP), ui_edit_used());
+    ui_edit_loops(loops_set_keys_mono(0), ui_edit_used());
+    ui_set_inst(was);
+    run(100);
+}
+/* the user's flow: LOOPS cleared, the stage on and playing, OVERDUB; a key landed lightly, then pressed to the full over
+ * two bars, let go: the stage's cells, and what plays back */
+static void test_stage_ramp(void)
+{
+    uint16_t was = ui_cur.inst;
+    int k = 2, m = ui_midi(k);
+    lp_fresh(64, 120);
+    ui_set_inst((uint16_t)(getenv("SWELL_INST") ? strtol(getenv("SWELL_INST"), 0, 16) : 0xF914));
+    if (getenv("SWELL_Q")) { ui_edit_loops(loops_set_quant(atoi(getenv("SWELL_Q"))), ui_edit_used()); run(50); }
+    if (getenv("SWELL_HELD")) {                         /* (the key held, then PLAY) */
+        kvel_now[k] = 15;
+        kread_now[k] = 880;
+        in_now.notes |= 1u << k;
+        run(30);
+    }
+    lp_play_from0();
+    for (int p = getenv("SWELL_PASS") ? atoi(getenv("SWELL_PASS")) : 0; p > 0; p--) { lp_at(60, 0); lp_at(2, 0); }
+    if (!getenv("SWELL_HELD")) lp_at(4, 0);
+    kvel_now[k] = 15;
+    kread_now[k] = 880;
+    in_now.notes |= 1u << k;
+    int live[64], back[64];
+    for (int t = 0; t < 4000; t++) {                    /* (880 down to 560 over 4 s: two bars at 120) */
+        kread_now[k] = (uint16_t)(880 - t * 320 / 4000);
+        run(1);
+        if (t % 125 == 60) live[t / 125] = lvl_of(m);
+    }
+    kup(k);
+    kread_now[k] = 0;
+    run(5);
+    if (getenv("SWELL_DUMP")) {
+        printf("RAMP cells:");
+        for (int r = 0; r < 64; r++) for (int l = 0; l < 4; l++) { rec_cell_t c; if (sg_cell(r, l, &c)) printf(" %d/%d:%s%d", r, l, c.has & RC_NOTE ? "N" : "", c.has & RC_VOL ? c.vol : -1); }
+        printf("\n");
+    }
+    lp_at(4, 0);
+    for (int t = 0; t < 4000; t++) { run(1); if (t % 125 == 60) back[t / 125] = lvl_of(m); }
+    {
+        char msg[400] = "", tmp[24];
+        int ok = live[31] > live[0] * 4, top_l = 0, top_b = 0;
+        for (int i = 0; i < 32; i++) {
+            ok &= back[i] * 100 >= live[i] * 85;
+            if (live[i] > top_l) top_l = live[i];
+            if (back[i] > top_b) top_b = back[i];
+            if (i % 2 == 0) { snprintf(tmp, sizeof tmp, " %d/%d", live[i], back[i]); strcat(msg, tmp); }
+        }
+        char m2[600];
+        if (getenv("SWELL_DUMP")) printf("RAMP live/back:%s\n", msg);
+        snprintf(m2, sizeof m2, "the stage playing, OVERDUB: a key landed lightly (15), then pressed on to the full over two "
+                 "bars: the next pass plays it back as heard, row by row (live / back every 250 ms:%s)", msg);
+        check(ok && top_b == top_l, m2);
+    }
+    lp_stop();
+    sg_empty();
+    kvel_now[k] = 0;
+    ui_set_inst(was);
+    run(100);
+}
+static void test_stage_swell(void)
+{
+    char msg[1100], la[200] = "", lb[200] = "", pa[200] = "", pb[200] = "";
+    uint16_t was = ui_cur.inst;
+    int ka = 0, kb = 7, ma = ui_midi(ka), mb = ui_midi(kb), live_a[32], live_b[32], back_a[32], back_b[32];
+    lp_fresh(32, 120);
+    ui_set_inst((uint16_t)(getenv("SWELL_INST") ? strtol(getenv("SWELL_INST"), 0, 16) : 0xF914));
+    lp_play_from0();
+    lp_at(1, 1);
+    kvel_now[ka] = 100; kdown(ka);
+    lp_at(4, 1);
+    kvel_now[kb] = 20; kread_now[kb] = 880; kdown(kb);
+    for (int r = 0; r < 32; r++) live_a[r] = live_b[r] = back_a[r] = back_b[r] = -1;
+    for (int r = 5; r < 28; r++) {
+        lp_at(r, 3);
+        if (r >= 6 && r <= 20) kread_now[kb] = (uint16_t)(880 - (r - 6) * 20);   /* (harder row by row: full by row 20) */
+        if (r == 24) kup(kb);
+        live_a[r] = lvl_of(ma); live_b[r] = lvl_of(mb);
+    }
+    lp_at(30, 0); kup(ka); kread_now[kb] = 0;
+    for (int r = 5; r < 28; r++) { lp_at(r, 3); back_a[r] = lvl_of(ma); back_b[r] = lvl_of(mb); }
+    int worst_a = 0, worst_b = 0;
+    for (int r = 6; r < 24; r++) {
+        snprintf(la + strlen(la), sizeof la - strlen(la), "%d ", live_a[r]);
+        snprintf(lb + strlen(lb), sizeof lb - strlen(lb), "%d ", live_b[r]);
+        snprintf(pa + strlen(pa), sizeof pa - strlen(pa), "%d ", back_a[r]);
+        snprintf(pb + strlen(pb), sizeof pb - strlen(pb), "%d ", back_b[r]);
+        int da = abs(back_a[r] - live_a[r]), db = abs(back_b[r] - (r > 6 ? live_b[r - 1] : live_b[r]));   /* (B: a row's glide late) */
+        if (da > worst_a) worst_a = da;
+        if (db > worst_b && back_b[r] < live_b[r] && back_b[r] < live_b[r - 1]) worst_b = db;
+    }
+    snprintf(msg, sizeof msg, "the stage played back as played: the held note's level live %s, played back %s; the swelled one's live "
+             "%s, played back %s (the cells %s)", la, pa, lb, pb, sg_notes());
+    check(worst_a <= 3 && worst_b <= 4, msg);
+    if (getenv("SWELL_DUMP")) printf("%s\n", msg);
+    lp_stop();
+    sg_empty();
+    kvel_now[ka] = kvel_now[kb] = 0;
+    ui_set_inst(was);
+    run(100);
+}
+static void test_stage_five(void)
+{
+    char msg[400], rows[200];
+    static const int K5[5] = {2, 4, 5, 7, 9};
+    uint16_t was = ui_cur.inst;
+    lp_fresh(64, 120);
+    ui_set_inst(0xF900);
+    /* while the loops play */
+    lp_play_from0();
+    lp_at(8, 1);
+    for (int k = 0; k < 5; k++) kdown(K5[k]);
+    kread_now[9] = 600;
+    run(300);
+    kread_now[9] = 470;                                 /* (the fifth pressed harder: nothing of it) */
+    run(300);
+    shot("ui3_stage_five_playing");
+    snprintf(rows, sizeof rows, "%d rows of cells", strip_most());
+    int heard = lp_voice(ui_midi(9), -1) >= 0, w5 = sg_find(8, ui_midi(9)) >= 0;
+    snprintf(msg, sizeof msg, "five keys at once as the loops play: four lanes (%d), the fifth neither written (%d) nor heard (%d); "
+             "the strip: %s", stage_lanes_now(), w5, heard, rows);
+    check(stage_lanes_now() == 4 && !w5 && !heard && strip_most() == 4, msg);
+    for (int k = 0; k < 5; k++) kup(K5[k]);
+    kread_now[9] = 0;
+    run(100);
+    lp_stop();
+    sg_empty();
+    run(100);
+    /* held over the line, a pass and more (a length of 2 bars) */
+    ui_edit_loops(loops_set_rows(32), ui_edit_used());
+    loops_changed(1);
+    run(100);
+    lp_play_from0();
+    lp_at(2, 1);
+    for (int k = 0; k < 5; k++) kdown(K5[k]);
+    lp_at(30, 0);
+    shot("ui3_stage_five_line0");
+    lp_at(2, 0); lp_at(12, 0);
+    shot("ui3_stage_five_line1");
+    snprintf(rows, sizeof rows, "%d rows of cells", strip_most());
+    snprintf(msg, sizeof msg, "... held over the line: four lanes (%d), the fifth not written (%s); the strip: %s", stage_lanes_now(),
+             sg_notes(), rows);
+    check(stage_lanes_now() <= 4 && sg_find(0, ui_midi(9)) < 0 && sg_find(2, ui_midi(9)) < 0 && strip_most() <= 4, msg);
+    for (int k = 0; k < 5; k++) kup(K5[k]);
+    run(100);
+    lp_stop();
+    sg_empty();
+    /* armed: five keys at once start the loops */
+    tap(B_REC);
+    for (int k = 0; k < 5; k++) kdown(K5[k]);
+    run(600);
+    shot("ui3_stage_five_armed");
+    snprintf(rows, sizeof rows, "%d rows of cells", strip_most());
+    snprintf(msg, sizeof msg, "... armed, five keys at once start the loops: four lanes (%d, %s); the strip: %s", stage_lanes_now(),
+             sg_notes(), rows);
+    check(stage_lanes_now() <= 4 && lp_voice(ui_midi(9), -1) < 0 && strip_most() <= 4, msg);
+    for (int k = 0; k < 5; k++) kup(K5[k]);
+    run(100);
+    lp_stop();
+    sg_empty();
+    ui_edit_loops(loops_set_rows(64), ui_edit_used());
+    loops_changed(1);
+    run(100);
+    /* stopped: an insert at the play position */
+    for (int k = 0; k < 5; k++) kdown(K5[k]);
+    run(300);
+    shot("ui3_stage_five_stopped");
+    snprintf(rows, sizeof rows, "%d rows of cells", strip_most());
+    snprintf(msg, sizeof msg, "... with the loops stopped (an insert): four lanes (%d), the fifth not written (%d); the strip: %s",
+             stage_lanes_now(), sg_find(0, ui_midi(9)) >= 0, rows);
+    check(stage_lanes_now() <= 4 && sg_find(0, ui_midi(9)) < 0 && strip_most() <= 4, msg);
+    /* ... held into PLAY */
+    tap(B_PLAY);
+    run(400);
+    shot("ui3_stage_five_into");
+    snprintf(rows, sizeof rows, "%d rows of cells", strip_most());
+    snprintf(msg, sizeof msg, "... held into PLAY: four lanes (%d), the fifth not written; the strip: %s", stage_lanes_now(), rows);
+    check(stage_lanes_now() <= 4 && strip_most() <= 4, msg);
+    for (int k = 0; k < 5; k++) kup(K5[k]);
+    run(100);
+    lp_stop();
+    sg_empty();
+    ui_set_inst(was);
+    run(100);
+}
+
+/* ---- the keys' lights on LOOPS (specs/ui/leds.md#keys): lit at the press, then by their lane's note, the stage on and off,
+ * a TB-303's and a FUSION's too; MONO's glide moves the light to the new key; JUMP's first note lights nothing more ---- */
+static const char *keys_lit(void)                       /* the keys lit (full or dim: by their notes' loudness), as "0,2" */
+{
+    static char b[80];
+    int n = 0;
+    b[0] = 0;
+    for (int k = 0; k < 27; k++)
+        if (leds[LED_NOTE(k)]) n += snprintf(b + n, sizeof b - (size_t)n, "%s%d", n ? "," : "", k);
+    return b;
+}
+static int key_voice(int note)                          /* a voice sounding whose key's light is that note's */
+{
+    pl_voice_info_t vi[PL_VOICES];
+    int n = player_voices_now(vi, PL_VOICES);
+    for (int i = 0; i < n; i++) if (vi[i].on && vi[i].key == note) return 1;
+    return 0;
+}
+static void test_loops_key_leds(void)
+{
+    char msg[300], pressed[80], sounding[80];
+    uint16_t was = ui_cur.inst;
+    lp_fresh(64, 120);
+    ui_set_inst(0xF900);                                /* (CHIPTUNE F9:00, built in: a note that holds) */
+    lp_play_from0();
+    lp_at(3, 1); kdown(0); kdown(2); run(5);
+    snprintf(pressed, sizeof pressed, "%s", keys_lit());
+    int full = leds[LED_NOTE(0)] == LV_FULL && leds[LED_NOTE(2)] == LV_FULL;
+    run(300);
+    snprintf(sounding, sizeof sounding, "%s", keys_lit());
+    snprintf(msg, sizeof msg, "LOOPS, the stage on, POLY: two keys lit full at their press, then with their notes (%s; %s)", pressed,
+             sounding);
+    check(full && !strcmp(pressed, "0,2") && !strcmp(sounding, "0,2"), msg);
+    kup(0); kup(2); run(300);
+    ui_edit_loops(loops_set_keys_mono(1), ui_edit_used());
+    kdown(0); run(300); kdown(4); run(300);
+    snprintf(pressed, sizeof pressed, "%s", keys_lit());
+    kup(0); run(100);
+    snprintf(sounding, sizeof sounding, "%s", keys_lit());
+    kup(4); run(300);
+    snprintf(msg, sizeof msg, "... MONO, GLIDE: the second key's light, the first one dark (the one voice glides there) (%s; %s)",
+             pressed, sounding);
+    check(!strcmp(pressed, "4") && !strcmp(sounding, "4"), msg);
+    ui_edit_loops(loops_set_legato(LG_JUMP), ui_edit_used());
+    kdown(0); run(300); kdown(4); run(300);
+    snprintf(msg, sizeof msg, "... MONO, JUMP: the new note's key lit, the first note's not (%s)", keys_lit());
+    check(!strcmp(keys_lit(), "4"), msg);
+    kup(4); kup(0); run(300);
+    ui_edit_loops(loops_set_legato(LG_GLIDE), ui_edit_used());
+    uint8_t nums[256];
+    int nc = ui_carts(nums, 256), tb = -1, fus = -1;
+    for (int i = 0; i < nc; i++) {
+        if (tb < 0 && ui_cart_kind(nums[i]) == ENG_TB303) tb = nums[i];
+        if (fus < 0 && ui_cart_kind(nums[i]) == ENG_FUSION) fus = nums[i];
+    }
+    ui_set_inst((uint16_t)(tb << 8));
+    kdown(0); run(20);                                  /* (its note short: told by the voice, not past the press's light) */
+    int k0 = key_voice(ui_midi(0));
+    kdown(4); run(20);
+    snprintf(msg, sizeof msg, "... MONO on a TB-303: its voice the first key's, its slide moving it to the new key (%d %d %d; %s)",
+             k0, key_voice(ui_midi(4)), key_voice(ui_midi(0)), keys_lit());
+    check(tb >= 0 && k0 && key_voice(ui_midi(4)) && !key_voice(ui_midi(0)), msg);
+    kup(4); kup(0); run(300);
+    ui_edit_loops(loops_set_keys_mono(0), ui_edit_used());
+    ui_set_inst((uint16_t)(fus << 8));
+    kdown(7); run(150);
+    snprintf(msg, sizeof msg, "... a FUSION: its key lit with its layers (%s)", keys_lit());
+    check(fus >= 0 && !strcmp(keys_lit(), "7"), msg);
+    kup(7); run(300);
+    ui_set_inst(0xF900);
+    tap(B_ARP);
+    int off = stage_off();
+    kdown(5); run(300);
+    snprintf(msg, sizeof msg, "... the stage off: a key lit with its note (%s)", keys_lit());
+    check(off && !strcmp(keys_lit(), "5"), msg);
+    kup(5); run(300);
+    tap(B_ARP);
+    ui_set_inst(was);
+    lp_stop();
+}
+
+/* ---- VISUAL LEVELS while LOOPS plays (specs/ui/screens/visual.md#levels): a meter a loop, a muted loop's number dark grey,
+ * the stage's notes in the meter of the loop they sound as ---- */
+static void test_loops_levels(void)
+{
+    static const lpc_t a[1] = {{0, 0, 60}};
+    char msg[260];
+    uint16_t was = ui_cur.inst;
+    lp_fresh(16, 120);
+    ui_set_inst(0xF900);                                /* (CHIPTUNE F9:00: a note that holds) */
+    for (int i = 0; i < 3; i++) lp_make(16, 16, 1, 0, a, 1);
+    ui_edit_loops(loops_set_mutes(2, 0), ui_edit_used());   /* (loop 01 muted) */
+    loops_changed(0);
+    lp_play_from0();
+    run(100);
+    home_key(15);
+    for (int i = 0; i < 6 && strcmp(ui_screen_now()->sub(), "LEVELS"); i++) tap(B_SEQ);
+    run(200);
+    ui_render();
+    int m0 = count_px(2, 19, 13, 209, C_GREEN) + count_px(2, 19, 13, 209, C_RED), m1 = count_px(17, 19, 28, 209, C_GREEN),
+        m2 = count_px(32, 19, 43, 209, C_GREEN) + count_px(32, 19, 43, 209, C_RED), m3 = count_px(47, 19, 58, 209, C_GREEN);
+    int n0 = count_px(16, 214, 30, 226, C_CYAN), n1 = count_px(16, 214, 30, 226, C_DGREY);
+    shot("ui3_visual_levels_loops");
+    snprintf(msg, sizeof msg, "VISUAL LEVELS, LOOPS playing: a meter a loop: 00 and 02 up, 01 (muted) empty with its number dark "
+             "grey, 03 (no loop) empty (%d %d %d %d; 01's number %d cyan, %d dark grey)", m0, m1, m2, m3, n0, n1);
+    check(m0 > 0 && m1 == 0 && m2 > 0 && m3 == 0 && n0 == 0 && n1 > 0, msg);
+    {   /* VOICES' tiles (an engine's note each): loop 01's note, muted, a ghost: no tile */
+        pl_voice_info_t vi[PL_VOICES];
+        int n = player_voices_now(vi, PL_VOICES), l[3] = {0, 0, 0};
+        for (int i = 0; i < n; i++)
+            if (vi[i].on && vi[i].track >= 16 && vi[i].track < 19) l[vi[i].track - 16]++;
+        snprintf(msg, sizeof msg,
+                 "... VOICES: loop 00's and 02's notes a tile each, 01's (muted, a ghost) none (%d %d %d)", l[0], l[1],
+                 l[2]);
+        check(l[0] == 1 && l[1] == 0 && l[2] == 1, msg);
+    }
+    /* the stage's notes: played on + NEW LOOP, they sound as the next loop (03) */
+    home_key(22);
+    lp_select(3);
+    kdown(0); run(800); kup(0);                         /* (a note of half a pass on the stage) */
+    int staged_now = staged();
+    home_key(15);
+    m3 = 0;
+    for (int t = 0; t < 50 && !m3; t++) { run(50); ui_render(); m3 = count_px(47, 19, 58, 209, C_GREEN) + count_px(47, 19, 58, 209, C_RED); }
+    snprintf(msg, sizeof msg, "... the stage's note played on + NEW LOOP: in the next loop's meter (staged %d, 03: %d)", staged_now, m3);
+    check(staged_now && m3 > 0, msg);
+    while (strcmp(ui_screen_now()->sub(), "VOICES")) tap(B_SEQ);
+    home_key(22);
+    lp_stop();
+    ui_edit_loops(loops_set_mutes(0, 0), ui_edit_used());
+    lp_none();
+    sg_empty();
+    ui_set_inst(was);
 }
 
 /* ---- EDIT: the selected loop onto the stage, as it plays, and its sound; the overdub ---- */
@@ -3108,8 +4549,21 @@ static void test_loops_overwrite(void)
     int long_lfo = !ui_top() && !(lp_b334() & 4);
     release(B_LFO);
     check(long_lfo && !ui_top() && (lp_b334() & 4) && lp_toast("OVERWRITE"), "LFO held past HOLD DELAY: no layer, no switch yet; let go: OVERWRITE");
-    press(B_LFO); kdown(9); run(30); kup(9); release(B_LFO);
-    check(!(lp_b334() & 4) && lp_toast("OVERDUB"), "... a key played while it is held: the switch all the same");
+    {                                                   /* (a key with LFO held, stopped: put at the play position, no
+                                                         * switch; the stage then put back as it was) */
+        static uint8_t keep[4096];
+        uint32_t klen = 0;
+        const uint8_t *s0 = store_stage(&klen);
+        if (s0 && klen <= sizeof keep) memcpy(keep, s0, klen);
+        press(B_LFO); kdown(9); run(30); kup(9); release(B_LFO);
+        snprintf(msg, sizeof msg, "... a key played while it is held, stopped: its note at the play position (row %d), "
+                 "LFO used: no switch (%s)", lp_cur(5), sg_notes());
+        check((lp_b334() & 4) && sg_note(lp_cur(5), 0) == ui_midi(9), msg);
+        if (s0) store_stage_put(keep, klen); else store_stage_drop();
+        run(30);
+        tap(B_LFO);                                     /* (OVERDUB again, as the checks after it start) */
+        check(!(lp_b334() & 4) && lp_toast("OVERDUB"), "... LFO tapped: OVERDUB");
+    }
     press(B_LFO); press(B_HOME); release(B_HOME); release(B_LFO); run(200);
     check(help_at("1/10") && !(lp_b334() & 4), "LFO held, then HOME: the help, and no switch at LFO's release");
     tap(B_HOME);
@@ -3462,11 +4916,15 @@ static void test_loops_line_jump(void)
     lp_play_from0();
     lp_at(4, 0);
     player_state(&st, 0);
-    int r0 = st.row;
+    int r0 = st.row, j0 = st.lp_jumps;
     press(B_SEL); turn(K_ALG, 1); release(B_SEL); run(60);
     player_state(&st, 0);
-    snprintf(msg, sizeof msg, "ALGORITHM while they play (SEL held): the loops a bar on at once (row %d, then %d)", r0, st.row);
-    check(st.row >= r0 + 16 && st.row <= r0 + 22 && !ui_top() && st.lp_jumps, msg);
+    snprintf(msg, sizeof msg, "ALGORITHM while they play, SEL held: the selected loop's SHIFT (on + NEW LOOP none), no jump "
+             "(row %d, then %d), no menu", r0, st.row);
+    check(st.lp_jumps == j0 && !ui_top(), msg);
+    turn(K_ALG, 1); run(60);
+    player_state(&st, 0);
+    check(st.lp_jumps != j0 && !ui_top(), "ALGORITHM while they play: a jump at once");
     lp_stop();
 }
 
@@ -3507,31 +4965,28 @@ static void test_loops_knobs(void)
     press(B_SEL); turn(K_K1, -1); release(B_SEL); run(250);
     check(loops_mix(0)[RM_LEVEL] == 109 && !ui_top(), "... SEL held: by 16");
     lp_select(2);
+    uint8_t nw0[RM_N];
+    memcpy(nw0, loops_mix(2), RM_N);                    /* (NEW as it was: put back after) */
     turn(K_K1, -1);
-    check(loops_mix(2)[RM_LEVEL] == 126 && loops_mix(1)[RM_LEVEL] == 127, "... on + NEW LOOP: the next loop's mix");
-    {   /* the next loop's sends are the KEYS column's: as heard (the stage on + NEW LOOP: REVERB on in LOOPS' FX, the stage's
-         * note's tail with the KEYS column's REVERB SEND 00, and with it turned to 7F while it sounds), K3's REVERB SEND on
-         * + NEW LOOP turning the KEYS column's (a setting); REC writes them into the new loop; the next loop's own sends kept
-         * as written, not read */
+    check(loops_mix(2)[RM_LEVEL] == nw0[RM_LEVEL] - 1 && loops_mix(1)[RM_LEVEL] == 127, "... on + NEW LOOP: NEW's, the next loop's own");
+    {   /* NEW, the next loop's own mix: RAM's alone (no edit), heard (the stage on + NEW LOOP: REVERB on in LOOPS' FX, the
+         * stage's note's tail with NEW's REVERB SEND 00, and with it turned to 7F by K3 while it sounds); the KEYS column never
+         * touched; REC writes it into the new loop, NEW then the defaults again */
         uint8_t km0[RM_N], fx0[64], fx[64];
-        uint32_t hl;
+        uint32_t used0 = store_edit_used();
         rec_song_t ls;
         static const lpc_t sn[2] = {{0, 0, 60}, {2, 0, REC_NOTE_OFF}};
         memcpy(km0, ui_keys_mix, RM_N);
-        ui_edit_loops(loops_set_mix(2, RM_REVERB, 5), ui_edit_used());
-        ui_edit_loops(loops_set_mix(2, RM_CHORUS, 6), ui_edit_used());
-        ui_keys_mix_set(RM_CHORUS, 0x11);
-        ui_keys_mix_set(RM_DELAY, 0x22);
-        ui_keys_mix_set(RM_REVERB, 0x33);
+        ui_edit_loops(loops_set_mix(2, RM_CHORUS, 0x11), ui_edit_used());
+        ui_edit_loops(loops_set_mix(2, RM_DELAY, 0x22), ui_edit_used());
+        ui_edit_loops(loops_set_mix(2, RM_REVERB, 0x33), ui_edit_used());
         const uint8_t *nx = loops_mix(2);
-        int heard = nx[RM_LEVEL] == 126 && nx[RM_CHORUS] == 0x11 && nx[RM_DELAY] == 0x22 && nx[RM_REVERB] == 0x33;
+        int heard = nx[RM_LEVEL] == nw0[RM_LEVEL] - 1 && nx[RM_CHORUS] == 0x11 && nx[RM_DELAY] == 0x22 && nx[RM_REVERB] == 0x33;
         int song = !loops_song(&ls) && !memcmp(ls.mix[2], loops_mix(2), RM_N) && !memcmp(ls.mix[1], loops_mix(1), RM_N) &&
                    ls.mix[1][RM_REVERB] == 0;
-        const uint8_t *hd = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &hl);
-        snprintf(msg, sizeof msg, "... the next loop's mix as heard (the stage on + NEW LOOP, the preview; the loops' song's track 02): "
-                 "its LEVEL its own, its sends the KEYS column's (%02X %02X %02X %02X); its own kept as written (%02X %02X)", nx[RM_LEVEL],
-                 nx[RM_CHORUS], nx[RM_DELAY], nx[RM_REVERB], hd ? hd[72 + RM_CHORUS] : 0, hd ? hd[72 + RM_REVERB] : 0);
-        check(heard && song && hd && hd[72 + RM_CHORUS] == 6 && hd[72 + RM_REVERB] == 5, msg);
+        snprintf(msg, sizeof msg, "... NEW as heard (the stage on + NEW LOOP, the preview; the loops' song's track 02): %02X %02X %02X %02X; "
+                 "no edit (the edit memory as it was), the KEYS column untouched", nx[RM_LEVEL], nx[RM_CHORUS], nx[RM_DELAY], nx[RM_REVERB]);
+        check(heard && song && store_edit_used() == used0 && !memcmp(ui_keys_mix, km0, RM_N), msg);
         memcpy(fx0, loops_fx(), 64);
         memcpy(fx, fx0, 64);
         fxd_set_on(fx, FE_REVERB, 1);
@@ -3540,7 +4995,8 @@ static void test_loops_knobs(void)
         loops_changed(0);
         int64_t tl[2];
         for (int c = 0; c < 2; c++) {
-            ui_keys_mix_set(RM_REVERB, 0);
+            ui_edit_loops(loops_set_mix(2, RM_REVERB, 0), ui_edit_used());
+            loops_changed(0);
             run(6000);                                  /* (what rang before, rung out) */
             sg_put(sn, 2, 0);
             lp_play_from0();
@@ -3549,12 +5005,10 @@ static void test_loops_knobs(void)
             tl[c] = listen(600);
             lp_stop();
         }
-        hd = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &hl);
-        snprintf(msg, sizeof msg, "... heard: the stage's note's reverb tail, the KEYS column's REVERB SEND 00 %lld, turned to 7F by K3 on "
-                 "+ NEW LOOP while it sounds %lld; K3 turned the KEYS column's (%02X, a setting; the next loop's own %02X; %s)",
-                 (long long)tl[0], (long long)tl[1], ui_keys_mix[RM_REVERB], hd ? hd[72 + RM_REVERB] : 0, ui_knob_now() ? ui_knob_now() : "-");
-        check(tl[1] > tl[0] * 2 && ui_keys_mix[RM_REVERB] == 0x7F && hd && hd[72 + RM_REVERB] == 5 && store_edit_has(REC_SETTINGS, 0, 0) &&
-              loops_mix(2)[RM_REVERB] == 0x7F, msg);
+        snprintf(msg, sizeof msg, "... heard: the stage's note's reverb tail, NEW's REVERB SEND 00 %lld, turned to 7F by K3 on + NEW LOOP "
+                 "while it sounds %lld (NEW's %02X; the KEYS column's %02X untouched; %s)", (long long)tl[0], (long long)tl[1],
+                 loops_mix(2)[RM_REVERB], ui_keys_mix[RM_REVERB], ui_knob_now() ? ui_knob_now() : "-");
+        check(tl[1] > tl[0] * 2 && loops_mix(2)[RM_REVERB] == 0x7F && !memcmp(ui_keys_mix, km0, RM_N), msg);
         ui_edit_loops(loops_set_mutes(0, 0), ui_edit_used());
         ui_edit_loops(loops_set_fx(fx0), ui_edit_used());
         loops_changed(0);
@@ -3562,29 +5016,50 @@ static void test_loops_knobs(void)
         run(600);
         tap(B_REC);
         nx = loops_mix(2);
-        hd = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &hl);
-        snprintf(msg, sizeof msg, "... REC on + NEW LOOP: the new loop's mix the next loop's LEVEL, PAN and DUCK, the KEYS column's sends "
-                 "(%02X %02X %02X %02X %02X %02X); the next loop's own sends kept as written", nx[0], nx[1], nx[2], nx[3], nx[4], nx[5]);
-        check(loops_n() == 3 && lp_toast("STAGE AS LOOP 02") && nx[RM_LEVEL] == 126 && nx[RM_PAN] == 0x80 && nx[RM_CHORUS] == 0x11 &&
-              nx[RM_DELAY] == 0x22 && nx[RM_REVERB] == 0x7F && hd && hd[72 + RM_CHORUS] == 6 && hd[72 + RM_REVERB] == 5, msg);
-        for (int k = RM_CHORUS; k <= RM_REVERB; k++) ui_keys_mix_set(k, km0[k]);
-        ui_edit_loops(loops_set_mix(3, RM_REVERB, 0), ui_edit_used());
-        ui_edit_loops(loops_set_mix(3, RM_CHORUS, 0), ui_edit_used());
+        snprintf(msg, sizeof msg, "... REC on + NEW LOOP: the new loop's mix NEW's (%02X %02X %02X %02X %02X %02X); NEW the defaults again",
+                 nx[0], nx[1], nx[2], nx[3], nx[4], nx[5]);
+        check(loops_n() == 3 && lp_toast("STAGE AS LOOP 02") && nx[RM_LEVEL] == nw0[RM_LEVEL] - 1 && nx[RM_PAN] == 0x80 &&
+              nx[RM_CHORUS] == 0x11 && nx[RM_DELAY] == 0x22 && nx[RM_REVERB] == 0x7F && !memcmp(loops_mix(3), loops_new_def(), RM_N), msg);
         ui_edit_loops(loops_peel(2), ui_edit_used());
         loops_changed(0);
         lp_select(2);
         if (stage_off()) tap(B_ARP);                    /* (REC's send left it off) */
         run(600);
     }
-    turn(K_K1, 1);
+    for (int k = 0; k < RM_N; k++) loops_set_mix(loops_n(), k, nw0[k]);   /* (NEW as it was) */
     tap(B_GLO);
-    {
-        static const char *const IT[12] = {"TEMPO", "SWING", "LENGTH", "GRID", "QUANTIZE", "MONO LEGATO", "COUNT-IN", "VIEW",
-                                           "K1 TURNS", "K2 TURNS", "K3 TURNS", "K4 TURNS"};
+    {   /* LOOPS PROPERTIES: 16 rows, 11 lines in view (the dialog's, in FONT_S), more scrolling with the row selected; a new
+         * loop's defaults the last four (NEW LOOP LEVEL, CHORUS, DELAY, REVERB): LEVEL 40, the sends 7F at first; K1 a step,
+         * SEL held 16; saved with LOOPS (byte 79's bit 7), NEW's value with it */
         int ok = ui_top() && ui_top()->kind == OV_PROPS;
         ui_render();
-        check(ok, "GLO: LOOPS PROPERTIES: TEMPO, SWING, LENGTH, GRID, QUANTIZE, MONO LEGATO, COUNT-IN, VIEW, K1-K4 TURNS");
-        (void)IT;
+        int in12 = count_px(10, 202, 120, 212, C_CYAN) > 0 && count_px(10, 216, 120, 219, C_CYAN) == 0;   /* (line 10 drawn at
+                                                         * 200, no 12th: nothing of one inside the panel, to its foot at
+                                                         * 218; LOOPS' own screen below it) */
+        turn(K_SELECT, 12);
+        ui_render();
+        int box = count_px(6, 151, 234, 152, C_WHITE) > 100;   /* (NEW LOOP LEVEL selected: rows 5-15 in view, its box the 8th,
+                                                         * at 151) */
+        int lvl0 = loops_new_def()[RM_LEVEL], rev0 = loops_new_def()[RM_REVERB];
+        turn(K_K1, 1);
+        int lvl1 = loops_new_def()[RM_LEVEL], n1 = loops_mix(loops_n())[RM_LEVEL];
+        press(B_SEL); turn(K_K1, -1); release(B_SEL); run(250);
+        int lvl2 = loops_new_def()[RM_LEVEL];
+        turn(K_SELECT, 3);
+        turn(K_K1, -2);
+        int rev1 = loops_new_def()[RM_REVERB], nrev = loops_mix(loops_n())[RM_REVERB];
+        uint32_t hl;
+        const uint8_t *hd = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &hl);
+        snprintf(msg, sizeof msg, "GLO: LOOPS PROPERTIES, 11 lines in view (%d), scrolling (%d); the last four a new loop's defaults: NEW "
+                 "LOOP LEVEL %02X, K1 +1 %02X (NEW's %02X), SEL held -16 %02X; NEW LOOP REVERB %02X, -2 %02X (NEW's %02X); the head's 72 "
+                 "%02X, 79 %02X", in12, box, lvl0, lvl1, n1, lvl2, rev0, rev1, nrev, hd ? hd[72] : 0, hd ? hd[79] : 0);
+        check(ok && in12 && box && lvl0 == 0x40 && rev0 == 0x7F && lvl1 == 0x41 && n1 == 0x41 && lvl2 == 0x31 && rev1 == 0x7D &&
+              nrev == 0x7D && hd && hd[72] == 0x31 && (hd[79] & 0x80) && ui_top() && ui_top()->kind == OV_PROPS, msg);
+        shot("ui3_loops_glo_new");
+        ui_edit_loops(loops_set_new_def(RM_LEVEL, 0x40), ui_edit_used());   /* (the defaults' values back: stored now) */
+        ui_edit_loops(loops_set_new_def(RM_REVERB, 0x7F), ui_edit_used());
+        for (int k = 0; k < RM_N; k++) loops_set_mix(loops_n(), k, nw0[k]);
+        turn(K_SELECT, -20);
     }
     turn(K_SELECT, 8); turn(K_K1, 7);
     check(loops_job(0) == LJ_VIEW, "GLO's K1 TURNS: a job from the list (LEVEL ... TEMPO, VIEW)");
@@ -3750,6 +5225,44 @@ static void test_loops_menu(void)
     check(loops_n() == 2 && loops_colour(1) == 2 && loops_mix(1)[RM_LEVEL] == 0x30 && loops_sel() == 1 && loops_rows() == 16 && !ui_top() &&
           lp_toast("LOOP 01 DELETED"), "DELETE LOOP: at once (LOOP 01 DELETED); the loops after it move up with their mixes, the selection "
           "on the one in its place; the length stays");
+    /* MOVE: SEL's MOVE (SELECT a place a click, SEL keeps, HOME cancels); SEL held + SELECT, no menu after */
+    lp_none();
+    lp_add(UI_FIRST_INST, 16, 1, 0, 0, a0, 1);
+    lp_add(UI_FIRST_INST, 16, 1, 0, 0, d1, 1);
+    lp_add(UI_FIRST_INST, 16, 1, 0, 0, d2, 1);
+    ui_edit_loops(loops_set_mix(0, RM_LEVEL, 0x30), ui_edit_used());
+    ui_edit_loops(loops_set_muted(0, 1), ui_edit_used());
+    ui_edit_loops(loops_set_soloed(1, 1), ui_edit_used());
+    {
+        int c0 = loops_colour(0), c1 = loops_colour(1), c2 = loops_colour(2);
+        lp_select(0);
+        menu_pick("MOVE");
+        ui_render();
+        check(ui_top() && ui_top()->kind == OV_OTHER && ui_screen_now()->sub() && !strcmp(ui_screen_now()->sub(), "MOVE") &&
+              (lp_b334() & 16) && !(lp_b334() & 1), "MOVE: open (MOVE in the header; the state's byte 334 bit 4, not ADJUST's)");
+        turn(K_SELECT, 2);
+        snprintf(msg, sizeof msg, "... SELECT 2 clicks: loop 00 now 02 with its notes, colour, mix and mute; the two between up a "
+                 "place with their solo; the selection with it (%s | %s | %s)", lp_notes(0), lp_notes(1), lp_notes(2));
+        check(!strcmp(lp_notes(2), "0:0:60") && !strcmp(lp_notes(0), "0:0:62") && !strcmp(lp_notes(1), "0:0:64") &&
+              loops_colour(2) == c0 && loops_colour(0) == c1 && loops_colour(1) == c2 && loops_mix(2)[RM_LEVEL] == 0x30 &&
+              loops_muted(2) && !loops_muted(0) && loops_soloed(0) && !loops_soloed(1) && !loops_soloed(2) &&
+              loops_sel() == 2 && loops_n() == 3 && ui_edit_unsaved(REC_LOOPS, 0, 0), msg);
+        turn(K_SELECT, 1);
+        check(refused(B_SEL) && loops_sel() == 2 && !strcmp(lp_notes(2), "0:0:60"), "... past the last loop: nothing (SEL blinks)");
+        tap(B_SEL);
+        snprintf(msg, sizeof msg, "... SEL keeps it (MOVED TO LOOP 02) (%s)", ui_toast_now() ? ui_toast_now() : "-");
+        check(!ui_top() && lp_toast("MOVED TO LOOP 02"), msg);
+        menu_pick("MOVE"); turn(K_SELECT, -2); tap(B_HOME);
+        check(!ui_top() && loops_sel() == 2 && !strcmp(lp_notes(2), "0:0:60") && !strcmp(lp_notes(0), "0:0:62") &&
+              loops_muted(2) && loops_soloed(0) && lp_toast("CANCELLED"), "... HOME cancels: back where it was");
+        press(B_SEL); turn(K_SELECT, -1); release(B_SEL); run(250);
+        check(!ui_top() && loops_sel() == 1 && !strcmp(lp_notes(1), "0:0:60") && !strcmp(lp_notes(2), "0:0:64") &&
+              loops_colour(1) == c0, "SEL held + SELECT: the loop up a place, no menu after");
+        lp_select(3);
+        press(B_SEL); turn(K_SELECT, -1); release(B_SEL); run(10);
+        check(refused(B_SEL) && loops_sel() == 3 && !ui_top(), "... on + NEW LOOP: nothing (SEL blinks), no menu");
+        run(250);
+    }
     /* the instruments: ENV held, TAKE ITS INSTRUMENT, APPLY INSTRUMENT */
     lp_none();
     uint16_t f1 = (uint16_t)(UI_FIRST_INST + 1);
@@ -3796,8 +5309,8 @@ static void test_loops_drawn(void)
     check(px(233, OY(3) + 1) == g_rgb565(C_DGREY) && px(231, OY(3) + 3) == g_rgb565(C_DGREY) && px(231, OY(3) + 1) == g_rgb565(C_BLACK),
           "... + NEW LOOP a grey plus");
     check(px(233, OY(4) + 3) == g_rgb565(C_BLACK) && px(233, OY(15) + 3) == g_rgb565(C_BLACK), "... the cells after it empty, to the 16th");
-    check(px(0, 185) == g_rgb565(C_DGREY) && px(239, 185) == g_rgb565(C_DGREY) && px(120, 196) == g_rgb565(C_DGREY) &&
-          px(2, 185) == g_rgb565(C_BLACK) && px(120, 195) == g_rgb565(C_BLACK), "the stage drawn in a dark grey frame, black inside it");
+    check(px(0, 185) == g_rgb565(C_DGREY) && px(239, 185) == g_rgb565(C_DGREY) && px(120, 197) == g_rgb565(C_DGREY) &&
+          px(2, 185) == g_rgb565(C_BLACK) && px(120, 196) == g_rgb565(C_BLACK), "the stage drawn in a dark grey frame, black inside it");
     lp_select(3);
     ui_render();
     check(px(233, OY(3) + 3) == g_rgb565(C_LGREY) && px(232, OY(3) + 1) == g_rgb565(C_WHITE), "... the selection on + NEW LOOP: the circle in "
@@ -3834,11 +5347,11 @@ static void test_loops_drawn(void)
             g[k][c] = 0;
         }
         snprintf(msg, sizeof msg, "each loop's LEVEL on its slot, at 214-225 on the strip's row: 7F light grey, a muted loop's dark grey, "
-                 "40; + NEW LOOP the next loop's (55) (%d-%d, %d-%d, %d-%d, %d-%d)", a[0][0], b[0][0], a[1][1], b[1][1], a[2][0], b[2][0],
+                 "40; + NEW LOOP NEW's (55) (%d-%d, %d-%d, %d-%d, %d-%d)", a[0][0], b[0][0], a[1][1], b[1][1], a[2][0], b[2][0],
                  a[3][0], b[3][0]);
         check(n[0][0] && a[0][0] >= 214 && b[0][0] <= 225 && !n[1][0] && n[1][1] && a[1][1] >= 214 && b[1][1] <= 225 && n[2][0] &&
               n[3][0] && a[3][0] >= 214 && b[3][0] <= 225 && !strcmp(g[0], g[1]) && strcmp(g[0], g[2]) && strcmp(g[2], g[3]), msg);
-        ui_edit_loops(loops_set_mix(3, RM_LEVEL, 0x7F), ui_edit_used());
+        loops_set_mix(3, RM_LEVEL, loops_new_def()[RM_LEVEL]);
     }
     /* CONTROL mode's numbers 10-16 at x 2 */
     lp_none();
@@ -5209,8 +6722,22 @@ static void test_loops(void)
     test_loops_more();
     test_loops_recorder();
     test_loops_first();
+    test_loops_lfo_tools();
+    test_loops_insert();
+    test_loops_insert_play();
     test_loops_quantize();
+    test_loops_at_once();
+    test_stage_five();
+    test_stage_rec(0);
+    test_stage_rec(1);
+    test_stage_mono_glide();
+    test_stage_ramp();
+    test_stage_press(0);
+    test_stage_press(1);
+    test_stage_vols();
     test_loops_mono_poly();
+    test_loops_key_leds();
+    test_loops_levels();
     test_loops_edit();
     test_loops_overwrite();
     test_loops_clear();
@@ -5291,6 +6818,54 @@ static void test_loops_save(void)
     tap(B_SAVE);
     run(3000);
     check(!ui_edit_unsaved(REC_LOOPS, 0, 0) && !loops_n(), "LOOPS: no loops again, saved");
+    home_key(8);
+    run(100);
+}
+
+/* SAVE turns all sound off first, as CUT does, and writes once it has faded; the sound back when the save ends
+ * (specs/ui/saving.md): no voice, effect or core 2's work between its flash steps. SAVE while LOOPS play waits for the
+ * pause, PLAY right after it (a freeze on the FM-1 came so): CUT on before anything is written, held to the save's end */
+static void test_save_cut(void)
+{
+    static const lpc_t pad[4] = {{0, 0, 48}, {0, 1, 55}, {0, 2, 60}, {0, 3, 64}};
+    player_state_t st;
+    char msg[200];
+    uint16_t keep = ui_cur.inst;
+    home_key(22);
+    player_stop(); run(100);
+    ui_cur.inst = 0xF800;                               /* (the JUNO-106's first: pads that ring) */
+    for (int k = 0; k < 4; k++) lp_make(64, 16, 4, 0, pad, 4);
+    ui_edit_loops(LP_OK, ui_edit_used());
+    loops_changed(1);
+    ui_cur.inst = keep;
+    tap(B_PLAY);
+    run(1500);
+    player_state(&st, 0);
+    check(st.playing && !st.hushed && ui_unsaved, "SAVE's CUT: four loops of pads playing, unsaved");
+    tap(B_SAVE);
+    check(ui_toast_now() && !strcmp(ui_toast_now(), "SAVE WAITS FOR A PAUSE"), "SAVE's CUT: SAVE while they play waits");
+    in_now.buttons |= 1u << B_PLAY;                     /* (watched from the press: the save follows within ms) */
+    int wrote_loud = 0, saw_save = 0, hush_ms = 0, at_end = -1, after = -1;
+    for (int ms = 0; ms < 1500; ms++) {
+        if (ms == 30) in_now.buttons &= ~(1u << B_PLAY);
+        run(1);
+        player_state(&st, 0);
+        int sv = store_saving();
+        if (sv) { saw_save = 1; if (!st.hushed) wrote_loud = 1; }
+        if (st.hushed) hush_ms++;
+        if (saw_save && !sv && at_end < 0) at_end = ms;
+        if (at_end >= 0 && after < 0 && !st.hushed) after = ms;
+    }
+    snprintf(msg, sizeof msg, "SAVE's CUT: PLAY pauses, the save then: CUT on first, the whole save under it, off after "
+             "(CUT %d ms, the save ended at %d, the sound back at %d)", hush_ms, at_end, after);
+    check(saw_save && !wrote_loud && hush_ms >= 12 && after >= at_end && after - at_end < 20 &&
+          ui_toast_now() && !strcmp(ui_toast_now(), "SAVED") && !ui_unsaved, msg);
+    lp_none();
+    ui_edit_loops(LP_OK, ui_edit_used());
+    loops_changed(1);
+    tap(B_SAVE);
+    run(1000);
+    check(!ui_edit_unsaved(REC_LOOPS, 0, 0) && !loops_n(), "SAVE's CUT: no loops again, saved");
     home_key(8);
     run(100);
 }
@@ -5989,7 +7564,7 @@ static void test_unload_loops(void)
 {
     player_state_t st;
     fxt_t tg;
-    int made = !loops_n() && loops_new(0xF0, 0) == 0 && loops_set_rows(16) == LP_OK;   /* (a loop to play) */
+    int made = !loops_n() && lp_new(0xF0, 0) == 0 && loops_set_rows(16) == LP_OK;   /* (a loop to play) */
     home_key(UI_BLACK[9]);                              /* LOOPS: the loops play, then stop */
     tap(B_PLAY);
     run(800);
@@ -6095,7 +7670,7 @@ static void test_playback_loops(void)
     player_state_t st;
     char m[120];
     ui_song_t s;
-    int made = !loops_n() && loops_new(0xF0, 0) == 0 && loops_set_rows(16) == LP_OK;
+    int made = !loops_n() && lp_new(0xF0, 0) == 0 && loops_set_rows(16) == LP_OK;
     int song = ui_cur.song;
     if (!ui_song((uint8_t)song, &s) || !s.npos) { check(0, "PLAYBACK loops: a song to play"); return; }
     home_key(8);
@@ -6495,6 +8070,32 @@ static void test_presets_list(void)
     turn(K_PRESETS, 1);
     check(held_on && !carts_list_on() && ui_cur.inst >> 8 == nums[i0] && ui_cur.inst != after,
           "PRESETS' list: SEL held + PRESETS, the list while held, gone with SEL; PRESETS then the instruments");
+    /* SEL held past the hold delay (its layer up), then PRESETS: the list without SEL's layer over it (dialogs.md#hold-layers),
+     * the body as the list alone (opened by SEL's tap) draws it */
+    {
+        static uint16_t ref[240 * BODY_H];
+        char msg[220];
+        int up = 0, diff = 0;
+        tap(B_SEL); turn(K_PRESETS, 1);                 /* (the list alone, the next cartridge) */
+        ui_render();
+        for (int k = 0; k < 240 * BODY_H; k++) ref[k] = px(k % 240, BODY_Y + k / 240);
+        tap(B_SEL); run(600);
+        tap(B_SEL); turn(K_PRESETS, -1); tap(B_SEL); run(600);   /* (the cartridge back) */
+        ui_render();
+        uint16_t b0 = px(120, BODY_Y + BODY_H - 30);
+        press(B_SEL); run((uint32_t)ui_set[S_HOLD_DELAY] + 100);
+        ui_render();
+        for (int x = 0; x < 240; x++) up += px(x, BODY_Y + BODY_H - 30) != b0;   /* (the layer's panel at the body's foot) */
+        turn(K_PRESETS, 1);
+        ui_render();
+        for (int k = 0; k < 240 * BODY_H; k++) diff += px(k % 240, BODY_Y + k / 240) != ref[k];
+        int listed = carts_list_on();
+        release(B_SEL); run(300);
+        tap(B_SEL); turn(K_PRESETS, -1); tap(B_SEL); run(600);   /* (the cartridge back) */
+        snprintf(msg, sizeof msg, "PRESETS' list: SEL held past its layer, then PRESETS: the list without SEL's layer over it "
+                 "(the layer up %d px, the list %d px off the list alone)", up, diff);
+        check(up > 0 && listed && !diff, msg);
+    }
     tap(B_SEL);
     turn(K_PRESETS, 1);
     run(3000);
@@ -6559,8 +8160,9 @@ static void test_presets_instruments(void)
 /* ------------------------------------------------------------- QUANTIZE --- */
 /* SETTINGS' QUANTIZE (specs/ui/screens/settings.md; editor.md#realtime-takes): after COUNT-IN, ROW at first, kept in the
  * settings record's byte 109 (bits 4-2: 0 ROW, 1-3 2-4 ROWS, 4 REAL TIME; a record from before it, or 5-7, ROW). A take's
- * notes land as it says and are heard as written, by their track and never as the keys: one before its line waits for
- * it and sounds there, one just after sounds at once; REAL TIME's EDx and Kxx; the note offs; a take started by a key.
+ * notes land as it says and are heard at once, by their track and never as the keys, before their line or after (one
+ * ahead not started again there that pass, its end too); REAL TIME's EDx and Kxx; the note offs; a quick tap; a chord; a
+ * take started by a key.
  * Where the loop is as the player says (its row and tick, 6 ticks a row); the notes track 0 starts and ends caught on
  * MIDI OUT's hook, each with where the loop was as it came */
 static struct { uint8_t track, note, row, tick; } qev[64];
@@ -6600,7 +8202,20 @@ static int q_heard(int note, int row, int tick)         /* track 0 started the n
         }
     return row < 0 ? -1 : 0;
 }
+static int q_count(int track, int note, int row)        /* how many times track `track` started the note (0: ended its
+                                                         * note) on row `row` (-1: any) */
+{
+    int n = 0;
+    for (int k = 0; k < qn; k++)
+        n += qev[k].track == track && qev[k].note == note && qev[k].row != 0xFF && (row < 0 || qev[k].row == row);
+    return n;
+}
 static void q_clear(int f) { for (int r = 0; r < 16; r++) ed_put_cell((uint8_t)f, r, 0, 0); }
+static int q_ed(const rec_cell_t *c)                    /* a cell's note delay EDx: x, -1 none */
+{
+    for (int j = 0; j < ((c->has & RC_CMD) ? c->n : 0); j++) if (c->cmd[j][0] == 0x0E && c->cmd[j][1] >> 4 == 0xD) return c->cmd[j][1] & 15;
+    return -1;
+}
 static int q_kx(int f, int r)                           /* track 0's key off Kxx on row r, -1 none */
 {
     rec_cell_t c;
@@ -6608,11 +8223,13 @@ static int q_kx(int f, int r)                           /* track 0's key off Kxx
     for (int j = 0; j < c.n; j++) if (c.cmd[j][0] == 0x14) return c.cmd[j][1];
     return -1;
 }
-/* FAVORITES (specs/ui/screens/instruments.md#favorites): ADD TO FAVORITES and its toasts, SEL + GLO there and back (and
- * refused in edit mode, NO FAVORITES YET), browsing (the place a favourite, the instrument its source; PRESETS skipping
- * the empty and missing ones; an empty or missing one keeps the instrument), a favourite's edit mode (K1, PRESETS, HOME
- * drops, EDIT keeps, an empty one starts at the instrument), REMOVE, MOVE asking nothing, PASTE's refusals, NEW
- * CARTRIDGE, the lists' order, FB emptied as the firmware's own */
+/* FAVORITES (specs/ui/screens/instruments.md#favorites): ADD TO FAVORITES and REMOVE FROM FAVORITES (the one item, its
+ * label both ways, single and marked; its toasts; REMOVE taking every slot of FB naming it), SEL + GLO there and back
+ * (and refused in edit mode, NO FAVORITES YET), browsing (the place a favourite, the instrument its source; PRESETS
+ * skipping the empty and missing ones; an empty or missing one keeps the instrument), a favourite's edit mode (K1,
+ * PRESETS, SEL + PRESETS doing nothing, HOME drops, EDIT keeps, an empty one starts at the instrument), REMOVE, MOVE
+ * asking nothing, PASTE's refusals, NEW CARTRIDGE's kinds and no CLONE of FB, the lists' order, FB emptied as the
+ * firmware's own, FAVORITES FULL, FB alone used (an earlier PT/FM's FAVORITES cartridge beside it; FB deleted) */
 static int fav_src(int slot)                            /* FB's slot: its source, -1 empty */
 {
     uint16_t s;
@@ -6620,11 +8237,19 @@ static int fav_src(int slot)                            /* FB's slot: its source
 }
 static void sel_glo(void) { press(B_SEL); press(B_GLO); release(B_GLO); release(B_SEL); run(300); }
 static int toast_is(const char *t) { return ui_toast_now() && !strcmp(ui_toast_now(), t); }
-static void slot_menu_pick(const char *item) { tap(B_SEL); run(300); menu_to(item); tap(B_SEL); run(300); }
+static void slot_menu_pick(const char *item)            /* (an item not in the menu: nothing picked, the menu closed) */
+{
+    tap(B_SEL); run(300);
+    tap(menu_to(item) ? B_SEL : B_HOME); run(300);
+}
+static int menu_items(char *out, int max);
+/* the slot menu's FAVORITES item: 1 ADD TO FAVORITES, 2 REMOVE FROM FAVORITES, 3 both, 0 none (the menu closed again) */
+static int fav_item(void) { return menu_has("ADD TO FAVORITES") | menu_has("REMOVE FROM FAVORITES") << 1; }
+static int fb_used(void) { int u = 0; for (int s = 0; s < 128; s++) u += fav_src(s) >= 0; return u; }
 static void test_favorites(void)
 {
     uint16_t keep = ui_cur.inst;
-    char msg[160];
+    char msg[320], it[120];
     uint8_t nums[256];
     int n = ui_carts(nums, 256);
     check(n > 1 && nums[0] == 0xFB && ui_cart_kind(0xFB) == ENG_FAV, "FAVORITES: the built-in FB first in the lists' order");
@@ -6633,16 +8258,53 @@ static void test_favorites(void)
     check(screen_is("INSTRUMENTS"), "FAVORITES: on INSTRUMENTS");
     sel_glo();
     check(ui_cur.place == 0xF000 && toast_is("NO FAVORITES YET"), "SEL + GLO with no favourite: NO FAVORITES YET, no switch");
+    check(fav_item() == 1, "an instrument not in FB: the menu's item reads ADD TO FAVORITES (no REMOVE)");
     slot_menu_pick("ADD TO FAVORITES");
     check(fav_src(0) == 0xF000 && toast_is("ADDED TO FB:00"), "ADD TO FAVORITES: into FB's first empty slot, ADDED TO FB:00");
+    snprintf(msg, sizeof msg, "... in FB now: the item reads REMOVE FROM FAVORITES, not ADD (%d)", fav_item());
+    check(fav_item() == 2, msg);
+    run(2500);                                          /* (the toast gone: the header as the playground's shot has it) */
+    tap(B_SEL); run(300); menu_to("REMOVE FROM FAVORITES");
+    shot("fav_menu_remove");
+    tap(B_HOME); run(300);
+    /* REMOVE FROM FAVORITES: every slot of FB naming it emptied, no question; FB as built in again */
+    const uint8_t again[3] = {0xF0, 0x00, 0};
+    ins_put_slot(0xFB, 0x10, again);                    /* (a second favourite naming it) */
+    slot_menu_pick("REMOVE FROM FAVORITES");
+    snprintf(msg, sizeof msg, "REMOVE FROM FAVORITES: every slot of FB naming it emptied, no question (%04X %04X, %s)", fav_src(0),
+             fav_src(0x10), ui_toast_now() ? ui_toast_now() : "");
+    check(fav_src(0) < 0 && fav_src(0x10) < 0 && !(ui_top() && ui_top()->kind == OV_QUESTION) && toast_is("REMOVED FROM FAVORITES"), msg);
+    check(!store_edit_has(REC_FAV, 0xFB, 0) && fav_item() == 1, "... FB emptied: as built in again (no change of it left); the item reads ADD again");
     slot_menu_pick("ADD TO FAVORITES");
-    check(fav_src(1) < 0 && toast_is("ALREADY IN FB:00"), "... again: ALREADY IN FB:00, nothing added");
     tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);   /* MARK 00-03: 00 there, 01-03 added */
     turn(K_SELECT, 3);
+    check(fav_item() == 1, "marked slots, one of them in FB, the others not: ADD TO FAVORITES");
     slot_menu_pick("ADD TO FAVORITES");
     snprintf(msg, sizeof msg, "marked slots: each its slot, the one there skipped (%04X %04X %04X; %s)", fav_src(1), fav_src(2),
              fav_src(3), ui_toast_now() ? ui_toast_now() : "");
     check(fav_src(1) == 0xF001 && fav_src(2) == 0xF002 && fav_src(3) == 0xF003 && fav_src(4) < 0 && toast_is("ADDED TO FB:01"), msg);
+    ui_set_inst(0xF000);
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);   /* MARK 00-03 again: all in FB */
+    turn(K_SELECT, 3);
+    int all_in = fav_item();
+    turn(K_SELECT, 1);                                  /* (00-04: 04 not) */
+    int one_out = fav_item();
+    run(50);
+    snprintf(msg, sizeof msg, "marked slots all in FB: REMOVE FROM FAVORITES (%d); one more not in FB: ADD again (%d; marked %d)",
+             all_in, one_out, leds[B_SEL] == LV_FULL);
+    check(all_in == 2 && one_out == 1 && leds[B_SEL] == LV_FULL, msg);
+    tap(B_HOME); run(300);                              /* (the mark dropped) */
+    /* in edit mode too: REMOVE on an instrument FB holds, ADD on one it does not */
+    ui_set_inst(0xF001);
+    tap(B_EDIT); run(300);
+    int ed_in = scr_instr_edit() == 1 ? fav_item() : -1;
+    tap(B_HOME); run(300);
+    ui_set_inst(0xF005);
+    tap(B_EDIT); run(300);
+    int ed_out = scr_instr_edit() == 1 ? fav_item() : -1;
+    tap(B_HOME); run(300);
+    snprintf(msg, sizeof msg, "in edit mode: REMOVE FROM FAVORITES on F0:01, in FB (%d); ADD TO FAVORITES on F0:05 (%d)", ed_in, ed_out);
+    check(ed_in == 2 && ed_out == 1 && !scr_instr_edit(), msg);
     /* references: a favourite is a use; a SWAP's rewrite takes it along, a DELETE's leaves it */
     int u = ed_inst_uses(0xF003);
     ed_remap(0xF003, 0xF004, 1, 0);                     /* (and back: the cells as they were, no edit of them left) */
@@ -6747,10 +8409,12 @@ static void test_favorites(void)
     check(fav_src(1) == 0xF101 && ui_cur.inst == 0xF101, "PRESETS: that cartridge's next instrument");
     sel_glo();
     check(ui_cur.place == 0xFB01 && scr_instr_edit() == 2, "SEL + GLO refused in edit mode");
-    press(B_SEL); turn(K_PRESETS, -1); release(B_SEL); run(300);    /* (FB first in the lists' order: back past it) */
-    snprintf(msg, sizeof msg, "SEL + PRESETS in a favourite's edit mode: the FAVORITES cartridges only (%04X, edit %d)",
-             ui_cur.place, scr_instr_edit());
-    check(ui_cart_kind((uint8_t)(ui_cur.place >> 8)) == ENG_FAV && scr_instr_edit() == 2, msg);
+    press(B_SEL); turn(K_PRESETS, -1); release(B_SEL); run(300);
+    snprintf(msg, sizeof msg, "SEL + PRESETS in a favourite's edit mode: nothing, the place, the favourite and the instrument as "
+             "they were (%04X, %04X, %04X, edit %d, list %d)", ui_cur.place, fav_src(1), ui_cur.inst, scr_instr_edit(), ui_top() != 0);
+    check(ui_cur.place == 0xFB01 && fav_src(1) == 0xF101 && ui_cur.inst == 0xF101 && scr_instr_edit() == 2 && !ui_top(), msg);
+    press(B_SEL); turn(K_PRESETS, 1); release(B_SEL); run(300);
+    check(ui_cur.place == 0xFB01 && fav_src(1) == 0xF101 && scr_instr_edit() == 2, "... turned on: nothing too");
     for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
     ui_set_inst(0xFB01);
     tap(B_HOME);
@@ -6789,26 +8453,46 @@ static void test_favorites(void)
     ui_set_inst(0xFB08);
     slot_menu_pick("PASTE");
     check(toast_is("COPIED FROM DX7: NOT HERE") && fav_src(8) < 0, "an instrument pasted into FAVORITES: refused");
-    /* NEW CARTRIDGE: FAVORITES, named MY FAVORITES, opened; then ADD TO FAVORITES a group of both */
+    /* NEW CARTRIDGE (the slots' menu) and the cartridge list's NEW: no FAVORITES kind; no CLONE of FB (a built-in's other
+     * than it has one) */
     tap(B_SEL); run(300); menu_to("NEW CARTRIDGE"); tap(B_SEL); run(300);
-    turn(K_SELECT, 20); tap(B_SEL); run(300);           /* (its last: FAVORITES) */
-    char nm[16];
-    int c2 = ui_cur.place >> 8;
-    ui_cart_name((uint8_t)c2, nm);
-    snprintf(msg, sizeof msg, "NEW CARTRIDGE, FAVORITES: %02X %s made and opened (%s)", c2, nm, ui_toast_now() ? ui_toast_now() : "");
-    check(ui_cart_kind((uint8_t)c2) == ENG_FAV && !strcmp(nm, "MY FAVORITES") && c2 < 0xF0, msg);
-    n = ui_carts(nums, 256);
-    check(nums[0] == 0xFB && nums[1] == c2, "the lists' order: FB, then the user's FAVORITES, then the rest");
-    ui_set_inst(0xF00A);
-    tap(B_SEL); run(300); menu_to("ADD TO FAVORITES"); tap(B_SEL); run(300);
-    check(menu_open(), "with two FAVORITES cartridges, ADD TO FAVORITES is a group");
-    shot("fav_add_group");
+    menu_items(it, sizeof it);
+    snprintf(msg, sizeof msg, "NEW CARTRIDGE's kinds: no FAVORITES (%s)", it);
+    check(!strcmp(it, "BACK,DX7,JUNO-106,TB-303,CHIP,SAMPLER,FUSION"), msg);
+    for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
+    run(300);
+    {   /* DELETE CARTRIDGE (the slots' menu): none on a built-in one (FB here); on the user's, the cartridge on screen
+         * deleted as the cartridge list's DELETE deletes it (unused: no question), the place on the list's first */
+        int on_fb = menu_has("DELETE CARTRIDGE");
+        tap(B_SEL); run(300); menu_to("NEW CARTRIDGE"); tap(B_SEL); run(300); menu_to("DX7"); tap(B_SEL); run(300);
+        int made = ui_cur.inst >> 8, kind0 = ins_kind((uint8_t)made);
+        tap(B_SEL); run(300);
+        if (menu_to("BACK")) { tap(B_SEL); run(300); }   /* (it opens where it was used last: NEW CARTRIDGE's group) */
+        menu_items(it, sizeof it);
+        tap(menu_to("DELETE CARTRIDGE") ? B_SEL : B_HOME); run(300);
+        snprintf(msg, sizeof msg, "DELETE CARTRIDGE: none on FB (%d); a new cartridge %02X (kind %d) deleted, unused: no "
+                 "question; the place on the list's first, %02X (%s)", on_fb, made, kind0, ui_cur.place >> 8, it);
+        check(!on_fb && made < 0xF0 && kind0 == REC_DX7 && !ins_kind((uint8_t)made) && !ui_top() && ui_cur.place >> 8 == 0xFB, msg);
+        ui_set_inst(0xFB08);
+        run(300);
+    }
+    tap(B_ENV); run(300);                               /* the cartridge list, at FB */
+    tap(B_SEL); run(300);
+    menu_items(it, sizeof it);
+    snprintf(msg, sizeof msg, "the cartridge list's menu on FB: no CLONE (%s)", it);
+    check(strstr(it, "NEW,") == it && !strstr(it, "CLONE") && strstr(it, "RENAME"), msg);
+    menu_to("NEW"); tap(B_SEL); run(300);
+    menu_items(it, sizeof it);
+    snprintf(msg, sizeof msg, "the cartridge list's NEW: no FAVORITES (%s)", it);
+    check(!strcmp(it, "BACK,DX7,JUNO-106,TB-303,CHIP,SAMPLER,FUSION"), msg);
+    tap(B_HOME); run(300);
+    turn(K_SELECT, 1);                                  /* (the next cartridge: CLONE there) */
+    check(menu_has("CLONE"), "... on another cartridge: CLONE");
     for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
     run(300);
     /* FB emptied by REMOVE is the firmware's own again: nothing of it kept */
     ui_edit_revert(REC_FAV, 0xFB, 0);
-    ui_edit_revert(REC_FAV, (uint8_t)c2, 0);            /* (made anew: gone) */
-    check(!ui_cart_kind((uint8_t)c2) && !store_edit_has(REC_FAV, 0xFB, 0), "(their REVERTs: nothing of the test left)");
+    check(!store_edit_has(REC_FAV, 0xFB, 0) && !fb_used(), "(its REVERT: nothing of the test left)");
     run(300);
     ui_set_inst(0xF000);
     slot_menu_pick("ADD TO FAVORITES");
@@ -6817,6 +8501,96 @@ static void test_favorites(void)
     check(!store_edit_has(REC_FAV, 0xFB, 0) && !ins_slot_bytes(0xFB, 0, (uint8_t[4]){0}), "FB emptied: no change of it left");
     run(300);
     for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
+    /* FAVORITES FULL: FB with 2 empty slots, 3 marked instruments not in it: none added; 2 fit; REMOVE of them marked */
+    const uint8_t other[3] = {0xF1, 0x00, 0};
+    for (int s = 0; s < 126; s++) ins_put_slot(0xFB, s, other);
+    ui_set_inst(0xF000);
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);
+    turn(K_SELECT, 2);
+    slot_menu_pick("ADD TO FAVORITES");
+    snprintf(msg, sizeof msg, "FAVORITES FULL: 3 marked, 2 empty slots in FB: none added (%d used; %s)", fb_used(),
+             ui_toast_now() ? ui_toast_now() : "");
+    check(fb_used() == 126 && toast_is("FAVORITES FULL"), msg);
+    ui_set_inst(0xF000);
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);
+    turn(K_SELECT, 1);
+    slot_menu_pick("ADD TO FAVORITES");
+    snprintf(msg, sizeof msg, "... 2 marked: both added, FB full (%04X %04X; %s)", fav_src(126), fav_src(127), ui_toast_now() ? ui_toast_now() : "");
+    check(fav_src(126) == 0xF000 && fav_src(127) == 0xF001 && toast_is("ADDED TO FB:7E"), msg);
+    ui_set_inst(0xF000);
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);
+    turn(K_SELECT, 1);
+    slot_menu_pick("REMOVE FROM FAVORITES");
+    snprintf(msg, sizeof msg, "... REMOVE FROM FAVORITES on them marked: each one's slot emptied, the others kept (%d used; %s)", fb_used(),
+             ui_toast_now() ? ui_toast_now() : "");
+    check(fav_src(126) < 0 && fav_src(127) < 0 && fb_used() == 126 && toast_is("REMOVED FROM FAVORITES"), msg);
+    ui_edit_revert(REC_FAV, 0xFB, 0);
+    run(300);
+    /* empty slots among the marked ones are left out: a cartridge of the test's own with sounds at 00 and 03 only; FB
+     * with gaps (00 and 02 used): the two land in 01 and 03 */
+    int gc = ins_free_cart();
+    uint8_t snd[112];
+    ins_new_cart((uint8_t)gc, REC_DX7, "GAPS");
+    ins_init(REC_DX7, snd);
+    ins_put_slot((uint8_t)gc, 0, snd);
+    ins_put_slot((uint8_t)gc, 3, snd);
+    ins_put_slot(0xFB, 0, other);
+    ins_put_slot(0xFB, 2, other);
+    ui_set_inst((uint16_t)(gc << 8 | 1));
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);    /* (01-02: both empty) */
+    turn(K_SELECT, 1);
+    int none = fav_item();
+    tap(B_HOME); run(300);
+    ui_set_inst((uint16_t)(gc << 8));
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);    /* (00-03: 01 and 02 empty) */
+    turn(K_SELECT, 3);
+    int some = fav_item();
+    slot_menu_pick("ADD TO FAVORITES");
+    snprintf(msg, sizeof msg, "marked slots all empty: no item (%d); 00-03 with 01, 02 empty: ADD (%d), the two into FB's gaps 01 and 03 "
+             "(%04X %04X, %d used; %s)", none, some, fav_src(1), fav_src(3), fb_used(), ui_toast_now() ? ui_toast_now() : "");
+    check(!none && some == 1 && fav_src(1) == (gc << 8) && fav_src(3) == (gc << 8 | 3) && fb_used() == 4 && toast_is("ADDED TO FB:01"), msg);
+    ui_set_inst((uint16_t)(gc << 8));
+    tap(B_SEL); run(300); menu_to("MARK"); tap(B_SEL); run(300);
+    turn(K_SELECT, 3);
+    int all_marked = fav_item();
+    slot_menu_pick("REMOVE FROM FAVORITES");
+    snprintf(msg, sizeof msg, "... 00-03 again, the empty ones left out: REMOVE FROM FAVORITES (%d), FB's 01 and 03 emptied (%d used)",
+             all_marked, fb_used());
+    check(all_marked == 2 && fav_src(1) < 0 && fav_src(3) < 0 && fav_src(0) >= 0 && fav_src(2) >= 0 && fb_used() == 2, msg);
+    ui_edit_revert(REC_FAV, 0xFB, 0);
+    ui_edit_revert(REC_DX7, (uint8_t)gc, 0);           /* (made anew: gone) */
+    run(300);
+    /* FB alone: an earlier PT/FM's FAVORITES cartridge with a favourite beside an empty FB (SEL + GLO: NO FAVORITES YET);
+     * FB deleted (another kind's cartridge under its number stands in for that: FB is then no FAVORITES cartridge):
+     * ADD TO FAVORITES not listed, SEL + GLO and GLO + PRESETS NO FAVORITES YET */
+    int mine = ins_free_cart();
+    const uint8_t f5[3] = {0xF0, 0x05, 0};
+    ins_new_cart((uint8_t)mine, REC_FAV, "MY FAVORITES");
+    ins_put_slot((uint8_t)mine, 0, f5);
+    ui_set_inst(0xF000);
+    sel_glo();
+    snprintf(msg, sizeof msg, "FB empty, an earlier PT/FM's FAVORITES cartridge (%02X) with a favourite: SEL + GLO NO FAVORITES "
+             "YET, no switch (%04X)", mine, ui_cur.place);
+    check(ui_cart_kind((uint8_t)mine) == ENG_FAV && ui_cur.place == 0xF000 && toast_is("NO FAVORITES YET"), msg);
+    ins_new_cart(0xFB, REC_DX7, "STAND-IN");
+    run(300);
+    sel_glo();
+    int sg = ui_cur.place == 0xF000 && toast_is("NO FAVORITES YET");
+    int fi = fav_item();
+    home_key(1);                                        /* (SONGS: GLO + PRESETS works there) */
+    uint16_t was = ui_cur.inst;
+    press(B_GLO); turn(K_PRESETS, 1);
+    int gp = ui_cur.inst == was && toast_is("NO FAVORITES YET");
+    release(B_GLO); run(300);
+    snprintf(msg, sizeof msg, "FB deleted (%d): SEL + GLO NO FAVORITES YET (%d), ADD TO FAVORITES not listed (%d), GLO + PRESETS NO "
+             "FAVORITES YET (%d)", ui_cart_kind(0xFB), sg, fi, gp);
+    check(ui_cart_kind(0xFB) == ENG_DX7 && sg && !fi && gp, msg);
+    for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
+    ui_edit_revert(REC_DX7, 0xFB, 0);
+    ui_edit_revert(REC_FAV, (uint8_t)mine, 0);          /* (made anew: gone) */
+    run(300);
+    check(ui_fb() && !ui_cart_kind((uint8_t)mine) && !store_edit_has(REC_FAV, 0xFB, 0) && !store_edit_has(REC_DX7, 0xFB, 0),
+          "(their REVERTs: FB there again, nothing of the test left)");
     home_key(1);                                        /* (SONGS, as the tests after it start) */
     ui_set_inst(keep);
 }
@@ -6861,6 +8635,188 @@ static void test_fav_cart_move(void)
           !store_edit_has(REC_FUSION, FUS, 0) && !store_edit_has(REC_FUSION, (uint8_t)to, 0), "(its REVERTs: the demo disk as it was)");
     home_key(1);
     ui_set_inst(keep);
+}
+
+/* the keys' pressure recorded (specs/ui/screens/editor.md#realtime-takes, specs/ui/screens/loops.md#the-stage): a held key
+ * pressed harder writes its volume alone on its track's next row in an EDITOR take, on its lane's next row on LOOPS' stage
+ * (heard there at once), a change of 4 or more at a time and its return to the key's velocity; nothing while it is held
+ * steady; its note keeps its velocity; played back as written (louder from the rows it rose on) */
+static int vol_alone(const rec_cell_t *c) { return (c->has & (RC_NOTE | RC_VOL)) == RC_VOL ? c->vol : -1; }
+static void vols_of(int f, int lane, char *o, size_t n)   /* the volumes alone as row:vol (f >= 0 the pattern's track 0, else
+                                                         * the stage's lane) */
+{
+    rec_cell_t c;
+    o[0] = 0;
+    for (int r = 0; r < 64; r++) {
+        int v = (f >= 0 ? r < 16 && ed_cell((uint8_t)f, r, 0, &c) : sg_cell(r, lane, &c)) ? vol_alone(&c) : -1;
+        if (v >= 0) snprintf(o + strlen(o), n - strlen(o), "%s%d:%d", o[0] ? "," : "", r, v);
+    }
+}
+static int vols_ok(const char *s, int from, int vel, int top)   /* each on a row after from, rising past vel to top at the
+                                                         * most, then falling back to vel (the last) */
+{
+    int r, v, prev = vel, last = -1, n = 0, rose = 0, fell = 0, row = from;
+    while (s && *s && sscanf(s, "%d:%d", &r, &v) == 2) {
+        if (r <= row || v > top || v < vel || (fell && v > prev)) return 0;
+        fell |= v < prev;
+        rose |= v > vel;
+        row = r; prev = v; last = v; n++;
+        s = strchr(s, ',');
+        if (s) s++;
+    }
+    return n >= 2 && rose && last == vel;
+}
+static int halves_to(int row, int64_t *e, int max)   /* each half's energy, on until the player plays that row */
+{
+    player_state_t st;
+    int n = 0;
+    int64_t last = 0;
+    energy = 0;
+    for (int i = 0; i < 20000 && n < max; i++) {
+        run(1);
+        if (energy != last) { e[n++] = energy - last; last = energy; }
+        player_state(&st, 0);
+        if (st.row == row) break;
+    }
+    return n;
+}
+static double steps_of(const int64_t *e, int n, double *range)   /* the largest ratio of neighbouring halves' energies;
+                                                         * range: the largest over the smallest */
+{
+    double most = 1, hi = 0, lo = 1e30;
+    for (int i = 0; i < n; i++) {
+        if (e[i] <= 0) continue;
+        if (e[i] > hi) hi = (double)e[i];
+        if (e[i] < lo) lo = (double)e[i];
+        if (i && e[i - 1] > 0) {
+            double q = e[i] > e[i - 1] ? (double)e[i] / (double)e[i - 1] : (double)e[i - 1] / (double)e[i];
+            if (q > most) most = q;
+        }
+    }
+    *range = hi > 0 ? hi / lo : 1;
+    return most;
+}
+static int voice_level(int note)        /* the loudest voice sounding that note: its level lately */
+{
+    pl_voice_info_t vi[PL_VOICES];
+    int n = player_voices_now(vi, PL_VOICES), lv = -1;
+    for (int i = 0; i < n; i++) if (vi[i].on && vi[i].note == note && vi[i].level > lv) lv = vi[i].level;
+    return lv;
+}
+static int st_speed(void) { player_state_t s; player_state(&s, 0); return (int)s.speed; }
+static void test_key_pressure(void)
+{
+    char msg[1100], s0[160], s1[160], s2[160];
+    rec_cell_t c;
+    uint16_t was = ui_cur.inst;
+    int k = 9, m = ui_midi(9), ci = ui_set[S_COUNT_IN], qz = ui_set[S_QUANTIZE];
+    /* an EDITOR take (ROW, COUNT-IN OFF) of an empty pattern, a note that holds level (CHIPTUNE F9:14 WAVE ORGAN) */
+    int f = rec_free_pattern();
+    ed_new_pattern((uint8_t)f, 4, 16, 1);
+    home_key(3);
+    ed_editor_goto((uint8_t)f, 0, 0);
+    ui_cur.mutes = 0; ui_cur.solo = -1; ui_mutes_changed();
+    ui_set_inst(0xF914);
+    run(100);
+    ui_set[S_COUNT_IN] = 0;
+    ui_set[S_QUANTIZE] = 3;
+    tap(B_REC);
+    press(B_PLAY); run(40); release(B_PLAY);
+    until_playing(500);
+    q_to(2, 0);
+    kvel_now[k] = 80; kread_now[k] = 600;
+    q_key(k, 1);
+    q_run(300);                                         /* (held steady: its rest learned, 250 ms) */
+    vols_of(f, 0, s0, sizeof s0);
+    kread_now[k] = 470; q_run(250);                     /* pressed harder */
+    vols_of(f, 0, s1, sizeof s1);
+    q_run(300);                                         /* held there */
+    vols_of(f, 0, s2, sizeof s2);
+    int steady = !strcmp(s1, s2);
+    kread_now[k] = 600; q_run(250);                     /* eased */
+    vols_of(f, 0, s2, sizeof s2);
+    q_key(k, 0); q_run(30);
+    tap(B_PLAY); tap(B_REC);
+    int nv = ed_cell((uint8_t)f, 2, 0, &c) && (c.has & RC_NOTE) && c.note == m ? c.vol : -1;
+    snprintf(msg, sizeof msg, "the keys' pressure in an EDITOR take: nothing while held steady (%s), pressed harder its volume "
+             "alone on the next rows, rising (%s), nothing more while held there (%s), eased back to its velocity (%s); its "
+             "note at its velocity 80 (%d)", s0[0] ? s0 : "none", s1, steady ? "none" : "more", s2, nv);
+    check(!s0[0] && s1[0] && steady && vols_ok(s2, 2, 80, 127) && nv == 80, msg);
+    /* each volume's row before it a volume slide toward it (Axy, 2 of 0-127 a tick on its ticks but the first), where a
+     * whole tick's step comes nearer (a change of the row's slide ticks or more) */
+    int top = 0, tr = -1, r, v, last = -1, sl = 0, sn = 0, prev = 80, two = 2 * (st_speed() - 1), end = 16;
+    for (const char *p = s2; p && *p && sscanf(p, "%d:%d", &r, &v) == 2; p = strchr(p, ','), p = p ? p + 1 : 0) {
+        rec_cell_t b;
+        int has = 0;
+        if (v > top) { top = v; tr = r; }
+        last = r;
+        if (r > 0 && ed_cell((uint8_t)f, r - 1, 0, &b) && (b.has & RC_CMD))
+            for (int j = 0; j < b.n; j++) has |= b.cmd[j][0] == 0x0A;
+        if (abs(v - prev) >= two) { sn++; sl += has; }
+        prev = v;
+    }
+    for (int rr = 15; rr > 2; rr--) { rec_cell_t b; if (ed_cell((uint8_t)f, rr, 0, &b) && (b.has & RC_NOTE)) end = rr; }
+    /* played back: from its note's row on past the last volume, no jump between halves bigger than the slide's ticks
+     * make (each a share of the change), louder where it rose */
+    int64_t he[200];
+    double range, step;
+    tap(B_PLAY);
+    until_playing(500);
+    q_to(3, 0);
+    int nh = halves_to(end < last + 1 ? end : last + 1 < 16 ? last + 1 : 0, he, 200);   /* (to its note's end at most) */
+    step = steps_of(he, nh, &range);
+    tap(B_PLAY);
+    snprintf(msg, sizeof msg, "... played back: a slide on the row before each of its %d volumes a tick's step comes nearer to "
+             "(%d); from row 3 to %d the loudest half x%.2f the quietest, the largest jump between halves x%.3f (the slide's "
+             "tick, not the whole change)", sn, sl, end < last + 1 ? end : last + 1, range, step);
+    check(sl == sn && sn >= 2 && range > 1.3 && step * step * sqrt(step) < range, msg);
+    ui_edit_revert(REC_PATTERN, (uint8_t)f, 0);
+    ui_set[S_COUNT_IN] = (int16_t)ci;
+    ui_set[S_QUANTIZE] = (int16_t)qz;
+    tap(B_HOME); run(200);
+
+    /* LOOPS' stage (ROW): the key heard louder at once on its lane, its volumes written on the lane's next rows */
+    lp_fresh(64, 120);
+    ui_set_inst(0xF900);
+    ui_edit_loops(loops_set_quant(LQ_ROW), ui_edit_used());
+    run(100);
+    lp_play_from0();
+    lp_at(4, 0);
+    kread_now[k] = 600;
+    kdown(k); run(300);
+    int l = sg_find(4, m), lv0 = voice_level(m);
+    vols_of(-1, l < 0 ? 0 : l, s0, sizeof s0);
+    kread_now[k] = 470; run(250);
+    int lv1 = voice_level(m);
+    vols_of(-1, l < 0 ? 0 : l, s1, sizeof s1);
+    run(300);
+    vols_of(-1, l < 0 ? 0 : l, s2, sizeof s2);
+    steady = !strcmp(s1, s2);
+    kread_now[k] = 600; run(250);
+    vols_of(-1, l < 0 ? 0 : l, s2, sizeof s2);
+    kup(k); run(30);
+    nv = l >= 0 && sg_cell(4, l, &c) ? c.vol : -1;
+    snprintf(msg, sizeof msg, "... on LOOPS' stage: nothing while held steady (%s), pressed harder heard at once (its voice's "
+             "level %d to %d) and its volume alone on its lane's next rows (lane %d: %s), nothing more while held there (%s), "
+             "eased back (%s); its note at 80 (%d)", s0[0] ? s0 : "none", lv0, lv1, l, s1, steady ? "none" : "more", s2, nv);
+    check(l >= 0 && !s0[0] && lv1 > lv0 && s1[0] && steady && vols_ok(s2, 4, 80, 127) && nv == 80, msg);
+    top = 0; tr = -1;
+    for (const char *p = s2; p && *p && sscanf(p, "%d:%d", &r, &v) == 2; p = strchr(p, ','), p = p ? p + 1 : 0)
+        if (v > top) { top = v; tr = r; }
+    last = -1;
+    for (const char *p = s2; p && *p && sscanf(p, "%d:%d", &r, &v) == 2; p = strchr(p, ','), p = p ? p + 1 : 0) last = r;
+    /* the next pass: the lane glides to each volume over its row (lanes_test's t_vol_glide: a share a block), so louder by
+     * the row after the loudest's than on row 5 */
+    int64_t e5 = 0, et = 0;
+    if (tr > 5 && tr < 62) { lp_at(5, 0); energy = 0; run(40); e5 = energy; lp_at(tr + 1, 0); energy = 0; run(40); et = energy; }
+    snprintf(msg, sizeof msg, "... the stage played back: louder on row %d after %d's %d than on row 5: x%.2f (written on the rows "
+             "playing: %s)", tr + 1, tr, top, e5 ? (double)et / (double)e5 : 0.0, s2);
+    check(tr > 5 && et > e5 * 11 / 10, msg);
+    lp_stop();
+    sg_empty();
+    kvel_now[k] = 0; kread_now[k] = 0;
+    ui_set_inst(was);
+    run(50);
 }
 
 static void test_quantize(void)
@@ -6961,13 +8917,15 @@ static void test_quantize(void)
         snprintf(got + strlen(got), sizeof got - strlen(got), "%s%d%s%s", i ? "," : "", row, d ? (d == 3 ? "d3" : "d?") : "", w);
         q_key(k, 0);
     }
-    snprintf(msg, sizeof msg, "QUANTIZE: ROW 5.33 on 5 heard at once, 9.67 on 10 waiting for it; 2 ROWS 4.83 on 4, 7.17 on 8; "
-             "3 ROWS 4.33 on 3, 7.67 on 9; 4 ROWS 5.83 on 4, 10.17 on 12; REAL TIME 5.5 on 5 with ED3, 9.0 on 9 (%s)", got);
-    check(!strcmp(got, "5!,10@,4!,8@,3!,9@,4!,12@,5d3!,9!"), msg);
+    snprintf(msg, sizeof msg, "QUANTIZE: ROW 5.33 on 5, 9.67 on 10; 2 ROWS 4.83 on 4, 7.17 on 8; 3 ROWS 4.33 on 3, 7.67 on 9; "
+             "4 ROWS 5.83 on 4, 10.17 on 12; REAL TIME 5.5 on 5 with ED3, 9.0 on 9; each heard at its press, before its line or "
+             "after (%s)", got);
+    check(!strcmp(got, "5!,10!,4!,8!,3!,9!,4!,12!,5d3!,9!"), msg);
     check(!as_keys, "QUANTIZE: a take's keys heard by their track only, never as the keys");
     /* the note offs: ROW the nearest row, a row after its note at least (pressed at 3.17, let go at 3.33: on 4; pressed at
-     * 6.17, let go at 8.67: on 9), each heard there; REAL TIME a key off at its tick (pressed at 3.5, let go at 3.67: K04
-     * in its note's own cell; pressed at 6.17, let go at 8.5: K03 on 8), heard at once */
+     * 6.17, let go at 8.67: on 9), each heard at its release (3, 8), not again there that pass; REAL TIME a key off at its
+     * tick (pressed at 3.5, let go at 3.67: K04 in its note's own cell; pressed at 6.17, let go at 8.5: K03 on 8), heard at
+     * once */
     int ka = UI_WHITE[3], kb = UI_WHITE[5];
     ui_set[S_QUANTIZE] = 3;
     q_clear(f);
@@ -6981,8 +8939,9 @@ static void test_quantize(void)
             snprintf(offs + strlen(offs), sizeof offs - strlen(offs), "%s%d", offs[0] ? "," : "", r);
     }
     snprintf(msg, sizeof msg, "note offs, ROW: the nearest row, a row after its note at least (3.33 on 4, 8.67 on 9: %s), "
-             "heard there (%d %d)", offs, q_heard(0, 4, -1), q_heard(0, 9, -1));
-    check(!strcmp(offs, "4,9") && q_heard(0, 4, -1) && q_heard(0, 9, -1), msg);
+             "heard at the release (%d %d), not again there that pass (%d %d)", offs, q_heard(0, 3, -1), q_heard(0, 8, -1),
+             !q_heard(0, 4, -1), !q_heard(0, 9, -1));
+    check(!strcmp(offs, "4,9") && q_heard(0, 3, -1) && q_heard(0, 8, -1) && !q_heard(0, 4, -1) && !q_heard(0, 9, -1), msg);
     ui_set[S_QUANTIZE] = 4;
     q_clear(f);
     q_to(3, 3); qn = 0; q_key(ka, 1); q_to(3, 4); q_key(ka, 0);
@@ -6998,8 +8957,78 @@ static void test_quantize(void)
     snprintf(msg, sizeof msg, "REAL TIME: the next pass plays them at their ticks (ED3 and K04 on 3; ED1 on 6, K03 on 8: "
              "%d %d %d %d)", q_heard(ui_midi(ka), 3, 3), q_heard(0, 3, 4), q_heard(ui_midi(kb), 6, 1), q_heard(0, 8, 3));
     check(q_heard(ui_midi(ka), 3, 3) && q_heard(0, 3, 4) && q_heard(ui_midi(kb), 6, 1) && q_heard(0, 8, 3), msg);
+    /* the keys heard at once, written on the line (editor.md#realtime-takes; tests/playground/checks.js, the same steps):
+     * 4 ROWS, a key at 10.5, a row and a half before its line 12, held past it, let go at 13.5: heard at its press, not
+     * started again at 12 that pass, written there, its off on 14, its end at the release, not again at 14; the next pass
+     * plays it from the pattern at 12 */
+    ui_set[S_QUANTIZE] = 2;
+    q_clear(f);
+    int k1 = UI_WHITE[4], m1 = ui_midi(k1);
+    q_to(10, 3); qn = 0; q_key(k1, 1); q_run(12);
+    int p1 = q_heard(m1, -1, -1);
+    q_to(13, 3);
+    int n1 = q_count(0, m1, -1);
+    q_key(k1, 0);
+    q_to(15, 0);
+    int e13 = q_heard(0, 13, -1), e14 = q_heard(0, 14, -1);
+    rec_cell_t ca, cb;
+    int w12 = ed_cell((uint8_t)f, 12, 0, &ca) && (ca.has & RC_NOTE) && ca.note == m1;
+    int w14 = ed_cell((uint8_t)f, 14, 0, &cb) && (cb.has & RC_NOTE) && cb.note == REC_NOTE_OFF;
+    qn = 0; q_to(12, 3);                                /* (the next pass) */
+    snprintf(msg, sizeof msg, "the keys at once: 4 ROWS, a key at 10.5: heard at its press (row %d), not started again at its "
+             "line 12 (%d start by 13.5), written there (%d), its off on 14 (%d); let go at 13.5: ended there (%d), not again "
+             "at 14 (%d); the next pass plays it from the pattern at 12 (%d)", p1 < 0 ? -1 : p1 >> 8, n1, w12, w14, e13, !e14,
+             q_heard(m1, 12, -1));
+    check(p1 >> 8 == 10 && n1 == 1 && w12 && w14 && e13 && !e14 && q_heard(m1, 12, -1), msg);
+    /* a quick tap at 6.5 (its line 8) let go at 6.67, before its row: heard short (started and ended at its press), its
+     * note on 8 and its off on 9 written, nothing of it at 8 that pass; a next key on that track at 8.5, before the off's
+     * row: heard at once, not cut at 9 (the tap's off stands in for itself), ended at its release at 10.5 */
+    q_clear(f);
+    int kt = UI_WHITE[2], mt = ui_midi(kt), k2 = UI_WHITE[6], m2 = ui_midi(k2);
+    q_to(6, 3); qn = 0; q_key(kt, 1); q_to(6, 4); q_key(kt, 0); q_run(12);
+    int ts = q_count(0, mt, 6), te = q_count(0, 0, 6);
+    int w8 = ed_cell((uint8_t)f, 8, 0, &ca) && (ca.has & RC_NOTE) && ca.note == mt;
+    int w9 = ed_cell((uint8_t)f, 9, 0, &cb) && (cb.has & RC_NOTE) && cb.note == REC_NOTE_OFF;
+    q_to(8, 3);
+    int t8 = q_count(0, mt, -1);
+    q_key(k2, 1); q_to(10, 3);
+    int s2 = q_count(0, m2, 8), cut9 = q_count(0, 0, 9);
+    q_key(k2, 0); q_to(12, 0);
+    snprintf(msg, sizeof msg, "... a quick tap at 6.5 let go at 6.67: started and ended at its press (%d %d), its note on 8 (%d) "
+             "and its off on 9 (%d) written, not started at 8 that pass (%d start); a next key at 8.5: heard at once (%d), not "
+             "cut at 9 by the tap's off (%d), ended at its release (%d)", ts, te, w8, w9, t8, s2, cut9, q_count(0, 0, 10));
+    check(ts == 1 && te == 1 && w8 && w9 && t8 == 1 && s2 == 1 && !cut9 && q_count(0, 0, 10) == 1, msg);
+    /* REAL TIME: a key at 2.33 heard at its press, its note delay ED2 written, not waited for */
+    ui_set[S_QUANTIZE] = 4;
+    q_clear(f);
+    q_to(2, 2); qn = 0; q_key(k1, 1); q_run(6);
+    int rh = q_heard(m1, -1, -1);
+    q_to(3, 3); q_key(k1, 0); q_run(12);
+    int ed2 = ed_cell((uint8_t)f, 2, 0, &ca) && (ca.has & RC_NOTE) && ca.note == m1 && q_ed(&ca) == 2;
+    snprintf(msg, sizeof msg, "... REAL TIME: a key at 2.33 heard at its press (row %d tick %d), written on 2 with ED2 (%d)",
+             rh < 0 ? -1 : rh >> 8, rh < 0 ? -1 : rh & 255, ed2);
+    check(rh >= 0 && rh >> 8 == 2 && (rh & 255) <= 3 && ed2, msg);
+    /* a chord at 2.5 (4 ROWS: its line 4), three keys at once: spreading to tracks 00-02, each heard at once on its track,
+     * none started again at 4 that pass, all written on 4 */
+    ui_set[S_QUANTIZE] = 2;
+    for (int t = 0; t < 3; t++) for (int r = 0; r < 16; r++) ed_put_cell((uint8_t)f, r, t, 0);
+    {
+        int kc[3] = {UI_WHITE[7], UI_WHITE[9], UI_WHITE[11]}, at2 = 1, once = 1, w = 1;
+        q_to(2, 3); qn = 0;
+        for (int j = 0; j < 3; j++) q_key(kc[j], 1);
+        q_run(12);
+        for (int j = 0; j < 3; j++) at2 &= q_count(j, ui_midi(kc[j]), 2) == 1;
+        q_to(5, 3);
+        for (int j = 0; j < 3; j++) once &= q_count(j, ui_midi(kc[j]), -1) == 1;
+        for (int j = 0; j < 3; j++) q_key(kc[j], 0);
+        q_to(7, 0);
+        for (int j = 0; j < 3; j++) w &= ed_cell((uint8_t)f, 4, j, &ca) && (ca.has & RC_NOTE) && ca.note == ui_midi(kc[j]);
+        snprintf(msg, sizeof msg, "... a chord at 2.5: heard at once on tracks 00-02 (%d), none started again at its line 4 "
+                 "(%d), written on 4, tracks 00-02 (%d)", at2, once, w);
+        check(at2 && once && w, msg);
+    }
     /* a take started by a key (PLAY held + a key): written on the cursor's row, the loop playing it there as it starts;
-     * let go in that row, its note off on the next, waiting for it */
+     * let go in that row, its note off on the next, its end heard at the release (not again on the next row that pass) */
     tap(B_PLAY); run(200);                              /* (the take stopped) */
     ui_set[S_QUANTIZE] = 3;
     q_clear(f);
@@ -7018,9 +9047,9 @@ static void test_quantize(void)
     int w4 = ed_cell((uint8_t)f, 4, 0, &c4) && (c4.has & RC_NOTE) && c4.note == ms;
     int w5 = ed_cell((uint8_t)f, 5, 0, &c5) && (c5.has & RC_NOTE) && c5.note == REC_NOTE_OFF;
     snprintf(msg, sizeof msg, "a take started by a key: on the cursor's row (%d), heard there by its track as the loop "
-             "starts (%d), not as the keys (%d); let go in that row, its note off on the next (%d), heard there (%d)", w4,
-             q_heard(ms, 4, -1), !as_key, w5, q_heard(0, 5, -1));
-    check(w4 && q_heard(ms, 4, -1) && !as_key && w5 && q_heard(0, 5, -1), msg);
+             "starts (%d), not as the keys (%d); let go in that row, its note off on the next (%d), its end heard at the "
+             "release (%d), not again there (%d)", w4, q_heard(ms, 4, -1), !as_key, w5, q_heard(0, 4, -1), !q_heard(0, 5, -1));
+    check(w4 && q_heard(ms, 4, -1) && !as_key && w5 && q_heard(0, 4, -1) && !q_heard(0, 5, -1), msg);
     /* a chord started that way: its other keys, before the loop is seen playing (the player takes the take a half or two
      * later), land on the take's row too, on the next tracks, heard there with it */
     tap(B_PLAY); run(200);
@@ -7336,18 +9365,43 @@ static void test_auto_level(void)
     check(bar && after_n == before && level_of((uint8_t)sc, 0) == want && ui_toast_now() && !strcmp(ui_toast_now(), "LEVELS SET"),
           msg);
     tap(B_HOME); run(100);
+    /* a built-in cartridge changed and saved (its record in the user area) stays out of SETTINGS' run: its own menu
+     * measures it (the levels set so far dropped first, so F9's change is the one thing saved) */
+    ui_edit_drop();
+    int fl0 = level_of(0xF9, 0), users = 0, all_n = 0;
+    uint8_t fs[128];
+    char q[40];
+    ins_slot_bytes(0xF9, 0, fs);
+    ins_prm_t fp = {0, 0, (uint16_t)ins_level_pos(ins_kind(0xF9)), 8, PK_LEVEL, -128, 127, 0};
+    ins_set(fs, &fp, fl0 + 8);
+    ins_put_slot(0xF9, 0, fs);
+    ui_edit_save();
+    run(100);
+    nc = ui_carts(carts, 256);
+    for (int i = 0; i < nc; i++)
+        for (int s = 0; ins_kind(carts[i]) != REC_FAV && s < ui_cart_slots(carts[i]); s++)
+            if (ins_slot_bytes(carts[i], s, b)) { all_n++; users += carts[i] < 0xF0; }
+    snprintf(q, sizeof q, "AUTO LEVEL %d SOUNDS?", users);
     home_key(20);
     turn(K_SELECT, 20); turn(K_SELECT, -1);             /* TOOLS */
     turn(K_K1, -9); turn(K_K1, 3);                      /* AUTO LEVEL ALL */
     tap(B_EDIT);                                        /* (the pick comes after EDIT's grace) */
     check(ui_top() && ui_top()->kind == OV_QUESTION, "SETTINGS' AUTO LEVEL ALL asks first");
+    snprintf(msg, sizeof msg, "... its count the user area's sounds alone, F9 changed and saved left out (%s; %d with the "
+             "built-ins)", ui_top() && ui_overlay_words(ui_top()) ? ui_overlay_words(ui_top()) : "-", all_n);
+    check(!ins_builtin(0xF9) && ui_top() && ui_overlay_words(ui_top()) && strstr(ui_overlay_words(ui_top()), q) && all_n > users, msg);
     press(B_OCTP); release(B_OCTP);                     /* LEVEL (the bar looked for at once) */
     bar = bar_shown();
     for (int i = 0; i < 2000 && ui_top(); i++) run(50);
     check(bar && !ui_top() && ui_toast_now() && !strcmp(ui_toast_now(), "LEVELS SET"),
           "SETTINGS' AUTO LEVEL ALL: MEASURING EVERY SOUND, then LEVELS SET");
+    snprintf(msg, sizeof msg, "... the changed built-in's LEVEL as saved, not measured (F9:00 %d, saved %d)", level_of(0xF9, 0), fl0 + 8);
+    check(level_of(0xF9, 0) == fl0 + 8, msg);
     turn(K_K1, -9);
     ui_edit_drop();                                     /* (REVERT ALL: the levels as saved for what follows) */
+    ui_edit_del((uint8_t)ui_cart_kind(0xF9), 0xF9, 0); /* (BACK TO BUILT-IN for what follows) */
+    ui_edit_save();
+    run(100);
     tap(B_HOME); run(100);
 }
 
@@ -7355,7 +9409,7 @@ static void test_auto_level(void)
 /* specs/ui/saving.md#references: YES makes the change with its references, pauses playback and writes everything
  * pending as one save (its bar, then REFERENCES UPDATED, SAVED once written: nothing unsaved after); a used slot
  * SWAPped with the next one, then back (the demo disk as it was) */
-static int refs_swap(int c, int k, const char *what)
+static int refs_swap_as(int c, int k, const char *what, const char *item, int dir)   /* (MOVE: to the next free slot) */
 {
     char msg[200];
     player_state_t st;
@@ -7366,10 +9420,10 @@ static int refs_swap(int c, int k, const char *what)
     ui_set_inst((uint16_t)(c << 8 | k));
     home_key(5);
     tap(B_SEL);
-    int swap = menu_to("SWAP");
-    if (!swap) { check(0, "the slot menu has SWAP"); tap(B_HOME); player_stop(); return 0; }
+    int swap = menu_to(item);
+    if (!swap) { check(0, "the slot menu has SWAP (MOVE)"); tap(B_HOME); player_stop(); return 0; }
     tap(B_SEL);                                         /* (picked after SEL's grace: then SELECT floats the slot) */
-    turn(K_SELECT, 1);
+    turn(K_SELECT, dir);
     tap(B_SEL);                                         /* put down: the question */
     int asked = ui_top() && ui_top()->kind == OV_QUESTION && swap;
     press(B_OCTP);                                      /* YES (taken as it is let go), looked at every ms: the bar up, */
@@ -7394,6 +9448,12 @@ static int refs_swap(int c, int k, const char *what)
     tap(B_HOME); run(100);
     return ok;
 }
+static int refs_swap(int c, int k, const char *what) { return refs_swap_as(c, k, what, "SWAP", 1); }
+static int lp_refs(int ref)                             /* LOOPS' loop 00 and set 07's both name ref */
+{
+    rec_loops_t l;
+    return loops_n() && loops_inst(0) == ref && !rec_lset(7, &l, 0, 0) && l.n && (l.head[80] << 8 | l.head[81]) == ref;
+}
 static void test_refs_save(void)
 {
     uint8_t carts[256], s[128];
@@ -7405,16 +9465,57 @@ static void test_refs_save(void)
     }
     check(c >= 0, "the demo disk has a used instrument in the user area");
     if (c < 0) return;
+    /* the loops are references too (specs/files/references.md): LOOPS' own loop and a set's naming it, a use each */
+    static uint8_t keep[16][4096];                      /* (LOOPS' saved parts, put back at the end) */
+    uint32_t klen[16];
+    uint8_t kver[16], had[16];
+    for (int p = 0; p < 16; p++) {
+        const uint8_t *q = store_get(REC_LOOPS, 0, (uint8_t)p, &klen[p], &kver[p]);
+        had[p] = q && klen[p] <= sizeof keep[p];
+        if (had[p]) memcpy(keep[p], q, klen[p]);
+    }
+    uint8_t nm[12] = {0};
+    ui_edit_loops(loops_clear(), ui_edit_used());
+    ui_edit_loops(loops_new((uint8_t)c, (uint8_t)k), ui_edit_used());
+    ui_edit_loops(loops_set_store(7, nm), ui_edit_used());
     int u0 = ed_inst_uses((uint16_t)(c << 8 | k)), u1 = ed_inst_uses((uint16_t)(c << 8 | (k + 1)));
     printf("UPDATE REFERENCES?: slot %02X:%02X (%d uses) and %02X (%d)\n", c, k, u0, k + 1, u1);
     refs_swap(c, k, "SWAP");
     check(ed_inst_uses((uint16_t)(c << 8 | (k + 1))) == u0 && ed_inst_uses((uint16_t)(c << 8 | k)) == u1,
           "... the references along with the slots");
+    check(lp_refs(c << 8 | (k + 1)), "... LOOPS' loop and the set's with them");
     refs_swap(c, k, "SWAP back");
+    check(lp_refs(c << 8 | k), "... the loops back too");
+    {                                                   /* a slot's MOVE to the next free slot and back */
+        int fr = k + 1;                                 /* (past the record's slots: empty, up to the cartridge's room) */
+        while (fr < 128 && ins_slot_bytes((uint8_t)c, fr, s)) fr++;
+        check(fr < 64, "(a free slot after the used one)");
+        refs_swap_as(c, k, "MOVE", "MOVE", 1);
+        check(lp_refs(c << 8 | fr) && ed_inst_uses((uint16_t)(c << 8 | fr)) == u0, "a slot's MOVE answered YES: LOOPS' loop and the "
+              "set's follow it");
+        refs_swap_as(c, fr, "MOVE back", "MOVE", -1);
+        check(lp_refs(c << 8 | k) && ed_inst_uses((uint16_t)(c << 8 | k)) == u0, "... and back");
+    }
+    int put = store_save_begin() == STORE_OK;           /* (the set gone again, LOOPS' record as it was) */
+    for (int p = 0; p < 16 && put; p++) {
+        store_save_del(REC_LSET, 7, (uint8_t)p);
+        put = (had[p] ? store_save_put(REC_LOOPS, 0, (uint8_t)p, kver[p], keep[p], klen[p]) : store_save_del(REC_LOOPS, 0, (uint8_t)p)) == STORE_OK;
+    }
+    put = put && store_save_run() == STORE_OK;
+    store_edit_revert();
+    loops_revert();
+    player_store_changed();
+    int same = put && !store_get(REC_LSET, 7, 0, 0, 0);
+    for (int p = 0; p < 16 && same; p++) {
+        uint32_t l;
+        const uint8_t *q = store_get(REC_LOOPS, 0, (uint8_t)p, &l, 0);
+        same = had[p] ? q && l == klen[p] && !memcmp(q, keep[p], l) : !q;
+    }
+    check(same, "(the set gone again, LOOPS' record as it was)");
     store_mount();                                      /* (as after a power cycle: the flash read again) */
     player_store_changed();
-    check(ed_inst_uses((uint16_t)(c << 8 | k)) == u0 && ed_inst_uses((uint16_t)(c << 8 | (k + 1))) == u1,
-          "... and back, as the flash has it after a power cycle");
+    check(ed_inst_uses((uint16_t)(c << 8 | k)) == u0 - 2 && ed_inst_uses((uint16_t)(c << 8 | (k + 1))) == u1,
+          "... and back, as the flash has it after a power cycle (the loops' 2 uses gone with them)");
 }
 
 /* --------------------------------------------------------------------- DJ --- */
@@ -8295,16 +10396,19 @@ static void test_debug(void)
               "debug: FIGURES version 11, its 37 after it with its window's number");
         check(len2 >= DBG_FIGURES2_LEN && g[2] == c.c2_state && g[3] == c.c2_why &&
               (g[4] & 1) == !ui_set[S_SECOND_CORE] && !(g[4] & 2) && !rd32(g + 8) && !rd16(g + 14),
-              "debug: 37: core 2's state and why, SETTINGS' SECOND CORE, bit 1 spare; no core 2 here, no blocks");
+              "debug: 37: core 2's state and why, SETTINGS' SECOND CORE, the split moving; no core 2 here, no blocks");
+        check(len2 >= DBG_FIGURES2_LEN && !rd32(g + 374) && !rd16(g + 378) && g[380] == 16 && (int16_t)rd16(g + 382) == 128
+              && !rd32(g + 384) && !rd16(g + 388), "debug: 37's split: no block of core 2's here (the lowest 16, none), "
+              "no job, the margin at its start (128)");
         save_caught2(0, "figures1c2.syx");
     }
     save_caught(0, "figures1.syx");
     run(2000);                                          /* frozen: one frame (its message), then none */
-    {   /* 32 and 38 (a bench and a switch the debug build no longer has): unknown, not taken, nothing changed */
-        static const uint8_t old32[7] = {0xF0, 0x7D, 0x50, 0x54, 0x32, 0x01, 0xF7};
+    {   /* 38 (a switch the debug build no longer has): unknown, not taken, nothing changed (32, a bench once, is KEYS FEED
+         * now: specs/debug.md) */
         static const uint8_t old38[7] = {0xF0, 0x7D, 0x50, 0x54, 0x38, 0x00, 0xF7};
         int16_t was = ui_set[S_SECOND_CORE];
-        check(!dbg_sysex(old32, 7) && !dbg_sysex(old38, 7), "debug: 32 and 38 are not the debug build's (not taken)");
+        check(!dbg_sysex(old38, 7), "debug: 38 is not the debug build's (not taken)");
         app_sysex(old38, 7);
         run(20);
         check(ui_set[S_SECOND_CORE] == was && !ui_unsaved, "debug: an unknown command changes nothing");
@@ -8421,6 +10525,97 @@ static void test_debug(void)
         run(300);
         home_key(8);
         run(300);
+    }
+    {   /* the ghosts' figures (FIGURES 2's ghosts, specs/debug.md): VOICES 8, twelve keys held on a JUNO-106 pad at once
+         * (the 4 oldest taken by the newest, started in the same block: no fade, ghosts at once), then the 4 newest let
+         * go: the 4 held ghosts come back into their release tails' engines, each a block after its tail's fade */
+        static const uint8_t ask[7] = {0xF0, 0x7D, 0x50, 0x54, 0x30, 0x00, 0xF7};
+        const pl_inst_t pad = {0xF8, 0x4A};
+        uint8_t g[DBG_FIGURES2_LEN + 8];
+        player_state_t vs;
+        int k, len2;
+        player_voice_count(8);
+        run(100);
+        ncaught = ncaught2 = 0;
+        app_sysex(ask, 7);                              /* (a window starts here) */
+        run(20);
+        for (k = 0; k < 12; k++)
+            player_key_on((uint8_t)(48 + 2 * k), pad, 100);
+        run(500);
+        ui_player_state(&vs);
+        check(vs.voices == 8 && vs.ghosts == 4, "ghosts: twelve keys at VOICES 8, 8 heard and 4 held ghosts");
+        for (k = 8; k < 12; k++)
+            player_key_off((uint8_t)(48 + 2 * k));
+        run(1000);
+        ui_player_state(&vs);
+        check(vs.voices == 8 && vs.ghosts == 0, "ghosts: the 4 newest let go, the 4 ghosts back (8 heard, none left)");
+        app_sysex(ask, 7);
+        run(20);
+        len2 = ncaught2 == 2 ? unpack(caught2[1], caught2_n[1], g) : 0;
+        {
+            const uint8_t *h = g + 56;                  /* (the ghosts' bytes) */
+            uint32_t made = 0, gone = 0;
+            for (k = 0; k < 7; k++) made += rd16(h + 44 + 2 * k);
+            for (k = 0; k < 30; k++) gone += rd16(h + 70 + 2 * k);
+            check(len2 >= DBG_FIGURES2_LEN && g[0] == DBG_FIGURES2_VERSION && rd16(h + 44) == 4 && made == 4 && !rd16(h + 58),
+                  "ghosts' figures: 4 made, each taken for a new note; no TB-303's");
+            for (k = 0; k < 4; k++) gone += rd16(h + 288 + 2 * k);
+            check(rd16(h + 62) == 4 && !rd16(h + 60) && !rd16(h + 64) && !gone && !rd16(h + 132),
+                  "ghosts' figures: 4 back, each into a release tail's engine; none gone or not kept, no tail lost");
+            check(h[28] == 4 && !h[8] && h[14] == 8 && !h[15] && h[30] >= 1 && h[30] <= h[31],
+                  "ghosts' figures: 4 at once at most, none now; the keys' 8 notes in the engines; back a block "
+                  "within PL_RETURNS");
+            check(rd16(h + 142 + 10 + 0) >= 4 && rd16(h + 182 + 6) == 4 && rd32(h + 266) > 0 && rd16(h + 272) > 0 &&
+                  rd16(h + 270) <= rd32(h + 266) && rd16(h + 278) >= 1 && rd32(h + 282) > 0 && (h[286] & 7) == 7,
+                  "ghosts' figures: the JUNO-106's forward work and its 4 starts, the budget spent, a wait of a block "
+                  "or more (a tail's fade first), the oldest back held, a key's, into a tail's");
+            check(rd32(h + 0) > 0 && rd16(h + 4) > 0 && rd16(h + 4) <= rd32(h + 0) && rd16(h + 230) + rd16(h + 236) +
+                  rd16(h + 242) >= 4 && rd16(h + 248) >= 4, "ghosts' figures: the GHOSTS stage timed, its checks "
+                  "and searches counted");
+        }
+        save_caught(1, "figures4.syx");
+        save_caught2(1, "figures4c2.syx");
+        player_keys_off();
+        player_voice_count(ui_set[S_VOICES] == 0 ? 8 : ui_set[S_VOICES] == 1 ? 12 : 16);   /* (SETTINGS' again: the
+                                                        * setting's 0 1 2 as ui_set.c's VOICES_N, 8 12 16) */
+        run(1500);
+    }
+    {   /* the ghosts' layout's round trip: every count of a window a value of its own (player_gh_fill), sent as they are
+         * (no ghost, no note meanwhile), each field decoded by the page's side (figures_test.js) */
+        static const uint8_t ask[7] = {0xF0, 0x7D, 0x50, 0x54, 0x30, 0x00, 0xF7};
+        uint8_t g[DBG_FIGURES2_LEN + 8];
+        player_state_t vs;
+        int len2;
+        ui_player_state(&vs);
+        ncaught = ncaught2 = 0;
+        player_gh_fill();
+        app_sysex(ask, 7);
+        run(20);
+        len2 = ncaught2 == 1 ? unpack(caught2[0], caught2_n[0], g) : 0;
+        check(!vs.ghosts && ncaught == 1 && len2 >= DBG_FIGURES2_LEN && g[0] == DBG_FIGURES2_VERSION &&
+              rd16(g + 56 + 44) == 1000 && rd16(g + 56 + 304) == 1104 && rd16(g + 56 + 306) == 1105 &&
+              rd16(g + 56 + 308) == 4200,
+              "ghosts' figures: a window's counts filled, each a value of its own, sent as they were");
+        save_caught(0, "figures5.syx");
+        save_caught2(0, "figures5c2.syx");
+    }
+    {   /* the voices' split's switch (specs/debug.md: 30 FIGURES?'s bits 3 and 4, the debug build's fixed split for
+         * AUTOTEST's "before"): fixed with one question, its answer's 37 says so (byte 4 bit 1); moving with the next */
+        static const uint8_t fix[7] = {0xF0, 0x7D, 0x50, 0x54, 0x30, 0x08, 0xF7};
+        static const uint8_t mov[7] = {0xF0, 0x7D, 0x50, 0x54, 0x30, 0x10, 0xF7};
+        uint8_t g[DBG_FIGURES2_LEN + 8], h[DBG_FIGURES2_LEN + 8];
+        int len2 = 0, len3 = 0;
+        ncaught = ncaught2 = 0;
+        app_sysex(fix, 7);
+        run(20);
+        app_sysex(mov, 7);
+        run(20);
+        if (ncaught2 == 2) {
+            len2 = unpack(caught2[0], caught2_n[0], g);
+            len3 = unpack(caught2[1], caught2_n[1], h);
+        }
+        check(len2 >= DBG_FIGURES2_LEN && len3 >= DBG_FIGURES2_LEN && (g[4] & 2) && !(h[4] & 2),
+              "debug: the split fixed by 30's bit 3 (its 37 says so), moving again by bit 4");
     }
     {   /* an answer USB refused (cut short, or the ring full): that window lost, counted, the next answer says so */
         static const uint8_t ask[7] = {0xF0, 0x7D, 0x50, 0x54, 0x30, 0x00, 0xF7};
@@ -9530,26 +11725,8 @@ static int c4_pos(int ms)               /* C-4 held ms: where the keys' sample v
     run(300);
     return p;
 }
-/* a text as drawn: the screen's rows y..y+10 over the text's width from x, its ink against the text drawn alone on black,
- * pixel for pixel, some of it inked (row 11 left out: a cursor box's foot); the next frame whole again */
-static int text_as(int x, int y, const char *t, int col)
-{
-    static uint16_t line[12 * 240];
-    int w = (int)strlen(t) * 6, same = 1, inked = 0;
-    ui_render();
-    memcpy(line, screen + y * 240, sizeof line);
-    g_invalidate();
-    for (int h = 0; h < 2; h++) { g_band(h); g_clear(C_BLACK); g_text(x, y, &FONT_T, t, col); g_push(); }
-    uint16_t ink = g_rgb565((uint8_t)col);
-    for (int j = 0; j < 11; j++)
-        for (int i = x; i < x + w && i < 240; i++) {
-            inked += line[j * 240 + i] == ink;
-            if ((line[j * 240 + i] == ink) != (screen[(y + j) * 240 + i] == ink)) same = 0;
-        }
-    g_invalidate();
-    ui_render();
-    return same && inked > 8;
-}
+/* a text as drawn (text_as in FONT_T, text_as_s in FONT_S): the probe midi_test.c shares */
+#include "text_probe.h"
 static int menu_items(char *out, int max)       /* SEL's menu open: its items, joined by "," */
 {
     char last[40] = "";
@@ -9579,11 +11756,12 @@ static int cart_line(int c)                     /* a cartridge's line in the car
     return -1;
 }
 static void cart_list_to(int line) { turn(K_SELECT, -40); turn(K_SELECT, line); }   /* (40: past the last line) */
-static int all_line_y(void)                     /* the ALL SAMPLES line's y, the cursor on it (the list's last line) */
+static int all_line_y(void)                     /* the ALL SAMPLES line's y, the cursor on it (the list's last line; 10 in
+                                                 * view, rows of 16 px from 51, the cursor kept 4 down) */
 {
     uint8_t nums[256];
-    int n = ui_carts(nums, 256), top = n - 6 < n + 1 - 13 ? n - 6 : n + 1 - 13;
-    return BODY_Y + 2 + 30 + (n - (top > 0 ? top : 0)) * 13;
+    int n = ui_carts(nums, 256), top = n - 4 < n + 1 - 10 ? n - 4 : n + 1 - 10;
+    return BODY_Y + 2 + 32 + (n - (top > 0 ? top : 0)) * 16;
 }
 static int is_new_inst(uint8_t c, int s, int num, const char *name)     /* a new instrument on sample num, whole */
 {
@@ -9618,8 +11796,8 @@ static void test_samples(void)
     tap(B_ENV);
     cart_list_to(40);
     int ly = all_line_y();
-    check(list_on() && text_as(26, ly, "ALL SAMPLES", C_WHITE) && text_as(110, ly, "157K", C_LGREY) &&
-          text_as(170, ly, "033/256", C_LGREY), "the cartridge list's last line: ALL SAMPLES 157K 033/256 (the cursor's white)");
+    check(list_on() && text_as_s(32, ly, "ALL SAMPLES", C_WHITE) && text_as(134, ly + 2, "157K", C_LGREY) &&
+          text_as(192, ly + 2, "033/256", C_LGREY), "the cartridge list's last line: ALL SAMPLES 157K 033/256 (the cursor's white)");
     shot("instr_all_samples_line");
     tap(B_SEL);
     check(list_on() && !menu_open(), "SEL on the ALL SAMPLES line opens nothing");
@@ -9632,9 +11810,9 @@ static void test_samples(void)
     check(pos > 4000 && pos < 5600, msg);
     shot("instr_samples_all");
     tap(B_ENV);
-    check(list_on() && text_as(26, ly, "ALL SAMPLES", C_WHITE), "ENV there: back to the line");
+    check(list_on() && text_as_s(32, ly, "ALL SAMPLES", C_WHITE), "ENV there: back to the line");
     tap(B_ENV); tap(B_HOME);
-    check(list_on() && text_as(26, ly, "ALL SAMPLES", C_WHITE), "HOME there: back to the line");
+    check(list_on() && text_as_s(32, ly, "ALL SAMPLES", C_WHITE), "HOME there: back to the line");
     /* CLONE of a sampler as any cartridge: its instruments name the same samples, no sample copied */
     int cl = ins_free_cart();
     cart_list_to(cart_line(1));
@@ -10230,6 +12408,42 @@ static void test_samples_tools(void)
     ui_set_inst(keep);
     run(100);
 }
+/* CHECK REFERENCES and the loops (specs/files/references.md; tests/playground/refs_save.js the same): LOOPS' loop and a
+ * set's naming an instrument deleted are listed after everything else and counted; REVERT ALL, and nothing is missing */
+static void test_refs_loops(void)
+{
+    uint8_t carts[256], s[128], nm[12] = {0};
+    char w0[40], w1[40], msg[200];
+    int nc = ui_carts(carts, 256), c = -1, k = -1;
+    for (int i = 0; i < nc && c < 0; i++) {             /* (an instrument of the user area's nothing uses) */
+        if (carts[i] > 0xEF || ins_kind(carts[i]) == REC_FAV) continue;
+        for (int j = 0; j < ui_cart_slots(carts[i]) && c < 0; j++)
+            if (ins_slot_bytes(carts[i], j, s) && !ed_inst_uses((uint16_t)(carts[i] << 8 | j))) { c = carts[i]; k = j; }
+    }
+    check(c >= 0 && !store_get(REC_LSET, 7, 0, 0, 0), "(an instrument nothing uses, no set 07)");
+    if (c < 0) return;
+    for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
+    ui_edit_loops(loops_clear(), ui_edit_used());
+    ui_edit_loops(loops_new((uint8_t)c, (uint8_t)k), ui_edit_used());
+    ui_edit_loops(loops_set_store(7, nm), ui_edit_used());
+    ins_put_slot((uint8_t)c, k, 0);                     /* (deleted) */
+    ui_check_references();
+    run(900);
+    snprintf(w0, sizeof w0, "LOOP 00: %02X:%02X", c, k);
+    snprintf(w1, sizeof w1, "SET 07 LOOP 00: %02X:%02X", c, k);
+    snprintf(msg, sizeof msg, "CHECK REFERENCES: LOOPS' loop and a set's naming an instrument deleted (MISSING REFERENCES: 2, %s, %s)", w0, w1);
+    check(ui_top() && ui_top()->kind == OV_LIST && text_as(6, BODY_Y + 5, "MISSING REFERENCES: 2", C_CYAN) &&
+          text_as(8, BODY_Y + 20, w0, C_LGREY) && text_as(8, BODY_Y + 33, w1, C_LGREY), msg);
+    shot("ui3_check_refs_loops");
+    if (ui_top()) tap(B_HOME);
+    store_edit_revert();                                /* (REVERT ALL) */
+    loops_revert();
+    player_store_changed();
+    ui_check_references();
+    run(900);
+    check(!ui_top() && toast_is("NO MISSING REFERENCES") && ins_slot_bytes((uint8_t)c, k, s) && !store_get(REC_LSET, 7, 0, 0, 0),
+          "... REVERT ALL: the instrument and the loops as they were, nothing missing");
+}
 
 /* ------------------------------------------- one RECORD LIVE session, the twins' ---
  * fw/tests/live_session.txt played on this virtual clock (its steps there; tests/playground/live_twin.js plays it on the
@@ -10265,7 +12479,7 @@ static void ts_loop(char **w, int n)
     static uint8_t b[1200];
     lp_enc_t e;
     rec_cell_t x;
-    int lanes = 1, i = loops_new((uint8_t)(strtol(w[0], 0, 16) >> 8), (uint8_t)strtol(w[0], 0, 16));
+    int lanes = 1, i = lp_new((uint8_t)(strtol(w[0], 0, 16) >> 8), (uint8_t)strtol(w[0], 0, 16));
     loops_enc_start(&e, b, sizeof b);
     for (int k = 5; k < n; k++) {
         int row, lane, vol = 100;
@@ -10375,6 +12589,1632 @@ static void ts_play(const char *session, const char *to)
     printf(fails ? "ui3_test (the session): %d of %d checks FAILED\n" : "ui3_test (the session): %d checks passed\n", fails ? fails : checks, checks);
 }
 
+/* ---- menus, properties and the cartridge list in FONT_S (specs/ui/dialogs.md#rows-in-s): a menu of more than 11 items
+ * scrolling with the first shown as its table says, an item at its 26-character limit beside a group's mark, a property
+ * of two lines selected at the list's bottom shown whole (a made-up list scrolled, and FX's KEYS, EVERYWHERE), the
+ * cartridge list's FONT_T figures on its names' baseline. tests/playground/lists_s.js the same, step for step; the MIDI
+ * page's mappings are fw/tests/midi_test.c's ---- */
+#ifdef UI_TXT_PACKED
+static txt_t txt_of(const char *s)      /* a fixed text by its words: its number in the packed table (0 none) */
+{
+    char b[48];
+    for (int i = 1; i < (int)TXT_COUNT; i++) { txt_unpack(i, b, sizeof b); if (!strcmp(b, s)) return i; }
+    return 0;
+}
+#else
+static txt_t txt_of(const char *s) { return s; }
+#endif
+static void ls_pick(int id) { (void)id; }
+static void ls_named(const char *name) { (void)name; }
+static const char *ls_one(void) { return "ONE"; }
+static const char *ls_27(void) { return "NINETEEN CHARACTERS"; }   /* (LENGTH's: 6 + 2 + 19, 27: one line) */
+static const char *ls_long(void) { return "A LONGER VALUE"; }      /* (NEW LOOP REVERB's: 15 + 2 + 14, past 27) */
+static void ls_change(int d, int c) { (void)d; (void)c; }
+static int ink_rows(int x0, int x1, int y0, int y1, int *last)    /* the first and last rows of y0..y1-1 not black in x0..x1-1 */
+{
+    int first = -1;
+    *last = -1;
+    ui_render();
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) if (screen[y * 240 + x] != g_rgb565(C_BLACK)) { if (first < 0) first = y; *last = y; }
+    return first;
+}
+static void test_lists_s(void)
+{
+    char msg[240];
+    int known = 1, hold = ui_set[S_HOLD_DELAY] + 100;   /* (a layer: HOLD DELAY and a little, as the playground waits) */
+    for (int i = 0; i < 4 && ui_top(); i++) tap(B_HOME);
+    ui_go_name("STATUS");
+    run(100);
+    /* a menu of 14: 11 show, the first max(0, min(sel - 5, items - 11)); item i at 10, 39 + 16 i. (The firmware's own key,
+     * SETTINGS' menu's: no 13th of the menus' 12 memories; nothing picked, so what it remembers stays) */
+    static const char *const ITEMS[14] = {"NEW", "CLONE", "MOVE", "DELETE", "RENAME", "REVERT", "COPY", "CUT", "PASTE",
+                                          "PASTE MIX", "CLEAR", "SWAP", "INIT", "MARK"};
+    ui_mitem_t m[14];
+    for (int i = 0; i < 14; i++) { m[i].name = txt_of(ITEMS[i]); m[i].id = i; m[i].items = 0; m[i].n = 0; known &= m[i].name != 0; }
+    ui_menu("settings", "A MENU OF 14", m, 14, ls_pick, B_SEL);
+    turn(K_SELECT, -20);
+    turn(K_SELECT, 13);
+    check(known && menu_open() && text_as_s(10, BODY_Y + 22, ITEMS[3], C_LGREY) && text_as_s(10, BODY_Y + 22 + 16 * 10, ITEMS[13], C_WHITE) &&
+          text_as_s(8, BODY_Y + 5, "A MENU OF 14", C_CYAN),
+          "a menu of 14, its last highlighted: the first shown is the fourth (DELETE), the last at the bottom, in S at 10");
+    turn(K_SELECT, -7);
+    check(text_as_s(10, BODY_Y + 22, ITEMS[1], C_LGREY) && text_as_s(10, BODY_Y + 22 + 16 * 5, ITEMS[6], C_WHITE),
+          "the seventh highlighted: the first shown the second (CLONE), the highlight 5 down");
+    shot("lists_s_menu_14");
+    tap(B_HOME);
+    /* an item of 26 characters, a group's mark after it */
+    static const char LONG[] = "AUTOMATIC REPEAT PROCEDURE";
+    ui_mitem_t rows[2] = {{txt_of("INSERT ROW"), 2, 0, 0}, {txt_of("DELETE ROW"), 3, 0, 0}};
+    ui_mitem_t m2[2] = {{txt_of(LONG), 1, 0, 0}, {txt_of("ROWS"), 0, rows, 2}};
+    ui_menu("settings", "A LONG ITEM", m2, 2, ls_pick, B_SEL);
+    turn(K_SELECT, -20);
+    check(strlen(LONG) == 26 && m2[0].name && m2[1].name && rows[0].name && rows[1].name && menu_open() &&
+          text_as_s(10, BODY_Y + 22, LONG, C_WHITE) && text_as_s(222, BODY_Y + 22 + 16, ">", C_LGREY),
+          "an item of 26 characters drawn whole in S (to x 218), a group's > at 222");
+    shot("lists_s_menu_26");
+    /* the group opened, the first item after BACK highlighted (as a group opens): BACK's rule at 6, 53, 228 wide, in BACK's
+     * own row, not under the item's bar */
+    turn(K_SELECT, 1);
+    tap(B_SEL);
+    check(menu_open() && text_as_s(26, BODY_Y + 22, "BACK", C_CYAN) && text_as_s(10, BODY_Y + 22 + 16, "INSERT ROW", C_WHITE) &&
+          count_px(6, 53, 234, 54, C_DGREY) == 228 && count_px(3, 53, 6, 54, C_DGREY) + count_px(234, 53, 237, 54, C_DGREY) == 0,
+          "a group opened, its first item highlighted: BACK's rule at y 53 whole (228 px from x 6), the item's bar under it");
+    shot("lists_s_group_back");
+    tap(B_HOME);
+
+    /* properties: 12 rows, the last of two lines, selected at the bottom: both lines (rows from 40 + 16 x line); LENGTH's
+     * row 27 characters, one line */
+    static const char *const NAMES[12] = {"TEMPO", "SWING", "LENGTH", "GRID", "QUANTIZE", "MONO LEGATO", "COUNT-IN", "VIEW",
+                                          "K1 TURNS", "K2 TURNS", "K3 TURNS", "NEW LOOP REVERB"};
+    static ui_prop_t P[12];
+    known = 1;
+    for (int i = 0; i < 12; i++) {
+        P[i].name = txt_of(NAMES[i]); P[i].get = i == 11 ? ls_long : i == 2 ? ls_27 : ls_one; P[i].change = ls_change;
+        P[i].edit = 0; P[i].reset = 0; P[i].col = 0;
+        known &= P[i].name != 0;
+    }
+    ui_props("SOME PROPERTIES", P, 12, B_GLO);
+    turn(K_SELECT, 11);
+    /* (the rows from the third: 9 of one line, then the last's two, 11 in view) */
+    check(known && ui_top() && ui_top()->kind == OV_PROPS && text_as_s(10, BODY_Y + 23, NAMES[2], C_CYAN) &&
+          text_as_s(10, BODY_Y + 23 + 16 * 9, NAMES[11], C_WHITE) &&
+          text_as_s(230 - (int)strlen(ls_long()) * 8, BODY_Y + 23 + 16 * 10, ls_long(), C_WHITE),
+          "a property of two lines selected at the list's bottom: its name, then its value right-aligned under it, both in view");
+    check(text_as_s(230 - (int)strlen(ls_27()) * 8, BODY_Y + 23, ls_27(), C_LGREY) && strlen(NAMES[2]) + 2 + strlen(ls_27()) == 27,
+          "a property of 27 characters (LENGTH  NINETEEN CHARACTERS): one line, its value on its name's line");
+    shot("lists_s_props_bottom");
+    turn(K_SELECT, -11);
+    check(text_as_s(10, BODY_Y + 23, NAMES[0], C_WHITE) && text_as_s(10, BODY_Y + 23 + 16 * 10, NAMES[10], C_CYAN) &&
+          count_px(4, BODY_Y + 2 + 11 * 16 + 23, 236, BODY_Y + 2 + 11 * 16 + 24, C_LGREY) > 200,
+          "the first selected: the first row on top, 11 rows of one line in view (the last row below them), the panel as tall");
+    tap(B_HOME);
+    /* the panel's height the rows' lines (at most those in view) however it scrolls: rows of 2 then 10 of one line (12
+     * lines), the last selected: the first row out of view, 10 lines shown, the panel still 11 lines tall */
+    static ui_prop_t P2[11];
+    for (int i = 0; i < 11; i++) { P2[i] = P[i + 1]; P2[i].get = i ? ls_one : ls_long; }
+    P2[0].name = P[11].name;
+    ui_props("SOME PROPERTIES", P2, 11, B_GLO);
+    turn(K_SELECT, 10);
+    check(text_as_s(10, BODY_Y + 23 + 16 * 9, NAMES[11], C_WHITE) && count_px(4, 218, 236, 219, C_LGREY) > 200 &&
+          count_px(4, 202, 236, 203, C_LGREY) < 100,
+          "a two-line row scrolled out of view at the list's end: the panel keeps its 11 lines (its foot at 218, not 202)");
+    shot("lists_s_props_end");
+    tap(B_HOME);
+    /* FX's KEYS, EVERYWHERE on MIDNIGHT RUN's setup, the song played last (ROUTING, then it: the last row; the playground's
+     * twin plays it first), KEYS THROUGH FX (16 + 2 + 10: past 27, two lines), under a title of two lines (rows from 56) */
+    int keys_fx = ui_set[S_KEYS_FX];
+    ui_set[S_KEYS_FX] = 0;                              /* (THROUGH FX: its row two lines for certain) */
+    ui_go_name("FX");
+    run(100);
+    tap(B_GLO);
+    int keys_row = text_as_s(10, BODY_Y + 39, "TEMPO", C_WHITE) ? 3 : 1;    /* (THE KEYS' would have TEMPO, SWING first) */
+    turn(K_SELECT, keys_row);
+    snprintf(msg, sizeof msg, "FX's properties for MIDNIGHT RUN: KEYS, EVERYWHERE selected, the last row (%d of 1): its name, then "
+             "THROUGH FX right-aligned under it", keys_row);
+    check(keys_row == 1 && ui_top() && ui_top()->kind == OV_PROPS && text_as_s(8, BODY_Y + 5, "FX PROPERTIES FOR", C_CYAN) &&
+          text_as_s(8, BODY_Y + 21, "MIDNIGHT RUN", C_WHITE) && text_as_s(10, BODY_Y + 39 + 16 * keys_row, "KEYS, EVERYWHERE", C_WHITE) &&
+          text_as_s(230 - 10 * 8, BODY_Y + 39 + 16 * (keys_row + 1), "THROUGH FX", C_WHITE), msg);
+    shot("lists_s_fx_props");
+    tap(B_GLO);
+    ui_set[S_KEYS_FX] = (int16_t)keys_fx;
+
+    /* the hold layers: in S when every line fits (SAVE's: 2 lines, the panel at 167, 58 high; a name being typed: its one
+     * line of 28, `SELECT IN A NAME: NEXT GROUP`), else wholly in T (SEL's on the EDITOR's grid, `SELECT, ALGORITHM: MARK A
+     * BLOCK` 31, and on INSTRUMENTS browsing, `SELECT, ALGORITHM: MARK SLOTS` 29); the keys whole (SELECT, AL and SELECT IN
+     * before) */
+    ui_go_name("STATUS");
+    run(100);
+    press(B_SAVE);
+    run((uint32_t)hold);
+    check(text_as_s(8, 167 + 5, "HOLD ", C_CYAN) && text_as_s(8, 167 + 21, "OCT+", C_YELLOW) && text_as_s(8, 167 + 37, "OCT-", C_YELLOW) &&
+          text_as_s(40, 167 + 37, ": REVERT ALL", C_LGREY), "SAVE held: its layer in S (2 lines: the panel at 167, 58 high), OCT+: SAVE, "
+          "OCT-: REVERT ALL");
+    shot("lists_s_save_layer");
+    release(B_SAVE);
+    run(200);
+    ui_text_entry("A NAME", "ABC", 10, B_EDIT, ls_named);
+    press(B_SEL);
+    run((uint32_t)hold);
+    check(ui_top() && ui_top()->kind == OV_TEXT && text_as_s(8, 183 + 21, "SELECT IN A NAME", C_YELLOW) &&
+          text_as_s(8 + 16 * 8, 183 + 21, ": NEXT GROUP", C_LGREY),
+          "SEL held in a name being typed: its one line of 28 characters, SELECT IN A NAME: NEXT GROUP, in S (the panel at 183)");
+    shot("lists_s_name_sel_layer");
+    release(B_SEL);
+    run(200);
+    tap(B_HOME);                                        /* (the name: nothing made) */
+    ui_go_name("EDITOR");
+    run(100);
+    press(B_SEL);
+    run((uint32_t)hold);
+    int whole = 0;
+    for (int n = 3; n <= 4; n++) {                      /* (in T: the first line of a layer of n at 225 - (12 n + 26) + 19) */
+        int at = 225 - (12 * n + 26) + 19;
+        whole |= text_as(8, at, "SELECT, ALGORITHM", C_YELLOW) && text_as(8 + 17 * 6, at, ": MARK A BLOCK", C_LGREY);
+    }
+    check(whole, "SEL held on the EDITOR's grid: its layer in T (a line past 28 characters), SELECT, ALGORITHM: MARK A BLOCK whole");
+    shot("lists_s_editor_sel_layer");
+    release(B_SEL);
+    run(200);
+    ui_go_name("INSTRUMENTS");
+    run(100);
+    press(B_SEL);
+    run((uint32_t)hold);
+    whole = 0;
+    for (int n = 3; n <= 4; n++) {
+        int at = 225 - (12 * n + 26) + 19;
+        whole |= text_as(8, at, "SELECT, ALGORITHM", C_YELLOW) && text_as(8 + 17 * 6, at, ": MARK SLOTS", C_LGREY);
+    }
+    check(whole, "SEL held on INSTRUMENTS browsing: a line of 29 characters, SELECT, ALGORITHM: MARK SLOTS, sends the layer to T");
+    shot("lists_s_instr_sel_layer");
+    release(B_SEL);
+    run(200);
+
+    /* the cartridge list: the names in S (rows 2-11), the figures in T on their baseline (2 px lower: rows 4-11); measured
+     * on F0 KEYS/ORGANS's line (capitals and a slash: nothing below S's row 11) */
+    tap(B_ENV);
+    turn(K_SELECT, -40);                                /* (the first line highlighted) */
+    uint8_t cs[256];
+    int nc = ui_carts(cs, 256), f0 = -1;
+    for (int i = 0; i < nc; i++) if (cs[i] == 0xF0) f0 = i;
+    int ry = BODY_Y + 34 + 16 * f0, nl, tl, sl, nf = ink_rows(32, 128, ry, ry + 16, &nl), tf = ink_rows(134, 190, ry, ry + 16, &tl);
+    int sf = ink_rows(192, 234, ry, ry + 16, &sl);
+    snprintf(msg, sizeof msg, "the cartridge list: F0's line (%d), its name in S (rows 2-11), its type and slots in T ending on the "
+             "same row, its baseline (%d,%d / %d,%d / %d,%d)", f0, nf, nl, tf, tl, sf, sl);
+    check(list_on() && f0 > 0 && f0 < 10 && text_as_s(32, ry, "KEYS/ORGANS", C_LGREY) && nl == tl && tl == sl && nl - nf == 9 &&
+          tl - tf == 7 && nf == ry + 2, msg);
+    shot("lists_s_cartridges");
+    tap(B_HOME);
+
+    /* the song list (ENV on STATUS): 18 songs, 10 in view; the last highlighted, the first shown the ninth; the name in S at
+     * 32, the tempo in T right-aligned to 196, 2 px lower; the highlight on line 9 */
+    uint8_t sn[256];
+    ui_song_t s;
+    int ns = ui_songs(sn, 256);
+    ui_go_name("STATUS");
+    run(100);
+    tap(B_ENV);
+    turn(K_SELECT, 40);
+    char last[20], ninth[20], bpm[8];
+    ui_song(sn[ns - 1], &s);
+    snprintf(last, sizeof last, "%s", s.name);
+    snprintf(bpm, sizeof bpm, "%d", ui_song_bpm(&s));
+    ui_song(sn[ns - 10], &s);
+    snprintf(ninth, sizeof ninth, "%s", s.name);
+    snprintf(msg, sizeof msg, "the song list, its last of %d highlighted: %s at the bottom (its tempo %s in T), %s first, the bar on line 9",
+             ns, last, bpm, ninth);
+    check(list_on() && ns == 18 && text_as_s(32, BODY_Y + 34 + 16 * 9, last, C_WHITE) &&
+          text_as(196 - (int)strlen(bpm) * 6, BODY_Y + 34 + 16 * 9 + 2, bpm, C_WHITE) && text_as_s(32, BODY_Y + 34, ninth, C_LGREY) &&
+          count_px(4, BODY_Y + 33 + 16 * 9, 236, BODY_Y + 34 + 16 * 9, C_WHITE) > 200, msg);
+    shot("lists_s_song_list");
+    tap(B_HOME);
+    /* a song past 99:59: its TIME in hours and minutes (the first song made long: TEMPO 3, 12 ticks a row) */
+    uint32_t len;
+    uint8_t ver, rec[300], rec0[300];                  /* (rec0: the song as it was, an edit it had put back after) */
+    const uint8_t *p = store_get(REC_SONG, sn[0], 0, &len, &ver);
+    int was = store_edit_has(REC_SONG, sn[0], 0);
+    char t[12];
+    if (p && len <= sizeof rec) {
+        memcpy(rec, p, len);
+        memcpy(rec0, p, len);
+        rec[12] = 3; rec[13] = 0; rec[14] = 12;
+        ui_edit_put(REC_SONG, sn[0], 0, ver, rec, len);
+    }
+    ui_song(sn[0], &s);
+    ui_fmt_list_time(t, ui_song_secs(&s));
+    tap(B_ENV);
+    turn(K_SELECT, -40);
+    snprintf(msg, sizeof msg, "a song of %u s in the list: its TIME %s, hours and minutes, whole at 202", ui_song_secs(&s), t);
+    check(list_on() && ui_song_secs(&s) >= 6000 && strchr(t, 'H') && strlen(t) <= 5 && text_as(202, BODY_Y + 36, t, C_WHITE), msg);
+    shot("lists_s_song_long");
+    tap(B_HOME);
+    if (!was) ui_edit_revert(REC_SONG, sn[0], 0);
+    else if (p && len <= sizeof rec) ui_edit_put(REC_SONG, sn[0], 0, ver, rec0, len);   /* (its edit as it was, as the
+                                                         * playground puts the two values back) */
+    char a[12], b[12], c[12], d[12], e[12];
+    ui_fmt_list_time(a, 5999); ui_fmt_list_time(b, 6000); ui_fmt_list_time(c, 6060);
+    ui_fmt_list_time(d, 359999); ui_fmt_list_time(e, 360000);
+    snprintf(msg, sizeof msg, "the list's TIME: 5999 s %s, 6000 %s, 6060 %s, 359999 %s, 360000 %s", a, b, c, d, e);
+    check(!strcmp(a, "99:59") && !strcmp(b, "1H40") && !strcmp(c, "1H41") && !strcmp(d, "99H59") && !strcmp(e, "99H+"), msg);
+}
+
+/* LOOPS' sets (specs/ui/screens/loops.md#sets), as tests/playground/loops.js checks them: STORE AS A SET in the menu,
+ * LOAD A SET only while a set exists; the sets' list (its title, heads, a line's number, name, loops and `4.5` bars, its
+ * last line), STORE's NEW at the first free number and its question over a set (NO nothing, YES the set replaced, its
+ * name kept); LOAD's PLAY doing nothing, EDIT renaming, LFO deleting after its question (KEEP); LOAD over loops asking,
+ * YES: the set's loops, mutes, solos, length and tempo, NEW its defaults, the loops stopped at their start, the stage
+ * fitted to the set's length; LOOPS' REVERT undoing a load; a load while a song records: the loops silent at their start,
+ * PLAY bringing them on; the set's loops counted as an instrument's uses. Its sets are dropped again (edits alone) */
+static int lset_word(uint8_t num, int at)  /* set num's 16-bit word: its LOOPS head's at `at` (0 TEMPO), -1 its solos; -1 none */
+{
+    rec_loops_t l;
+    const uint8_t *pre;
+    if (rec_lset(num, &l, 0, &pre)) return -1;
+    return at < 0 ? pre[12] | pre[13] << 8 : l.head[at] | l.head[at + 1] << 8;
+}
+static void test_loops_sets(void)
+{
+    char msg[300], t[48];
+    uint8_t nums[256];
+    lp_set_t s;
+    player_state_t st, s2;
+    static const lpc_t a[2] = {{0, 0, 60}, {4, 0, REC_NOTE_OFF}}, b[1] = {{8, 1, 67}};
+    lp_fresh(72, 120);                                  /* (72 rows: 4.5 bars of 16) */
+    lp_add(ui_cur.inst, 72, 1, 0, 0, a, 2);
+    lp_add(ui_cur.inst, 16, 2, 0, 3, b, 1);
+    ui_edit_loops(loops_set_muted(0, 1), ui_edit_used());
+    ui_edit_loops(loops_set_soloed(1, 1), ui_edit_used());
+    loops_changed(1);
+    run(30);
+    check(!loops_sets(nums, 256), "(the demo disk holds no LOOPS set)");
+    check(menu_has("STORE AS A SET") && !menu_has("LOAD A SET"), "LOOPS' menu: STORE AS A SET; LOAD A SET not listed while no set exists");
+    int f = loops_set_free(), uses = ed_inst_uses(ui_cur.inst);
+    menu_pick("STORE AS A SET");
+    check(ui_top() && ui_top()->kind == OV_LIST && text_as_s(6, 22, "STORE THE LOOPS AS", C_CYAN) && text_as_s(8, 51, "NEW", C_WHITE) &&
+          text_as(8, 38, "NR", C_DGREY) && text_as(32, 38, "NAME", C_DGREY) && text_as(160, 38, "LOOPS", C_DGREY) &&
+          text_as(202, 38, "BARS", C_DGREY) && text_as(8, 211, "EDIT", C_YELLOW) && text_as(32, 211, ": RENAME  ", C_LGREY) &&
+          text_as(92, 211, "LFO", C_YELLOW) && text_as(110, 211, ": DELETE", C_LGREY),
+          "LOOPS: STORE AS A SET: the sets' list, titled STORE THE LOOPS AS (S), NEW first and picked, its heads NR NAME LOOPS BARS "
+          "(T) and its last line EDIT: RENAME  LFO: DELETE");
+    shot("ui3_loops_sets_store");
+    tap(B_SEL);
+    snprintf(t, sizeof t, "LOOPS STORED AS SET %02X", f);
+    snprintf(msg, sizeof msg, "LOOPS: ... SEL on NEW: the first free number (%02X), named LOOPS %02X, 2 loops, 72 rows, the solo of loop 01; "
+             "the loops as they were (%s)", f, f, ui_toast_now() ? ui_toast_now() : "-");
+    {
+        char nm[20];
+        snprintf(nm, sizeof nm, "LOOPS %02X", f);
+        check(!ui_top() && loops_set_info((uint8_t)f, &s) && !strcmp(s.name, nm) && s.n == 2 && s.rows == 72 && s.bar == 16 &&
+              lset_word((uint8_t)f, -1) == 2 && lp_toast(t) && loops_n() == 2 && loops_soloed(1) && loops_muted(0), msg);
+    }
+    snprintf(msg, sizeof msg, "LOOPS: ... the set's 2 loops counted among the instrument's uses (%d, before %d)", ed_inst_uses(ui_cur.inst),
+             uses);
+    check(ed_inst_uses(ui_cur.inst) == uses + 2, msg);
+    check(menu_has("LOAD A SET"), "LOOPS' menu: LOAD A SET listed once a set exists");
+    {
+        char it[400], m2[640];
+        tap(B_SEL);
+        menu_items(it, sizeof it);
+        tap(B_HOME);
+        snprintf(m2, sizeof m2, "LOOPS' menu: ... the sets' two before SAVE TO / LOAD FROM PATTERN: STORE AS A SET, LOAD A SET, SAVE TO "
+                 "PATTERN, LOAD FROM PATTERN (%s)", it);
+        check(strstr(it, ",STORE AS A SET,LOAD A SET,SAVE TO PATTERN,LOAD FROM PATTERN,") != NULL, m2);
+    }
+    /* STORE onto the set: asks first; NO: nothing; YES: replaced, its name kept */
+    ui_edit_loops(loops_set_tempo(130), ui_edit_used());
+    menu_pick("STORE AS A SET");
+    turn(K_SELECT, 1);                                  /* (the set's line, after NEW) */
+    tap(B_SEL);
+    snprintf(t, sizeof t, "SET %02X HOLDS LOOPS", f);
+    check(!strcmp(asking(), t), "LOOPS: STORE AS A SET onto a set: asks first (SET .. HOLDS LOOPS / REPLACE IT WITH THESE?)");
+    tap(B_OCTM);
+    check(!ui_top() && lset_word((uint8_t)f, 0) == 120, "LOOPS: ... NO: nothing stored");
+    menu_pick("STORE AS A SET");
+    turn(K_SELECT, 1);
+    tap(B_SEL);
+    tap(B_OCTP);
+    snprintf(t, sizeof t, "LOOPS %02X", f);
+    check(loops_set_info((uint8_t)f, &s) && lset_word((uint8_t)f, 0) == 130 && !strcmp(s.name, t), "LOOPS: ... YES: the set replaced "
+          "(TEMPO 130), its name kept");
+    /* two sets more, after it (the list as the manual shows it): SUNDAY JAM, 1 loop over 2 bars; RAINY DAY, 3 over 4 */
+    {
+        static const lpc_t one[1] = {{0, 0, 64}};
+        uint8_t nm[12];
+        lp_fresh(32, 120);
+        lp_add(ui_cur.inst, 32, 1, 0, 0, one, 1);
+        memset(nm, 0, sizeof nm);
+        ui_put_name6(nm, 0, 16, "SUNDAY JAM");
+        int ok = loops_set_store((uint8_t)(f + 1), nm) == LP_OK;
+        lp_fresh(64, 120);
+        for (int i = 0; i < 3; i++) lp_add(ui_cur.inst, 16, 4, 0, 0, one, 1);
+        memset(nm, 0, sizeof nm);
+        ui_put_name6(nm, 0, 16, "RAINY DAY");
+        ok = ok && loops_set_store((uint8_t)(f + 2), nm) == LP_OK;
+        check(ok && loops_sets(nums, 256) == 3, "(two sets more: SUNDAY JAM, RAINY DAY)");
+    }
+    /* LOAD A SET's list: the set's line; PLAY nothing; EDIT renames; LFO deletes after its question */
+    menu_pick("LOAD A SET");
+    char nr[4];
+    snprintf(nr, sizeof nr, "%02X", f);
+    check(ui_top() && ui_top()->kind == OV_LIST && text_as_s(6, 22, "LOAD INTO LOOPS", C_CYAN) && text_as_s(8, 51, nr, C_WHITE) &&
+          text_as_s(32, 51, t, C_WHITE) && text_as(184, 53, "2", C_CYAN) && text_as(202, 53, "4.5", C_CYAN),
+          "LOOPS: LOAD A SET: the list titled LOAD INTO LOOPS, on the set: its number and name (S), 2 loops, 4.5 bars (T, on the name's "
+          "baseline)");
+    shot("ui3_loops_sets_load");
+    player_state(&st, 0);
+    press(B_PLAY); release(B_PLAY); run(60);
+    player_state(&s2, 0);
+    check(ui_top() && ui_top()->kind == OV_LIST && s2.playing == st.playing && s2.what == st.what, "LOOPS: ... PLAY does nothing there");
+    tap(B_EDIT);
+    snprintf(t, sizeof t, "SET %02X", f);
+    check(ui_top() && ui_top()->kind == OV_TEXT && text_as(14, 64, t, C_CYAN), "LOOPS: ... EDIT: the text entry, titled SET ..");
+    turn(K_SELECT, 1);                                  /* (L to M) */
+    tap(B_EDIT);
+    snprintf(t, sizeof t, "MOOPS %02X", f);
+    check(loops_set_info((uint8_t)f, &s) && !strcmp(s.name, t) && ui_top() && ui_top()->kind == OV_LIST, "LOOPS: ... renamed (MOOPS ..), "
+          "the list again");
+    tap(B_LFO);
+    snprintf(t, sizeof t, "DELETE SET %02X?", f);
+    check(!strcmp(asking(), t), "LOOPS: ... LFO: asks first (DELETE SET ..?)");
+    shot("ui3_loops_sets_delete");
+    tap(B_OCTM);
+    check(loops_set_info((uint8_t)f, &s) && ui_top() && ui_top()->kind == OV_LIST, "LOOPS: ... KEEP: the set kept");
+    tap(B_HOME);
+    check(!ui_top(), "LOOPS: ... HOME closes the list");
+    /* LOAD over loops, the loops playing, NEW turned, notes on the stage past the set's length */
+    lp_fresh(128, 100);
+    static const lpc_t c1[1] = {{0, 0, 72}}, sg[2] = {{2, 0, 50}, {100, 0, 52}};
+    lp_add(ui_cur.inst, 128, 1, 0, 0, c1, 1);
+    sg_put(sg, 2, 0);
+    loops_set_mix(loops_n(), RM_LEVEL, 0x22);
+    tap(B_PLAY);
+    run(400);
+    menu_pick("LOAD A SET");
+    tap(B_SEL);
+    check(!strcmp(asking(), "REPLACE THE LOOPS"), "LOOPS: LOAD A SET over loops: asks first (REPLACE THE LOOPS / WITH SET ..?)");
+    tap(B_OCTP);
+    player_state(&st, 0);
+    snprintf(t, sizeof t, "SET %02X LOADED", f);
+    snprintf(msg, sizeof msg, "LOOPS: ... YES: the set's 2 loops, 72 rows, TEMPO 130, loop 00 muted, 01 soloed, NEW the set's defaults; "
+             "the loops stopped at their start (%s; playing %d, at %d)", ui_toast_now() ? ui_toast_now() : "-", st.playing, lp_cur(5));
+    check(lp_toast(t) && loops_n() == 2 && loops_rows() == 72 && loops_tempo() == 130 && loops_muted(0) && loops_soloed(1) &&
+          !(st.what == PL_LOOPS && st.playing) && !lp_cur(5) && !memcmp(loops_mix(2), loops_new_def(), RM_N), msg);
+    check(sg_is_note(2, 0) && sg_note(100, 0) < 0, "LOOPS: ... the stage stays, fitted to the set's length (its note at row 100 cut)");
+    sg_empty();
+    tap(B_SEL); check(menu_to("REVERT"), "LOOPS' menu after a load: REVERT"); tap(B_SEL);
+    tap(B_OCTP);
+    check(!loops_n() && loops_set_info((uint8_t)f, &s), "LOOPS: ... REVERT: the load undone (LOOPS as saved), the set kept");
+    /* a load while a song records: its time runs on, the loops silent at their start, PLAY bringing them on */
+    static const lpc_t one[2] = {{0, 0, 60}, {2, 0, REC_NOTE_OFF}};
+    int n = lv_start(one, 2, 0, 0, 0, 0, 0);
+    lv_at(4, 0);
+    menu_pick("LOAD A SET");
+    tap(B_SEL);
+    tap(B_OCTP);
+    run(200);
+    player_state(&st, 0);
+    snprintf(msg, sizeof msg, "LOOPS: a load while a song records: the song goes on, the loops silent (rest %d)", st.lp_rest);
+    check((lp_cur(3) & 64) && loops_n() == 2 && st.lp_rest, msg);
+    press(B_PLAY); release(B_PLAY); run(1500);
+    player_state(&st, 0);
+    snprintf(msg, sizeof msg, "LOOPS: ... PLAY brings them on (rest %d)", st.lp_rest);
+    check((lp_cur(3) & 64) && !st.lp_rest, msg);
+    tap(B_HOME);
+    lv_until(lv_ended);
+    lv_drop(n);
+    lp_none();
+    for (int i = 0; i < 3; i++) ui_edit_revert(REC_LSET, (uint8_t)(f + i), 0);
+    check(!loops_sets(nums, 256), "(the sets dropped again)");
+}
+/* the edit memory filled with edits of a kind nothing reads (0x7E), to `left` bytes or fewer; the count put */
+static int junk_fill(uint32_t left)
+{
+    static uint8_t j[3000];
+    int k = 0;
+    while (k < 256 && store_edit_room() > left) {
+        uint32_t r = store_edit_room(), n = r - left > 3000u + 16u ? 3000u : r - left > 24u ? r - left - 16u : 4u;
+        memset(j, k + 1, sizeof j);
+        if (store_edit_put(0x7E, (uint8_t)k, 0, 1, j, n) != STORE_OK) break;
+        k++;
+    }
+    return k;
+}
+static void junk_drop(int k) { while (k--) store_edit_forget(0x7E, (uint8_t)k, 0); ui_unsaved_refresh(); }
+/* UPDATE REFERENCES? YES with the edit memory nearly full (specs/ui/saving.md#references): a slot's MOVE, a SWAP, a
+ * cartridge's MOVE and its DELETE, each through the instruments screen, refused whole (MEMORY FOR EDITS IS FULL):
+ * no slot, pattern, favourite or loop changed, nothing saved */
+static void test_refs_full(void)
+{
+    static const struct { const char *what, *item; int list, dir; } W[4] = {
+        {"a slot's MOVE", "MOVE", 0, 1}, {"a SWAP", "SWAP", 0, 1}, {"a cartridge's MOVE", "MOVE", 1, 1}, {"a cartridge's DELETE", "DELETE", 1, 0}};
+    char msg[300];
+    uint8_t s0[128] = {0}, s1[128] = {0}, t0[128] = {0}, t1[128] = {0};
+    int u0 = ed_inst_uses(0xA000), u1 = ed_inst_uses(0xA001);
+    ins_slot_bytes(0xA0, 0, s0);
+    ins_slot_bytes(0xA0, 1, s1);
+    int k = junk_fill(300), ec = store_edit_count();
+    uint32_t sv = store_last_save(), left = store_edit_room();
+    for (int i = 0; i < 4; i++) {
+        ui_set_inst(0xA000);
+        home_key(5);
+        if (W[i].list) { tap(B_ENV); run(300); }        /* (the cartridge list, at A0) */
+        tap(B_SEL); run(300);
+        int item = menu_to(W[i].item);
+        tap(B_SEL); run(300);
+        if (W[i].dir) { turn(K_SELECT, W[i].dir); tap(B_SEL); run(300); }   /* (put down: the question) */
+        int asked = ui_top() && ui_top()->kind == OV_QUESTION;
+        tap(B_OCTP);                                    /* YES */
+        run(2000);
+        snprintf(msg, sizeof msg, "UPDATE REFERENCES? YES, the edit memory nearly full (%u B left): %s of A0:00 refused whole (%s): "
+                 "nothing changed, nothing saved (item %d, asked %d, edits %d of %d, saves %u of %u)", left, W[i].what, asking(), item,
+                 asked, store_edit_count(), ec, store_last_save(), sv);
+        check(item && asked && !strcmp(asking(), "MEMORY FOR EDITS IS FULL") && store_edit_count() == ec && store_last_save() == sv &&
+              ins_slot_bytes(0xA0, 0, t0) && !memcmp(t0, s0, sizeof s0) && ins_slot_bytes(0xA0, 1, t1) && !memcmp(t1, s1, sizeof s1) &&
+              ed_inst_uses(0xA000) == u0 && ed_inst_uses(0xA001) == u1, msg);
+        for (int j = 0; j < 5 && ui_top(); j++) tap(B_HOME);
+    }
+    junk_drop(k);
+    home_key(1);
+}
+static void keep_fn(int t, int r, rec_cell_t *c, void *a) { (void)t; (void)r; (void)c; (void)a; }
+/* a MOVE answered YES of an instrument many patterns play goes through when the tracks that name it fit, though the
+ * whole patterns would not: the edit memory left between the two (the junk saved with it, then deleted again) */
+static void test_refs_fits(void)
+{
+    char msg[300];
+    uint8_t nums[256], s[128];
+    const uint16_t ref = 0xA000;
+    uint32_t whole = 0;
+    int n = store_list(REC_PATTERN, nums, 256), fr = 1, u0 = ed_inst_uses(ref), np = 0;
+    while (fr < 64 && ins_slot_bytes(0xA0, fr, s)) fr++;
+    for (int i = 0; i < n; i++) {                       /* (the whole patterns that name it: the room rewriting each one whole would take) */
+        rec_pat_t p;
+        int hit = 0;
+        if (rec_pattern(nums[i], &p)) continue;
+        for (int t = 0; t < p.ntrk && !hit; t++) {
+            rec_cur_t cur;
+            rec_cell_t c;
+            if (!p.trk[t]) continue;
+            rec_cur_set(&cur, p.trk[t]);
+            for (int r = 0; r < p.rows && !hit; r++) hit = rec_cur_at(&cur, r, &c) && (c.has & RC_INS) && (c.cart << 8 | c.slot) == ref;
+        }
+        if (!hit) continue;
+        np++;
+        ed_need = &whole;
+        ed_rewrite(nums[i], 0, 15, keep_fn, 0, -1, -1, -1);
+        ed_need = 0;
+    }
+    uint32_t need = ed_remap_need(ref, 0xA000 | fr, 0, 0) + ins_put_need(0xA0, 0) + ins_put_need(0xA0, fr);
+    int k = junk_fill(whole - 1024u);
+    uint32_t left = store_edit_room();
+    int ok = refs_swap_as(0xA0, 0, "MOVE, the tracks that name it fitting", "MOVE", 1);
+    snprintf(msg, sizeof msg, "UPDATE REFERENCES? YES, %d patterns playing A0:00: the change takes %u B (the tracks naming it), the "
+             "whole patterns %u, %u left: the MOVE goes through (moved %d, uses there %d of %d)", np, need, whole, left,
+             !ins_slot_bytes(0xA0, 0, s), ed_inst_uses((uint16_t)(0xA000 | fr)), u0);
+    check(np > 1 && need + 512u < left && left < whole && ok && !ins_slot_bytes(0xA0, 0, s) && ed_inst_uses((uint16_t)(0xA000 | fr)) == u0, msg);
+    if (store_save_begin() == STORE_OK) {               /* (the junk the save wrote deleted again) */
+        while (k--) store_save_del(0x7E, (uint8_t)k, 0);
+        store_save_run();
+    }
+    player_store_changed();
+    refs_swap_as(0xA0, fr, "MOVE back", "MOVE", -1);
+    check(ins_slot_bytes(0xA0, 0, s) && ed_inst_uses(ref) == u0 && !store_get(0x7E, 0, 0, 0, 0), "... and back, the junk gone");
+}
+/* The list of records full (specs/ui/saving.md#storage-full, specs/files/store.md#the-list-of-records): the store listing
+ * its 560, a cartridge's MOVE answered YES (its new number a record more, the old one's deletion unable to go first) is
+ * refused whole: TOO MANY RECORDS TO SAVE, 1 MORE THAN THE FM-1 LISTS, the edits kept, nothing written; SAVE asks the
+ * same; two records deleted (a save of their own), SAVE writes it all, one of them reclaimed (the save is 1 over; the
+ * other's the newest save's last record). The flash put back after (junk records of kind 0x7E fill it). */
+static int deleted_listed(void)
+{
+    store_rec_t r;
+    int n = 0;
+    for (int i = 0; store_entry(i, &r, 0, 0); i++) n += r.deleted;
+    return n;
+}
+static int cart_at(uint8_t num) { uint8_t cs[256]; int n = ui_carts(cs, 256); for (int i = 0; i < n; i++) if (cs[i] == num) return i; return -1; }
+static void test_save_list(void)
+{
+    char msg[300];
+    static const uint8_t j[16] = {1};
+    int k = 0, ec = store_edit_count();
+    memcpy(snap, flash, sizeof snap);
+    while ((store_count() < STORE_MAP_MAX || deleted_listed()) && k < 3000) {   /* (to 560, none of them deleted) */
+        int n = store_count() < STORE_MAP_MAX ? STORE_MAP_MAX - store_count() : 1, r = store_save_begin();
+        if (n > 100) n = 100;
+        for (int i = 0; i < n && !r; i++, k++) r = store_save_put(0x7E, (uint8_t)(0x40 + (k >> 4)), (uint8_t)(k & 15), 1, j, sizeof j);
+        if (r || store_save_run() != STORE_OK) { store_save_cancel(); break; }
+    }
+    player_store_changed();
+    int full = store_count() == STORE_MAP_MAX && !deleted_listed();
+    uint32_t sv = store_last_save();
+    static uint8_t before[1 << 20];
+    memcpy(before, flash, sizeof before);
+    ui_set_inst(0xA000);
+    home_key(5);
+    tap(B_ENV); run(300);                               /* (the cartridge list, at A0) */
+    tap(B_SEL); run(300);
+    int item = menu_to("MOVE");
+    tap(B_SEL); run(300);
+    turn(K_SELECT, 1); tap(B_SEL); run(300);            /* (put down: the question) */
+    int asked = ui_top() && ui_top()->kind == OV_QUESTION;
+    tap(B_OCTP);                                        /* YES */
+    run(2000);
+    int to = -1;
+    for (int c = 0xA1; c < 0xF0 && to < 0; c++) if (cart_at((uint8_t)c) >= 0 && ins_kind((uint8_t)c) == REC_SAMPLER &&
+                                                       store_edit_obj(ins_kind((uint8_t)c), (uint8_t)c)) to = c;
+    snprintf(msg, sizeof msg, "the store listing 560 (%d, full %d): a cartridge's MOVE answered YES (to %02X) refused whole: %s, "
+             "the edits kept (%d, %d before), nothing written (saves %u of %u)", store_count(), full, to, asking(), store_edit_count(),
+             ec, store_last_save(), sv);
+    check(full && item && asked && to > 0 && !strcmp(asking(), "TOO MANY RECORDS TO SAVE") && store_save_over() == 1 &&
+          store_edit_count() > ec && store_last_save() == sv && !memcmp(before, flash, sizeof before), msg);
+    shot("ui3_save_list");
+    tap(B_HOME); run(100);                              /* (BACK) */
+    tap(B_SAVE); run(1000);
+    check(!strcmp(asking(), "TOO MANY RECORDS TO SAVE") && store_save_over() == 1 && store_last_save() == sv &&
+          !memcmp(before, flash, sizeof before), "... SAVE asks the same, nothing written");
+    tap(B_HOME); run(100);
+    int ok = store_save_begin() == STORE_OK && store_save_del(0x7E, 0x40, 0) == STORE_OK && store_save_del(0x7E, 0x40, 1) == STORE_OK &&
+             store_save_run() == STORE_OK;
+    player_store_changed();
+    tap(B_SAVE); run(4000);
+    snprintf(msg, sizeof msg, "two records deleted (%d): then SAVE writes it (asking %s, on top %d), one deletion reclaimed, as many "
+             "as it was over (%d listed, %d of them deleted: the other's, and A0's, this save's own), the cartridge at %02X", ok, asking(),
+             ui_top() ? ui_top()->kind : 0, store_count(), deleted_listed(), to);
+    check(ok && !*asking() && !store_edit_count() && store_count() == STORE_MAP_MAX && deleted_listed() == 2 && to > 0 &&
+          store_get(REC_SAMPLER, (uint8_t)to, 0, 0, 0) && !store_get(REC_SAMPLER, 0xA0, 0, 0, 0), msg);
+    tap(B_HOME);
+    memcpy(flash, snap, sizeof snap);                   /* (the flash as it was: the junk gone, the cartridge at A0) */
+    store_mount();
+    player_store_changed();
+    ui_set_inst(0xA000);
+    run(100);
+    check(ec == 0 && ins_kind(0xA0) == REC_SAMPLER && !store_get(0x7E, 0x40, 2, 0, 0) && store_count() < STORE_MAP_MAX,
+          "(the flash put back: nothing unsaved before, the cartridge at A0, no junk)");
+    home_key(1);
+}
+/* LOOPS' sets further (specs/ui/screens/loops.md#sets): a set deleted through its question (SET .. DELETED, LOAD's list
+ * closed with the last); all 240 numbers holding sets (ALL 240 SETS USED); a set made elsewhere in 17 parts renamed:
+ * refused (THE LOOPS ARE TOO BIG FOR A SET), nothing lost, a MOVE leaving it as it is; the edit memory full: STORE
+ * refused (MEMORY FOR EDITS IS FULL), a LOAD refused leaving LOOPS as it was, playing on; a MOVE with the edit memory
+ * nearly full: every set's loops follow, or none; CHECK STORAGE naming a set SET 03 */
+static void test_loops_sets_more(void)
+{
+    char msg[300], t[48];
+    uint8_t nums[256], nm[12] = {0};
+    lp_set_t s;
+    static const lpc_t a[1] = {{0, 0, 60}};
+    const uint16_t in = 0xEE00;                         /* (an instrument no pattern or favourite names: a MOVE of it reaches
+                                                         * the loops alone) */
+    /* 240 sets (no loops: a set's least) */
+    lp_fresh(16, 120);
+    int stored = 0;
+    for (int i = 0; i <= LP_SET_LAST; i++) stored += loops_set_store((uint8_t)i, nm) == LP_OK;
+    menu_pick("STORE AS A SET");
+    tap(B_SEL);                                         /* NEW */
+    snprintf(msg, sizeof msg, "LOOPS: STORE AS A SET, all 240 numbers holding sets: refused, ALL 240 SETS USED (%d stored, %s)", stored,
+             ui_toast_now() ? ui_toast_now() : "-");
+    check(stored == 240 && loops_set_free() < 0 && lp_toast("ALL 240 SETS USED") && refused(B_SEL) && !ui_top(), msg);
+    for (int i = 0; i <= LP_SET_LAST; i++) ui_edit_revert(REC_LSET, (uint8_t)i, 0);
+    /* a set deleted through its question; LOAD's list closes with the last set */
+    lp_add(in, 16, 1, 0, 0, a, 1);
+    loops_changed(1);
+    run(30);
+    int f = loops_set_free();
+    menu_pick("STORE AS A SET");
+    tap(B_SEL);
+    menu_pick("LOAD A SET");
+    tap(B_LFO);
+    tap(B_OCTP);                                        /* DELETE */
+    snprintf(t, sizeof t, "SET %02X DELETED", f);
+    snprintf(msg, sizeof msg, "LOOPS: a set deleted through its question: %s, LOAD's list closed with its last set (%s)", t,
+             ui_toast_now() ? ui_toast_now() : "-");
+    check(lp_toast(t) && !ui_top() && !loops_sets(nums, 256), msg);
+    check(!menu_has("LOAD A SET"), "LOOPS' menu: ... LOAD A SET no longer listed");
+    /* a set made elsewhere in 17 parts (each loop's stream a part of its own, the 16th the 17th part): its rename refused */
+    {
+        static uint8_t p0[16 + 80 + 16 * 12 + 5];
+        rec_loops_t l;
+        uint8_t pk[6] = {16, 15, 0, 0, 0, 0};
+        int rr = !rec_loops(&l, 0);
+        memset(p0, 0, sizeof p0);
+        memcpy(p0, "\x0c\x10\x13\x03", 4);              /* (a name: LOOPS characters, as any 6-bit name) */
+        if (rr) memcpy(p0 + 16, l.head, 80);
+        p0[16 + 5] = 16;
+        p0[16 + 7] = 16;
+        for (int k = 0; k < 16; k++) { uint8_t *e = p0 + 16 + 80 + 12 * k; e[0] = (uint8_t)(in >> 8); e[1] = (uint8_t)in; e[4] = 15; e[5] = 1; }
+        p0[16 + 80 + 192] = 16; p0[16 + 80 + 192 + 1] = 15;
+        int ok = rr && store_save_begin() == STORE_OK && store_save_put(REC_LSET, 9, 0, REC_LSET_VER, p0, sizeof p0) == STORE_OK;
+        for (int k = 0; k < 16 && ok; k++) {
+            pk[3] = (uint8_t)(1u << k); pk[4] = (uint8_t)((1u << k) >> 8);
+            ok = store_save_put(REC_LSET, 9, (uint8_t)(k + 1), REC_LSET_VER, pk, sizeof pk) == STORE_OK;
+        }
+        ok = ok && store_save_run() == STORE_OK;
+        player_store_changed();
+        menu_pick("LOAD A SET");
+        int listed = ui_top() && ui_top()->kind == OV_LIST && loops_set_info(9, &s);
+        char was[17];
+        strcpy(was, listed ? s.name : "");
+        tap(B_EDIT);
+        turn(K_SELECT, 1);
+        tap(B_EDIT);                                    /* (the name changed, given) */
+        snprintf(msg, sizeof msg, "LOOPS: a set made elsewhere in 17 parts (written %d, listed %d): its rename refused, THE LOOPS ARE "
+                 "TOO BIG FOR A SET, nothing changed (%s)", ok, listed, ui_toast_now() ? ui_toast_now() : "-");
+        check(ok && listed && lp_toast("THE LOOPS ARE TOO BIG FOR A SET") && refused(B_EDIT) && !store_edit_has(REC_LSET, 9, 0) &&
+              store_get(REC_LSET, 9, 16, 0, 0) && loops_set_info(9, &s) && !strcmp(s.name, was), msg);
+        for (int i = 0; i < 3 && ui_top(); i++) tap(B_HOME);
+        ed_remap(in, in + 1, 0, 0);
+        check(!store_edit_has(REC_LSET, 9, 0) && store_get(REC_LSET, 9, 16, 0, 0), "LOOPS: ... a MOVE leaves it as it is");
+        ui_edit_loops(loops_revert(), ui_edit_used());
+        store_save_begin();
+        for (int k = 0; k <= 16; k++) store_save_del(REC_LSET, 9, (uint8_t)k);
+        store_save_run();
+        player_store_changed();
+        check(!store_get(REC_LSET, 9, 0, 0, 0) && !store_get(REC_LSET, 9, 16, 0, 0), "(the set deleted again)");
+    }
+    /* the edit memory full: STORE refused; a LOAD refused leaves LOOPS as it was, playing on */
+    lp_fresh(16, 120);
+    lp_add(in, 16, 1, 0, 0, a, 1);
+    loops_changed(1);
+    f = loops_set_free();
+    check(loops_set_store((uint8_t)f, nm) == LP_OK, "(a set stored)");
+    lp_add(in, 16, 1, 0, 0, a, 1);                      /* (two loops now, the set's one) */
+    loops_changed(1);
+    tap(B_PLAY);
+    run(300);
+    int k = junk_fill(8);
+    menu_pick("STORE AS A SET");
+    tap(B_SEL);                                         /* NEW */
+    snprintf(msg, sizeof msg, "LOOPS: the edit memory full (%u B left): STORE AS A SET refused, MEMORY FOR EDITS IS FULL, no set made (%s)",
+             store_edit_room(), asking());
+    check(!strcmp(asking(), "MEMORY FOR EDITS IS FULL") && loops_sets(nums, 256) == 1, msg);
+    tap(B_OCTM);                                        /* BACK */
+    menu_pick("LOAD A SET");
+    tap(B_SEL);
+    tap(B_OCTP);                                        /* REPLACE THE LOOPS: YES */
+    snprintf(msg, sizeof msg, "LOOPS: ... LOAD A SET refused (%s): LOOPS as it was, playing on (loops %d, here %d)", asking(), loops_n(),
+             lp_here());
+    check(!strcmp(asking(), "MEMORY FOR EDITS IS FULL") && loops_n() == 2 && lp_here(), msg);
+    tap(B_OCTM);
+    junk_drop(k);
+    player_stop();
+    /* a MOVE with the edit memory nearly full: every set's loops follow, or none (3 sets in the flash, so each head
+     * rewritten is a piece more) */
+    ui_edit_revert(REC_LSET, (uint8_t)f, 0);
+    {
+        static uint8_t lb[4096], sp[4096 + 16];
+        uint32_t ll = 0;
+        uint8_t lv;
+        int w = !store_edit_build(REC_LOOPS, 0, 0, lb, sizeof lb, &ll, &lv) && ll && store_save_begin() == STORE_OK;
+        memset(sp, 0, 16);
+        memcpy(sp + 16, lb, ll);
+        for (int i = 0; i < 3 && w; i++) w = store_save_put(REC_LSET, (uint8_t)i, 0, REC_LSET_VER, sp, 16 + ll) == STORE_OK;
+        w = w && store_save_run() == STORE_OK;
+        player_store_changed();
+        check(w && loops_sets(nums, 256) == 3 && !store_edit_has(REC_LSET, 0, 0), "(3 sets of a loop of the instrument, in the flash)");
+    }
+    k = junk_fill(300);                                 /* (room for a head or two, not all four) */
+    uint32_t left = store_edit_room();
+    if (!ui_edit_reserve(ed_remap_need(in, in + 1, 0, 0))) ed_remap(in, in + 1, 0, 0);   /* (as the instruments screen
+                                                         * does: the room for all of it first) */
+    int moved = 0;
+    for (int i = 0; i < 3; i++) { rec_loops_t l; moved += !rec_lset((uint8_t)i, &l, 0, 0) && (l.head[80] << 8 | l.head[81]) == in + 1; }
+    snprintf(msg, sizeof msg, "LOOPS: a MOVE with the edit memory nearly full (%u B left): its 3 sets' loops all follow, or none (%d), "
+             "MEMORY FOR EDITS IS FULL (%s)", left, moved, asking());
+    check((moved == 0 || moved == 3) && (moved == 3 || !strcmp(asking(), "MEMORY FOR EDITS IS FULL")), msg);
+    for (int i = 0; i < 3 && ui_top(); i++) tap(B_HOME);
+    junk_drop(k);
+    for (int i = 0; i < 3; i++) ui_edit_revert(REC_LSET, (uint8_t)i, 0);
+    if (store_save_begin() == STORE_OK) {               /* (the 3 sets deleted from the flash again) */
+        for (int i = 0; i < 3; i++) store_save_del(REC_LSET, (uint8_t)i, 0);
+        store_save_run();
+    }
+    player_store_changed();
+    lp_none();
+    /* CHECK STORAGE: a set's record failing its CRC named SET 03 */
+    {
+        uint32_t blk = 0, sv = store_last_save() + 1;
+        for (uint32_t ad = STORE_U2_END - 4096; ad >= STORE_U2_START && !blk; ad -= 4096) {
+            int ff = 1;
+            for (uint32_t i = 0; i < 4096 && ff; i++) ff = flash[ad + i] == 0xFF;
+            if (ff) blk = ad;
+        }
+        uint8_t r[16 + 96] = {REC_LSET, 3, 0, REC_LSET_VER, 96, 0, 0, 1, (uint8_t)sv, (uint8_t)(sv >> 8), (uint8_t)(sv >> 16),
+                              (uint8_t)(sv >> 24), 1, 2, 3, 4};   /* (its CRC wrong) */
+        memcpy(flash + blk, r, sizeof r);
+        store_mount();
+        player_store_changed();
+        ui_check_storage();
+        run(800);
+        ui_render();
+        snprintf(msg, sizeof msg, "CHECK STORAGE: a set's record failing its CRC, its line SET 03: MISSING (block %05X)", blk);
+        check(blk && ui_top() && ui_top()->kind == OV_LIST && text_as(8, BODY_Y + 2 + 18, "SET 03: MISSING", C_LGREY), msg);
+        tap(B_HOME);
+        memset(flash + blk, 0xFF, sizeof r);
+        store_mount();
+        player_store_changed();
+        run(100);
+    }
+    /* CLEAN UP keeps an instrument only a loop plays: LOOPS' own, a set's; a third nothing plays goes */
+    {
+        uint8_t carts[256], sb[128];
+        uint16_t un[3];
+        int nc = ui_carts(carts, 256), found = 0;
+        for (int i = 0; i < nc && found < 3; i++) {
+            if (carts[i] > 0xEF) continue;
+            for (int sl = 0; sl < ui_cart_slots(carts[i]) && found < 3; sl++)
+                if (ins_slot_bytes(carts[i], sl, sb) && !ed_inst_uses((uint16_t)(carts[i] << 8 | sl))) un[found++] = (uint16_t)(carts[i] << 8 | sl);
+        }
+        check(found == 3, "(three instruments nothing plays)");
+        if (found == 3) {
+            lp_fresh(16, 120);
+            lp_add(un[1], 16, 1, 0, 0, a, 1);
+            check(loops_set_store(4, nm) == LP_OK, "(set 04: a loop of the second)");
+            ui_edit_loops(loops_set_inst(0, (uint8_t)(un[0] >> 8), (uint8_t)un[0]), ui_edit_used());   /* (LOOPS': the first) */
+            ui_clean_up(0);
+            turn(K_SELECT, -5); turn(K_K1, -1);         /* PATTERNS off */
+            turn(K_SELECT, 1); turn(K_K1, -1);          /* SAMPLES off */
+            turn(K_SELECT, 1); turn(K_K1, 1);           /* UNUSED INSTRUMENTS on */
+            tap(B_OCTP);
+            run(100);
+            snprintf(msg, sizeof msg, "CLEAN UP's UNUSED INSTRUMENTS: %04X (LOOPS' loop plays it) and %04X (set 04's) kept, %04X (nothing plays "
+                     "it) gone (%s)", un[0], un[1], un[2], ui_toast_now() ? ui_toast_now() : "-");
+            check(ins_slot_bytes((uint8_t)(un[0] >> 8), un[0] & 255, sb) && ins_slot_bytes((uint8_t)(un[1] >> 8), un[1] & 255, sb) &&
+                  !ins_slot_bytes((uint8_t)(un[2] >> 8), un[2] & 255, sb), msg);
+            for (int i = 0; i < nc; i++)                /* (CLEAN UP's deletions taken back) */
+                for (uint8_t k = REC_DX7; k <= REC_CART_LAST; k++) if (store_edit_obj(k, carts[i])) store_edit_forget(k, carts[i], 0);
+            ui_edit_revert(REC_LSET, 4, 0);
+            lp_none();
+            player_store_changed();
+        }
+    }
+    check(!loops_sets(nums, 256) && !store_edit_has(REC_LSET, 0, 0), "(no set left)");
+}
+
+/* AUTOMATIONS (specs/ui/screens/automations.md): a slot's records read as specs/files/automations.md codes them (a reader
+ * of the test's own), each event's time from time 0: k 0 pressed, 1 let go, 2 a knob (c its clicks) */
+typedef struct { uint32_t t; int k, id, c; } au_ev_t;
+static uint32_t au_bits(const uint8_t *p, uint32_t *b, int n)
+{
+    uint32_t v = 0;
+    for (int i = 0; i < n; i++, (*b)++) v |= (uint32_t)(p[*b >> 3] >> (*b & 7) & 1u) << i;
+    return v;
+}
+static int au_read(int slot, au_ev_t *e, int max, int *scr)   /* its events (-1 a part that does not read whole) */
+{
+    static const int TB[5] = {5, 8, 12, 16, 24};
+    int n = 0;
+    uint32_t t = 0;
+    *scr = -1;
+    for (int part = 0; part < 16; part++) {
+        uint32_t len;
+        uint8_t ver;
+        const uint8_t *p = store_get(REC_AUTO, 0, (uint8_t)(slot * 16 + part), &len, &ver);
+        if (!p) break;
+        if (ver != 1) return -1;
+        uint32_t h = part ? 0u : 1u, cnt = (uint32_t)(p[h] | p[h + 1] << 8), b = 8u * (h + 2u);
+        if (!part) *scr = p[0];
+        for (uint32_t i = 0; i < cnt && n < max; i++, n++) {
+            int k = 0;
+            while (k < 4 && au_bits(p, &b, 1)) k++;
+            uint32_t off = 0;
+            for (int j = 0; j < k; j++) off += 1u << TB[j];
+            t += off + au_bits(p, &b, TB[k]);
+            e[n].t = t;
+            e[n].c = 0;
+            if (!au_bits(p, &b, 1)) { e[n].k = 0; e[n].id = (int)au_bits(p, &b, 6); }
+            else if (!au_bits(p, &b, 1)) { e[n].k = 1; e[n].id = (int)au_bits(p, &b, 6); }
+            else { e[n].k = 2; e[n].id = (int)au_bits(p, &b, 3); int c = (int)au_bits(p, &b, 4); e[n].c = c >= 8 ? c - 16 : c; }
+        }
+        if (b > 8u * len) return -1;
+    }
+    return n;
+}
+static int au_has(const au_ev_t *e, int n, int k, int id) { for (int i = 0; i < n; i++) if (e[i].k == k && e[i].id == id) return i; return -1; }
+/* the test's own writer of a slot's records (specs/files/automations.md), as another writer (the EDITOR's) would write
+ * them: events e (times from time 0) into parts by the file's rule, out[part] and lens[part]; its parts */
+static void au_put_bits(uint8_t *p, uint32_t *b, int n, uint32_t v)
+{
+    for (int i = 0; i < n; i++, (*b)++) if (v >> i & 1u) p[*b >> 3] |= (uint8_t)(1u << (*b & 7));
+}
+static int au_enc(const au_ev_t *e, int n, int scr, uint8_t (*out)[4080], uint32_t *lens)
+{
+    static const int TB[5] = {5, 8, 12, 16, 24};
+    static const uint32_t OF[5] = {0, 32, 288, 4384, 69920};
+    int part = 0, cnt = 0;
+    uint32_t hb = 3, b = 24, prev = 0;
+    memset(out, 0, 16u * 4080u);
+    for (int i = 0;; i++) {
+        if (i == n || hb + (b - 8u * hb + 44u) / 8u > 4080u) {   /* (the part closes: the next event might not fit) */
+            if (!part) out[0][0] = (uint8_t)scr;
+            out[part][hb - 2] = (uint8_t)cnt;
+            out[part][hb - 1] = (uint8_t)(cnt >> 8);
+            lens[part++] = (b + 7u) / 8u;
+            hb = 2; b = 16; cnt = 0;
+            if (i == n || part == 16) break;
+        }
+        uint32_t d = e[i].t - prev;
+        int k = 0;
+        prev = e[i].t;
+        while (k < 4 && d >= OF[k + 1]) k++;
+        au_put_bits(out[part], &b, k < 4 ? k + 1 : 4, (1u << k) - 1u);
+        au_put_bits(out[part], &b, TB[k], d - OF[k]);
+        if (e[i].k == 2) { au_put_bits(out[part], &b, 2, 3); au_put_bits(out[part], &b, 3, (uint32_t)e[i].id); au_put_bits(out[part], &b, 4, (uint32_t)e[i].c & 15u); }
+        else { au_put_bits(out[part], &b, e[i].k + 1, e[i].k ? 1u : 0u); au_put_bits(out[part], &b, 6, (uint32_t)e[i].id); }
+        cnt++;
+    }
+    return part;
+}
+static uint8_t au_parts[16][4080];
+static int au_write(int slot, int scr, const au_ev_t *e, int n)   /* into the edit memory: its parts (-1 refused) */
+{
+    uint32_t lens[16];
+    int np = au_enc(e, n, scr, au_parts, lens);
+    for (int k = 0; k < 16; k++) {
+        uint8_t sub = (uint8_t)(slot * 16 + k);
+        if (k < np) { if (ui_edit_put(REC_AUTO, 0, sub, 1, au_parts[k], lens[k])) return -1; }
+        else if (store_get(REC_AUTO, 0, sub, 0, 0)) ui_edit_del(REC_AUTO, 0, sub);
+    }
+    return np;
+}
+static int au_same(int slot, int scr, const au_ev_t *e, int n)   /* the slot's records byte for byte the test's writer's of e:
+                                                         * its parts, 0 not */
+{
+    uint32_t lens[16], len;
+    uint8_t ver;
+    int np = au_enc(e, n, scr, au_parts, lens);
+    for (int k = 0; k < 16; k++) {
+        const uint8_t *p = store_get(REC_AUTO, 0, (uint8_t)(slot * 16 + k), &len, &ver);
+        if (k >= np ? p != 0 : !p || ver != 1 || len != lens[k] || memcmp(p, au_parts[k], len)) return 0;
+    }
+    return np;
+}
+static int au_nparts(int slot) { int k = 0; while (k < 16 && store_get(REC_AUTO, 0, (uint8_t)(slot * 16 + k), 0, 0)) k++; return k; }
+/* e compacted into o as specs/ui/screens/automations.md#compacting says (the test's own reading): each pause from an event
+ * after which nothing of the automation's is held (no key, no button), longer than lim, made lim; the first event's time
+ * as it was. 1 if one was shortened */
+static int au_squash(const au_ev_t *e, int n, uint32_t lim, au_ev_t *o)
+{
+    uint64_t held = 0;
+    uint32_t t = 0;
+    int cut = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t d = i ? e[i].t - e[i - 1].t : e[0].t;
+        if (i && !held && d > lim) { d = lim; cut = 1; }
+        t += d;
+        o[i] = e[i];
+        o[i].t = t;
+        if (e[i].k < 2 && e[i].id <= 40) held = e[i].k ? held & ~(1ull << e[i].id) : held | 1ull << e[i].id;
+    }
+    return cut;
+}
+static int au_eq(const au_ev_t *a, int n, const au_ev_t *b, int m)   /* the same events at the same times */
+{
+    if (n != m) return 0;
+    for (int i = 0; i < n; i++) if (a[i].t != b[i].t || a[i].k != b[i].k || a[i].id != b[i].id || a[i].c != b[i].c) return 0;
+    return 1;
+}
+static void au_compact_with(const char *lim) { tap(B_SEL); menu_to("COMPACT"); tap(B_SEL); menu_to(lim); tap(B_SEL); }
+static int home_has(const char *line)   /* HOME's combination open, a line of it as drawn */
+{
+    g_run_t lines[14][UI_LINE_RUNS];
+    int nr[14];
+    char buf[24][48], s[96];
+    combo_t *c = ui_home_combo();
+    int n = c ? ui_home_lines(c, lines, nr, buf, 13) : 0;
+    for (int i = 0; i < n; i++) {
+        s[0] = 0;
+        for (int r = 0; r < nr[i]; r++) strncat(s, lines[i][r].s, sizeof s - strlen(s) - 1);
+        if (!strcmp(s, line)) return 1;
+    }
+    return 0;
+}
+static int wait_toast(const char *t, uint32_t ms)   /* the toast t shown within ms: when (ms from now), else -1 */
+{
+    for (uint32_t i = 0; i < ms; i++) { if (lp_toast(t)) return (int)i; run(1); }
+    return -1;
+}
+static void test_automations(void)
+{
+    static au_ev_t e[64];
+    int n, scr, op6 = UI_BLACK[5], op4 = UI_BLACK[3], w2 = UI_WHITE[2], w5 = UI_WHITE[5];
+    uint8_t notes[16];
+    home_key(1);                                        /* SONGS, nothing playing */
+    player_stop(); run(100);
+    ui_set_inst(UI_FIRST_INST);                         /* (F0:00: a key one note) */
+    home_key(op6);
+    check(screen_is("AUTOMATIONS") && !ua_state(), "AUTOMATIONS: HOME + OP6 opens it, nothing recording or playing");
+    shot("auto_empty");
+    turn(K_SELECT, 2);
+    key(UI_WHITE[3], 1); key(UI_WHITE[3], 0);           /* (white key 4: slot 03) */
+    tap(B_PLAY);
+    check(screen_is("AUTOMATIONS") && lp_toast("AUTOMATION 03 IS EMPTY") && !ua_state(),
+          "AUTOMATIONS: a white key picks its slot; PLAY on an empty one: AUTOMATION 03 IS EMPTY");
+    /* recording: back on SONGS (where it was opened from); its time 0 the first press, after a wait */
+    tap(B_REC);
+    check(screen_is("SONGS") && ua_state() == 1 && ua_slot() == 3, "AUTOMATIONS: REC records slot 03 from SONGS, the screen it came from");
+    run(2100);                                          /* (the toast gone: the header's AUTO 03 seen) */
+    shot("auto_recording");
+    home_key(op4);                                      /* HOME + OP4: PLAYBACK (HOME held back until OP4 shows it) */
+    check(screen_is("PLAYBACK") && ua_state() == 1, "... HOME + OP4 while recording: PLAYBACK, recording on");
+    turn(K_ALG, 2);
+    key(w2, 1); run(180); key(w2, 0);
+    key(w5, 1);                                         /* (held through the end) */
+    home_key(op6);
+    key(w5, 0);
+    check(screen_is("AUTOMATIONS") && !ua_state() && ui_toast_now() && !strncmp(ui_toast_now(), "AUTOMATION 03 RECORDED: 0:0", 27),
+          "AUTOMATIONS: HOME + OP6 ends it: AUTOMATIONS, AUTOMATION 03 RECORDED: 0:0X");
+    n = au_read(3, e, 64, &scr);
+    int hp = au_has(e, n, 0, 27 + B_HOME), kp = au_has(e, n, 0, op4), wp = au_has(e, n, 0, w2), wr = au_has(e, n, 1, w2);
+    int w5p = au_has(e, n, 0, w5), w5r = au_has(e, n, 1, w5);
+    check(n > 0 && scr == ui_round_at(ui_screen_named("SONGS")) && e[0].t == 0 && hp == 0 && kp == 1 && e[1].t >= 25 && e[1].t <= 40,
+          "... its file: part 0 says SONGS; time 0 HOME's press (held back, written at its own time), OP4 30 ms on");
+    check(au_has(e, n, 2, K_ALG) > kp && wp > kp && wr > wp && e[wr].t - e[wp].t >= 180 && e[wr].t - e[wp].t <= 240,
+          "... ALGORITHM's clicks, a white key pressed and let go 0.2 s on");
+    check(w5p > wr && w5r == n - 1 && au_has(e, n, 0, op6) < 0 && au_has(e, n, 0, 27 + B_REC) < 0 && au_has(e, n, 1, 27 + B_REC) < 0,
+          "... the key held at its end let go there, last; neither HOME + OP6 nor REC's release recorded");
+    int ok = 1;
+    for (int i = 1; i < n; i++) ok &= e[i].t >= e[i - 1].t;
+    check(ok && ui_edit_unsaved(REC_AUTO, 0, 0x30), "... the times in order; an edit not saved yet");
+    shot("auto_one");
+    /* playing: SONGS first (its screen), then what it holds: HOME + OP4 takes it to PLAYBACK */
+    run(2100);
+    press(B_PLAY);
+    in_now.buttons &= ~(1u << B_PLAY); run(1);           /* (its first event, time 0, given at once: HOME held) */
+    check(screen_is("SONGS") && ua_state() == 2, "AUTOMATIONS: PLAY (at its release) goes to SONGS, the automation's screen, and plays it");
+    shot("auto_playing");
+    run(1500);
+    check(screen_is("PLAYBACK") && !ua_state() && lp_toast("AUTOMATION 03 PLAYED"), "... HOME + OP4 played: PLAYBACK; at its end AUTOMATION 03 PLAYED");
+    /* a key of the player's stops it, and does nothing else until let go */
+    home_key(op6);
+    tap(B_PLAY);
+    run(5);
+    key(w5, 1);
+    check(!ua_state() && lp_toast("AUTOMATION STOPPED") && key_notes(notes, 16) == 0, "AUTOMATIONS: a key of the player's stops it (AUTOMATION STOPPED), that key playing nothing");
+    key(w5, 0); run(300);
+    key(w5, 1); run(50);
+    check(key_notes(notes, 16) > 0, "... let go, it plays again");
+    key(w5, 0); run(1500);
+    /* the menu; REPLACE's question; CLEAR; NOTHING RECORDED; REVERT */
+    home_key(op6);
+    check(menu_has("RECORD") && menu_has("PLAY") && menu_has("CLEAR") && menu_has("REVERT"), "AUTOMATIONS: SEL's menu: RECORD, PLAY, CLEAR, REVERT (changes not saved)");
+    tap(B_REC);
+    check(!strncmp(asking(), "AUTOMATION 03 HOLDS 0:0", 23), "AUTOMATIONS: REC on a slot holding one asks first: AUTOMATION 03 HOLDS 0:0X / REPLACE IT?");
+    tap(B_OCTM);
+    check(screen_is("AUTOMATIONS") && !ua_state() && au_read(3, e, 64, &scr) == n, "... KEEP: nothing recorded, the slot as it was");
+    menu_pick("CLEAR");
+    check(!strcmp(asking(), "CLEAR AUTOMATION 03?"), "AUTOMATIONS: CLEAR asks: CLEAR AUTOMATION 03?");
+    tap(B_OCTP);
+    check(lp_toast("AUTOMATION 03 CLEARED") && au_read(3, e, 64, &scr) == 0, "... CLEAR: AUTOMATION 03 CLEARED, the slot empty");
+    tap(B_REC);
+    home_key(op6);
+    check(screen_is("AUTOMATIONS") && !ua_state() && lp_toast("NOTHING RECORDED") && au_read(3, e, 64, &scr) == 0,
+          "AUTOMATIONS: REC, then HOME + OP6 at once: NOTHING RECORDED, the slot empty");
+    turn(K_SELECT, 1);                                  /* (slot 04) */
+    tap(B_REC);
+    tap(B_OCTP); run(100);
+    home_key(op6);
+    check(au_read(4, e, 64, &scr) > 0, "AUTOMATIONS: slot 04 recorded");
+    menu_pick("REVERT");
+    tap(B_OCTP); run(100);
+    check(au_read(4, e, 64, &scr) == 0 && !ui_edit_unsaved(REC_AUTO, 0, 0x40), "AUTOMATIONS: REVERT drops the changes not saved");
+    /* SAVE keeps it, the flash read again (as after a power cycle) */
+    tap(B_REC);
+    tap(B_OCTP); run(300); tap(B_OCTM); run(100);
+    home_key(op6);
+    n = au_read(4, e, 64, &scr);
+    tap(B_SAVE);
+    run(3000);
+    store_mount();
+    player_store_changed();
+    run(100);
+    int n2 = au_read(4, e, 64, &scr);
+    check(n > 0 && n2 == n && !ui_edit_unsaved(REC_AUTO, 0, 0x40), "AUTOMATIONS: SAVE keeps slot 04, read again from the flash");
+    menu_pick("CLEAR");
+    tap(B_OCTP);
+    tap(B_SAVE);
+    run(3000);
+    check(au_read(4, e, 64, &scr) == 0, "... cleared and saved: none again");
+    /* HOME tapped, then OP6 (the combination's other form): the end's HOME and OP6 taken out of the recording, also when
+     * HOME's tap reached the edit memory first (a second's wait: flushed); with nothing before them, NOTHING RECORDED */
+    home_key(op6);
+    key(UI_WHITE[6], 1); key(UI_WHITE[6], 0);           /* (slot 06) */
+    tap(B_REC);
+    key(w2, 1); key(w2, 0);
+    run(200);
+    tap(B_HOME);
+    run(1500);
+    key(op6, 1);
+    check(screen_is("AUTOMATIONS") && !ua_state(), "AUTOMATIONS: HOME tapped, then OP6: the recording ends");
+    key(op6, 0);
+    n = au_read(6, e, 64, &scr);
+    check(n == 2 && e[0].k == 0 && e[0].id == w2 && e[1].k == 1 && e[1].id == w2 && au_has(e, n, 0, 27 + B_HOME) < 0 &&
+          au_has(e, n, 1, 27 + B_HOME) < 0 && au_has(e, n, 0, op6) < 0 && au_has(e, n, 1, op6) < 0,
+          "... its HOME and OP6 not in it (HOME's tap had reached the edit memory): the white key alone");
+    menu_pick("CLEAR");
+    tap(B_OCTP);
+    key(UI_WHITE[7], 1); key(UI_WHITE[7], 0);           /* (slot 07) */
+    tap(B_REC);
+    run(100);
+    tap(B_HOME);
+    run(1500);
+    key(op6, 1);
+    key(op6, 0);
+    check(screen_is("AUTOMATIONS") && lp_toast("NOTHING RECORDED") && au_read(7, e, 64, &scr) == 0,
+          "... HOME tapped, then OP6, nothing else: NOTHING RECORDED, the slot as it was");
+    /* REVERT ALL while recording: it ends, its changes dropped with the others */
+    home_key(op6);
+    key(UI_WHITE[8], 1); key(UI_WHITE[8], 0);           /* (slot 08) */
+    tap(B_REC);
+    key(w2, 1); key(w2, 0);
+    run(1200);                                          /* (a second: written into the edit memory) */
+    ui_revert_all();
+    run(50);
+    check(!ua_state() && lp_toast("AUTOMATION STOPPED") && au_read(8, e, 64, &scr) == 0,
+          "AUTOMATIONS: REVERT ALL while recording: it stops (AUTOMATION STOPPED), the slot as saved");
+    /* HOME held + OP6 after an earlier HOME tap: that tap stays in it */
+    home_key(op6);
+    key(UI_WHITE[10], 1); key(UI_WHITE[10], 0);         /* (slot 0A) */
+    tap(B_REC);
+    key(w2, 1); key(w2, 0);
+    tap(B_HOME); tap(B_HOME);                           /* (HOME's combination opened and closed) */
+    run(300);
+    home_key(op6);
+    n = au_read(10, e, 64, &scr);
+    int homes = 0;
+    for (int i = 0; i < n; i++) homes += e[i].k == 0 && e[i].id == 27 + B_HOME;
+    check(screen_is("AUTOMATIONS") && homes == 2 && au_has(e, n, 0, op6) < 0, "AUTOMATIONS: HOME held + OP6 ends it, the HOME "
+          "taps before it kept (2)");
+    menu_pick("CLEAR");
+    tap(B_OCTP);
+    /* recorded from FX: back on FX as it was (its own origin, LOOPS), FX's tap going back there, the recording on */
+    home_key(22);                                       /* (POLY: LOOPS) */
+    tap(B_FX);
+    home_key(op6);
+    key(UI_WHITE[9], 1); key(UI_WHITE[9], 0);           /* (slot 09) */
+    tap(B_REC);
+    int onfx = screen_is("FX");
+    tap(B_FX);
+    check(onfx && screen_is("LOOPS") && ua_state() == 1, "AUTOMATIONS: REC from FX opened from LOOPS: back on FX, its FX tap "
+          "back to LOOPS, still recording");
+    home_key(op6);
+    menu_pick("CLEAR");
+    tap(B_OCTP);
+    /* the coding's vector (fw/tests/auto_vectors.json, which the EDITOR's tests read too): recorded on STATUS, every time
+     * class, a knob split at +7 and -8, a press and a turn in one pass; its bytes those the file gives */
+    home_key(UI_BLACK[7]);                              /* GLO: STATUS */
+    home_key(op6);
+    key(UI_WHITE[5], 1); key(UI_WHITE[5], 0);           /* (slot 05) */
+    tap(B_REC);
+    run(300);
+    in_now.knob[K_SELECT] -= 3; run(40);
+    in_now.notes |= 1u << w2; in_now.knob[K_K1] += 2; run(1);
+    run(5000);
+    in_now.notes &= ~(1u << w2); run(300);
+    in_now.knob[K_K2] += 9; run(30);
+    in_now.knob[K_K3] -= 10; run(70000);
+    press(B_OCTP); release(B_OCTP);
+    key(w5, 1);
+    home_key(op6);
+    key(w5, 0);
+    tap(B_OCTM);                                        /* (the octave back: not recorded) */
+    {
+        uint32_t len;
+        uint8_t ver;
+        const uint8_t *p = store_get(REC_AUTO, 0, 0x50, &len, &ver);
+        char hex[600] = "", want[600] = "";
+        for (uint32_t i = 0; p && i < len && i < 290; i++) snprintf(hex + 2 * i, 3, "%02x", p[i]);
+        FILE *f = fopen("fw/tests/auto_vectors.json", "r");
+        if (f) {
+            static char js[8192];
+            size_t r = fread(js, 1, sizeof js - 1, f);
+            js[r] = 0;
+            fclose(f);
+            const char *h = strstr(js, "\"hex\": \"");
+            if (h) { h += 8; size_t k = 0; while (h[k] && h[k] != '"' && k < sizeof want - 1) { want[k] = h[k]; k++; } want[k] = 0; }
+        }
+        check(p && ver == 1 && !strcmp(hex, want), "AUTOMATIONS: the recorded stream byte for byte fw/tests/auto_vectors.json's (the EDITOR's tests check it too)");
+        if (strcmp(hex, want)) {                        /* (what it recorded, to compare) */
+            n = au_read(5, e, 64, &scr);
+            printf("  recorded: screen %d, %d events, hex %s\n", scr, n, hex);
+            for (int i = 0; i < n; i++) printf("  %u %s %d %d\n", (unsigned)e[i].t, e[i].k == 0 ? "press" : e[i].k == 1 ? "release" : "knob", e[i].id, e[i].c);
+        }
+    }
+    menu_pick("CLEAR");
+    tap(B_OCTP);
+    check(au_read(5, e, 64, &scr) == 0, "... and cleared");
+    /* a fast turn played back as recorded (KNOB SPEED LOW: a click under 30 ms after the one before x4, under 60 x2):
+     * PLAYBACK's K4 (a BPM a step), a song playing, its clicks 27, 30, 58, 60, 115 and 25 ms apart (x4 x2 x2 x1 x1 x4),
+     * played back with the FM-1's passes 7 ms apart (its main loop busier, each recorded pass played a few ms late: the
+     * 60 ms gap 56 then): the steps counted on the gaps recorded, so the same tempo at its end */
+    {
+        static const int gap[7] = {0, 27, 30, 58, 60, 115, 25};
+        int sp = ui_set[S_KNOB_SPEED];
+        char k1[40] = "";
+        player_state_t st;
+        ui_set[S_KNOB_SPEED] = 1;                       /* (LOW) */
+        home_key(op4);                                  /* PLAYBACK */
+        ui_play_song((uint8_t)ui_cur.song, 0);
+        run(500);
+        home_key(op6);
+        key(UI_WHITE[11], 1); key(UI_WHITE[11], 0);     /* (slot 0B) */
+        tap(B_REC);
+        for (int i = 0; i < 7; i++) { run((uint32_t)gap[i]); in_now.knob[K_K4]++; }
+        run(100);
+        player_state(&st, 0);
+        uint32_t sh1 = st.tempo_share;
+        ui_song_t sg;
+        int own = ui_song((uint8_t)ui_cur.song, &sg) ? (sg.tempo * 2400 / ((sg.ticks ? sg.ticks : 6) * (sg.rpb ? sg.rpb : 4)) + 5) / 10 : 0;
+        check(own > 0 && sh1 == ((uint32_t)(own + 150) << 16) / (uint32_t)own,
+              "AUTOMATIONS: (recording it: 15 BPM up, 1 + 4 + 2 + 2 + 1 + 1 + 4 steps)");
+        if (ui_knob_now()) snprintf(k1, sizeof k1, "%s", ui_knob_now());
+        home_key(op6);                                  /* (the end) */
+        home_key(op4);
+        tap(B_LFO);                                     /* (K4 back to 100 %) */
+        run(100);
+        player_state(&st, 0);
+        int back = st.tempo_share == 65536u;
+        home_key(op6);
+        press(B_PLAY);
+        in_now.buttons &= ~(1u << B_PLAY); run(1);
+        for (int i = 0; i < 60; i++) { now_ms += 6; run(1); }   /* (passes 7 ms apart) */
+        player_state(&st, 0);
+        check(back && sh1 > 65536u && st.tempo_share == sh1 && ui_knob_now() && !strcmp(ui_knob_now(), k1) && !ua_state(),
+              "AUTOMATIONS: a fast turn played back with the passes 7 ms apart: the knob's steps as recorded (the same tempo)");
+        if (st.tempo_share != sh1) printf("  recorded %s (%u), played %s (%u)\n", k1, (unsigned)sh1, ui_knob_now() ? ui_knob_now() : "-",
+                                          (unsigned)st.tempo_share);
+        home_key(op6);
+        menu_pick("CLEAR");
+        tap(B_OCTP);
+        check(au_read(11, e, 64, &scr) == 0, "... and cleared");
+        home_key(op4);
+        tap(B_LFO);
+        player_stop();
+        run(100);
+        ui_set[S_KNOB_SPEED] = (int16_t)sp;
+    }
+}
+
+/* AUTOMATIONS' COMPACT (specs/ui/screens/automations.md#compacting), on slots the test's own writer wrote (as the EDITOR's
+ * WRITE might) and on one recorded: the pauses while nothing is held, longer than the limit, shortened at 1 S, 0.5 S and
+ * 0.3 S in turn; those while something is held kept (a key held 3 s, FX held, SEL held + a knob, HOME + REC held past
+ * CUT's 2 s, still switching the effects off when played); events of one pass together; its toasts; NOTHING TO COMPACT;
+ * an empty slot; the edit memory too full; REVERT and SAVE; a slot of 3 parts written again in 2, event for event and
+ * byte for byte as the test's writer writes them (the format's rule: two writers, the same bytes) */
+static void test_auto_compact(void)
+{
+    static au_ev_t e[3000], w[3000], r[3000];
+    static const char *const LIM[3] = {"1 S", "0.5 S", "0.3 S"};
+    static const char *const LEN[3] = {"AUTOMATION 0C COMPACTED: 0:09", "AUTOMATION 0C COMPACTED: 0:09", "AUTOMATION 0C COMPACTED: 0:08"};
+    static const uint32_t LIMS[3] = {1000, 500, 300};
+    const int w2 = UI_WHITE[2], w5 = UI_WHITE[5], FX = 27 + B_FX, SEL = 27 + B_SEL, op6 = UI_BLACK[5];
+    /* a key held 3 s; 3 s idle; FX held 2.5 s; 0.7 s idle; SEL held, K1 then K2 1.5 s on (one pass), let go 0.4 s later;
+     * 0.4 s idle; ALGORITHM and a key in one pass, the key let go 50 ms on; 0.25 s idle (under every limit), SELECT */
+    const au_ev_t E[12] = {{0, 0, w2, 0}, {3000, 1, w2, 0}, {6000, 0, FX, 0}, {8500, 1, FX, 0}, {9200, 0, SEL, 0},
+                           {10700, 2, K_K1, 3}, {10700, 2, K_K2, -2}, {11100, 1, SEL, 0}, {11500, 2, K_ALG, 1},
+                           {11500, 0, w5, 0}, {11550, 1, w5, 0}, {11800, 2, K_SELECT, 1}};
+    char msg[400], it[200];
+    int scr, n;
+    player_stop(); run(100);
+    home_key(UI_BLACK[7]);                              /* (STATUS) */
+    check(au_write(12, 0, E, 12) == 1, "(AUTOMATIONS: slot 0C written by the test's writer: 12 events)");
+    tap(B_SAVE); run(3000);
+    home_key(op6);
+    key(UI_WHITE[12], 1); key(UI_WHITE[12], 0);         /* (slot 0C) */
+    tap(B_SEL);
+    menu_items(it, sizeof it);
+    tap(B_HOME);
+    snprintf(msg, sizeof msg, "AUTOMATIONS: SEL's menu RECORD, PLAY, COMPACT, CLEAR (REVERT with changes not saved: %s)", it);
+    check(!strcmp(it, "RECORD,PLAY,COMPACT,CLEAR"), msg);
+    tap(B_SEL); menu_to("COMPACT"); tap(B_SEL);
+    shot("auto_compact");                               /* (its list) */
+    menu_items(it, sizeof it);
+    snprintf(msg, sizeof msg, "AUTOMATIONS: COMPACT opens its list: 1 S, 0.5 S, 0.3 S (%s)", it);
+    check(ui_top() && ui_top()->kind == OV_MENU && !strcmp(it, "1 S,0.5 S,0.3 S"), msg);
+    tap(B_HOME);
+    memcpy(w, E, sizeof E);
+    for (int i = 0; i < 3; i++) {
+        au_compact_with(LIM[i]);
+        int cut = au_squash(w, 12, LIMS[i], r);
+        n = au_read(12, e, 64, &scr);
+        snprintf(msg, sizeof msg, "AUTOMATIONS: COMPACT %s: the pauses while nothing is held over %s shortened, the rest as they were; "
+                 "%s, an edit; byte for byte the test's writer's (%s; times %u %u %u %u %u %u %u %u %u %u %u %u)", LIM[i], LIM[i], LEN[i],
+                 ui_toast_now() ? ui_toast_now() : "-", e[0].t, e[1].t, e[2].t, e[3].t, e[4].t, e[5].t, e[6].t, e[7].t, e[8].t, e[9].t,
+                 e[10].t, e[11].t);
+        check(cut && au_eq(e, n, r, 12) && au_same(12, 0, r, 12) == 1 && scr == 0 && lp_toast(LEN[i]) && ui_edit_unsaved(REC_AUTO, 0, 0xC0), msg);
+        if (!i)
+            check(e[1].t - e[0].t == 3000 && e[2].t - e[1].t == 1000 && e[3].t - e[2].t == 2500 && e[4].t - e[3].t == 700 &&
+                  e[5].t - e[4].t == 1500 && e[6].t == e[5].t && e[7].t - e[6].t == 400 && e[8].t - e[7].t == 400 && e[9].t == e[8].t &&
+                  e[11].t - e[10].t == 250, "... at 1 S: the key held 3 s, FX held 2.5 s, SEL held 1.5 s + its knobs (one pass) kept; "
+                  "3 s idle made 1 s, 0.7 s and 0.4 s idle kept");
+        memcpy(w, r, sizeof E);
+    }
+    check(e[2].t - e[1].t == 300 && e[4].t - e[3].t == 300 && e[8].t - e[7].t == 300 && e[11].t - e[10].t == 250 && e[3].t - e[2].t == 2500,
+          "AUTOMATIONS: ... compacted again shorter it goes further: at 0.3 S every idle pause over it 0.3 s (0.25 s kept)");
+    au_compact_with("0.3 S");
+    check(lp_toast("NOTHING TO COMPACT") && au_same(12, 0, w, 12) == 1, "AUTOMATIONS: COMPACT with no pause over the limit: NOTHING TO COMPACT, the slot as it was");
+    menu_pick("REVERT");
+    tap(B_OCTP); run(100);
+    check(au_same(12, 0, E, 12) == 1 && !ui_edit_unsaved(REC_AUTO, 0, 0xC0), "AUTOMATIONS: REVERT drops a COMPACT: the slot as saved");
+    /* the edit memory too full for its parts: MEMORY FOR EDITS IS FULL, the slot as it was */
+    {
+        int k = junk_fill(8);
+        uint32_t left = store_edit_room();
+        au_compact_with("0.3 S");
+        snprintf(msg, sizeof msg, "AUTOMATIONS: COMPACT with the edit memory too full (%u B left): MEMORY FOR EDITS IS FULL, the slot as it was (%s)",
+                 left, asking());
+        check(!strcmp(asking(), "MEMORY FOR EDITS IS FULL") && au_same(12, 0, E, 12) == 1 && !ui_edit_unsaved(REC_AUTO, 0, 0xC0), msg);
+        tap(B_OCTM);                                    /* (BACK) */
+        junk_drop(k);
+    }
+    au_compact_with("0.3 S");
+    au_squash(E, 12, 300, r);
+    tap(B_SAVE); run(3000);
+    store_mount();
+    player_store_changed();
+    run(100);
+    check(au_same(12, 0, r, 12) == 1 && !ui_edit_unsaved(REC_AUTO, 0, 0xC0), "AUTOMATIONS: SAVE keeps a COMPACT, read again from the flash");
+    /* an empty slot */
+    key(UI_WHITE[13], 1); key(UI_WHITE[13], 0);         /* (slot 0D) */
+    menu_pick("COMPACT");
+    check(lp_toast("AUTOMATION 0D IS EMPTY") && !ui_top() && !au_nparts(13), "AUTOMATIONS: COMPACT on an empty slot: AUTOMATION 0D IS EMPTY, no list");
+    /* a slot of 3 parts (1,350 notes, most pauses over a minute), written again in 2: event for event as the rule says, byte
+     * for byte as the test's writer lays them out */
+    {
+        static const uint32_t IDLE[5] = {70000, 70000, 5000, 40, 70000}, HOLD[3] = {100, 4500, 0};
+        uint32_t t = 0;
+        n = 0;
+        for (int i = 0; i < 1350; i++) {
+            int id = i % 41;
+            t += i ? IDLE[i % 5] : 0;
+            e[n++] = (au_ev_t){t, 0, id, 0};
+            if (i % 7 == 3) { t += 50; e[n++] = (au_ev_t){t, 2, i % 7, 2}; }   /* (a knob turned while it is held) */
+            t += HOLD[i % 3];
+            e[n++] = (au_ev_t){t, 1, id, 0};
+        }
+        int was = au_write(14, 3, e, n), cut = au_squash(e, n, 300, r);
+        key(UI_WHITE[14], 1); key(UI_WHITE[14], 0);     /* (slot 0E) */
+        au_compact_with("0.3 S");
+        int m = au_read(14, w, 3000, &scr), np = au_nparts(14);
+        char want[48];
+        snprintf(want, sizeof want, "AUTOMATION 0E COMPACTED: %u:%02u", r[n - 1].t / 60000u, r[n - 1].t / 1000u % 60u);
+        snprintf(msg, sizeof msg, "AUTOMATIONS: COMPACT on a slot of %d parts (%d events): %d parts now, event for event the rule's (%d read), "
+                 "byte for byte the test's writer's, screen kept; %s (%s)", was, n, np, m, want, ui_toast_now() ? ui_toast_now() : "-");
+        check(was == 3 && cut && np == 2 && au_eq(w, m, r, n) && au_same(14, 3, r, n) == 2 && scr == 3 && lp_toast(want), msg);
+        menu_pick("CLEAR");
+        tap(B_OCTP);
+        check(!au_nparts(14), "(... and cleared)");
+    }
+    /* recorded on SONGS: a key held 3 s, HOME + REC held 2.5 s (CUT: every effect off at 2 s), SEL held + a knob 1.5 s on;
+     * the idle pauses between them 2 s, 1.5 s, 2 s. Compacted at 0.3 S: those 0.3 s, the held ones kept; played back, CUT's
+     * hold still switches the effects off (SOUND CUT, EFFECTS OFF) */
+    {
+        home_key(1);                                    /* SONGS */
+        player_stop(); run(100);
+        home_key(op6);
+        key(UI_WHITE[1], 1); key(UI_WHITE[1], 0);       /* (slot 01) */
+        tap(B_REC);
+        run(500);
+        key(w2, 1); run(3000); key(w2, 0);
+        run(2000);
+        press(B_HOME); press(B_REC); run(2500);
+        int cut1 = lp_toast("SOUND CUT, EFFECTS OFF");
+        release(B_REC); release(B_HOME);
+        run(1500);
+        press(B_SEL); run(1500); in_now.knob[K_K1]++; run(300); release(B_SEL);
+        run(2000);
+        key(w5, 1); key(w5, 0);
+        run(100);
+        home_key(op6);                                  /* (the end) */
+        n = au_read(1, e, 64, &scr);
+        au_compact_with("0.3 S");
+        int m = au_read(1, w, 64, &scr), wp = au_has(w, m, 0, w2), wr = au_has(w, m, 1, w2), hp = au_has(w, m, 0, 27 + B_HOME);
+        int rp = au_has(w, m, 0, 27 + B_REC), rr = au_has(w, m, 1, 27 + B_REC), hr = au_has(w, m, 1, 27 + B_HOME);
+        int sp = au_has(w, m, 0, SEL), kn = au_has(w, m, 2, K_K1), sr = au_has(w, m, 1, SEL), fp = au_has(w, m, 0, w5);
+        au_squash(e, n, 300, r);
+        snprintf(msg, sizeof msg, "AUTOMATIONS: a recording compacted at 0.3 S: the key held 3 s, HOME + REC held 2.5 s, SEL held 1.5 s "
+                 "before its knob kept, the idle pauses between 0.3 s (cut while recording %d; %d events)", cut1, m);
+        check(cut1 && m == n && au_eq(w, m, r, n) && wp >= 0 && w[wr].t - w[wp].t >= 2990 && hp == wr + 1 && w[hp].t - w[wr].t == 300 &&
+              w[rr].t - w[rp].t >= 2490 && sp == hr + 1 && w[sp].t - w[hr].t == 300 && w[kn].t - w[sp].t >= 1490 && fp == sr + 1 &&
+              w[fp].t - w[sr].t == 300, msg);
+        press(B_PLAY);
+        in_now.buttons &= ~(1u << B_PLAY); run(1);
+        uint32_t at = w[rp].t + 2000u;                  /* (CUT's 2 s, from REC's press) */
+        int seen = wait_toast("SOUND CUT, EFFECTS OFF", at + 600);
+        int played = wait_toast("AUTOMATION 01 PLAYED", 5000);
+        snprintf(msg, sizeof msg, "AUTOMATIONS: ... played back: HOME + REC still held past 2 s: SOUND CUT, EFFECTS OFF (%d ms in, %u "
+                 "due), played to its end (%d)", seen, at, played);
+        check(seen >= (int)at - 5 && seen <= (int)at + 40 && played >= 0, msg);
+        ui_revert_all();                                /* (its recording and the effects it switched off dropped) */
+        run(600);
+    }
+}
+/* HOME, ARP, then a white key (specs/ui/screens/automations.md#playing, specs/ui/controls.md#homes-combination): ARP
+ * switches the white keys to the automations and back, SEQ and ARP switching each other; the lines and the LEDs; a
+ * slot's key plays it on its screen, HOME tapped first or held; an empty slot's toast with the combination open; ONE
+ * AUTOMATION AT A TIME while one records and while one plays; HOME, ARP no longer the arpeggiator (ARP alone still is).
+ * And a playback across a progress (as a save's): its time stands still, every event after it given, none lost */
+static void test_auto_home(void)
+{
+    const int op6 = UI_BLACK[5];
+    char msg[300];
+    int t1, t2;
+    /* slot 02, recorded on STATUS: OCT+ tapped 4 times, 100 ms apart (taps act as let go: at 30, 130, 230, 330 ms) */
+    player_stop(); run(100);
+    home_key(UI_BLACK[7]);                              /* (STATUS) */
+    home_key(op6);
+    key(UI_WHITE[2], 1); key(UI_WHITE[2], 0);           /* (slot 02) */
+    tap(B_REC);
+    run(200);
+    for (int i = 0; i < 4; i++) { press(B_OCTP); release(B_OCTP); run(40); }
+    run(100);
+    home_key(op6);
+    check(ui_cur.octave == 4 && au_nparts(2) == 1, "(AUTOMATIONS: slot 02 recorded on STATUS: OCT+ 4 times)");
+    /* the stand-still: played with a progress opened 50 ms in for 500 ms: the taps due meanwhile come after it */
+    ui_cur.octave = 0;
+    press(B_PLAY);
+    in_now.buttons &= ~(1u << B_PLAY); run(1);
+    run(49);
+    ui_progress(T("SAVING 1 CHANGE"), 500, 0);
+    int o1 = ui_cur.octave;
+    run(500);
+    int o2 = ui_cur.octave, blk = ui_blocking();
+    for (t1 = 0; t1 < 400 && ui_cur.octave < 4; t1++) run(1);
+    snprintf(msg, sizeof msg, "AUTOMATIONS: a playback across a progress: its time stands still, the taps after it all given, none lost "
+             "(octave %d as it opened, %d as it closed, %d after, the last %d ms after the close; blocking %d)", o1, o2, ui_cur.octave, t1, blk);
+    check(o1 == 1 && o2 == 1 && !blk && ui_cur.octave == 4 && t1 >= 270 && t1 <= 300, msg);
+    run(200);
+    check(!ua_state(), "(... played to its end)");
+    /* HOME tapped, then ARP: the white keys play the automations; the lines, the LEDs */
+    ui_cur.octave = 0;
+    home_key(1);                                        /* SONGS */
+    tap(B_HOME);
+    check(home_has("SEQ: SOLO INSTEAD  ARP: AUTOMATIONS") && home_has("WHITE KEY: MUTE A TRACK, HELD: SOLO"),
+          "HOME's combination: SEQ's and ARP's switches two a line, SEQ: SOLO INSTEAD  ARP: AUTOMATIONS");
+    tap(B_ARP);
+    snprintf(msg, sizeof msg, "HOME, ARP: the white keys play the automations (WHITE KEY: PLAY ITS AUTOMATION, ARP: MUTE INSTEAD), ARP "
+             "full, SEQ dim, a slot's key dim where it holds one, dark where empty; the arpeggiator untouched (ARP %d SEQ %d, keys %d %d)",
+             leds[B_ARP], leds[B_SEQ], leds[LED_NOTE(UI_WHITE[2])], leds[LED_NOTE(UI_WHITE[3])]);
+    check(ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: PLAY ITS AUTOMATION") && home_has("SEQ: SOLO INSTEAD  ARP: MUTE INSTEAD") &&
+          !home_has("WHITE KEY: MUTE A TRACK, HELD: SOLO") && leds[B_ARP] == LV_FULL && leds[B_SEQ] == LV_DIM &&
+          leds[LED_NOTE(UI_WHITE[2])] == LV_DIM && leds[LED_NOTE(UI_WHITE[3])] == 0 && !ui_arp_on(), msg);
+    shot("auto_home_arp");
+    tap(B_SEQ);
+    check(ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: SOLO A TRACK") && home_has("SEQ: MUTE INSTEAD  ARP: AUTOMATIONS") &&
+          leds[B_SEQ] == LV_FULL && leds[B_ARP] == LV_DIM, "HOME, ARP, SEQ: from the automations to SOLO (SEQ full, ARP dim)");
+    tap(B_ARP);
+    tap(B_ARP);
+    check(ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: MUTE A TRACK, HELD: SOLO") && home_has("SEQ: SOLO INSTEAD  ARP: AUTOMATIONS") &&
+          leds[B_ARP] == LV_DIM && leds[B_SEQ] == LV_DIM && !ui_arp_on(), "... ARP again: the automations; again: back to MUTE");
+    tap(B_ARP);
+    key(UI_WHITE[3], 1); key(UI_WHITE[3], 0);           /* (slot 03: empty) */
+    check(lp_toast("AUTOMATION 03 IS EMPTY") && ui_top() && ui_top()->kind == OV_HOME && home_has("SELECT: THE SCREENS, ONE BY ONE") &&
+          home_has("WHITE KEY: PLAY ITS AUTOMATION") && !ua_state(), "HOME, ARP, an empty slot's key: AUTOMATION 03 IS EMPTY, the combination open as it was");
+    key(UI_WHITE[2], 1);
+    int on2 = screen_is("STATUS") && ua_state() == 2 && !ui_top();
+    key(UI_WHITE[2], 0);
+    run(600);
+    check(on2 && ui_cur.octave == 4 && !ua_state(), "HOME, ARP, a white key: its slot played on its screen (SONGS to STATUS, the "
+          "combination closed), to its end");
+    /* HOME held */
+    ui_cur.octave = 0;
+    home_key(1);
+    press(B_HOME); press(B_ARP); release(B_ARP);
+    key(UI_WHITE[2], 1);
+    on2 = screen_is("STATUS") && ua_state() == 2;
+    key(UI_WHITE[2], 0);
+    release(B_HOME);
+    run(600);
+    check(on2 && ui_cur.octave == 4 && !ua_state() && !ui_top(), "HOME held, ARP, a white key: the same, HOME's release nothing more");
+    /* HOME, then ARP: not the arpeggiator any more; ARP alone still is */
+    home_key(1);
+    tap(B_HOME); tap(B_ARP);
+    t1 = ui_arp_on() || !ui_top();
+    tap(B_HOME);
+    tap(B_ARP);
+    t2 = ui_arp_on() && !ui_top();
+    tap(B_ARP);
+    check(!t1 && t2 && !ui_arp_on(), "HOME tapped, then ARP: the arpeggiator untouched, the combination open; ARP alone: on, again off");
+    /* ONE AUTOMATION AT A TIME, while one records (slot 04, on SONGS: its HOME, ARP, white key in it), then while it plays */
+    home_key(op6);
+    key(UI_WHITE[4], 1); key(UI_WHITE[4], 0);           /* (slot 04) */
+    tap(B_REC);
+    run(300);
+    tap(B_HOME); tap(B_ARP);
+    key(UI_WHITE[2], 1); key(UI_WHITE[2], 0);
+    check(ua_state() == 1 && ua_slot() == 4 && lp_toast("ONE AUTOMATION AT A TIME") && ui_top() && ui_top()->kind == OV_HOME,
+          "HOME, ARP, a white key while recording: ONE AUTOMATION AT A TIME, the recording on, the combination open");
+    tap(B_HOME);
+    run(300);
+    home_key(op6);                                      /* (the end) */
+    tap(B_PLAY);
+    t1 = wait_toast("ONE AUTOMATION AT A TIME", 3000);
+    t2 = wait_toast("AUTOMATION 04 PLAYED", 3000);
+    run(300);                                           /* (its last HOME's tap: after COMBO GRACE, it closes the combination) */
+    snprintf(msg, sizeof msg, "... played: its HOME, ARP, white key while it plays: ONE AUTOMATION AT A TIME (%d), on to its end (%d)", t1, t2);
+    check(t1 >= 0 && t2 >= 0 && screen_is("SONGS") && !ui_top(), msg);
+    /* the slots cleared, saved */
+    home_key(op6);
+    for (int s = 1; s < 16; s++)
+        if (au_nparts(s)) { key(UI_WHITE[s], 1); key(UI_WHITE[s], 0); menu_pick("CLEAR"); tap(B_OCTP); }
+    tap(B_SAVE); run(3000);
+    int left = 0;
+    for (int s = 0; s < 16; s++) left += au_nparts(s);
+    check(!left, "(AUTOMATIONS: every slot cleared again, saved)");
+    ui_cur.octave = 0;
+    home_key(1);
+}
+
+/* HOME, ARP, REC, then a white key (specs/ui/screens/automations.md#recording, specs/ui/controls.md#homes-combination):
+ * after ARP, REC switches the white keys from playing the automations to recording them and back, tapped or held (no
+ * CUT), SEQ and ARP switching on from there; the lines and the LEDs; a white key records its slot on the screen it is on
+ * (SONGS, no AUTOMATIONS; on AUTOMATIONS the screen it was opened from), HOME tapped or held, none of the shortcut's
+ * controls in it; a slot holding one asks first, KEEP and REPLACE; HOME, ARP, REC ends a recording where it is, HOME
+ * tapped or held, its controls taken out, also with the part in the edit memory before HOME and with its own events
+ * flushed (the buffer full meanwhile); HOME + OP6 ends one as before; HOME, ARP, SEQ, ARP, REC ends one with them kept;
+ * HOME, ARP, REC, a white key while one plays: ONE AUTOMATION AT A TIME; HOME, REC before ARP still the CUT */
+static void test_auto_home_rec(void)
+{
+    const int op6 = UI_BLACK[5], w2 = UI_WHITE[2], w5 = UI_WHITE[5], songs = ui_round_at(ui_screen_named("SONGS"));
+    static au_ev_t e[64];
+    char msg[400];
+    int n, scr, ok, put, t1, t2;
+    player_stop(); run(100);
+    home_key(1);                                        /* SONGS */
+    run(2100);                                          /* (no toast left) */
+    /* the switch: the lines, the LEDs */
+    tap(B_HOME); tap(B_ARP);
+    check(home_has("REC: RECORD INSTEAD") && !home_has("REC: CUT, SILENT WHILE HELD") && leds[B_REC] == LV_DIM &&
+          leds[LED_NOTE(UI_WHITE[3])] == 0, "HOME, ARP: REC: RECORD INSTEAD in the CUT's place, REC dim, an empty slot's key dark");
+    tap(B_REC);
+    snprintf(msg, sizeof msg, "HOME, ARP, REC: the white keys record the automations (WHITE KEY: RECORD ITS AUTOMATION, REC: PLAY INSTEAD), "
+             "REC and ARP full, SEQ dim, every white key dim (the empty slots' too); no CUT (REC %d ARP %d SEQ %d, keys %d %d)",
+             leds[B_REC], leds[B_ARP], leds[B_SEQ], leds[LED_NOTE(UI_WHITE[3])], leds[LED_NOTE(UI_WHITE[15])]);
+    check(ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: RECORD ITS AUTOMATION") && home_has("REC: PLAY INSTEAD") &&
+          home_has("SEQ: SOLO INSTEAD  ARP: MUTE INSTEAD") && leds[B_REC] == LV_FULL &&
+          leds[B_ARP] == LV_FULL && leds[B_SEQ] == LV_DIM && leds[LED_NOTE(UI_WHITE[3])] == LV_DIM &&
+          leds[LED_NOTE(UI_WHITE[15])] == LV_DIM && !ui_toast_now() && !ua_state(), msg);
+    shot("auto_home_rec");
+    press(B_REC);
+    ok = !ui_toast_now() && leds[B_REC] < LV_FULL;
+    run(2100);
+    ok = ok && !ui_toast_now() && leds[B_REC] < LV_FULL && !ua_state();
+    release(B_REC);
+    check(ok && ui_top() && ui_top()->kind == OV_HOME && home_has("WHITE KEY: PLAY ITS AUTOMATION") && home_has("REC: RECORD INSTEAD") &&
+          leds[B_REC] == LV_DIM && leds[LED_NOTE(UI_WHITE[3])] == 0, "... REC again, held 2 s: back to playing them (REC: RECORD "
+          "INSTEAD, REC dim, the empty slot's key dark), no CUT, no effects switched off");
+    tap(B_REC);
+    tap(B_SEQ);
+    check(home_has("WHITE KEY: SOLO A TRACK") && home_has("REC: CUT, SILENT WHILE HELD") && leds[B_SEQ] == LV_FULL &&
+          leds[B_ARP] == LV_DIM && leds[B_REC] == LV_DIM, "... SEQ from recording them: SOLO (REC's line the CUT's again)");
+    tap(B_ARP); tap(B_REC); tap(B_ARP);
+    check(home_has("WHITE KEY: MUTE A TRACK, HELD: SOLO") && home_has("SEQ: SOLO INSTEAD  ARP: AUTOMATIONS") &&
+          home_has("REC: CUT, SILENT WHILE HELD") && leds[B_ARP] == LV_DIM, "... ARP from recording them: back to MUTE");
+    /* a recording from SONGS, ended there by HOME, ARP, REC; its part in the edit memory before HOME */
+    tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[3], 1);
+    ui_render();
+    ok = screen_is("SONGS") && ua_state() == 1 && ua_slot() == 3 && !ui_top() && count_px(12, 0, 68, 16, C_RED) > 0;
+    key(UI_WHITE[3], 0);
+    check(ok, "HOME, ARP, REC, white key 4: slot 03 recording on SONGS, the screen it is on (no AUTOMATIONS), the combination "
+          "closed, the header's AUTO 03 red");
+    run(300);
+    key(w2, 1); key(w2, 0);
+    run(1200);                                          /* (a second on: its events in the edit memory) */
+    put = store_get(REC_AUTO, 0, 0x30, 0, 0) != 0;
+    tap(B_HOME); tap(B_ARP);
+    check(ua_state() == 1 && home_has("REC: END THE RECORDING") && home_has("WHITE KEY: PLAY ITS AUTOMATION") && leds[B_REC] == LV_DIM,
+          "HOME, ARP while recording: REC: END THE RECORDING, REC dim, the white keys playing them (as ever)");
+    tap(B_REC);
+    n = au_read(3, e, 64, &scr);
+    snprintf(msg, sizeof msg, "... REC: it ends where it is (SONGS, the combination closed), AUTOMATION 03 RECORDED: 0:00; in it the white "
+             "key alone, none of HOME, ARP, REC, white key 4 (its part in the edit memory before HOME: %d; %d events)", put, n);
+    check(put && screen_is("SONGS") && !ua_state() && !ui_top() && lp_toast("AUTOMATION 03 RECORDED: 0:00") && n == 2 && scr == songs &&
+          e[0].k == 0 && e[0].id == w2 && e[0].t == 0 && e[1].k == 1 && e[1].id == w2, msg);
+    /* HOME held, for the start and the end */
+    press(B_HOME); press(B_ARP); release(B_ARP); press(B_REC); release(B_REC);
+    key(w5, 1);
+    ok = screen_is("SONGS") && ua_state() == 1 && ua_slot() == 5;
+    key(w5, 0);
+    release(B_HOME);
+    run(200);
+    check(ok && ua_state() == 1 && !ui_top(), "HOME held, ARP, REC, white key 6: slot 05 recording on SONGS, HOME's release nothing more");
+    key(w2, 1); key(w2, 0);
+    run(100);
+    press(B_HOME); press(B_ARP); release(B_ARP); press(B_REC);
+    ok = screen_is("SONGS") && !ua_state() && lp_toast("AUTOMATION 05 RECORDED: 0:00");
+    release(B_REC); release(B_HOME);
+    run(200);
+    n = au_read(5, e, 64, &scr);
+    check(ok && !ui_top() && n == 2 && e[0].k == 0 && e[0].id == w2 && e[1].k == 1 && e[1].id == w2, "... HOME held, ARP, REC: it ends "
+          "where it is, AUTOMATION 05 RECORDED: 0:00; in it the white key alone, none of HOME, ARP, REC, white key 6");
+    /* a slot holding one: KEEP, then REPLACE; HOME + OP6 ends it as before */
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[3], 1); key(UI_WHITE[3], 0);
+    ok = !strcmp(asking(), "AUTOMATION 03 HOLDS 0:00") && ui_overlay_count() == 1 && screen_is("SONGS") && !ua_state();
+    tap(B_OCTM);
+    check(ok && screen_is("SONGS") && !ua_state() && !ui_top() && au_read(3, e, 64, &scr) == 2 && e[0].id == w2,
+          "HOME, ARP, REC, white key 4 on a slot holding one: AUTOMATION 03 HOLDS 0:00 / REPLACE IT? over SONGS (the combination "
+          "closed); KEEP: nothing recorded, the slot as it was");
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[3], 1); key(UI_WHITE[3], 0);
+    tap(B_OCTP);
+    ok = screen_is("SONGS") && ua_state() == 1 && ua_slot() == 3 && !ui_top();
+    key(w5, 1); run(100); key(w5, 0);
+    run(100);
+    home_key(op6);
+    n = au_read(3, e, 64, &scr);
+    check(ok && screen_is("AUTOMATIONS") && !ua_state() && lp_toast("AUTOMATION 03 RECORDED: 0:00") && n == 2 && scr == songs &&
+          e[0].k == 0 && e[0].id == w5 && e[1].k == 1 && e[1].id == w5, "... REPLACE: recording on SONGS, the answer not in it; "
+          "HOME + OP6 ends it as before, AUTOMATIONS open: the white key alone in it");
+    /* on AUTOMATIONS itself: the screen it was opened from; HOME, ARP, REC at once: NOTHING RECORDED */
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[6], 1);
+    ok = screen_is("SONGS") && ua_state() == 1 && ua_slot() == 6;
+    key(UI_WHITE[6], 0);
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    check(ok && screen_is("SONGS") && !ua_state() && !ui_top() && lp_toast("NOTHING RECORDED") && !au_nparts(6),
+          "HOME, ARP, REC, white key 7 on AUTOMATIONS: slot 06 recording on SONGS, where AUTOMATIONS was opened from; HOME, ARP, "
+          "REC at once: NOTHING RECORDED, the slot empty");
+    /* the end's own events past a flush (the buffer full while ARP switches on): taken out again from the edit memory */
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[7], 1); key(UI_WHITE[7], 0);
+    key(w2, 1); key(w2, 0);
+    tap(B_HOME);
+    for (int i = 0; i < 61; i++) tap(B_ARP);            /* (the buffer full meanwhile: flushed) */
+    put = store_get(REC_AUTO, 0, 0x70, 0, 0) != 0;
+    ok = ua_state() == 1 && home_has("REC: END THE RECORDING");
+    tap(B_REC);
+    n = au_read(7, e, 64, &scr);
+    snprintf(msg, sizeof msg, "HOME, ARP 61 times, REC: the end's events past a flush (in the edit memory before REC: %d) taken out "
+             "again: the white key alone in it (%d events)", put, n);
+    check(put && ok && !ua_state() && screen_is("SONGS") && lp_toast("AUTOMATION 07 RECORDED: 0:00") && n == 2 && e[0].k == 0 &&
+          e[0].id == w2 && e[1].k == 1 && e[1].id == w2, msg);
+    /* something else between HOME and REC (SEQ): it ends there, its controls kept, REC let go at the end */
+    tap(B_HOME); tap(B_ARP); tap(B_REC);
+    key(UI_WHITE[8], 1); key(UI_WHITE[8], 0);
+    key(w2, 1); key(w2, 0);
+    tap(B_HOME); tap(B_ARP); tap(B_SEQ); tap(B_ARP); tap(B_REC);
+    n = au_read(8, e, 64, &scr);
+    check(!ua_state() && screen_is("SONGS") && !ui_top() && ui_toast_now() && !strncmp(ui_toast_now(), "AUTOMATION 08 RECORDED: 0:0", 27) &&
+          au_has(e, n, 0, 27 + B_HOME) == 2 && au_has(e, n, 0, 27 + B_SEQ) > 2 && au_has(e, n, 0, 27 + B_REC) > 2 &&
+          au_has(e, n, 1, 27 + B_REC) == n - 1, "HOME, ARP, SEQ, ARP, REC: it ends there, HOME, ARP, SEQ and REC kept in it (something "
+          "else between), REC let go at its end");
+    /* HOME, ARP, REC, a white key while one plays (slot 09, the test's writer's): ONE AUTOMATION AT A TIME */
+    {
+        const au_ev_t E[10] = {{0, 0, 27 + B_HOME, 0}, {30, 1, 27 + B_HOME, 0}, {260, 0, 27 + B_ARP, 0}, {290, 1, 27 + B_ARP, 0},
+                               {520, 0, 27 + B_REC, 0}, {550, 1, 27 + B_REC, 0}, {780, 0, UI_WHITE[10], 0},
+                               {810, 1, UI_WHITE[10], 0}, {1100, 0, 27 + B_HOME, 0}, {1130, 1, 27 + B_HOME, 0}};
+        check(au_write(9, songs, E, 10) == 1, "(AUTOMATIONS: slot 09 written by the test's writer: HOME, ARP, REC, white key 11, HOME)");
+    }
+    tap(B_HOME); tap(B_ARP);
+    key(UI_WHITE[9], 1); key(UI_WHITE[9], 0);
+    run(640);                                           /* (700 ms in: HOME, ARP, REC given) */
+    ok = ua_state() == 2 && home_has("WHITE KEY: RECORD ITS AUTOMATION") && home_has("REC: PLAY INSTEAD");
+    t1 = wait_toast("ONE AUTOMATION AT A TIME", 1000);
+    t2 = wait_toast("AUTOMATION 09 PLAYED", 2000);
+    run(300);
+    snprintf(msg, sizeof msg, "HOME, ARP, REC, a white key while one plays: ONE AUTOMATION AT A TIME (%d), slot 0A untouched, on to its "
+             "end (%d)", t1, t2);
+    check(ok && t1 >= 0 && t2 >= 0 && !au_nparts(10) && !ua_state() && screen_is("SONGS") && !ui_top(), msg);
+    /* HOME, REC before ARP: the CUT as ever */
+    tap(B_HOME);
+    press(B_REC);
+    ok = lp_toast("SOUND CUT: LET GO OF REC") && !ui_top() && leds[B_REC] == LV_FULL;
+    release(B_REC);
+    run(200);
+    check(ok, "HOME, REC (no ARP): the CUT as ever, the combination closed");
+    /* the slots cleared, saved */
+    home_key(op6);
+    for (int s = 0; s < 16; s++)
+        if (au_nparts(s)) { key(UI_WHITE[s], 1); key(UI_WHITE[s], 0); menu_pick("CLEAR"); tap(B_OCTP); }
+    tap(B_SAVE); run(3000);
+    int left = 0;
+    for (int s = 0; s < 16; s++) left += au_nparts(s);
+    check(!left, "(AUTOMATIONS: every slot cleared again, saved)");
+    home_key(1);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3) { fprintf(stderr, "usage: ui3_test DISK.ptfmdsk|- OUTDIR [SESSION OUT.txt]\n"); return 1; }
@@ -10399,6 +14239,30 @@ int main(int argc, char **argv)
     lay_disk(argv[1]);
     app_init();
     run(100);
+#ifdef UI3_STAGE_FIVE                   /* (the five keys alone: a quick look) */
+    test_stage_mono_glide();
+    test_stage_rec(1);
+    test_stage_rec(0);
+    test_stage_ramp();
+    test_stage_press(0);
+    test_stage_press(1);
+    test_stage_vols();
+    test_stage_swell();
+    test_stage_five();
+    printf(fails ? "ui3_test (five keys): %d of %d checks FAILED\n" : "ui3_test (five keys): %d checks passed\n", fails ? fails : checks, checks);
+    return fails ? 1 : 0;
+#endif
+#ifdef UI3_AUTO_LEVEL                    /* (AUTO LEVEL alone: a quick look) */
+    test_auto_level();
+    printf(fails ? "ui3_test (auto level): %d of %d checks FAILED\n" : "ui3_test (auto level): %d checks passed\n", fails ? fails : checks, checks);
+    return fails ? 1 : 0;
+#endif
+#ifdef UI3_PRESSURE_ONLY                 /* (the keys' pressure alone: a quick look; QUANTIZE's before it, as in the run) */
+    test_quantize();
+    test_key_pressure();
+    printf(fails ? "ui3_test (pressure): %d of %d checks FAILED\n" : "ui3_test (pressure): %d checks passed\n", fails ? fails : checks, checks);
+    return fails ? 1 : 0;
+#endif
 #ifdef UI3_LIVE_SMALL
     player_stop();
     run(100);
@@ -10426,6 +14290,7 @@ int main(int argc, char **argv)
     test_second_core_toast();
     test_status_second_core();
     test_settings_second_core();
+    test_settings_supplies();
     test_settings_voices();
     test_status_storage();
     test_status_maps();
@@ -10459,6 +14324,7 @@ int main(int argc, char **argv)
     test_mixer_heard();
     test_presets_list();
     test_presets_instruments();
+    test_lists_s();                     /* (here, after MIDNIGHT RUN played last: FX's properties its setup's) */
     test_favorites();
     test_fav_cart_move();
     test_keys_dry();
@@ -10466,6 +14332,7 @@ int main(int argc, char **argv)
     test_themes();
     test_count();
     test_quantize();
+    test_key_pressure();
     test_recpat();
     test_auto_level();
     test_samp_marks();
@@ -10474,6 +14341,10 @@ int main(int argc, char **argv)
     test_samples_flash();                               /* (writes into the flash, then puts it back) */
     test_samples_tools();                               /* (the same) */
     test_refs_save();                                   /* (saves: a slot swapped and back) */
+    test_refs_loops();
+    test_refs_full();
+    test_refs_fits();
+    test_save_list();                                   /* (fills the list of records, then puts the flash back) */
     test_loops_cue_paused();
     test_editor_own_menu();
     test_editor_own_load_long();
@@ -10483,6 +14354,7 @@ int main(int argc, char **argv)
     test_editor_own_settings();
     test_editor_own_revert_all();                       /* (saves) */
     test_loops_save();                                  /* (saves LOOPS, then none again) */
+    test_save_cut();                                    /* (saves LOOPS, then none again) */
     test_revert_all_fx();
     test_cut_fx_off();
     test_fusion_song();
@@ -10493,6 +14365,10 @@ int main(int argc, char **argv)
     test_song_save_now();                               /* (saves a song) */
     test_editor_own_full();                             /* (fills the user area) */
     test_plist_delete_fusion();                         /* (deletes the DRUM KIT's pattern, saved) */
+    test_automations();                                 /* (saves an automation, then none again) */
+    test_auto_compact();                                /* (saves) */
+    test_auto_home();                                   /* (saves, every slot empty again) */
+    test_auto_home_rec();                               /* (saves, every slot empty again) */
     test_factory_reset();                               /* (last: erases the user area) */
 #endif
     (void)combo; (void)listen;

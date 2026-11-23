@@ -20,12 +20,16 @@ slots; the column at the right shows all sixteen, a square each. A loop's number
 you played it.</li>
 <li><b>A loop repeats without copying notes:</b> after the menu's DOUBLE it plays its notes twice (X2 after its
 name).</li>
-<li><b>A loop's mix</b> (level, pan, duck and the sends) is set by <kbd>K1</kbd> to <kbd>K4</kbd> and on FX's MIXER;
-on + NEW LOOP the knobs set the next loop's mix. Each slot shows its loop's LEVEL at the right (<b>7F</b> at first),
-+ NEW LOOP the next loop's.</li>
-<li><b>A new loop takes the KEYS column's sends:</b> its chorus, delay and reverb sends are those of FX MIXER's KEYS
-column, the ones you hear as you play, so the stage on + NEW LOOP already sounds as the loop will. A send's knob on
-+ NEW LOOP turns the KEYS column's (a setting: SAVE keeps it). REC into a loop keeps that loop's own mix.</li>
+<li><b>A loop's mix</b> (level, pan, duck and the sends) is set by <kbd>K1</kbd> to <kbd>K4</kbd> and on FX's MIXER.
+Each slot shows its loop's LEVEL at the right, + NEW LOOP the next loop's.</li>
+<li><b>A new loop starts at half level with every send full:</b> its mix is NEW's, the next loop's own, which starts
+from the defaults in the properties (NEW LOOP LEVEL <b>40</b>, NEW LOOP CHORUS, DELAY and REVERB <b>7F</b>). Turn the
+knobs on + NEW LOOP, or the NEW column on FX's MIXER, to change it for that one loop: you hear it on the stage as you
+play, REC gives it to the new loop, and NEW is the defaults again. NEW is not saved (a power-off forgets a change not
+yet made a loop); the defaults are, with LOOPS. REC into a loop keeps that loop's own mix.</li>
+<li><b>The keys on LOOPS sound as the loop they would become:</b> through the selected loop's mix, on + NEW LOOP
+NEW's, onto the stage or not, playing or stopped, never through KEYS GAIN or the keys' DRY.
+Anywhere else, and on FX, they have their own again.</li>
 <li>LOOPS has its own effects (<kbd>FX</kbd> from LOOPS edits them) and metronome, so it sounds the same whatever song
 is current. SAVE keeps the loops like any change.</li>
 </ul>
@@ -44,10 +48,13 @@ it (you <i>overdub</i> it), and you hear it each time the loops come round.</p>
 sound you play. + NEW LOOP says where REC puts it.</figcaption></figure>
 <ol class="steps">
 <li>Pick a sound with <kbd>PRESETS</kbd> (<kbd>ENV</kbd>: another cartridge) and press <kbd>PLAY</kbd>.</li>
-<li>Play. Each note lands where QUANTIZE puts it and sounds exactly as it is kept. <b>Overdubbing adds and never
+<li>Play. Each key sounds the moment you press it; its note is kept where QUANTIZE puts it, and plays there from the
+next pass. <b>Overdubbing adds and never
 removes:</b> a note takes a lane that is free (the stage has four), so a long pad already there stays whole. With all
 four in use, it takes the lane whose note ends soonest and cuts that note where yours starts. A note that starts on
-that lane while you hold your key moves on with it, to where you let go; one your key covers completely is gone.</li>
+that lane while you hold your key moves on with it, to where you let go; one your key covers completely is gone.
+Press a held key harder and you hear it louder at once; the stage keeps the swell as volumes on its lane's rows and
+plays it back as smoothly as you played it, from the next pass.</li>
 <li>When it sounds right, press <kbd>REC</kbd>: on + NEW LOOP the stage becomes a new loop
 (<samp class="msg" data-t="STAGE AS #">STAGE AS LOOP 06</samp>), on a loop it goes into that loop, in place of its
 notes (<samp class="msg" data-t="STAGE INTO #">STAGE INTO LOOP 03</samp>). The stage is empty again, and what sounds
@@ -56,7 +63,7 @@ loops stopped, that REC also arms them: <a href="#loops-arm">below</a>).</li>
 </ol>
 <ul>
 <li><b>The stage plays in your sound</b> and through the mix REC would put it in: the selected loop's, or on + NEW LOOP
-the next loop's (with the KEYS column's sends), and LOOPS' effects (never KEYS GAIN or the keys' DRY), so a loop sounds as you played it. Mutes and
+NEW's, and LOOPS' effects (never KEYS GAIN or the keys' DRY), so a loop sounds as you played it. Mutes and
 solos never silence it.</li>
 <li><b>The selected loop is silent</b> while the stage holds notes (its slot grey, <b>STAGED</b>): the stage is what
 would take its place. Select another loop and the stage stays; that one falls silent instead. With the stage empty,
@@ -66,7 +73,8 @@ every loop sounds.</li>
 <li><b>The length's end:</b> a note you hold over it ends there, kept once from where you started it. The key then
 stops writing: hold it on and nothing more is kept, let it go and nothing changes; the note plays again where you
 played it each round, so a pad held to the end keeps its start.</li>
-<li><b>Stopped,</b> the keys play freely, nothing written; the stage keeps its notes.</li>
+<li><b>Stopped,</b> the keys put their notes in where PLAY starts, as if the loops played there (<a href="#loops-insert">below</a>);
+with the stage off they play freely, nothing kept.</li>
 <li>The stage is never saved and counts as no change: SAVE and REVERT leave it as it is, so a save mid-jam loses
 nothing. A power cycle drops it.</li>
 </ul>
@@ -94,8 +102,33 @@ heard again, and the stage is on. With the stage empty and off, it just turns on
 (<samp class="msg">STAGE ON</samp>).</li>
 <li>Stopped, OVERWRITE erases nothing (the play line does not move). In ADJUST, the pattern recorder and with the stage
 off LFO does nothing; OVERWRITE rests there, and on every other screen, FX too, where the stage plays on, and goes on
-once you are back. LFO has nothing else to do here: REC with LFO held is plain REC.</li>
+once you are back. REC with LFO held is plain REC.</li>
 </ul>
+<p id="loops-insert"><b>Putting notes in by hand.</b> With the loops stopped and the stage on, play keys: their notes go
+in at the play position, written as if the loops played from there and you pressed them then, but nothing moves.</p>
+<ul>
+<li>Every key you press while any of them is held goes in on that row, a chord, each note as long as you hold its key
+at the loops' tempo; you see it grow on the stage. POLY takes four keys, a fifth neither heard nor kept; MONO the first
+alone.</li>
+<li>OVERDUB and OVERWRITE work as when you play over the loops: OVERDUB finds each note a free lane and moves on a note
+it runs into; OVERWRITE clears all four lanes under it.</li>
+<li>Let go of all keys and play again on the same row: the new notes replace the ones you just put there. Turn
+ALGORITHM to put notes elsewhere.</li>
+<li>Press PLAY while you hold keys: they go on writing as the loops play from that row, each note as long as you hold
+its key. Turn ALGORITHM while you hold keys and their notes end where they stand; they sound until you let go, and PLAY
+then plays without them.</li>
+</ul>
+<p><b>Erasing by hand.</b> With the loops stopped and the stage on, hold <kbd>LFO</kbd>:</p>
+<ul>
+<li>Turn <kbd>ALGORITHM</kbd> to erase: the play position moves a row a click, the header says <samp class="msg">ERASING</samp>, and every row it moves across loses the notes that start there, on
+all lanes. The row you start on and the row you stop on are kept, so to erase rows 2 to 4, start on 1 and turn to 5.
+A long note that only runs through an erased row stays.</li>
+<li>When you let go of LFO after it, OVERDUB and OVERWRITE stay as they were (keys played meanwhile put notes in, as
+without LFO). While the loops play, ALGORITHM jumps as ever.</li>
+</ul>
+<figure data-shot="loops-erasing"><figcaption>Erasing: loop 03 put on the stage with EDIT, then LFO held and ALGORITHM
+turned from 1.1.3 to 1.3.3 (<b>ERASING 1.3.3</b>): the two notes that started on the rows between are gone from the stage,
+and the loop, STAGED, keeps them until REC writes the stage back into it.</figcaption></figure>
 </section>
 
 <section class="topic" id="loops-stage-off">
@@ -160,7 +193,8 @@ the stage once and never arms after it.</aside>
 <section class="topic" id="loops-play">
 <h3>Where PLAY starts, and jumps</h3>
 <ul>
-<li><kbd>ALGORITHM</kbd> moves the play position a row a click (with <kbd>SEL</kbd> held, a bar), round the length:
+<li><kbd>ALGORITHM</kbd> moves the play position a row a click, round the length (with <kbd>SEL</kbd> held it turns
+the selected loop's SHIFT instead, <a href="#loops-knobs">below</a>):
 stopped, it is where PLAY starts (<b>PLAY FROM 2.4.3</b>: bar, beat, step); while the loops play, they jump there at
 once (<b>JUMP +1 ROW</b>). At a jump the notes sounding ring on, and a key you hold stops writing.</li>
 <li><kbd>PLAY</kbd> while the loops play stops them and takes them back to the start; the stage keeps its notes.
@@ -215,8 +249,8 @@ time, and POLY again brings its chords back.</li>
 <h3>The knobs, VIEW and ADJUST</h3>
 <ul>
 <li><kbd>K1</kbd> to <kbd>K4</kbd> turn LEVEL, PAN, REVERB SEND and TEMPO at first; the properties give each knob its
-job: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND (the selected loop's, on + NEW LOOP the next loop's, a send
-there the KEYS column's), TEMPO or VIEW. With <kbd>SEL</kbd> held a mix value moves by 16, TEMPO by 10.</li>
+job: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND (the selected loop's, on + NEW LOOP NEW's), TEMPO or
+VIEW. With <kbd>SEL</kbd> held a mix value moves by 16, TEMPO by 10.</li>
 <li><b>VIEW:</b> 1, 2 or 4 bars a screen (2 at first). While the loops play, the view turns a page as the play line
 leaves it.</li>
 <li><b>ADJUST</b> (the menu, on a loop) moves the whole loop round the length without moving a note: <kbd>K1</kbd> a
@@ -224,9 +258,41 @@ row, <kbd>K2</kbd> a bar, heard and drawn at once. <kbd>SEL</kbd> keeps it
 (<samp class="msg" data-t="#: SHIFT #">LOOP 03: SHIFT +17 ROWS</samp>), <kbd>HOME</kbd> cancels
 (<samp class="msg">CANCELLED</samp>). A moved loop shows its SHIFT after its name, the nearer way round (SHIFT -3 is 3
 rows earlier). REC writing the stage into a loop sets its SHIFT back to 0.</li>
+<li><b>MOVE</b> (the menu, on a loop) moves the loop up and down the list: <kbd>SELECT</kbd> a place a click, the
+loops between moving a place to make room, each with its notes, sound, colour, mix, mute and solo; its number is its new
+place's. <kbd>SEL</kbd> keeps it (<samp class="msg" data-t="MOVED TO #">MOVED TO LOOP 05</samp>), <kbd>HOME</kbd>
+puts it back (<samp class="msg">CANCELLED</samp>). With <kbd>SEL</kbd> held, <kbd>SELECT</kbd> does the same a click at
+a time without the menu, and <kbd>ALGORITHM</kbd> turns the loop's SHIFT: up and down the list, and in time.</li>
 </ul>
 <figure data-shot="loops-adjust"><figcaption>ADJUST on loop 01: K2 a bar and K1 a row later, its line, which played
 in bar 1, now starts on bar 2's second row (SHIFT +17); loop 00 plays on as it was.</figcaption></figure>
+<figure data-shot="loops-move"><figcaption>MOVE: loop 03, two clicks of SELECT down, is loop 05 now
+(<b>LOOP 05: MOVED FROM 03</b>), the two loops between a place up; the line under the bars says SEL keeps it and HOME
+cancels.</figcaption></figure>
+</section>
+
+<section class="topic" id="loops-cut">
+<h3>CUT: a loop shorter than the length</h3>
+<p>Every loop plays over the one length. A cut gives one loop a window of its own: it wraps at the mark and runs on
+across the length's end, so it drifts against the others and comes back in line only now and then: loops of different
+lengths, for phasing and generative parts. Nothing else changes; the loop's notes past the mark are kept, unheard.</p>
+<ul>
+<li><b>CUT HERE</b> (the menu, on a loop) cuts it at the current position: the row playing, or stopped, where PLAY
+starts (<samp class="msg" data-t="#: CUT AT #">LOOP 03: CUT AT 2.4.3</samp>); on the loops' first row the menu leaves it
+out. The rows before the mark are the window, as
+they were heard. On a cut loop it moves the mark. <b>REMOVE CUT</b> brings the whole loop back
+(<samp class="msg" data-t="#: CUT REMOVED">LOOP 03: CUT REMOVED</samp>).</li>
+<li><kbd>SEL</kbd> held + <kbd>EDIT</kbd>: tapped, CUT HERE; held, REMOVE CUT.</li>
+<li><b>SHIFT on a cut loop</b> turns its notes under the window while the mark stays: other parts of the loop come into
+it.</li>
+<li><b>The stage</b> over a cut loop wraps at its mark too: what you play lands in the window, and REC keeps the cut.</li>
+<li>A cut loop's strip shows the whole loop, the notes past the mark dimmed, the mark a line in its colour, and a
+second line where its window is now. It turns its pages by that line, not the play line, so you always see where the
+cut loop plays (the stage over it too); its line says CUT. LENGTH as short as the cut drops it; DOUBLE, MOVE and sets keep
+it; SAVE TO PATTERN writes the first pass from the start.</li>
+</ul>
+<figure data-shot="loops-cut"><figcaption>Loop 02 cut at 2.3.1: its strip still shows the whole loop, the notes past the
+mark dimmed, the mark a line in its colour, and CUT on its line. The stage under it wraps at the same mark.</figcaption></figure>
 </section>
 
 <section class="topic" id="loops-quantize">
@@ -238,7 +304,8 @@ in bar 1, now starts on bar 2's second row (SHIFT +17); loop 00 plays on as it w
 <dt>ROW</dt><dd>The nearest row (at first).</dd>
 <dt>REAL TIME</dt><dd>The row it falls in, its exact time kept as a note delay, its end as a key off.</dd>
 </dl>
-<p>A note played a little early waits for its line; one just after it sounds at once and is kept on the line. The
+<p>A key sounds at once however it falls; a note played a little early or late is kept on the nearest line, and the
+stage plays it there from the next pass. POLY sounds 4 keys at most, MONO one, its MONO LEGATO at the press. The
 menu's QUANTIZE moves a kept loop's notes onto a grid
 (<samp class="msg" data-t="# QUANTIZED: #">LOOP 03 QUANTIZED: 4 ROWS</samp>).</p>
 </section>
@@ -289,6 +356,10 @@ to 4 (<samp class="msg">KEYS: MONO</samp>, <samp class="msg">KEYS: POLY</samp>; 
 loop at once; hold the white key to solo it.</p>
 <figure data-shot="loops-home"><figcaption>HOME's combination in LOOPS: the white keys are the loops.</figcaption></figure>
 <figure data-shot="loops-home-muted"><figcaption>Loop 00 muted from HOME's combination: it plays on, grey.</figcaption></figure>
+<p>A muted loop takes no voices (but a TB-303 loop, or the loop DUCK's SOURCE names): its notes wait unheard as ghost
+notes, keeping time, and come back where they would be when it plays again, so the loops you hear get every voice. With
+more notes than VOICES can sound, the notes pushed out wait the same way, and come back at the bar lines as other notes
+ring out.</p>
 </section>
 
 <section class="topic" id="loops-recorder">
@@ -354,12 +425,14 @@ its NAME, and plays once and stops; SAVE keeps it.</li>
 <li>Held, HOME is its combination as ever. In the pattern recorder or a dialog HOME closes that; HOME again ends the
 song. Armed, HOME cancels it.</li>
 <li>Only notes that have a voice are written: a note given no voice is not written, and a note losing its voice ends
-there. The song's rows are its own, fixed as it starts, so GRID, LENGTH or a change to a loop never moves what was
-written; the notes go where they were heard.</li>
-<li>With the stage on, the keys are written as they land on it, by QUANTIZE; with it off, or while the loops are
+there (coming back to one, it is not written again). The song's rows are its own, fixed as it starts, so GRID,
+LENGTH or a change to a loop never moves what was written; the notes go where they were heard.</li>
+<li>With the stage on, the keys are written as the stage keeps them, on QUANTIZE's lines (though you hear them at
+once); with it off, or while the loops are
 silent, as played. A FUSION note is written as one note.</li>
 <li>Started by REC or a note with the loops stopped, they stay stopped until PLAY.</li>
-<li>LOAD FROM PATTERN leaves the loops silent at their start, as the song's time goes on; PLAY brings them on.</li>
+<li>LOAD FROM PATTERN and LOAD A SET leave the loops silent at their start, as the song's time goes on; PLAY brings
+them on.</li>
 <li>Leaving LOOPS (but for FX) ends it, keeping what was written; so does PLAY on FX, which pauses the loops. SAVE NOW
 and REVERT ALL end it first; SAVE itself waits for a pause, as ever.</li>
 <li>Notes that do not fit the song's 16 tracks are left out and counted
@@ -382,7 +455,29 @@ IN PATTERN 2A</samp>). Pick NEW or a pattern; a pattern that is not empty asks f
 <dt>LOAD FROM PATTERN</dt><dd>Turns a pattern into loops, a loop an instrument, replacing the loops after a question
 (<samp class="msg" data-t="PATTERN # IN LOOPS: # LOOPS">PATTERN 2A IN LOOPS: 3 LOOPS</samp>). The length is the
 pattern's, in whole bars; what does not fit 16 loops of 4 notes is left out and said. The loops stop at their start;
-the stage stays.</dd>
+the stage stays. When the memory for edits cannot hold the new loops, it is refused before anything stops
+(<samp class="msg">MEMORY FOR EDITS IS FULL</samp>): LOOPS stays as it was and plays on.</dd>
+</dl>
+</section>
+
+<section class="topic" id="loops-sets">
+<h3>Sets: whole jams kept</h3>
+<p>A pattern keeps the loops' notes; a <b>set</b> keeps all of LOOPS, to come back to later: every loop with its
+notes, sound, mix and mute, the solos too, the length, the properties and LOOPS' own effects. Not the stage. Each set has
+a number of its own, 00 to EF, and a name of 16 characters, so one FM-1 holds many jams.</p>
+<figure data-shot="loops-sets"><figcaption>LOAD A SET: the sets' list, a set a line: its number, name, how many
+loops and its length in bars (4.5: four and a half).</figcaption></figure>
+<dl class="params">
+<dt>STORE AS A SET</dt><dd>Opens the sets' list, NEW first: NEW keeps LOOPS as it stands as a new set, named after its
+number, <b>LOOPS 03</b> (<samp class="msg" data-t="LOOPS STORED AS SET #">LOOPS STORED AS SET 03</samp>); a set
+asks first and keeps its name. The loops go on as they were. SAVE writes the set, as any change.</dd>
+<dt>LOAD A SET</dt><dd>Listed once a set exists. Its list's SEL brings the highlighted set into LOOPS, after a
+question when there are loops (<samp class="msg" data-t="SET # LOADED">SET 03 LOADED</samp>). The loops stop at their
+start and wait for PLAY; the stage stays, fitted to the set's length. As LOAD FROM PATTERN, it checks the memory for
+edits first, and refused, LOOPS plays on as it was. SAVE keeps the loops so; REVERT takes them back, and with them the
+set's solos.</dd>
+<dt>In the list</dt><dd><kbd>EDIT</kbd> renames the highlighted set; <kbd>LFO</kbd> deletes it, after a question.
+<kbd>PLAY</kbd> plays nothing here: a set is heard once it is loaded.</dd>
 </dl>
 </section>
 
@@ -409,6 +504,9 @@ held note moves to the new one, no new attack) or JUMP (a plain new note). <span
 <dt>VIEW</dt><dd>The bars a screen shows. <span class="range">1, 2 or 4 BARS A SCREEN; 2 at first</span></dd>
 <dt>K1 TURNS to K4 TURNS</dt><dd>Each knob's job: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND, REVERB SEND, TEMPO or VIEW.
 <span class="range">LEVEL, PAN, REVERB SEND, TEMPO at first</span></dd>
+<dt>NEW LOOP LEVEL, NEW LOOP CHORUS, NEW LOOP DELAY, NEW LOOP REVERB</dt><dd>A new loop's defaults: the level and
+sends NEW starts from (<a href="#loops-overview">above</a>); a change here sets NEW's too. Past the first eleven lines the
+list scrolls. <span class="range">00-7F; LEVEL 40, the sends 7F at first</span></dd>
 </dl>
 <p><kbd>SEL</kbd> opens the menu:</p>
 <figure data-shot="loops-menu"><figcaption>The menu on a loop.</figcaption></figure>
@@ -416,6 +514,10 @@ held note moves to the new one, no new attack) or JUMP (a plain new note). <span
 <dt>TAKE ITS INSTRUMENT</dt><dd>The selected loop's sound and MONO / POLY become yours (ENV held does the same).</dd>
 <dt>APPLY INSTRUMENT</dt><dd>The selected loop takes your sound and MONO / POLY.</dd>
 <dt>ADJUST</dt><dd>Moves the loop round the length (<a href="#loops-knobs">above</a>).</dd>
+<dt>CUT HERE, REMOVE CUT</dt><dd>The loop's own window, wrapping at the current position, or the whole loop back
+(<a href="#loops-cut">above</a>).</dd>
+<dt>MOVE</dt><dd>Moves the loop up and down the list, <kbd>SELECT</kbd> a place a click
+(<a href="#loops-knobs">above</a>).</dd>
 <dt>QUANTIZE</dt><dd>Moves the loop's notes onto a grid of 2, 3 or 4 rows, or the nearest row, as it is heard.</dd>
 <dt>DELETE LOOP</dt><dd>The loop goes at once, no question
 (<samp class="msg" data-t="# DELETED">LOOP 03 DELETED</samp>); the loops after it move up. REVERT brings back what was
@@ -424,13 +526,14 @@ saved.</dd>
 (<samp class="msg" data-t="DOUBLED: #">DOUBLED: 8 BARS</samp>); listed only while twice the length fits.</dd>
 <dt>RECORD PATTERN</dt><dd>The pattern recorder (<a href="#loops-recorder">above</a>), as ARP held + REC.</dd>
 <dt>RECORD LIVE</dt><dd>Its panel (<a href="#loops-record-live">above</a>); while armed, CANCEL RECORD LIVE.</dd>
+<dt>STORE AS A SET, LOAD A SET</dt><dd><a href="#loops-sets">Above</a>; LOAD A SET listed once a set exists.</dd>
 <dt>SAVE TO PATTERN, LOAD FROM PATTERN</dt><dd><a href="#loops-patterns">Above</a>.</dd>
 <dt>CLEAR STAGE</dt><dd>Listed while the stage holds notes: empties it at once, no question
 (<samp class="msg">STAGE CLEARED</samp>), and the stage is on; EDIT held 2 seconds does the same.</dd>
 <dt>CLEAR LOOPS</dt><dd>Every loop goes, and the stage's notes, after a question
 (<samp class="msg" data-t="CLEAR ALL # LOOPS?">CLEAR ALL 6 LOOPS?</samp> <samp class="msg">THE STAGE TOO; THE LENGTH
 STAYS</samp>; with one loop, <samp class="msg">CLEAR ALL 1 LOOP?</samp>): <samp class="msg">LOOPS CLEARED</samp>. The
-loops play on, empty.</dd>
+loops play on, empty; the properties stay, NEW is the defaults again.</dd>
 <dt>REVERT</dt><dd>Listed while LOOPS has changes not saved: LOOPS as last saved, after a question (<samp
 class="msg">REVERT LOOPS TO SAVED?</samp>); the stage stays.</dd>
 </dl>
@@ -445,13 +548,16 @@ class="msg">REVERT LOOPS TO SAVED?</samp>); the stage stays.</dd>
 <table class="keys">
 <thead><tr><th>Key</th><th>In PLAY mode</th></tr></thead>
 <tbody>
-<tr><td><kbd>SELECT</kbd></td><td>Picks a loop, or + NEW LOOP after them; the stage stays.</td></tr>
+<tr><td><kbd>SELECT</kbd></td><td>Picks a loop, or + NEW LOOP after them; the stage stays. In MOVE: the loop a place
+up or down.</td></tr>
 <tr><td><kbd>PLAY</kbd></td><td>Plays the loops from where PLAY starts, with loops or none (armed: after COUNT-IN);
 playing, stops them, back to the start. A song armed or recording: <a href="#loops-record-live">above</a>.</td></tr>
+<tr><td>keys held + <kbd>PLAY</kbd></td><td>Stopped, the stage on: the loops play from there, and the notes the keys are
+putting in go on growing as long as you hold them.</td></tr>
 <tr><td><kbd>PLAY</kbd> held</td><td>Stops: the loops go back to their start. A song recording:
 <a href="#loops-record-live">above</a>.</td></tr>
 <tr><td><kbd>KEYS</kbd></td><td>Play your sound; while the loops play, onto the stage (the stage off: heard at
-once, kept nowhere); armed, the first starts them.</td></tr>
+once, kept nowhere); armed, the first starts them; stopped, put in where PLAY starts, as long as held.</td></tr>
 <tr><td><kbd>REC</kbd></td><td>Keeps the stage: a new loop on + NEW LOOP, or into the selected loop, leaving the stage off.
 Stopped with the stage empty: arms, so a note starts the loops (again: disarms). With the stage off: switches it on, and
 stopped arms too.</td></tr>
@@ -460,10 +566,17 @@ LOOP: clears the stage.</td></tr>
 <tr><td><kbd>EDIT</kbd> held</td><td>Clears the stage, on a loop or on + NEW LOOP.</td></tr>
 <tr><td><kbd>LFO</kbd></td><td>Its tap, as you let go: OVERDUB or OVERWRITE, where the play line erases the stage as it passes
 (the stage off: nothing).</td></tr>
+<tr><td><span class="combo"><kbd>LFO</kbd> + <kbd>ALGORITHM</kbd></span> held, stopped</td><td>Erases the stage's notes
+on the rows the play position moves across.</td></tr>
 <tr><td><kbd>ALGORITHM</kbd></td><td>Where PLAY starts, a row a click; playing, a jump there.</td></tr>
-<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>ALGORITHM</kbd></span> held</td><td>The same, a bar a click.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>ALGORITHM</kbd></span> held</td><td>The selected loop's SHIFT, a row a
+click, as ADJUST's K1: the loop moves in time, no note changes.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>SELECT</kbd></span> held</td><td>The selected loop a place up or down
+the list, as MOVE does.</td></tr>
+<tr><td><span class="combo"><kbd>SEL</kbd> + <kbd>EDIT</kbd></span> held</td><td>EDIT tapped: the selected loop cut at
+the current position; EDIT held: its cut removed (<a href="#loops-cut">above</a>).</td></tr>
 <tr><td><kbd>K1</kbd> <kbd>K2</kbd> <kbd>K3</kbd> <kbd>K4</kbd></td><td>Their jobs (GLO): LEVEL, PAN, REVERB SEND and
-TEMPO at first; on + NEW LOOP, the next loop's mix (its sends the KEYS column's). In ADJUST: K1 a row, K2 a bar.</td></tr>
+TEMPO at first; on + NEW LOOP, NEW's (the next loop's mix). In ADJUST: K1 a row, K2 a bar.</td></tr>
 <tr><td><kbd>PRESETS</kbd></td><td>The sound you play, the stage's, which REC keeps with a loop.</td></tr>
 <tr><td><kbd>ENV</kbd></td><td>The cartridge list: your sound from another cartridge.</td></tr>
 <tr><td><kbd>ENV</kbd> held</td><td>The selected loop's sound and MONO / POLY become yours.</td></tr>
@@ -475,10 +588,11 @@ on, MONO or POLY.</td></tr>
 <tr><td><span class="combo"><kbd>ARP</kbd> held + <kbd>REC</kbd></span></td><td>Opens the pattern recorder, as you let
 go of REC.</td></tr>
 <tr><td><kbd>GLO</kbd></td><td>The properties: tempo, swing, length, grid, quantize, mono legato, count-in, view, the
-knobs' jobs.</td></tr>
-<tr><td><kbd>SEL</kbd></td><td>The menu: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, QUANTIZE, DELETE LOOP, DOUBLE,
-RECORD PATTERN, RECORD LIVE, SAVE TO / LOAD FROM PATTERN, CLEAR STAGE, CLEAR LOOPS, REVERT. In ADJUST: keeps it.</td></tr>
-<tr><td><kbd>HOME</kbd></td><td>HOME's combination; in ADJUST or a count-in, or with a song armed, cancels; a song
+knobs' jobs, a new loop's level and sends.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The menu: TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, CUT HERE, REMOVE CUT, MOVE,
+QUANTIZE, DELETE LOOP, DOUBLE, RECORD PATTERN, RECORD LIVE, STORE AS A SET, LOAD A SET, SAVE TO / LOAD FROM PATTERN,
+CLEAR STAGE, CLEAR LOOPS, REVERT. In ADJUST or MOVE: keeps it.</td></tr>
+<tr><td><kbd>HOME</kbd></td><td>HOME's combination; in ADJUST, MOVE or a count-in, or with a song armed, cancels; a song
 recording, tapped, ends it.</td></tr>
 <tr><td><kbd>FX</kbd></td><td>LOOPS' own effects; FX again comes back.</td></tr>
 <tr><td><span class="combo"><kbd>FX</kbd> held + <kbd class="w">white key</kbd></span></td><td>A punch-in effect: heard,

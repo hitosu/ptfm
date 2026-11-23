@@ -23,14 +23,22 @@ enum { DS_START, DS_CONTROL, DS_DJDECKS, DS_DJLFOS, DS_REPLAY, DS_CELLS, DS_NOTE
 #define DBG_USB_LEN 16                          /* USB: audio's state and packets (plat_dbg_t's usb), FIGURES unsent */
 #define DBG_FIGURES_LEN (18 + 6 * DS_N + 88 + DBG_WORST_LEN + DBG_DJ_LEN + DBG_USB_LEN)   /* FIGURES' bytes: the head,
                                                                 * the stages, the rest, the worst half, DJ, USB (547) */
-#define DBG_FIGURES2_VERSION 2
-#define DBG_FIGURES2_LEN 56                     /* 37 FIGURES 2's bytes: core 2's window (specs/debug.md, Core 2's bytes) */
+#define DBG_FIGURES2_VERSION 6
+#define DBG_GHOSTS_LEN 310                      /* FIGURES 2's ghosts: the GHOSTS stage, then the player's (310) */
+#define DBG_SPLIT_LEN 16                        /* ... the voices' split (where it stood, core 2's voices a job, core 1's
+                                                 * waits at the join, the margin) */
+#define DBG_KEYS_LEN 90                         /* ... the keys' readings (plat_keys_t) */
+#define DBG_FIGURES2_LEN (56 + DBG_GHOSTS_LEN + 8 + DBG_SPLIT_LEN + DBG_KEYS_LEN)   /* 37 FIGURES 2's bytes: core 2's
+                                                 * window (specs/debug.md, Core 2's bytes), the ghosts', the stacks'
+                                                 * bottoms, the split's, the keys' (480) */
 
 #ifdef PTFM_DEBUG
 #include "plat.h"
 extern uint32_t dbg_half[DS_N];                 /* this half's time by stage, us (the audio context's) */
 extern uint16_t dbg_blocks_half[4];             /* this half's voice blocks by engine */
 extern uint8_t dbg_notes_half;                  /* this half's notes started */
+extern uint32_t dbg_gh_half;                    /* this half's GHOSTS, us: the voices pass's ghost work (inside VOICES;
+                                                 * FIGURES 2 carries it: FIGURES' stages are full) */
 extern volatile uint8_t dbg_usb_tone;           /* 34 USB TONE: USB audio carries the test tone */
 void dbg_tone_block(int16_t *lr, int n) PLAT_C2;   /* the test tone's next n frames, USB audio's 16-bit values (a
                                                  * block's job's: core 2's room) */
@@ -60,7 +68,8 @@ void dbg_half_end(uint8_t voices);              /* the audio context, the next h
                                                  * jobs' stages with it) into the window */
 void dbg_frame(uint32_t us);                    /* the main loop: a frame drawn, its time */
 int dbg_frozen(void);                           /* FREEZE THE SCREEN on */
-int dbg_sysex(const uint8_t *msg, uint32_t n);  /* 30 FIGURES?, 34 USB TONE: 1 taken (30 answered from dbg_poll) */
+int dbg_sysex(const uint8_t *msg, uint32_t n);  /* 30 FIGURES? (its bits 3 and 4: the fixed split on, off), 34 USB
+                                                 * TONE: 1 taken (30 answered from dbg_poll) */
 void dbg_poll(void);                            /* the main loop: an answer waiting is sent (31, then its 37) */
 int dbg_figures(uint8_t *out, uint8_t *out2);   /* the window's FIGURES (DBG_FIGURES_LEN B) and core 2's FIGURES 2
                                                  * (DBG_FIGURES2_LEN B), a new window started */
@@ -75,6 +84,8 @@ typedef struct {
     uint16_t passes;                            /* main loop passes */
     uint32_t pass_max_us;                       /* the longest */
     uint16_t stack_used[2], stack_size[2];      /* the main loop's stack, the interrupts': deepest, size (B) */
+    uint16_t stack_island[2], stack_paint[2];   /* ... from the deepest point up: the bytes not painted, then the paint
+                                                 * above them (B: a word written at a bottom by something else shows) */
     struct {                                    /* USB audio (specs/connections.md#usb-audio) */
         uint8_t on, r48;                        /* the stream fed now (the computer reads it); at 48 kHz */
         uint16_t pkts;                          /* packets sent */
@@ -104,6 +115,45 @@ typedef struct {
                                                  * for the main loop, cut short by another message (37's 54, 55) */
 } plat_dbg_t;
 void plat_dbg(plat_dbg_t *d);
+/* the keys' readings (specs/debug.md#the-keys-bytes): the platform's, as STATUS and 37 FIGURES 2 show them (a platform
+ * that reads none: zeros, plat_weak.c's); wait 1 or 2 sets WAIT, the debug build's switch (0 leaves it); wait | 8: a
+ * figures window's (the tick's longest and the keys' lowest readings start afresh after it) */
+#define PLAT_KEYS_RING 4
+typedef struct {
+    uint8_t curve, wait;                        /* KEYS VELOCITY, 0 CONSTANT .. 3 HARD; WAIT, 1 or 2 (0 none) */
+    uint8_t key, vel;                           /* the last landing's key (0-19; 0xFF none yet), its velocity (0: late,
+                                                 * or not taken yet) */
+    uint16_t touch, d1, d2, land;               /* its readings: the touch (pulled up), the first two driven (0 not
+                                                 * yet), the landing */
+    uint16_t presses, grazes, lates, lost;      /* since power-on: landings; touches gone unseated; presses that
+                                                 * waited too long (KEYS VOLUME); conversions not done in time */
+    uint16_t tick_10ns, tick_most_10ns;         /* TIMER5's tick: its mean over the last 1024, the longest since the
+                                                 * last window, 10 ns */
+    uint8_t flags;                              /* bit 0 the keys scanned (the platform reads them), bit 1 MASTER read
+                                                 * both ways, bit 2 the battery read */
+    uint8_t rest[20];                           /* each key's lowest pulled-up reading / 4 since the last window, 0 none */
+    uint16_t m_slot, m_direct;                  /* MASTER from the scan's slot and read directly, at the last battery
+                                                 * pause (0xFFFF none) */
+    uint16_t batt, batt_n;                      /* the battery's last reading (0xFFFF none), its readings since power-on */
+    uint8_t landed;                             /* the landings since power-on, mod 256 */
+    struct {
+        uint8_t key, vel, wait;                 /* the key (0xFF none), its velocity (0 KEYS VOLUME or not taken yet),
+                                                 * the scan's frames its press waited (15: shown late) */
+        uint16_t touch, d1, d2;
+    } ring[PLAT_KEYS_RING];                     /* the last landings, the newest first */
+} plat_keys_t;
+void plat_keys(plat_keys_t *k, int wait);
+/* KEYS FEED (specs/debug.md#keys-feed): key's readings, len bytes of ops as keyvel.h's kv_feed takes them, run through
+ * the platform's velocity as its scan would bring them, then what it made of them (a platform without: flags 0x80) */
+typedef struct {
+    uint32_t state;                             /* the key's state word (keyvel.h) */
+    uint16_t land, presses, grazes, lates;      /* its landing (0 none); the counts since power-on */
+    uint8_t flags;                              /* bit 0 its press waits for its velocity, bit 1 shown late, bit 2 held
+                                                 * (fed down), bit 7 no KEYS FEED here */
+    uint8_t vel[3];                             /* its landing's velocity on SOFT, NORMAL, HARD (0 none) */
+    uint8_t taken, wait;                        /* the velocity its press was taken at (0 none); WAIT */
+} plat_feed_t;
+void plat_key_feed(int key, const uint8_t *op, int len, plat_feed_t *r);
 
 int dbg_send(uint8_t cmd, const uint8_t *b, uint32_t len);  /* a message out, packed: 0 not taken (dropped) */
 #else

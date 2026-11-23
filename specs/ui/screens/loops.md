@@ -1,7 +1,9 @@
 # LOOPS
 
-Status: **settled** (2026-10-24), with the stage since 2026-11-03 and its switch since 2026-11-04. The records: [the
-RECORD LIVE proposal](../../proposals/202611042000-record-live-tap.md) (a song records what is heard); [the stage
+Status: **settled** (2026-10-24), with the stage since 2026-11-03, its switch since 2026-11-04 and the sets since
+2026-11-13, its keys heard at once since 2026-11-20. The records: [the keys at once
+proposal](../../proposals/202611201337-loops-keys-at-once.md); [the sets proposal](../../proposals/202611131618-loops-sets.md) (STORE AS A SET, LOAD A SET);
+[the RECORD LIVE proposal](../../proposals/202611042000-record-live-tap.md) (a song records what is heard); [the stage
 switch proposal](../../proposals/202611041720-loops-stage-switch.md) (ARP's tap, ARP held + REC); [the stage
 proposal](../../proposals/202611030330-loops-redesign.md), which changed LOOPS as [the loop station
 proposal](../../proposals/202610240236-loops-station.md) made it; that one replaced the first LOOPS ([the UI
@@ -14,7 +16,9 @@ loops' record: [../../files/loops.md](../../files/loops.md). LOOPS has its own F
 so it sounds the same whatever song is current, and SAVE keeps the loops like any change.
 
 There is no precise editing in LOOPS: SAVE TO PATTERN stores the loops in a pattern to edit in the EDITOR, and LOAD
-FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-loading-one)).
+FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-loading-one)). **A set** keeps the whole
+of LOOPS under a number of its own, its solos too, to come back to later: STORE AS A SET and LOAD A SET
+([below](#sets)), several jams on one FM-1.
 
 **LOOPS is a screen of the round** (HOME + POLY, or HOME + SELECT between FX and DJ;
 [../navigation.md](../navigation.md)), with a playback of its own:
@@ -56,14 +60,23 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   delays (`EDx`) and key offs (`Kxx`); a MONO loop's glides and legatos (a TB-303's `SLD`, elsewhere `3xx` or `LEG`).
   The loops' mix turned, FX changes and punch-ins are heard live and written only by RECORD LIVE.
 - **A loop's mix** is a track's mix (LEVEL, PAN, DUCK, CHORUS, DELAY and REVERB SENDS), set by K1-K4
-  ([below](#k1-k4-view-and-adjust)) and FX's MIXER, where the loops are the columns, with the KEYS column
-  ([fx.md](fx.md#mixer)). **A new loop starts with the next loop's mix:** its LEVEL, PAN and DUCK LOOPS' own (K1-K4 on
-  `+ NEW LOOP`; plain at first, as a new song's track), **its CHORUS, DELAY and REVERB SENDS the KEYS column's,** as
-  they are when REC makes it. So the stage on `+ NEW LOOP` sounds with the KEYS column's sends (a change of them heard
-  from the next block), REC writes them into the new loop, and K1-K4 with a send's job on `+ NEW LOOP` turn the KEYS
-  column's send ([below](#k1-k4-view-and-adjust)). REC into a loop keeps that loop's own mix.
-- **Voices:** 16 loops of 4 lanes can sound more notes than VOICES allows; parking handles them as any notes
-  ([settings.md](settings.md#voices)).
+  ([below](#k1-k4-view-and-adjust)) and FX's MIXER, where the loops are the columns, then NEW ([fx.md](fx.md#mixer)).
+- **A new loop starts with NEW, the next loop's own mix,** as it is when REC makes it. NEW starts from **a new loop's
+  defaults,** LOOPS' properties ([GLO](#the-properties-glo): `NEW LOOP LEVEL` `40` at first, `NEW LOOP CHORUS`,
+  `DELAY` and `REVERB` `7F`, every send full; PAN centre and DUCK off), and is turned for that one loop by K1-K4 on
+  `+ NEW LOOP` ([below](#k1-k4-view-and-adjust)) and by FX MIXER's NEW column, never the defaults. The stage on
+  `+ NEW LOOP` sounds through NEW (a change heard from the next block) and REC writes it into the new loop; then NEW is
+  the defaults again. **NEW lives in RAM alone:** no edit and never saved, a turn not yet sent is lost at a power-off; it is
+  the defaults at LOOPS' first look after a power-on, after each REC that makes a loop from it, at LOAD FROM PATTERN,
+  LOAD A SET (the set's defaults) and CLEAR LOOPS, and a change of a default in GLO sets NEW's value too. REC into a loop keeps that loop's own mix.
+- **Voices:** 16 loops of 4 lanes can sound more notes than VOICES allows; the notes past it are ghosts, as any
+  notes (24 at most: [settings.md](settings.md#the-list-full)), and come back as engines free, the held ones into the
+  tails' engines at every bar line ([settings.md](settings.md#voices)). The keys on LOOPS play through the stage's
+  lanes, so their notes rank as the loops'. **A muted loop's notes are ghosts** (but a TB-303's, and DUCK's
+  source's): muted (or silenced by a solo), its notes leave their engines at the end of the mute's block, its new
+  notes take none, and they come back as the loop is heard again, each in its turn
+  ([settings.md](settings.md#muted-tracks)); a lane sent by REC into a muted loop becomes a ghost the same way. The
+  stage's column (the stage, the keys on it, the preview, the pattern recorder's single notes) is never muted.
 
 ## The length
 
@@ -99,8 +112,8 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   THE STAGE EMPTY`); the length keeps its bars (as many as the new grid allows; a part bar its whole bars, rounded
   down, at least 1).
 - **The length stays** through CLEAR LOOPS, DELETE LOOP of the only loop, and REC. LOAD FROM PATTERN sets it
-  ([below](#storing-in-a-pattern-and-loading-one)).
-- **Any change of the length** (LENGTH, DOUBLE, GRID, LOAD FROM PATTERN, REVERT) takes the stage with it (cut, a note
+  ([below](#storing-in-a-pattern-and-loading-one)), and LOAD A SET brings the set's ([below](#sets)).
+- **Any change of the length** (LENGTH, DOUBLE, GRID, LOAD FROM PATTERN, LOAD A SET, REVERT) takes the stage with it (cut, a note
   sounding over the cut ending at the line, or longer with empty rows; DOUBLE plays it twice), and the keys down stop
   writing. The play position is taken round the new length (its row modulo the length's rows).
 
@@ -108,13 +121,13 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
 
 - **One loop of the length, belonging to no loop.** It cycles with the loops and is heard in the keys' instrument and
   MONO / POLY (the current ones, [below](#the-instrument-and-mono-or-poly)), through the mix REC would put it in: the
-  selected loop's, on `+ NEW LOOP` the next loop's (its sends the KEYS column's, [above](#the-loops)). **Mutes and solos
-  never silence it:** what is played is heard. It
-  sounds through LOOPS' effects, not KEYS GAIN or the keys' DRY ([fx.md](fx.md#the-keys-dry)).
-- **While the loops play on LOOPS, the keys overdub it.** Each note lands as QUANTIZE says ([below](#quantize): a
-  note played before its line waits for it; one just after the line sounds at once, as close to the line as it can,
-  and is written on the line; REAL TIME: the row it falls in with a note delay `EDx`, its end a key off `Kxx` at its
-  tick), and is heard exactly as it is written:
+  selected loop's, on `+ NEW LOOP` NEW's ([above](#the-loops)). **Mutes and solos never silence it:** what is played is
+  heard. It sounds through LOOPS' effects, not KEYS GAIN or the keys' DRY ([fx.md](fx.md#the-keys-dry)).
+- **While the loops play on LOOPS, the keys overdub it.** **Each key sounds at once,** at its press, and its release
+  ends it at once, as anywhere else, with every QUANTIZE ([the proposal](../../proposals/202611201337-loops-keys-at-once.md));
+  its note is written where QUANTIZE lands it ([below](#quantize): the nearest line, before or after the key; REAL
+  TIME: the row it falls in with a note delay `EDx`, its end a key off `Kxx` at its tick), and from the next pass the
+  stage plays it there:
   - **OVERDUB keeps what the stage had:** a note is added, nothing is removed. **POLY:** the note takes a lane that is
     free where it lands (no note sounding there or starting there), of those the one free longest (its next note
     furthest), the other lanes untouched: a long pad played over stays whole. **No lane free:** it takes the lane whose
@@ -126,20 +139,34 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
     down holds), keys landing on one row making a chord; a fifth key is neither heard nor written.
   - **MONO:** one lane, so never a free one: a note placed on it cuts the note sounding there, and a note starting
     while its key is held is moved on with it as in POLY; keys landing on one row compete for it,
-    the one registered last written and heard (the keys keep their order of registration, also within one scan). A
-    note played over a held one takes over as GLO's MONO LEGATO says: `GLIDE` (on a TB-303 its slide, `SLD` on the
+    the one registered last written (the keys keep their order of registration, also within one scan; each is heard at
+    its press). The stage's note sounding there plays on until the key's note lands, cut there. A note played over a
+    held one takes over as GLO's MONO LEGATO says, heard so at its press: `GLIDE` (on a TB-303 its slide, `SLD` on the
     held note; elsewhere a short, clear glide to the note, `3xx`), `LEGATO` (the held note moves to the new one at
     once, with no new attack: its sound goes on, `LEG`, [../../files/commands.md](../../files/commands.md#legato); on a
     TB-303 its slide, on a FUSION instrument a plain new note) or `JUMP` (a plain new note: the held one ends, the new
     one starts with its attack; at first). A MONO overdub on a stage holding chords first makes it one lane for good (the later
     of overlapping notes).
   - **A note off** goes on the nearest row, at least a row after its note (REAL TIME: the key off at its tick).
+  - **A held key pressed harder** (F3-C5, KEYS VELOCITY not CONSTANT: [../../hardware.md](../../hardware.md#the-keys-velocity))
+    is heard louder at once on its lane; while the loops play, its volume alone is written on its lane's row playing (a
+    key held into PLAY: its own time's), each change of 4 or more and its return to the key's velocity (a row keeps the
+    last), kept from the key's own span. **Before its note's row and in it** (a note landing ahead of the press heard at
+    once; the key's first travel down) the note itself takes the loudest volume heard there, so a light landing pressed
+    on at once plays back as loud as it was heard; less in its own row goes on the next. From the next pass the stage
+    plays the swell as it was played: the lane's note glides to each such volume over its row (a share every 64 frames,
+    there as the row ends), from where it stood ([../../files/loops.md](../../files/loops.md)). Held steady, nothing is
+    written; a row holding another note or a note's end is left as it is. MONO: only the key whose note sounds is heard
+    and written (a key held under it, pressed harder, does nothing). Heard only in an insert and with the stage switched
+    off; a full stage or the edit memory nearly full (256 B left) drops the volumes, never the notes.
   - **The span grows with the play line:** a held note moves notes on, and is drawn, only up to the line; ahead of it
     the stage keeps its notes where they are until the line gets there. **The rows not played keep their notes,** so
     each cycle fixes parts.
   - **OVERWRITE** ([below](#the-stage)) is plain: the line erases everything it passes, every lane, and a key held
     there writes over all four lanes, as the line does.
-  - **A note is heard once as it is played,** then from the stage each time the line reaches its row.
+  - **A note is heard once as it is played,** then from the stage each time the line reaches its row: one landing on
+    a row still ahead is not started again there in the pass it is played (it stands in for its cell), and one let go
+    before its row comes is heard as played, short, kept from its row.
 - **The line** (the length's end, played through): there is no wrap of a note's end. A note held over the line ends
   there: it is written once, from where it started to the length's end (a note off at row 0 where its lane is free),
   its sound let go, its release ringing on into the start until it ends or its lane's next note cuts it. **Its key stops
@@ -149,8 +176,10 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   line) writes there as any.
 - **OVERWRITE** instead of OVERDUB: **LFO's tap switches between them,** at its release, with no grace and however long
   it was held (`OVERWRITE`, `OVERDUB`); the stage's title always says which ([below](#the-screen)). OVERDUB at every
-  power-on, never saved; REC's send, a clear and a move of the selection leave the mode as it is. That is all LFO does
-  here: no layer, nothing while held, no other control closes it, and REC with LFO held is plain REC. HOME alone takes it:
+  power-on, never saved; REC's send, a clear and a move of the selection leave the mode as it is. LFO has no layer;
+  held with the loops stopped it makes ALGORITHM an eraser ([below](#lfo-held-erasing)), and once ALGORITHM
+  has turned or a key has gone down while it is held, its release switches nothing (playing too). No other control
+  closes it, and REC with LFO held is plain REC. HOME alone takes it:
   LFO held, then HOME, is the help, and no switch. While OVERWRITE is on and the loops play, the play line
   erases everything on the stage it passes, on every lane (notes starting there removed, a note running into it cut
   where the line came in, the stage's sounding notes there stopped), and what is played meanwhile is written: that
@@ -201,20 +230,24 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   power-on, never saved;** SAVE, REVERT ALL, LOOPS' REVERT and CLEAR LOOPS leave the switch as it is.
 - **A new instrument or mode** (PRESETS, ENV, the pipette, SEQ held + MONO / POLY, CONTROL mode's) keeps the stage's
   notes, played in the new sound; a POLY stage in MONO plays one note at a time (the later of overlapping notes takes
-  over, an end counting only on the lane whose note sounds, as REC writes it: counted from the stage's first row, a jump
-  too), and POLY again brings its chords back; switched to MONO while chords sound, the stage's other notes end at its
+  over, an end counting only on the lane whose note sounds, its volumes alone going on with it, as REC writes it:
+  counted on over the line from the pass before, after a jump from the stage's first row), and POLY again brings its
+  chords back; switched to MONO while chords sound, the stage's other notes end at its
   next row. The keys down stop writing.
 - **The keys down stop writing** (each note ends as when its key is let go, its span what the line passed) whenever
   the stage's rows or sound change under them: SELECT, a new instrument or mode, REC, EDIT, the pattern recorder's
-  REC, a length change, going to FX, leaving LOOPS, a stop, a jump ([below](#the-play-position-play-and-jumps)).
+  REC, a length change, going to FX, leaving LOOPS, a stop, a jump ([below](#the-play-position-play-and-jumps)), and
+  stopped, the play position moved under the insert's keys ([below](#the-insert)).
 - **What empties it:** REC (sent), the stage's clear, CLEAR LOOPS, a power cycle; nothing else (OVERWRITE or a
   shorter length may leave it with no note). EDIT on a loop and the pattern recorder's REC replace what it holds (and
   turn it on).
-- **Stopped,** the keys play freely (every voice, no grid, through KEYS GAIN), unless REC has armed the loops
-  ([below](#rec-edit-and-the-arm)); the stage keeps its notes.
+- **Stopped,** the keys put their notes on the stage at the play position, as they would were the loops playing
+  ([below](#the-insert)), heard as they are played (through the mix REC would put the stage in, not KEYS GAIN:
+  [below](#the-instrument-and-mono-or-poly)), unless REC has armed the loops ([below](#rec-edit-and-the-arm)); with the
+  stage off they play freely (every voice, no grid), written nowhere.
 - **Never saved, as an edit mode's copy is not** ([../controls.md](../controls.md#buttons-tap-hold-and-layers)): it is
   no unsaved change (SAVE's LED, the unsaved count and LOOPS' REVERT item take no notice of it). **SAVE and REVERT ALL
-  leave it as it is,** and so do LOOPS' REVERT and LOAD FROM PATTERN (fitted to the length they bring), so a SAVE
+  leave it as it is,** and so do LOOPS' REVERT, LOAD FROM PATTERN and LOAD A SET (fitted to the length they bring), so a SAVE
   mid-jam loses no take. A power cycle drops it.
 - **Outside LOOPS** it plays on with the loops, the selected loop staying silent (the stage off: it stays off, the
   selected loop heard); the keys elsewhere never write it.
@@ -227,16 +260,17 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   neither heard nor written,** and the header says why:
   - the edit memory full: `MEMORY FOR EDITS IS FULL`;
   - its stream at its 3,800 B, a loop's most: `THE STAGE IS FULL`;
-  - the store busy (a save being written, or seeding from the computer): `STAGE NOT WRITTEN: STORAGE BUSY`. The keys
-    overdub only while the loops play, a save is written while nothing plays and every control waits
-    ([../dialogs.md](../dialogs.md#progress)), and seeding silences the FM-1, so no overdub meets a busy store; the
-    rule guards what else changes the stage (EDIT, REC, a length change) should one meet it.
+  - the store busy (a save being written, or seeding from the computer): `STAGE NOT WRITTEN: STORAGE BUSY`. A save is
+    written while every control waits ([../dialogs.md](../dialogs.md#progress)), and seeding silences the FM-1, so no
+    key meets a busy store; the rule guards what else changes the stage (EDIT, REC, a length change) should one
+    meet it.
 
 ## REC, EDIT and the arm
 
 - **REC acts at its press.** With notes on the stage it **sends the stage where the selection is:**
-  - **on `+ NEW LOOP`** a new loop: the keys' instrument and mode, the next colour, the next loop's mix, its base the
-    length, once, no SHIFT; the selection on `+ NEW LOOP` again (`STAGE AS LOOP 06`);
+  - **on `+ NEW LOOP`** a new loop: the keys' instrument and mode, the next colour, NEW's mix (NEW then the defaults
+    again, [above](#the-loops)), its base the length, once, no SHIFT; the selection on `+ NEW LOOP` again (`STAGE AS LOOP
+    06`);
   - **on a loop** its notes replaced by the stage's, the keys' instrument and mode written into it, its SHIFT 0, its
     place, colour, mix and mute kept (`STAGE INTO LOOP 03`);
   - the stage emptied; while the loops play, what of it sounds goes on as the loop's, without a break. What is written
@@ -283,17 +317,30 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
 ## The play position, PLAY and jumps
 
 - **The play position** is where PLAY starts and where an armed key starts the loops. **ALGORITHM** moves it a row a
-  click (SEL held: a bar), round the length: stopped, the header shows `PLAY FROM 2.4.3` (bar, beat, and the step when
-  not on a beat); while the loops play they **jump** there at once (`JUMP +1 ROW`, `JUMP -16 ROWS`), from the next row.
+  click, round the length: stopped, the header shows `PLAY FROM 2.4.3` (bar, beat, and the step when
+  not on a beat), an insert's keys held stopping writing ([below](#the-insert)); while the loops play they **jump**
+  there at once (`JUMP +1 ROW`, `JUMP -16 ROWS`), from the next row.
+- **SEL held + ALGORITHM** turns the selected loop's SHIFT instead, a row a click, as ADJUST's K1 does
+  ([below](#k1-k4-view-and-adjust)), playing or stopped, the header saying `SHIFT +2 ROWS`; on + NEW LOOP nothing (SEL
+  blinks). So with SEL held, ALGORITHM moves the loop in time and SELECT moves it up and down the list
+  ([below](#moving-a-loop)). SEL used so opens no menu.
 - **A jump** is no line: the notes sounding ring on as at a tracker's jump (each until its lane's next cell), a loop
   landing in its rest falls silent there, a key held stops writing (its note ends as when it is let go, its span what
-  the line passed), OVERWRITE goes on from where the loops land, and the stage plays what it holds from there (a jump
+  the line passed), a key's end on a row the jump passes over is heard where the loops land (no key's note is left
+  sounding), OVERWRITE goes on from where the loops land, and the stage plays what it holds from there (a jump
   back plays what was just written). A jump back keeps the loops' pass; one forward past the length's end counts the
   next pass. While a song keeps them silent (PLAY), a jump moves the place they come back on from.
 - **PLAY** (at its press): stopped, the loops play from the play position, with loops or none; armed, after COUNT-IN;
   **playing, they stop and the play position goes back to the start** (the stage kept, the keys down no longer
   writing), PLAY's red then dim: at the start, as everywhere. **PLAY held:** stop, back to the start (`BACK TO THE
   START`). What played on into LOOPS pauses as the loops start or the count begins.
+- **Keys held into PLAY:** stopped, with the stage on, the keys held as PLAY starts the loops are the insert's
+  ([below](#the-insert)): they write on as the loops play, each note as long as its key is held, by the key's own time
+  from its press (ahead of the play line by how long it was held before PLAY); their free sound ends there and the loops
+  sound them from the play position, each to its end as the play line comes to it, however far ahead of the line that
+  end is (a key let go as PLAY starts the loops, before they are heard, ends at its own time too). A key of the insert
+  still held that writes no more (its time at the length's end, or stopped: [below](#the-insert)) is taken at PLAY, its
+  free sound let go, and is never written again. With the stage off they sound on freely, written nowhere.
 - **While a song is armed or recorded, PLAY is RECORD LIVE's** ([below](#record-live)): armed, when the loops did not
   play as it was armed and do not play now, PLAY starts the loops and the song after COUNT-IN (else PLAY is the loops'
   own, above); recording, PLAY acts as it is let go, a tap silencing the loops or bringing them back on the song's next
@@ -307,10 +354,60 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   play position (at once while they play: a jump); armed, START or CONTINUE starts them as PLAY does, without the
   count-in; with no loops they play all the same. RECORD LIVE as [below](#record-live).
 
+## The insert
+
+Notes put on the stage by hand while nothing plays: with the loops stopped and the stage on, on LOOPS itself (not
+armed, not in ADJUST or MOVE, the pattern recorder, a count-in or RECORD LIVE), the keys write as they would were the loops
+playing and the keys pressed at the play position, but the loops and the play position stand still; the time goes on
+at TEMPO while keys are held.
+
+- **A chord at the play position:** while any key of it is held, each key pressed goes on the stage on the play
+  position's row, written as a key pressed there while the loops play ([above](#the-stage)): OVERDUB a lane free there,
+  the one free longest (none free, the one whose note ends soonest, cut there), a note starting on its lane while it is
+  held moved on with it; OVERWRITE over all four lanes. POLY: four keys at most, a lane each in the order pressed; a
+  fifth is neither written nor heard. MONO: the first key alone, the others neither written nor heard.
+- **Each note as long as its key is held,** counted from its own press at TEMPO (a row TICKS A ROW at TEMPO, as the
+  loops play it), its end on the nearest row, at least a row after its note (REAL TIME: a key off at its tick). Held to
+  the length's end, it ends there (a note off on row 0 where its lane is free), and its key writes no more but sounds
+  on until let go (or until PLAY takes it: below). Its notes start on the row whatever QUANTIZE says.
+- **Drawn as it grows:** each note up to where its time has run, the stage's dot red while keys write.
+- **The keys sound as they are played,** through the mix REC would put the stage in; a key not written is not heard.
+- **The next insert at that row replaces it:** once all its keys are let go, an insert begun on the same row with the
+  stage as that one left it takes that one's notes and ends away first (what it moved on or erased stays so).
+- **The play position moved while keys of it are held** (ALGORITHM, LFO held + ALGORITHM, the master's song position):
+  they stop writing, each note ending as it stands, as a jump stops the keys held while the loops play; held on, they
+  sound on until let go or PLAY takes them.
+- **PLAY with keys of it held:** they write on as the loops play from the play position, each note as long as its key
+  is held; keys of it that write no more (held to the length's end, or stopped by a change that stops the keys down
+  writing, [above](#the-stage): a new instrument or mode, the play position moved) are taken, their free sound let go,
+  never written again ([above](#the-play-position-play-and-jumps)).
+- A change the stage has no room for is refused as any (`THE STAGE IS FULL`, `MEMORY FOR EDITS IS FULL`,
+  `STAGE NOT WRITTEN: STORAGE BUSY`).
+
+## LFO held: erasing
+
+A tool to fix the stage by hand while nothing plays: with the loops stopped and the stage on, on LOOPS itself (not in
+ADJUST or MOVE, the pattern recorder, a count-in or RECORD LIVE), LFO held makes ALGORITHM an eraser. Playing, ALGORITHM jumps as
+ever. Either way, LFO used so switches nothing at its release; keys played while it is held are the insert, as without
+it ([above](#the-insert)).
+
+- **The eraser, LFO held + ALGORITHM:** the play position moves a row a click (SEL held too: the same), `ERASING` and
+  where it is in the header; an insert's keys held stop writing, as with ALGORITHM alone ([above](#the-insert)). A row the play position has entered in this hold and then leaves loses the
+  stage's notes starting there, on every lane, each whole (its own end with it); a note that only runs through the row
+  stays. The row the hold began on is erased only once entered again and left; the row it stands on, not yet; nothing
+  is erased without a move. Starting on 1, 1 → 2 → 3 erases row 2; on to 2, then 1, then 0 erases 3 and 1 too.
+- A change the stage has no room for is refused as any (`THE STAGE IS FULL`, `MEMORY FOR EDITS IS FULL`,
+  `STAGE NOT WRITTEN: STORAGE BUSY`).
+
 ## The instrument and MONO or POLY
 
 - **The keys' setup is the current instrument and its MONO / POLY:** the stage plays in it, and REC writes both into
   the loop it sends to. The footer shows the instrument at the left, `MONO` or `POLY` at the right. POLY at first.
+- **The keys on LOOPS sound through the mix REC would put the stage in:** the selected loop's, on `+ NEW LOOP` NEW's
+  ([above](#the-loops)): its LEVEL, PAN, DUCK and sends, through LOOPS' effects, never KEYS GAIN, FX MIXER's KEYS column
+  or the keys' DRY ([fx.md](fx.md#the-keys-dry)). So on the stage, with it off and played freely while the loops stop
+  (the LFO's insert too), as the loop they would become; a turn of that mix or another selection is heard from the next
+  block, the notes sounding with it. On FX and on any other screen the keys have their own strip again.
 - **PRESETS** the instrument; **ENV** the cartridge list (`NEW LOOP: A CARTRIDGE`: its first instrument); **ENV held,
   the pipette:** the selected loop's instrument and MONO / POLY become the keys' (`KEYS: 01:04 BRASS, MONO`; on
   `+ NEW LOOP` nothing); SEL's **TAKE ITS INSTRUMENT** is its tap route.
@@ -321,9 +418,9 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
 ## K1-K4, VIEW and ADJUST
 
 - **K1-K4 each have a job,** set in GLO (`K1 TURNS` ... `K4 TURNS`), from: LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND,
-  REVERB SEND (the selected loop's; on `+ NEW LOOP` the next loop's, whose sends are the KEYS column's: a send turned
-  there turns FX MIXER's KEYS column, as its own column does, a setting, unsaved until SAVE, [fx.md](fx.md#mixer)),
-  TEMPO (the loops', as GLO's), VIEW. At first K1 LEVEL, K2 PAN, K3 REVERB SEND, K4 TEMPO. SEL held: a mix value by 16,
+  REVERB SEND (the selected loop's; on `+ NEW LOOP` NEW's, the next loop's own, RAM's: no edit, as FX MIXER's NEW
+  column turns it, [above](#the-loops)), TEMPO (the loops', as GLO's), VIEW. At first K1 LEVEL, K2 PAN, K3 REVERB SEND,
+  K4 TEMPO. SEL held: a mix value by 16,
   TEMPO by 10. The header shows the turn as everywhere (`LEVEL 7F 100%`, `REVERB SEND 7F 100%`, `TEMPO 78 (120 BPM)`,
   `VIEW 2 BARS`). Kept with LOOPS' setup.
 - **VIEW:** 1, 2 or 4 bars a screen, 2 at first (GLO's `VIEW`: `2 BARS A SCREEN`; a knob's job too): what the strips
@@ -339,7 +436,73 @@ FROM PATTERN brings a pattern back as loops ([below](#storing-in-a-pattern-and-l
   repeats and rest turned with it), the strips, EDIT, SAVE TO PATTERN, SEL's QUANTIZE (its lines
   as heard), LENGTH (written out as heard first). Each reads the loop as it is heard: written out over the length, then
   turned SHIFT rows. **SHIFT goes to 0** when REC writes the loop, when LENGTH writes it out, and on LOAD FROM PATTERN;
-  DOUBLE keeps it (the loop plays the same).
+  DOUBLE and CUT HERE keep it (the loop plays the same). On a cut loop it turns the notes under the window
+  ([CUT](#cut)).
+
+## Moving a loop
+
+- **MOVE** (SEL, on a loop) moves the selected loop up and down the list: **SELECT** a place a click (clockwise
+  down), the loops between moving a place towards where it was. Each takes along its notes, instrument, colour, MONO,
+  SHIFT, mix, mute, solo and a mute or solo waiting for the bar line; its number is its new place's (`LOOP 03` moved
+  down twice is `LOOP 05`). The selection goes with it, so the stage stays the moved loop's. At either end of the list
+  SELECT does nothing (SEL blinks); `+ NEW LOOP` stays last. The header shows each click (`MOVE LOOP 05`); ALGORITHM
+  is still the play position; K1-K4 do nothing meanwhile. **SEL keeps it** (`MOVED TO LOOP 05`; `NOT MOVED`), **HOME
+  cancels** (`CANCELLED`: back where it was). Open: the header's subpage `MOVE`, the top line `LOOP 05: MOVED FROM 03`
+  (`LOOP 03: MOVE` before a click), the hint line `SELECT MOVE  SEL KEEP  HOME CANCEL`; REC, LFO, EDIT, GLO, ENV, SEQ
+  and ARP do nothing, as in ADJUST. Leaving LOOPS cancels it.
+- **SEL held + SELECT** is MOVE's step without opening it: the selected loop a place a click (`MOVE LOOP 05`); on
+  `+ NEW LOOP` or at an end nothing (SEL blinks). SEL used so opens no menu. With SEL held, then, SELECT moves the loop
+  up and down the list and ALGORITHM moves it in time ([its SHIFT](#the-play-position-play-and-jumps)).
+- A move is an edit, as DELETE LOOP is: refused during a count-in (SEL blinking); `MEMORY FOR EDITS IS FULL` when the
+  edit memory cannot hold the moved loops' streams (nothing moved); REVERT the way back. The loops play on, from the
+  next row each in its new place; what sounds in a place another loop now stands in (one of another instrument, colour
+  or MONO) ends there, as at DELETE LOOP.
+
+## CUT
+
+Every loop plays over the one shared length. **A cut gives one loop a window of its own:** the loop wraps at a mark
+and runs on across the length's end, so it drifts against the others (loops of different lengths, phasing) and comes
+back in line only after the least common multiple of the two. The length, the other loops and the loop's notes stay as
+they are; its notes past the mark are kept, unheard, and play again once the cut is removed.
+
+- **A loop's cut** is none (at first) or 1 to the length − 1 rows: the rows before the mark are the window. **It plays**
+  so: the loops' rows, counted from their start and running on across the length's end, go round the window, and at
+  each of its rows the loop plays what it plays at that row with no cut, its SHIFT included. PLAY from the start plays
+  the same again; PLAY from a position starts the window where the first pass has it there; a jump moves it as far as
+  the play line. A note sounding over the wrap ends there, as at the length's end.
+- **CUT HERE** (SEL, on a loop) sets the cut at the current position: playing, the row playing; stopped, the play
+  position (`PLAY FROM 2.4.3`). Any row but the loops' first (nothing lies before it there: the menu leaves the item
+  out). A cut loop's mark moves there. A loop with no cut has its repeats and rest written out over the length first
+  (its base the length, played once, its SHIFT kept), so it sounds as it did and the window holds what was heard there.
+  `LOOP 03: CUT AT 2.4.3`. **REMOVE CUT** (SEL, on a cut loop): `LOOP 03: CUT REMOVED`, the loop played once over the
+  length again, its notes past the mark heard.
+- **SEL held + EDIT,** the shortcut (either order): EDIT let go before HOLD DELAY, CUT HERE; held past it, REMOVE CUT.
+  At the loops' first row, or with no cut to remove, EDIT blinks; on `+ NEW LOOP` SEL blinks. SEL used so opens no menu.
+- **SHIFT on a cut loop** (ADJUST, SEL held + ALGORITHM) turns its notes round the length as on any loop while the mark
+  stays where it is: the window shows other rows of the loop.
+- **A cut is an edit:** SAVE keeps it, REVERT and REVERT ALL undo it, the unsaved count and SAVE's LED take it. Refused
+  during a count-in (the button blinking), as EDIT is; nothing in ADJUST, MOVE or the pattern recorder. The keys down
+  stop writing first.
+- **The stage over a cut loop** (the selected one) is that loop's window too: EDIT brings the loop as it is heard with
+  no cut, the stage plays and records its rows before the mark, wrapping there and drifting with the loop; its line
+  wraps there, so OVERWRITE erases only those rows; the keys land on the window's row. Its notes past the mark stay on
+  the stage, unheard. **REC** sends it into the loop with the cut kept, SHIFT 0. Moving the selection to a cut loop
+  while the stage holds notes: the stage wraps at that loop's mark; on a loop with no cut, or on `+ NEW LOOP`, the stage
+  is the length long, as ever. The pattern recorder fills the stage, so over a cut loop it fills up to the cut.
+- **The other tools:** LENGTH longer keeps the cut; shorter but past the cut keeps it, what the length cuts going as from
+  any loop (a shifted loop written out first, as any); as short as the cut or shorter drops it (the loop then as any).
+  LENGTH's question counts every note the change removes, a cut loop's unheard notes past its mark included. DOUBLE
+  writes a cut loop's notes twice, the cut kept: it plays the same. QUANTIZE works on all of a cut loop's notes, past the
+  mark too. MOVE takes the cut with its loop, DELETE LOOP deletes it with it. **SAVE TO PATTERN** writes the first pass
+  from the loops' start over the length, a cut loop wrapping at its mark as heard, its notes past the mark not written
+  (the drift starts over at every repeat of that pattern; RECORD LIVE keeps it: its song takes what the player plays).
+  LOAD FROM PATTERN makes loops with no cut; STORE AS A SET and LOAD A SET keep the cuts.
+- **Drawn:** the strip shows a cut loop in full, as it would play with no cut (its SHIFT applied), the notes from the
+  mark on dimmed (as a silenced loop's); the mark a line in the loop's colour in the gap before its cell, a pixel over and
+  under the strip, as the bar lines; the window's row playing now a second line in the loop's colour within the strip,
+  where the play line is not (stopped: where PLAY would start it). The strip pages by that place, not the play line's,
+  so it is always in view ([the strips](#the-strips)). The stage's strip over a cut loop likewise. The slot's line says
+  `CUT` in place of the repeats (a cut loop plays once).
 
 ## QUANTIZE
 
@@ -419,7 +582,7 @@ and the hint line show as in CONTROL mode.
   takes its solo off; held, each solo that changes waits for the bar line (a yellow `S` meanwhile). While a loop is
   soloed only it sounds (and the stage, which no mute or solo silences); mutes are kept for when the solo clears.
   Stopped, both act at once. Mutes are saved with the loops; solos are not (none after a power-on,
-  [../../files/loops.md](../../files/loops.md)). A key with no loop does nothing.
+  [../../files/loops.md](../../files/loops.md)), but a set keeps both ([below](#sets)). A key with no loop does nothing.
 - **Black keys, by their print:** OP1, OP2, OP3 QUANTIZE `2 ROWS`, `3 ROWS`, `4 ROWS`; OP4 `ROW`; OP5 `REAL TIME`
   (`QUANTIZE: 2 ROWS`, ...); PIT all back on, every mute and solo cleared (`ALL LOOPS ON`); the key printed GLO MUTE
   ↔ SOLO (`SEQ: MUTE`, `SEQ: SOLO`); MONO and POLY the keys' mode (`KEYS: MONO`, `KEYS: POLY`; the footer shows it).
@@ -428,7 +591,7 @@ and the hint line show as in CONTROL mode.
   unmutes loop *n* at once, held solos it, after SEQ solos (key 1 the first loop; a solo as CONTROL's, one loop at a
   time).
 - **A muted loop runs on silently,** in time; its slot is dark grey. So is a loop silenced by another's solo.
-- **Mutes are kept with the loops** (SAVE keeps them); solos are not.
+- **Mutes are kept with the loops** (SAVE keeps them); solos are not, but in a set ([below](#sets)).
 
 ## RECORD LIVE
 
@@ -447,22 +610,26 @@ and the hint line show as in CONTROL mode.
     or the selected loop where the stage holds notes, is not heard and so not written, and a note sounding where a loop
     falls silent ends there;
   - the stage's notes each cycle, OVERWRITE's erasing included;
-  - the keys as heard: with the stage on as they land on it, by QUANTIZE; with it off, or while the song keeps the loops
-    silent, as played, each at its tick;
+  - the keys: with the stage on as they land on it, by QUANTIZE, as the stage keeps them (heard at once, a key played
+    early is written on its line ahead, and one let go before its row as the stage keeps it); with it off, or while
+    the song keeps the loops silent, as played, each at its tick;
   - the pattern recorder's preview and its single notes;
   - the keys on another screen a song goes on through (FX), on tracks with the KEYS column's mix, at full level.
 
   A FUSION note is written as one note; its layers follow on playback.
-- **Only notes that have a voice are written;** the voices are the VOICES count (8, 12 or 16,
-  [settings.md](settings.md#voices)). A note given no voice is not written; a note losing its voice, taken by another or
-  parked past the count, gets a note off where it lost it; a parked note coming back is not written again. A replay of
-  the song may still park other notes, so what overlaps can differ there: their releases overlap.
+- **Only notes that have an engine are written;** the engines are the VOICES count (8, 12 or 16,
+  [settings.md](settings.md#voices)). A note given none (started as a ghost) is not written; a note losing its
+  engine, taken by another, past a smaller count or in a voice job the second core lost, gets a note off where it
+  lost it; a ghost coming back is not written again. A mute is written as any (it ends that loop's notes in what is
+  recorded), and its ghosts coming back after it are not written. A replay of the song may still make ghosts of other
+  notes, so what overlaps can differ there: their releases overlap.
 - **LOOPS works as ever while a song is armed or recorded:** EDIT, the pattern recorder, APPLY INSTRUMENT, ADJUST,
-  QUANTIZE, DELETE LOOP, DOUBLE, LENGTH, GRID, CLEAR LOOPS, LOAD FROM PATTERN and REVERT, the mutes, solos, FX, punch-ins,
+  QUANTIZE, DELETE LOOP, DOUBLE, LENGTH, GRID, CLEAR LOOPS, LOAD FROM PATTERN, LOAD A SET and REVERT, the mutes, solos, FX, punch-ins,
   tempo and mixes; each is heard, and so written. REC keeps its jobs ([above](#rec-edit-and-the-arm)): it sends the
   stage as anywhere, and the song writes the loops as heard, the change included; with the stage off it turns it on as
   anywhere (the loops' replay runs on: no arm); armed, it still starts the song. What is otherwise a stop is not one here, as the song's time runs on:
-  LOAD FROM PATTERN leaves the loops silent at their start (PLAY brings them on), and its list's PLAY previews nothing.
+  LOAD FROM PATTERN and LOAD A SET leave the loops silent at their start (PLAY brings them on), and the pattern list's PLAY
+  previews nothing.
 - **The song's time runs on from its start whatever the loops do:** while it records, the loops' replay never stops,
   and PLAY on LOOPS works any time without ending it ([above](#the-play-position-play-and-jumps)):
   - **PLAY, the loops not playing:** they play on the song's next row, from where they stopped;
@@ -526,7 +693,8 @@ and the hint line show as in CONTROL mode.
 - **SEL → LOAD FROM PATTERN** opens the pattern list, titled `LOAD INTO LOOPS` (its PLAY previews each pattern at the
   timing LOAD brings), and replaces the loops after a question when there are loops (`REPLACE THE LOOPS` / `WITH
   PATTERN 2A?`). The loops stop, the play position and the selection at their start; the stage stays, fitted to the
-  new length.
+  new length. The edit memory's room is checked before anything stops: refused (`MEMORY FOR EDITS IS FULL`), LOOPS
+  stays as it was and plays on ([below](#sets)).
   - **The length** is the pattern's rows in whole bars (rounded up, at most 128 rows).
   - **The timing,** as the pattern plays in its song (the current song if it plays the pattern, else the first song
     that does): its TEMPO, TICKS A ROW, ROWS A BEAT and SWING. ROWS A BEAT that GRID lacks keeps the loops' GRID,
@@ -539,20 +707,66 @@ and the hint line show as in CONTROL mode.
     listed (`PATTERN 2A IN LOOPS: 3 LOOPS`; `PATTERN 2A IN LOOPS: 3 INSTRUMENTS LEFT OUT`, `... 12 COMMANDS LEFT
     OUT`).
 
+## Sets
+
+**A set** is a copy of LOOPS' whole working area kept under a number of its own, `00`-`EF`, to come back to later
+([../../files/loops.md](../../files/loops.md#sets)). A pattern keeps the loops' notes; a set keeps LOOPS itself.
+
+- **What it holds:** everything SAVE keeps of LOOPS ([below](#saving)): the loops and their notes, the length, the
+  setup (TEMPO, TICKS A ROW, the grid, SWING, QUANTIZE, MONO LEGATO, COUNT-IN, the keys' MONO / POLY, VIEW, K1-K4's
+  jobs, a new loop's defaults), every loop's mix and mute, LOOPS' own FX setup with its METRONOME, the selected loop;
+  **and the solos,** which LOOPS itself never saves. Not the stage, nor NEW.
+- **SEL → STORE AS A SET** opens the sets' list ([below](#the-sets-list)), titled `STORE THE LOOPS AS`, `NEW` first and
+  picked. SEL takes `NEW`: the first free number, the set named `LOOPS 03` (its number; with none free `ALL 240 SETS
+  USED`, nothing stored); or a set, asking first (`SET 03 HOLDS LOOPS` / `REPLACE IT WITH THESE?`, OCT+ `YES`, OCT-
+  `NO`), its name kept. It copies the working area as it stands, its unsaved changes and its solos included (`LOOPS
+  STORED AS SET 03`): an edit, kept in the flash by SAVE and dropped by REVERT ALL; LOOPS' REVERT leaves it. The loops
+  go on as they were. With no loops it stores the setup alone. Refused when the edit memory cannot hold it (`MEMORY FOR
+  EDITS IS FULL`), as SAVE TO PATTERN is, and for 16 loops each of nearly a loop's most, 3,788 B or more, which no set
+  holds (`THE LOOPS ARE TOO BIG FOR A SET`, [../../files/loops.md](../../files/loops.md#sets)): nothing stored.
+- **SEL → LOAD A SET,** listed while a set exists, opens the list titled `LOAD INTO LOOPS`, on the first set; SEL
+  takes the highlighted set, asking first while LOOPS has loops (`REPLACE THE LOOPS` / `WITH SET 03?`, OCT+ `YES`,
+  OCT- `NO`). It copies the set into the working area (`SET 03 LOADED`), the set staying as it is: an edit, which SAVE
+  keeps and REVERT (LOOPS' or ALL) undoes, nothing written to the flash until SAVE. The solos as the set holds them, the
+  selection the set's, NEW the set's defaults, the play position at the start; the stage stays, fitted to the set's
+  length (as LOAD FROM PATTERN fits it). **The loops stop** if they played, at their start, and wait for PLAY (stopped,
+  it loads at once). While a song records (RECORD LIVE) its time runs on: the loops are left silent at their start,
+  PLAY bringing them on. The room is checked first, before anything stops: refused when the edit memory cannot hold
+  the set's whole copy (`MEMORY FOR EDITS IS FULL`), LOOPS stays as it was, playing on if it played; LOAD FROM PATTERN
+  checks so too. During a count-in SEL blinks.
+- **A REVERT that undoes a load** (LOOPS' own or REVERT ALL, a set or a pattern loaded since the last SAVE) leaves no
+  solos: those the load brought go with it. After a SAVE has kept the load, a REVERT keeps the solos, as ever.
+- **In the list,** EDIT renames the highlighted set (text entry titled `SET 03`, 16 characters,
+  [../dialogs.md](../dialogs.md#text-entry)) and LFO deletes it after a question (`DELETE SET 03?`, OCT+ `DELETE`,
+  OCT- `KEEP`; then `SET 03 DELETED`): both edits SAVE keeps. Nothing refers to a set, so neither asks about
+  references. LOAD's list closes when its last set is deleted. On `NEW` both do nothing. PLAY does nothing in the list:
+  no preview, a set being a whole loop station, heard once loaded. A rename is refused for a set made elsewhere in 17
+  parts (16 loops none of which fits the first part; `THE LOOPS ARE TOO BIG FOR A SET`,
+  [../../files/loops.md](../../files/loops.md#sets)): the set stays as it is, nothing lost.
+- **A set of another version,** one this firmware does not read, is kept as it is, as every record of another version
+  is ([../../files/README.md](../../files/README.md)): it is left out of the list, and its number counts as taken, so
+  STORE never picks it. LOAD A SET is listed only while a set this firmware reads exists; nothing stops or loads for
+  the other. CHECK STORAGE treats it as any record.
+- **A set refers to instruments as LOOPS does,** each loop to its own by cartridge and slot
+  ([../../files/references.md](../../files/references.md)): MOVE, SWAP and DELETE of an instrument or a cartridge count
+  the sets' loops among its uses, as they count LOOPS' own, and YES rewrites them with the rest
+  ([../saving.md](../saving.md#references)).
+
 ## Controls
 
 | Control | Does |
 |---|---|
-| SELECT | the loops in their order, then `+ NEW LOOP` (clockwise down, as in every list); the slots in view follow it; the stage stays ([above](#the-stage)) |
-| ALGORITHM | the play position, a row a click, round the length: stopped, where PLAY starts (`PLAY FROM 2.4.3`); playing, a jump there at once (`JUMP +1 ROW`); SEL held: a bar ([above](#the-play-position-play-and-jumps)). In the pattern recorder and the RECORD LIVE panel: TEMPO |
-| K1-K4 | each its job from GLO: the selected loop's LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND or REVERB SEND (on `+ NEW LOOP` the next loop's, a send there the KEYS column's: a setting), TEMPO or VIEW; at first LEVEL, PAN, REVERB SEND, TEMPO; SEL held: a mix value by 16, TEMPO by 10 ([above](#k1-k4-view-and-adjust)). ADJUST: K1 a row, K2 a bar |
-| PLAY | at its press: stopped, the loops play from the play position, with loops or none; armed, after COUNT-IN; playing, they stop and go back to the start. A song armed or recorded: RECORD LIVE's ([above](#record-live)) |
+| SELECT | the loops in their order, then `+ NEW LOOP` (clockwise down, as in every list); the slots in view follow it; the stage stays ([above](#the-stage)). SEL held: the selected loop a place down or up the list (`MOVE LOOP 05`; on `+ NEW LOOP` nothing); in MOVE: the same ([above](#moving-a-loop)) |
+| ALGORITHM | the play position, a row a click, round the length: stopped, where PLAY starts (`PLAY FROM 2.4.3`; an insert's keys held stop writing, [above](#the-insert)); playing, a jump there at once (`JUMP +1 ROW`) ([above](#the-play-position-play-and-jumps)); SEL held: the selected loop's SHIFT, a row a click (`SHIFT +2 ROWS`; on + NEW LOOP nothing); LFO held, stopped: the eraser ([above](#lfo-held-erasing)). In the pattern recorder and the RECORD LIVE panel: TEMPO |
+| K1-K4 | each its job from GLO: the selected loop's LEVEL, PAN, DUCK, CHORUS SEND, DELAY SEND or REVERB SEND (on `+ NEW LOOP` NEW's: the next loop's own, RAM's), TEMPO or VIEW; at first LEVEL, PAN, REVERB SEND, TEMPO; SEL held: a mix value by 16, TEMPO by 10 ([above](#k1-k4-view-and-adjust)). ADJUST: K1 a row, K2 a bar |
+| PLAY | at its press: stopped, the loops play from the play position, with loops or none (keys held, the stage on: they go on as the stage's from there, [above](#the-play-position-play-and-jumps)); armed, after COUNT-IN; playing, they stop and go back to the start. A song armed or recorded: RECORD LIVE's ([above](#record-live)) |
 | PLAY held | stop, back to the start ([../transport.md](../transport.md)); recording a song: the loops to their start |
 | REC | at its press: notes on the stage, sent where the selection is (a new loop on `+ NEW LOOP`, into the loop on a loop); the stage empty: stopped, arms (again: disarms), playing, refused; a send leaves the stage off; the stage off: turns it on and, stopped, arms (`STAGE ON: ARMED`; playing `STAGE ON`). A count-in: cancels it. RECORD LIVE armed: starts it. A song recording changes none of this. Each job done, nothing for 500 ms ([above](#rec-edit-and-the-arm)) |
-| LFO | at its release: OVERDUB and OVERWRITE switched (`OVERDUB`, `OVERWRITE`; ADJUST, the pattern recorder, the stage off: nothing); nothing else ([above](#the-stage)) |
+| LFO | at its release: OVERDUB and OVERWRITE switched (`OVERDUB`, `OVERWRITE`; ADJUST, the pattern recorder, the stage off: nothing; ALGORITHM turned or a key played while held: nothing) ([above](#the-stage)); held, stopped: ALGORITHM erases ([above](#lfo-held-erasing)) |
 | EDIT | the selected loop onto the stage, as heard, the stage on, in OVERDUB; on `+ NEW LOOP` the stage's clear ([above](#the-stage)) |
 | EDIT held | 2 s, whatever HOLD DELAY says: the stage's clear (`STAGE CLEARED`), on a loop and on `+ NEW LOOP`; its tap then does not happen, let go sooner it is the tap |
-| keys | PLAY mode: the keys' instrument; overdubbing the stage while the loops play (the stage off: heard at once in its sound, written nowhere); armed, the first starts them; stopped, played freely. CONTROL mode: [above](#control-mode-mutes-and-solos) |
+| SEL held + EDIT | let go before HOLD DELAY: CUT HERE; held past it: REMOVE CUT ([above](#cut)); either order; SEL then opens no menu |
+| keys | PLAY mode: the keys' instrument, through the mix REC would put the stage in ([above](#the-instrument-and-mono-or-poly)); overdubbing the stage while the loops play (the stage off: heard at once in its sound, written nowhere); armed, the first starts them; stopped, the insert at the play position ([above](#the-insert); the stage off: played freely). CONTROL mode: [above](#control-mode-mutes-and-solos) |
 | SEQ | the keys: PLAY ↔ CONTROL, at its release |
 | SEQ held + a key | that key as in CONTROL mode, once: white keys mute or solo, OP1-OP5 QUANTIZE, PIT all on, GLO's key MUTE / SOLO, MONO or POLY the keys' mode |
 | ARP | the stage off and on (`STAGE OFF`, `STAGE ON`; [above](#the-stage)), at its tap, once the combination grace has passed with no REC |
@@ -564,8 +778,8 @@ and the hint line show as in CONTROL mode.
 | OCT- / OCT+ | the keys' octave |
 | FX | LOOPS' FX setup, FX again back; FX held + a white key: a punch-in (heard; written only by RECORD LIVE) |
 | GLO | the properties ([below](#the-properties-glo)) |
-| SEL | the menu ([below](#the-sel-menu)); in ADJUST: keep the SHIFT |
-| HOME | HOME's combination, as on every screen ([above](#control-mode-mutes-and-solos)); a count-in: cancels it; ADJUST: cancels it; a song armed: cancels it; a song recording: tapped, ends it, its last row the row HOME was pressed in ([above](#record-live)) |
+| SEL | the menu ([below](#the-sel-menu)); in ADJUST: keep the SHIFT; in MOVE: keep the place |
+| HOME | HOME's combination, as on every screen ([above](#control-mode-mutes-and-solos)); a count-in: cancels it; ADJUST, MOVE: cancels it; a song armed: cancels it; a song recording: tapped, ends it, its last row the row HOME was pressed in ([above](#record-live)) |
 
 **The LEDs** ([../leds.md](../leds.md)):
 - **REC** blinking while armed, a song armed or a count-in runs; full while a song records or the stage holds notes
@@ -578,7 +792,7 @@ and the hint line show as in CONTROL mode.
   (the loops play with none); dim at the start, after a stop too. **While the loops play it is a visual metronome**, by
   LOOPS' METRONOME on or off (its TEMPO and BEATS A BAR): a quick 100 ms flash a beat, red on the bar's first, green on
   the others, dark between.
-- **ADJUST open:** SEL full, HOME dim; REC, LFO, EDIT, GLO, ENV, SEQ, ARP dark.
+- **ADJUST or MOVE open:** SEL full, HOME dim; REC, LFO, EDIT, GLO, ENV, SEQ, ARP dark.
 - **The pattern recorder:** ARP full, REC dim, SEL full while it waits for a key (else dim); GLO, SEQ, EDIT, LFO, ENV
   dark; the keys as [its layout](#the-pattern-recorder) says.
 - **The keys** in CONTROL mode or with SEQ held: white key *n* full while loop *n* sounds, dim muted or silenced,
@@ -589,8 +803,9 @@ and the hint line show as in CONTROL mode.
 ## Layout
 
 The body (y 17-226, [../frame.md](../frame.md)): the top line, four slots, the overview column at the right, the
-stage, the length's bar, the hint line. **The header** shows `LOOPS` with no mark, and the subpage `ADJUST` while
-ADJUST is open. Nothing moves or changes size when a hint, the arm, OVERWRITE or the stage's switch comes or goes.
+stage, the length's bar, the hint line. **The header** shows `LOOPS` with no mark, and the subpage `ADJUST` or `MOVE`
+while ADJUST or MOVE is open. Nothing moves or changes size when a hint, the arm, OVERWRITE or the stage's switch
+comes or goes.
 
 ### The screen
 
@@ -607,7 +822,7 @@ LOOPS                         > |##9     S: the name; the transport, CPU, voices
 |01 ........|.........              7F|+    holds notes: grey, STAGED red, its LEVEL dark grey
 +--------------------------------------+
    NEW LOOP 02          08:00 SYN PIANO    + NEW LOOP: the number it takes, the keys' instrument
- + :REC: A NEW LOOP...............: 7F     a dashed strip: where REC puts the stage; the next loop's LEVEL
+ + :REC: A NEW LOOP...............: 40     a dashed strip: where REC puts the stage; NEW's LEVEL
 
 -STAGE OVERDUB LFO --- REC: INTO LOOP 01   the stage: OVERDUB or OVERWRITE, LFO's tooltip, REC's target
 |o  ####..##|##.....                   |   its strip, in the selected loop's colour
@@ -627,24 +842,24 @@ WHITE KEYS: MUTE  HELD: AT THE BAR         the hint line (only where a state cha
 | ADJUST's top line | 2, 19 | | T | `LOOP 03: SHIFT +17 ROWS`, in place of the tempo, the length, QUANTIZE and REC |
 | a song recording | 2, 19 ... | | T | [below](#a-song-recording) |
 | the line | 0, 31 | 240 × 1 | | |
-| slot *k* (0-3) | 0, `y = 33 + 32 k` | 228 × 28 | | the loop `top + k`, or `+ NEW LOOP` |
+| slot *k* (0-3) | 0, `y = 33 + 32 k` | 228 × 29 | | the loop `top + k`, or `+ NEW LOOP` |
 | its number | 5, y + 8 | | S | `00`-`0F`; with the keys shown (CONTROL mode, SEQ held) ` 1`-`16`, `10`-`16` at 2 |
 | its sound | 28, y | | T | the instrument's name, 9 characters |
-| its mode, repeats | 88, y; 100, y | | T | `P` POLY, `M` MONO; `X2`-`X9` while its base repeats, `X+` past 9; nothing when it plays once |
-| its SHIFT | 118, y | | T | `SHIFT +3`, `SHIFT -3` (the nearer way round; none at 0) |
+| its mode, repeats | 88, y; 100, y | | T | `P` POLY, `M` MONO; `X2`-`X9` while its base repeats, `X+` past 9; nothing when it plays once; `CUT` on a cut loop ([CUT](#cut)) |
+| its SHIFT | 118, y (124, y on a cut loop) | | T | `SHIFT +3`, `SHIFT -3` (the nearer way round; none at 0) |
 | its state | right-aligned to 226, y | | T | `STAGED` (the stage stands for it); `M` / `S` (waiting for the bar line); `S` (soloed); `M` (muted); else nothing |
-| its strip | 28, y + 13 | 180 × 14 | | [below](#the-strips) |
+| its strip | 28, y + 11 | 180 × 17 | | [below](#the-strips) |
 | its LEVEL | right-aligned to 226, y + 14 | | T | its mix's LEVEL in hex, as K1 and the MIXER show it: `7F` (2 characters at 214-225, past the strip's end at 208) |
-| the selected slot's box | 0, y − 1 | 228 × 29 | | an outline |
+| the selected slot's box | 0, y − 1 | 228 × 30 | | an outline |
 | `+ NEW LOOP` | 9, y + 8; 28, y; right-aligned to 226, y | | S; T; T | `+`; `NEW LOOP 02` (the number REC gives it); the keys' instrument (`08:00 SYN PIANO`, its name 10 characters) |
-| its strip | 28, y + 13 | 180 × 14 | | dashed: a dot every 4 px top and bottom, solid ends; `REC: A NEW LOOP` (with notes on the stage and the stage on, selected: `REC: THE STAGE GOES HERE`) at 34, y + 14 |
-| its LEVEL | right-aligned to 226, y + 14 | | T | the next loop's LEVEL in hex, `7F` |
+| its strip | 28, y + 11 | 180 × 17 | | dashed: a dot every 4 px top and bottom, solid ends; `REC: A NEW LOOP` (with notes on the stage and the stage on, selected: `REC: THE STAGE GOES HERE`) at 34, y + 12 |
+| its LEVEL | right-aligned to 226, y + 14 | | T | NEW's LEVEL in hex, `40` at first |
 | the overview column | 229, 33 | 11 × 128 | | [below](#the-overview-column) |
-| the stage's frame | 0, 168 | 240 × 29 | | an outline, its top edge broken for its title and REC's target |
+| the stage's frame | 0, 168 | 240 × 30 | | an outline, its top edge broken for its title and REC's target |
 | its title | 6, 162 | | T | `STAGE OVERDUB` or `STAGE OVERWRITE`, then ` LFO`, the tooltip for the switch, where LFO acts (none in ADJUST); while the stage is off `STAGE OFF`. The footer shows the instrument and MONO / POLY |
 | REC's target | right-aligned to 234, 162 | | T | `REC: INTO LOOP 01` on a loop, `REC: NEW LOOP 02` on `+ NEW LOOP`; while the stage is off `REC: STAGE ON` |
-| its dot | centre 13, 185 | radius 4 | | while keys overdub; while the loops play; stopped, or the stage off |
-| its strip | 28, 176 | 180 × 18 | | the stage as it plays (MONO: one note at a time); dimmed while it is off |
+| its dot | centre 13, 185 | radius 4 | | while keys write (overdubbing, or the insert stopped); while the loops play; stopped, or the stage off |
+| its strip | 28, 176 | 180 × 19 | | the stage as it plays (MONO: one note at a time); dimmed while it is off |
 | `EMPTY` | 208, 179 | | T | while the stage holds no note (its last pixel at 236, two clear of the frame) |
 | the length's bar | 28, 199 | 180 × 12 | | a segment a bar: its number (T) at the segment's x; a 3-px rule from x + 7 to the next segment's x − 2 at y + 5; the play position's tick, 1 × 11 at y + 1 |
 | the hint line | 2, 214 | | T | [below](#the-hint-line) |
@@ -654,10 +869,17 @@ WHITE KEYS: MUTE  HELD: AT THE BAR         the hint line (only where a state cha
 
 - **The window:** VIEW's bars (at most the length) from the page the play position is on, pages of VIEW's bars from
   the loops' start, the last page ending at the length's end. While the loops play the window turns a page as the play
-  line leaves it; stopped, it shows the play position's page. Every strip, the stage's too, shows the same window.
+  line leaves it; stopped, it shows the play position's page. Every strip, the stage's too, shows the same window,
+  but **a cut loop's strip** (and the stage's over it): it shows the page its own place is on (the window's row
+  playing now; stopped, where PLAY would start it), pages of VIEW's bars from the loop's start, turning as its place
+  leaves one, so where it plays is always in view ([the cut](#cut)). The length's bar and the white play line stay the
+  shared ones: the play line is drawn in such a strip only where its row is on that strip's page.
 - **A row a cell,** `x = 28 + floor((row − start) × 180 / rows shown)`, a pixel's gap after each cell 4 px or wider; a
-  lane a band of the strip's height (`floor((h − (lanes − 1)) / lanes)` px each, a pixel apart; a MONO loop's one lane
-  fills it).
+  strip's lanes equal bands, as high as fit a pixel apart (`floor((h − (lanes − 1)) / lanes)` px each), in the middle:
+  the rest above and below them; an odd rest that every gap can take widens the gaps to 2 px instead, and an odd pixel
+  still left goes below (a loop's 17 px: 8 + 1 + 8, three lanes of 5 a pixel apart, four of 3 a pixel apart with a
+  pixel above and below; the stage's 19 px: 9 + 1 + 9, three of 5 a pixel apart with a pixel above and below, four of
+  4 a pixel apart); a MONO loop's one lane fills it.
 - **Each cell:** empty, the ground (deep light grey on a beat's first row, deep dark grey otherwise); **a note's
   sustain** in the loop's colour; **its attack** (its first cell, when it is longer than one) and **its release** (the
   cells after its end, up to the lane's next note: 2 for a DX7 or JUNO-106 instrument, 1 for the others) in that
@@ -665,8 +887,9 @@ WHITE KEYS: MUTE  HELD: AT THE BAR         the hint line (only where a state cha
   drawn as played, the rest empty; SHIFT applied.
 - **Bar lines** light grey in the gap before each bar's first cell, a pixel over and under the strip; **the play line**
   white the same way, in every strip and the stage's.
-- **The stage's strip:** a held key's note drawn only up to the play line, cell by cell as it moves; ahead of it the
-  lane shows what the stage had, up to its next note there; a note landing ahead (quantized forward, or in the next
+- **The stage's strip:** a held key's note drawn only up to the play line, cell by cell as it moves (an insert's,
+  and one held into PLAY, up to where its own time has run); ahead of it the lane shows what the stage had, up to its
+  next note there; a note landing ahead (quantized forward, or in the next
   cycle) drawn when the line reaches it. While the stage is off the strip is much fainter than a silenced loop's: on
   black, with no cells behind its notes, the sustain and the bar lines deep light grey, the attack and the release deep
   dark grey, the play line dark grey.
@@ -686,6 +909,7 @@ Only where a state changes what the keys, REC or HOME do; empty otherwise (its r
 
 | State | Hint |
 |---|---|
+| MOVE | `SELECT MOVE  SEL KEEP  HOME CANCEL` (the controls yellow) |
 | ADJUST | `K1 ROW  K2 BAR  SEL KEEP  HOME CANCEL` (the buttons yellow) |
 | a song recording (RECORD LIVE) | `RECORDING: HOME ENDS AND KEEPS IT` (`RECORDING:` red, `HOME` yellow): HOME's tap ends the song and keeps it ([above](#record-live)); in ADJUST HOME cancels ADJUST, so ADJUST's hint comes first |
 | a song counting in (RECORD LIVE) | `COUNTING IN: HOME CANCELS` (`COUNTING IN:` red, `HOME` yellow) |
@@ -711,11 +935,11 @@ OVERWRITE have no hint: the stage's title says which is on.
   (dark grey silenced; red when `STAGED`), its mode, repeats and SHIFT light grey (dark grey silenced); `STAGED` red,
   a waiting `M` / `S` yellow, `S` soloed yellow, `M` muted dark grey; its LEVEL light grey (dark grey where its notes
   are: silent, muted or silenced). The selected slot's box white; the line dark grey.
-- `+ NEW LOOP`: `+` and `NEW LOOP 02` white, the keys' instrument in its engine's colour, the next loop's LEVEL light
-  grey; its dashed strip and its text dark grey.
+- `+ NEW LOOP`: `+` and `NEW LOOP 02` white, the keys' instrument in its engine's colour, NEW's LEVEL light grey; its
+  dashed strip and its text dark grey.
 - **The stage:** its frame dark grey; `STAGE` cyan, `OVERDUB` in the stage's colour, `OVERWRITE` red, ` LFO` dark grey;
   `REC` yellow, `: INTO LOOP 01` / `: NEW LOOP 02` light grey; its dot red while keys
-  overdub, deep red while the loops play, deep grey stopped or off; `EMPTY` dark grey. **While it is off all of it is much
+  write, deep red while the loops play, deep grey stopped or off; `EMPTY` dark grey. **While it is off all of it is much
   fainter:** the frame deep light grey, `STAGE OFF`, `REC: STAGE ON` and `EMPTY` dark grey, its strip as
   [above](#the-strips).
 - **The length's bar:** a bar's number white in view, dark grey out of it; its rule light grey in view, deep light
@@ -729,7 +953,7 @@ OVERWRITE have no hint: the stage's title says which is on.
   while a song records (the edit memory left), red.
 - **A knob turned shows in the header,** as on every screen ([../frame.md](../frame.md#the-header)): `TEMPO 78 (120
   BPM)`, `LEVEL 7F 100%`, `PAN 80 MIDDLE`, `DUCK 20 25%`, `CHORUS SEND 20 25%`, `DELAY SEND 20 25%`, `REVERB SEND 20
-  25%`, `VIEW 2 BARS`, `PLAY FROM 2.4.3`, `JUMP +1 ROW`, `JUMP -16 ROWS`.
+  25%`, `VIEW 2 BARS`, `PLAY FROM 2.4.3`, `JUMP +1 ROW`, `JUMP -16 ROWS`, `ERASING 2.4.3` (LFO held), `SHIFT +2 ROWS` (SEL held).
 
 ### No loops yet
 
@@ -739,7 +963,7 @@ LOOPS                           |###
 ----------------------------------------
 +--------------------------------------+
 |  NEW LOOP 00         11:03 CHIPIN    |+  + NEW LOOP, selected
-|+ :REC: A NEW LOOP...............: 7F |
+|+ :REC: A NEW LOOP...............: 40 |
 +--------------------------------------+
 PLAY, THEN PLAY NOTES:                     at 2, 70
 THEY GO ON THE STAGE                       at 2, 82
@@ -775,6 +999,8 @@ Colours: the five lines light grey, `PRESETS`, `ENV` and `GLO` yellow. With the 
   ```
 
   the subpage `ADJUST` white; the top line white; the slot's `SHIFT` and its strip turned at once.
+- **MOVE:** as ADJUST, the subpage `MOVE`, the top line `LOOP 05: MOVED FROM 03` (`LOOP 03: MOVE` before a click), the
+  hint line `SELECT MOVE  SEL KEEP  HOME CANCEL`; the slots redrawn in their new order at each click.
 - **The stage off** (ARP): the selected loop heard (no `STAGED`), the stage's title and its right changed, its notes
   dimmed, the hint line:
 
@@ -880,8 +1106,9 @@ full when the keyboard's octave has it, the rest dark. ARP full; REC dim; SEL fu
 
 ### The properties (GLO)
 
-The properties dialog ([../dialogs.md](../dialogs.md#properties)), titled `LOOPS PROPERTIES`, twelve lines (192 px of
-the body, the dialog's own layout):
+The properties dialog ([../dialogs.md](../dialogs.md#properties)), titled `LOOPS PROPERTIES`, sixteen rows in S,
+eleven lines in view (200 px of the body, the dialog's own layout), more scrolling with the row selected; LENGTH takes
+two lines while a shorter length planned passes the line (`5 BARS (NOW 21 BEATS)`), shown whole when selected:
 
 | Item | Shows | K1 |
 |---|---|---|
@@ -894,6 +1121,7 @@ the body, the dialog's own layout):
 | COUNT-IN | `OFF`, `1 BAR`, `2 BARS` ([../transport.md](../transport.md#count-in)): the bars counted when PLAY starts armed loops; an armed key always starts them at once | |
 | VIEW | `1 BAR A SCREEN`, `2 BARS A SCREEN`, `4 BARS A SCREEN` | |
 | K1 TURNS, K2 TURNS, K3 TURNS, K4 TURNS | `LEVEL`, `PAN`, `DUCK`, `CHORUS SEND`, `DELAY SEND`, `REVERB SEND`, `TEMPO`, `VIEW`; at first `LEVEL`, `PAN`, `REVERB SEND`, `TEMPO` | |
+| NEW LOOP LEVEL, NEW LOOP CHORUS, NEW LOOP DELAY, NEW LOOP REVERB | a new loop's defaults, NEW's start ([above](#the-loops)): its LEVEL and its three SENDS, `40 50%`; at first LEVEL `40`, the sends `7F 100%` | 00-7F; SEL held: by 16; NEW takes the value too |
 
 ### The SEL menu
 
@@ -904,6 +1132,9 @@ The menu ([../dialogs.md](../dialogs.md#menus)), titled `LOOP 03 SUB BASS` on a 
 - **APPLY INSTRUMENT** (on a loop): the selected loop takes the keys' instrument and MONO / POLY (`LOOP 03: 01:04
   BRASS, MONO`).
 - **ADJUST** (on a loop): its SHIFT ([above](#k1-k4-view-and-adjust)).
+- **CUT HERE** (on a loop, not at the loops' first row): its cut at the current position (`LOOP 03: CUT AT 2.4.3`);
+  **REMOVE CUT** (on a cut loop): `LOOP 03: CUT REMOVED` ([above](#cut)).
+- **MOVE** (on a loop): the loop up and down the list, SELECT a place a click ([above](#moving-a-loop)).
 - **QUANTIZE** (on a loop): a list, titled `QUANTIZE LOOP 03`: `2 ROWS`, `3 ROWS`, `4 ROWS`, `ROW`. The loop's notes go
   to the nearest line of that size, the lines counted as the loop is heard (from the loops' start, its SHIFT counted,
   its first repeat), back in its base; REAL TIME's note delays and key offs go; each note off moves with its note (its
@@ -925,12 +1156,14 @@ The menu ([../dialogs.md](../dialogs.md#menus)), titled `LOOP 03 SUB BASS` on a 
   (its preview in the loop's sound) and on `+ NEW LOOP`; refused as that is (SEL blinking).
 - **RECORD LIVE:** its panel, to arm the song's recording ([above](#record-live)); while armed, the item reads `CANCEL
   RECORD LIVE`; while a song records it is not listed.
+- **STORE AS A SET**, and **LOAD A SET** while a set exists ([above](#sets)): the whole of LOOPS, so before the
+  pattern's.
 - **SAVE TO PATTERN**, **LOAD FROM PATTERN** ([above](#storing-in-a-pattern-and-loading-one)).
 - **CLEAR STAGE,** listed while the stage holds notes: the stage's clear ([above](#the-stage)), at once, no question
   (`STAGE CLEARED`); EDIT held's tap route.
 - **CLEAR LOOPS:** every loop and the stage's notes, after a question (`CLEAR ALL 6 LOOPS?` (`1 LOOP`) / `THE STAGE
-  TOO; THE LENGTH STAYS`, OCT+ `CLEAR`, OCT- `KEEP`; then `LOOPS CLEARED`); the length, the properties, the FX setup
-  and the next loop's mix stay; the loops play on, empty.
+  TOO; THE LENGTH STAYS`, OCT+ `CLEAR`, OCT- `KEEP`; then `LOOPS CLEARED`); the length, the properties (a new loop's
+  defaults among them) and the FX setup stay, NEW is the defaults again; the loops play on, empty.
 - **REVERT** (while LOOPS has something unsaved): LOOPS back as saved, after a question (`REVERT LOOPS TO SAVED?`,
   OCT+ `REVERT`, OCT- `KEEP`; then `REVERTED`): LOOPS' unsaved pieces are dropped from the edit memory and what the
   flash holds plays again, from the next row; the stage kept ([above](#the-stage)). No copy is kept for it; it is not
@@ -938,49 +1171,94 @@ The menu ([../dialogs.md](../dialogs.md#menus)), titled `LOOP 03 SUB BASS` on a 
 - With no loops, RECORD LIVE, SAVE TO PATTERN and CLEAR LOOPS say `NO LOOPS YET`. During a count-in each that changes
   the loops blinks.
 
+### The sets' list
+
+STORE AS A SET's and LOAD A SET's ([above](#sets)): an overlay as the song list ([../dialogs.md](../dialogs.md#the-song-list)),
+its panel, rows and scrolling, the number and the name in S, the figures in T on the names' baseline; a hint under the
+rows. On the T grid; the number and the name are S's (a line a 16-px row):
+
+```
+LOOPS                                  |
+----------------------------------------
++--------------------------------------+
+|LOAD INTO LOOPS                       |   the title, S
+| NR  NAME                LOOPS BARS   |   the column heads, T
+|[03  SUNDAY JAM              6 4     ]|   the number and name S, the figures T
+| 04  LOOPS 04               16 4.5    |
+| 0A  RAINY DAY               3 8      |
+|                                      |
+| EDIT: RENAME  LFO: DELETE            |   the hint, T
++--------------------------------------+
+```
+
+| Element | x, y | w × h | Font | Shows |
+|---|---|---|---|---|
+| the panel | 2, 19 | 236 × 206 | | a black box with a 1-px outline |
+| the title | 6, 22 | | S | `STORE THE LOOPS AS`, `LOAD INTO LOOPS` |
+| the column heads | 38 | | T | each over its column: `NR` at 8, `NAME` 32, `LOOPS` right-aligned to 190, `BARS` 202 |
+| line *i*'s number | 8, 51 + 16 × (*i* - top) | | S | `03`; STORE's `NEW` first (its line `NEW` alone); 10 lines show, top = max(0, min(highlight - 4, lines - 10)) |
+| its name | 32, same | | S | up to 16 characters |
+| its loops | right-aligned to 190, its line + 2 | | T | how many loops, `0`-`16` |
+| its length | 202, its line + 2 | | T | in bars of the set's own METRONOME: `4`; where it is not whole bars, one decimal, `4.5` (the part rounded to tenths, `.1` to `.9`) |
+| the highlight | 4, 50 + 16 × (*i* - top) | 232 × 16 | | an outline |
+| the hint | 8, 211 | | T | `EDIT: RENAME  LFO: DELETE` |
+
+Colours: the outline light grey; the title cyan; the column heads dark grey; numbers and names light grey (white when
+highlighted), `NEW` white; the figures cyan. The highlight is boxed white. The hint's `EDIT` and `LFO` yellow, its
+words light grey.
+
 ## Saving
 
 **SAVE keeps the whole LOOPS setup,** as DJ's stand is kept: the loops (notes, instruments, colours, mixes, MONO /
-POLY, SHIFTs, mutes; never a solo), the length, the properties (VIEW and K1-K4's jobs among them), the next loop's mix,
-the keys' MONO / POLY, the FX setup, the selection. A power cycle brings it back, paused at the start. Not kept: what
-plays, the play position, the stage (never saved: [above](#the-stage)) and its switch (on at every power-on), an arm
-or a song armed, ADJUST, a planned LENGTH, OVERWRITE (OVERDUB at every power-on), CONTROL mode (PLAY at first), the
-pattern recorder's steps.
+POLY, SHIFTs, mutes; never a solo), the length, the properties (VIEW, K1-K4's jobs and a new loop's defaults among
+them), the keys' MONO / POLY, the FX setup, the selection. A power cycle brings it back, paused at the start. Not kept:
+what plays, the play position, the stage (never saved: [above](#the-stage)) and its switch (on at every power-on), NEW
+(the defaults again: [above](#the-loops)), an arm or a song armed, ADJUST, a planned LENGTH, OVERWRITE (OVERDUB at
+every power-on), CONTROL mode (PLAY at first), the pattern recorder's steps.
 LOOPS lives in the edit memory as
 any edit: saved loops play from the flash, and only what changed since takes edit memory
-([../../files/ram.md](../../files/ram.md)).
+([../../files/ram.md](../../files/ram.md)). **The sets are records of their own** ([above](#sets)): a set stored,
+renamed or deleted is a change SAVE writes, as any. A set renamed, or one whose loops name an instrument that moved,
+is written whole again at SAVE, every part of it, though only its head changed.
 
 ## Texts
 
-- **The header:** `LOOPS`; the subpage `ADJUST`; SEQ's place `SEQ MUTE`, `SEQ SOLO` in CONTROL mode.
+- **The header:** `LOOPS`; the subpages `ADJUST`, `MOVE`; SEQ's place `SEQ MUTE`, `SEQ SOLO` in CONTROL mode.
 - **The top line:** `120 BPM`, `4 BARS`, `1 BAR`, `21 BEATS` (`1 BEAT`), `22 ROWS`, `Q 2 ROWS`, `Q 3 ROWS`, `Q 4 ROWS`,
-  `Q ROW`, `Q REAL`, `REC`, `ARMED`, `SONG`; ADJUST's `LOOP 03: SHIFT +17 ROWS`; a song recording: `SONG`, `0:42`, `5
+  `Q ROW`, `Q REAL`, `REC`, `ARMED`, `SONG`; ADJUST's `LOOP 03: SHIFT +17 ROWS`; MOVE's `LOOP 03: MOVE`, `LOOP 05:
+  MOVED FROM 03`; a song recording: `SONG`, `0:42`, `5
   PATTERNS` (`1 PATTERN`).
-- **The slots:** the numbers, the sounds' names, `P`, `M`, `X2`-`X9`, `X+`, `SHIFT +3`, `STAGED`, `M`, `S`, the
+- **The slots:** the numbers, the sounds' names, `P`, `M`, `X2`-`X9`, `X+`, `CUT`, `SHIFT +3`, `STAGED`, `M`, `S`, the
   LEVELs (`7F`); `+`, `NEW LOOP 02`, `REC: A NEW LOOP`, `REC: THE STAGE GOES HERE`.
 - **The stage:** `STAGE`, `OVERDUB`, `OVERWRITE`, ` LFO`, `OFF`, `REC: INTO LOOP 01`, `REC: NEW LOOP 02`, `ARP: STAGE
   ON`, `EMPTY`.
-- **The hint line:** `K1 ROW  K2 BAR  SEL KEEP  HOME CANCEL`, `RECORDING: HOME ENDS AND KEEPS IT`, `COUNTING IN: HOME
+- **The hint line:** `K1 ROW  K2 BAR  SEL KEEP  HOME CANCEL`, `SELECT MOVE  SEL KEEP  HOME CANCEL`, `RECORDING: HOME ENDS AND KEEPS IT`, `COUNTING IN: HOME
   CANCELS`, `SONG ARMED: A NOTE STARTS  HOME CANCELS`, `ARMED: A NOTE OR PLAY STARTS AT 2.4.3`, `WHITE KEYS: MUTE  HELD: AT THE BAR` (`SOLO`), `STAGE OFF: THE KEYS ARE NOT KEPT`.
-- **ARP's layer** ([../dialogs.md](../dialogs.md#hold-layers)): `REC: RECORD PATTERN`.
+- **ARP's layer** ([../dialogs.md](../dialogs.md#hold-layers)): `REC: RECORD PATTERN`. **SEL's layer:**
+  `SELECT: MOVE THE LOOP`, `ALGORITHM: ITS SHIFT`, `EDIT: CUT HERE, HELD: NO CUT`, `K1-K4: BIG STEPS`, then the shared
+  lines.
 - **No loops yet:** `PLAY, THEN PLAY NOTES:`, `THEY GO ON THE STAGE`, `REC KEEPS THE STAGE AS A LOOP`, `PRESETS, ENV:
   THE SOUND`, `GLO: LENGTH, TEMPO, VIEW`; with the stage off the second and third lines read `THEY ARE NOT KEPT` and `REC:
   THE STAGE BACK ON`.
 - **The footer's right:** `POLY`, `MONO`, `MEMORY 81% FREE`, `REC: TO STAGE`.
 - **The header, a knob turned:** `TEMPO 78 (120 BPM)`, `LEVEL 7F 100%`, `PAN 80 MIDDLE`, `DUCK 20 25%`, `CHORUS SEND
-  20 25%`, `DELAY SEND 20 25%`, `REVERB SEND 20 25%`, `VIEW 2 BARS`, `PLAY FROM 2.4.3`, `JUMP +1 ROW`, `JUMP -16 ROWS`.
+  20 25%`, `DELAY SEND 20 25%`, `REVERB SEND 20 25%`, `VIEW 2 BARS`, `PLAY FROM 2.4.3`, `JUMP +1 ROW`, `JUMP -16 ROWS`,
+  `ERASING 2.4.3`, `SHIFT +2 ROWS`, `MOVE LOOP 05`.
 - **Dialogs:** `LOOPS PROPERTIES` (TEMPO, SWING, LENGTH, GRID, QUANTIZE, MONO LEGATO, COUNT-IN, VIEW, K1 TURNS, K2
-  TURNS, K3 TURNS, K4 TURNS; `21 BEATS`, `2 BARS (NOW 4 BARS)`, `5 BARS (NOW 21 BEATS)`, `2 ROWS`, `3 ROWS`, `4 ROWS`,
-  `ROW`, `REAL TIME`, `GLIDE`,
+  TURNS, K3 TURNS, K4 TURNS, NEW LOOP LEVEL, NEW LOOP CHORUS, NEW LOOP DELAY, NEW LOOP REVERB; `21 BEATS`, `2 BARS (NOW
+  4 BARS)`, `5 BARS (NOW 21 BEATS)`, `2 ROWS`, `3 ROWS`, `4 ROWS`, `ROW`, `REAL TIME`, `GLIDE`,
   `LEGATO`, `JUMP`, `OFF`, `1 BAR`, `2 BARS`, `1 BAR A SCREEN`, `2 BARS A SCREEN`, `4 BARS A SCREEN`, `LEVEL`, `PAN`,
-  `DUCK`, `CHORUS SEND`, `DELAY SEND`, `REVERB SEND`, `TEMPO`, `VIEW`); `CUT TO 2 BARS?` / `NOTES IN THE BARS CUT GO`,
-  CUT, KEEP; the menus `LOOP 03 SUB BASS`, `LOOPS` (TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, QUANTIZE, DELETE
-  LOOP, DOUBLE, RECORD PATTERN, RECORD LIVE, CANCEL RECORD LIVE, SAVE TO PATTERN, LOAD FROM PATTERN, CLEAR STAGE, CLEAR
-  LOOPS, REVERT); `QUANTIZE
+  `DUCK`, `CHORUS SEND`, `DELAY SEND`, `REVERB SEND`, `TEMPO`, `VIEW`, `40 50%`); `CUT TO 2 BARS?` / `NOTES IN THE BARS CUT GO`,
+  CUT, KEEP; the menus `LOOP 03 SUB BASS`, `LOOPS` (TAKE ITS INSTRUMENT, APPLY INSTRUMENT, ADJUST, CUT HERE, REMOVE CUT,
+  MOVE, QUANTIZE, DELETE LOOP, DOUBLE, RECORD PATTERN, RECORD LIVE, CANCEL RECORD LIVE, STORE AS A SET, LOAD A SET, SAVE TO PATTERN, LOAD FROM
+  PATTERN, CLEAR STAGE, CLEAR LOOPS, REVERT); `QUANTIZE
   LOOP 03` (`2 ROWS`, `3 ROWS`, `4 ROWS`, `ROW`); `CLEAR ALL 6 LOOPS?` (`1 LOOP`) / `THE STAGE TOO; THE LENGTH
   STAYS`, CLEAR, KEEP; `REVERT LOOPS TO SAVED?`, REVERT, KEEP; the count-in's box
   ([../transport.md](../transport.md#the-count-ins-box)); `SAVE THE LOOPS TO` with `NEW`, `LOAD INTO LOOPS`; `PATTERN
-  2A IS NOT EMPTY` / `REPLACE IT WITH THE LOOPS?`, YES, NO; `REPLACE THE LOOPS` / `WITH PATTERN 2A?`, YES, NO; `NEW
+  2A IS NOT EMPTY` / `REPLACE IT WITH THE LOOPS?`, YES, NO; `REPLACE THE LOOPS` / `WITH PATTERN 2A?`, YES, NO; the sets'
+  list's (`STORE THE LOOPS AS` with `NEW`, `LOAD INTO LOOPS`; `NR`, `NAME`, `LOOPS`, `BARS`; `EDIT: RENAME  LFO:
+  DELETE`); `SET 03 HOLDS LOOPS` / `REPLACE IT WITH THESE?`, YES, NO; `REPLACE THE LOOPS` / `WITH SET 03?`, YES, NO;
+  `DELETE SET 03?`, DELETE, KEEP; the text entry's `SET 03`; a new set's name `LOOPS 03`; `NEW
   LOOP: A CARTRIDGE`; the RECORD LIVE panel's (`RECORD LIVE`, `NAME`, `LOOPS 01`, `K1 TEMPO`, `124 BPM`, `EDIT:
   NAME`, `HOME` `CANCEL`, `REC` `ARM`); the pattern recorder's (`RECORD PATTERN: TO STAGE`, `PREVIEW`, `K1 NOTE
   LENGTH`, `K2 LENGTH`, `K3 NOTE`, `REPEATS`, `1/32` ... `1/4`, `1/2`, `1 BAR`, `TO THE NEXT`, `16 STEPS`, `OVER 4
@@ -999,8 +1277,10 @@ any edit: saved loops play from the flash, and only what changed since takes edi
   | `OVERWRITE`, `OVERDUB` | LFO tapped |
   | `THE STAGE IS FULL` | a note past the stage's 3,800 B (neither heard nor written); EDIT or DOUBLE past it, or REC writing a loop past it: refused, nothing changed |
   | `STAGE NOT WRITTEN: STORAGE BUSY` | a change of the stage while the store is busy (refused) |
-  | `CANCELLED` | REC while armed; REC, PLAY or HOME during the count-in; ARP switching the stage off while armed; HOME in ADJUST; HOME with a song armed; SEL → CANCEL RECORD LIVE; a song ended before its first row |
+  | `CANCELLED` | REC while armed; REC, PLAY or HOME during the count-in; ARP switching the stage off while armed; HOME in ADJUST or MOVE; HOME with a song armed; SEL → CANCEL RECORD LIVE; a song ended before its first row |
   | `LOOP 03: SHIFT +17 ROWS` | ADJUST kept (SEL) |
+  | `LOOP 03: CUT AT 2.4.3`, `LOOP 03: CUT REMOVED` | SEL → CUT HERE, REMOVE CUT; SEL held + EDIT |
+  | `MOVED TO LOOP 05`, `NOT MOVED` | MOVE kept (SEL) |
   | `KEYS: CONTROL`, `KEYS: PLAY` | SEQ |
   | `KEYS: MONO`, `KEYS: POLY` | MONO, POLY in CONTROL mode, or with SEQ held |
   | `KEYS: 01:04 BRASS, MONO` | ENV held; SEL → TAKE ITS INSTRUMENT |
@@ -1025,10 +1305,15 @@ any edit: saved loops play from the flash, and only what changed since takes edi
   | `NO SONG NUMBER FREE` | RECORD LIVE with every song number taken |
   | `LOOPS STORED IN PATTERN 2A`, `PATTERN 2A: 3 NOTES LEFT OUT` | SAVE TO PATTERN |
   | `PATTERN 2A IN LOOPS: 3 LOOPS`; `PATTERN 2A IN LOOPS: 3 INSTRUMENTS LEFT OUT`, `PATTERN 2A IN LOOPS: 12 COMMANDS LEFT OUT` | LOAD FROM PATTERN |
+  | `LOOPS STORED AS SET 03` | STORE AS A SET |
+  | `ALL 240 SETS USED` | STORE AS A SET's `NEW` with no number free (refused) |
+  | `THE LOOPS ARE TOO BIG FOR A SET` | STORE AS A SET with 16 loops of 3,788 B or more each, or the rename of a set made elsewhere of such loops (refused) |
+  | `SET 03 LOADED` | LOAD A SET |
+  | `SET 03 DELETED` | the sets' list's LFO, DELETE |
   | `CARTRIDGE 0A IS EMPTY` | ENV picked an empty cartridge (an empty FAVORITES cartridge too, `CARTRIDGE FB IS EMPTY`; a FAVORITES one with favourites gives its first favourite's source, [instruments.md](instruments.md#favorites)) |
   | `LOOPS CLEARED` | SEL → CLEAR LOOPS, CLEAR |
   | `REVERTED` | SEL → REVERT, after its question |
-  | `MEMORY FOR EDITS IS FULL` | a note the stage cannot take (neither heard nor written); EDIT, REC, the pattern recorder, DOUBLE or LOAD past the edit memory: refused, nothing written |
+  | `MEMORY FOR EDITS IS FULL` | a note the stage cannot take (neither heard nor written); EDIT, REC, the pattern recorder, DOUBLE, a MOVE, a LOAD, STORE AS A SET, a set's rename or a set's delete past the edit memory: refused, nothing written |
 
 ## Help
 
@@ -1054,14 +1339,14 @@ THE STAGE: ONE LOOP YOU PLAY OVER
 PLAYING: THE LOOPS AND THE KEYS
 {PLAY}: PLAY / STOP, HOLD: TO THE START
 {ALGORITHM}: WHERE PLAY IS, A ROW
-  (HOLD {SEL}: A BAR); PLAYING: A JUMP
+  PLAYING: A JUMP; HOLD {SEL}: THE SHIFT
 {K1}-{K4}: LEVEL, PAN, REVERB, TEMPO
   ({GLO}: EACH KNOB'S JOB)
 {PRESETS}: THE SOUND YOU PLAY
 {ENV} (EXPLORE NAMED VAULTS): ITS
   CARTRIDGE
 HOLD {ENV}: THE LOOP'S SOUND AS YOURS
-THE KEYS SOUND AS KEPT: QUANTIZED,
+THE KEYS SOUND AT ONCE, KEPT QUANTIZED;
   MONO ONE NOTE, POLY 4 AT MOST
 THE STAGE: PLAYS IN THE SOUND YOU PLAY
 {SEQ} (SHOW ELSE, QUICK): THE {KEYS}
@@ -1084,6 +1369,10 @@ CONTROL: THE {KEYS}
 HOLD {SEQ} + A KEY: AS IN CONTROL
 RECORD LIVE ({SEL}): ALL THAT SOUNDS
   GOES IN A SONG; {HOME} ENDS IT
+STOPPED: {KEYS} PUT NOTES IN, AS HELD
+HOLD {LFO} + {ALGORITHM}: ERASE NOTES
+HOLD {SEL}: {SELECT} MOVES, {EDIT} CUTS
+{FX}: THE LOOPS' EFFECTS
 ```
 
 ```
@@ -1097,11 +1386,11 @@ HOLD {ARP} + {REC}: RECORD PATTERN
   {REC}: ONTO THE STAGE, {HOME}: CLOSE
 {GLO}: TEMPO, SWING, LENGTH, GRID,
   QUANTIZE, MONO LEGATO, COUNT-IN,
-  VIEW, K1-K4'S JOBS
-{SEL}: TAKE ITS INSTRUMENT, APPLY,
-  ADJUST, QUANTIZE, DELETE, DOUBLE,
+  VIEW, K1-K4'S JOBS, A NEW LOOP'S MIX
+{SEL}: TAKE ITS INSTRUMENT, APPLY, ADJUST,
+  CUT, MOVE, QUANTIZE, DELETE, DOUBLE,
   RECORD PATTERN, RECORD LIVE,
+  STORE AS A SET, LOAD A SET,
   SAVE TO / LOAD FROM PATTERN,
   CLEAR STAGE, CLEAR LOOPS, REVERT
-{FX}: THE LOOPS' EFFECTS
 ```

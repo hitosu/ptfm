@@ -11,9 +11,10 @@
 #define TABLE LP_HEAD
 #define ENTRY LP_ENTRY
 #define FX_LEN 64u
-#define NEXT_MIX 72                     /* the next loop's mix in the head */
+#define NEW_DEF 72                      /* a new loop's defaults in the head (bytes 72-77; byte 79's bit 7: stored) */
 #define JOBS 78                         /* K1-K4's jobs and VIEW in the head (bytes 78-79) */
 static const uint8_t MIX_DEF[RM_N] = {0x7F, 0x80, 0, 0, 0, 0};
+static const uint8_t NEW_DEF0[RM_N] = {0x40, 0x80, 0, 0x7F, 0x7F, 0x7F};   /* a new loop's defaults not stored */
 static const uint8_t GRID_RPB[3] = {4, 6, 8};
 static const uint8_t JOB_DEF[4] = {LJ_LEVEL, LJ_PAN, LJ_REVERB, LJ_TEMPO};   /* K1-K4's jobs not stored */
 static const uint8_t ED0[2] = {0x0E, 0xD0};             /* a note delay with no note: a gap's bridge */
@@ -28,15 +29,14 @@ static int all_zero(const uint8_t *p, uint32_t n)
 }
 
 void (*loops_fx_new)(uint8_t *s64);
-const uint8_t *loops_keys_mix;
-/* the next loop's mix as it is heard and as REC writes it into a new loop: its LEVEL, PAN and DUCK the head's (stored:
- * its 6 bytes; NULL or all 0 a new song's track's), its CHORUS, DELAY and REVERB SENDS the KEYS column's (the head's sends
- * kept as written, not read); with no KEYS column known (loops_keys_mix NULL) the head's own */
-static void next_mix(const uint8_t *stored, uint8_t *m)
-{
-    memcpy(m, !stored || all_zero(stored, RM_N) ? MIX_DEF : stored, RM_N);
-    if (loops_keys_mix) memcpy(m + RM_CHORUS, loops_keys_mix + RM_CHORUS, RM_N - RM_CHORUS);
-}
+/* a new loop's defaults in head h (specs/files/loops.md, bytes 72-77): stored (byte 79's bit 7) as written; else, a
+ * record from before them, LEVEL 40, PAN 80, DUCK 0, the sends 7F, whatever 72-77 hold */
+static const uint8_t *new_def(const uint8_t *h) { return h[JOBS + 1] & 0x80 ? h + NEW_DEF : NEW_DEF0; }
+/* NEW: the next loop's own mix (the MIXER's NEW column, K1-K4 on + NEW LOOP), RAM's alone (never saved): the defaults at
+ * LOOPS' first look (head), again after each REC that makes a loop from it, LOAD FROM PATTERN and CLEAR LOOPS
+ * (loops_new_reset); GLO's change of a default takes NEW's value with it. Heard on the stage on + NEW LOOP and the preview
+ * there (the source's song, track n: the audio context reads it, the main loop writes it) */
+static uint8_t nw[RM_N], nw_ok;
 static volatile uint8_t def_rows = 64;  /* the length of the last head made new (4 bars at 1/16): the loops' clock with
                                          * no record (src_pattern, the audio context: no hook called there) */
 uint32_t loops_record_default(uint8_t *p)
@@ -46,10 +46,11 @@ uint32_t loops_record_default(uint8_t *p)
     p[2] = 6 | 0x80;                    /* TICKS A ROW 6, COUNT-IN OFF, MONO LEGATO JUMP (bit 7) */
     p[3] = 50;                          /* SWING 50 % */
     /* (byte 4 0: the grid 1/16, QUANTIZE ROW, the keys POLY; 5-6 0: no loops, the placeholder; 78-79 0: VIEW 2 BARS,
-     * K1-K4's jobs not stored) */
+     * K1-K4's jobs and a new loop's defaults not stored) */
     if (loops_fx_new) loops_fx_new(p + 8);   /* the FX setup: a new song's (an all-0 one has no chain: the FX
                                               * screen could switch nothing on) */
-    memcpy(p + NEXT_MIX, MIX_DEF, RM_N);     /* the next loop's mix: plain, as a new song's track */
+    memcpy(p + NEW_DEF, MIX_DEF, RM_N);      /* (bytes 72-77 plain, as a new song's track: not read while the defaults
+                                              * are not stored; an older PT/FM reads them as its next loop's mix) */
     p[7] = (uint8_t)rec_loops_rows_default(p);   /* the length: 4 bars */
     def_rows = p[7];
     return TABLE;
@@ -82,7 +83,9 @@ static void fx_mend(uint8_t *s, const uint8_t *def)
 static uint8_t hd[LP_HEAD_MAX];
 static uint32_t hd_gen;
 static uint8_t hd_ok, sel_ram, sel_ok;
-static uint16_t solo_ram;               /* the solos, RAM's alone: never saved (an entry's bit 6 written 0, never read) */
+static uint16_t solo_ram;               /* the solos, RAM's alone: never saved */
+static uint8_t loaded;                  /* LOOPS loaded (a set, a pattern) since the last SAVE: a REVERT then leaves no
+                                         * solos (specs/ui/screens/loops.md#sets) */
 static uint8_t fx_def[FX_LEN], def_ok;  /* a new song's FX setup (the first look takes it) */
 static uint8_t fx_au[FX_LEN];           /* the source's FX setup: the audio context's alone */
 
@@ -97,10 +100,10 @@ static const uint8_t *head(void)
         memcpy(hd, l.head, TABLE + ENTRY * (uint32_t)l.n);
         hd[5] = l.n;
         hd[7] = l.rows;
-        if (all_zero(hd + NEXT_MIX, RM_N)) memcpy(hd + NEXT_MIX, MIX_DEF, RM_N);
         fx_mend(hd + 8, def_ok ? fx_def : 0);
     }
     if (!sel_ok) { sel_ram = hd[6]; sel_ok = 1; }
+    if (!nw_ok) { memcpy(nw, new_def(hd), RM_N); nw_ok = 1; }   /* (LOOPS' first look: NEW the defaults) */
     solo_ram &= (uint16_t)((1u << hd[5]) - 1u);         /* (none past the loops) */
     hd_gen = store_gen();
     hd_ok = 1;
@@ -222,6 +225,22 @@ int loops_set_job(int k, int job)
     h[JOBS + 1] = (uint8_t)b79;
     return put_head(h);
 }
+const uint8_t *loops_new_def(void) { return new_def(head()); }
+int loops_set_new_def(int k, int v)     /* (the six as read, the one changed, written; byte 79's bit 7 set: stored) */
+{
+    uint8_t h[LP_HEAD_MAX], d[RM_N];
+    if (k < 0 || k >= RM_N) return LP_NO;
+    copy_head(h);
+    memcpy(d, new_def(h), RM_N);
+    if (d[k] == (uint8_t)v) return LP_OK;
+    d[k] = (uint8_t)v;
+    memcpy(h + NEW_DEF, d, RM_N);
+    h[JOBS + 1] |= 0x80;
+    int r = put_head(h);
+    if (r == LP_OK) nw[k] = (uint8_t)v;  /* (NEW shows what GLO set, until it is turned there again) */
+    return r;
+}
+void loops_new_reset(void) { memcpy(nw, new_def(head()), RM_N); nw_ok = 1; }
 int loops_sel(void) { head(); return sel_in(sel_ram, loops_n()); }
 void loops_set_sel(int s) { head(); sel_ram = (uint8_t)sel_in(s, loops_n()); }
 int loops_keep_sel(void)               /* (only when LOOPS has changes: alone it is none) */
@@ -261,7 +280,8 @@ int loops_muted(int i) { return real(i) ? entry(i)[2] >> 5 & 1 : 0; }
 int loops_soloed(int i) { return real(i) ? solo_ram >> i & 1 : 0; }
 int loops_lanes(int i) { return real(i) ? (entry(i)[3] & 3) + 1 : 1; }
 int loops_base(int i) { return real(i) ? clamp(entry(i)[4] + 1, 1, (int)PAT_ROWS_MAX) : 0; }
-int loops_repeats(int i) { return real(i) ? (entry(i)[5] ? entry(i)[5] : 1) : 0; }
+int loops_cut(int i) { return real(i) ? (int)REC_LOOP_CUT(entry(i), loops_rows()) : 0; }
+int loops_repeats(int i) { return real(i) ? (entry(i)[5] && !loops_cut(i) ? entry(i)[5] : 1) : 0; }
 int loops_shift(int i) { return real(i) ? REC_LOOP_SHIFT(entry(i)) % loops_rows() : 0; }
 static void shift_put(uint8_t *e, int s)        /* an entry's SHIFT (0-127): byte 2's bit 7 its bit 6, byte 3's bits 7-2 */
 {
@@ -279,17 +299,18 @@ int loops_set_shift(int i, int s)
 }
 const uint8_t *loops_mix(int i)
 {
-    static uint8_t nx[RM_N];            /* (the next loop's, as heard: next_mix) */
     if (real(i)) return entry(i) + 6;
-    next_mix(head() + NEXT_MIX, nx);
-    return nx;
+    head();                             /* (NEW: the defaults at the first look) */
+    return nw;
 }
 int loops_set_mix(int i, int k, int v)
 {
     uint8_t h[LP_HEAD_MAX];
-    int n = copy_head(h);
+    int n = loops_n();
     if (i < 0 || i > n || k < 0 || k >= RM_N) return LP_NO;
-    uint8_t *m = i < n ? h + TABLE + ENTRY * i + 6 : h + NEXT_MIX;
+    if (i == n) { nw[k] = (uint8_t)v; return LP_OK; }   /* (NEW: RAM's, no edit) */
+    copy_head(h);
+    uint8_t *m = h + TABLE + ENTRY * i + 6;
     if (m[k] == (uint8_t)v) return LP_OK;
     m[k] = (uint8_t)v;
     return put_head(h);
@@ -553,12 +574,15 @@ static int restream(int i, int at, const rec_cell_t *put)
 /* ------------------------------------------------------- a loop as it is heard --- */
 /* Loop i read as it is heard over n rows: its notes written out (its repeats one after another), a note off where the
  * player stops its lanes with a note sounding (stop: its rest's first row, or row 0 where n cuts its last repeat and
- * wrap is set), then turned sh rows round n. Rows asked for in rising order cost a step each (one cursor: the turn and
- * each repeat start it again) */
-typedef struct { rec_cur_t cu; const uint8_t *s; int base, reps, end, n, sh, held, stop; } lp_heard_t;
-static void heard_start(lp_heard_t *o, int i, int n, int sh, int wrap)
+ * wrap is set), then turned sh rows round n. cut (its cut, 0 none: then its base the length, once): its rows below
+ * the cut go round and round over the n rows, a note off at each wrap where a note sounds at the cut. Rows asked for in
+ * rising order cost a step each (one cursor: the turn, each repeat and a cut's wrap start it again) */
+typedef struct { rec_cur_t cu; const uint8_t *s; int base, reps, end, n, sh, held, stop, cut, cheld; } lp_heard_t;
+static int heard_at(lp_heard_t *o, int r, int l, rec_cell_t *c);
+static void heard_start(lp_heard_t *o, int i, int n, int sh, int wrap, int cut)
 {
     const uint8_t *e;
+    rec_cell_t c;
     o->s = loops_stream(i, &e);
     o->base = loops_base(i);
     o->reps = loops_repeats(i);
@@ -567,14 +591,31 @@ static void heard_start(lp_heard_t *o, int i, int n, int sh, int wrap)
     o->sh = (sh % n + n) % n;
     o->stop = o->end < n ? o->end : wrap && n % o->base && o->end > n ? 0 : -1;
     o->held = o->stop >= 0 ? held_at_end(o->s, e, 4 * o->base, o->reps, 4 * n) : 0;
+    o->cut = o->cheld = 0;
     rec_cur_set_end(&o->cu, o->s, e);
+    for (int l = 0; cut && l < LP_LANES; l++) {        /* (the lanes sounding at the cut, as heard with none) */
+        int on = 0;
+        for (int r = 0; r < cut; r++) if (heard_at(o, r, l, &c)) on = sounding(on, &c);
+        o->cheld |= on << l;
+    }
+    o->cut = cut;
 }
-static int heard_cell(lp_heard_t *o, int r, int l, rec_cell_t *c)    /* 1: a cell at row r, lane l (0 <= r < n) */
+static int heard_at(lp_heard_t *o, int r, int l, rec_cell_t *c)      /* (as heard with no cut) */
 {
     int f = r - o->sh, got = 0;
     if (f < 0) f += o->n;
     if (o->s && f < o->end) got = rec_cur_at(&o->cu, 4 * (f % o->base) + l, c) && !loops_bridge(c);
     if (f != o->stop || !(o->held >> l & 1)) return got;
+    if (!got) *c = NOTE_OFF;
+    else stop_in(c);
+    return 1;
+}
+static int heard_cell(lp_heard_t *o, int r, int l, rec_cell_t *c)    /* 1: a cell at row r, lane l (0 <= r < n) */
+{
+    if (!o->cut) return heard_at(o, r, l, c);
+    int w = r % o->cut == 0 && (o->cheld >> l & 1), got = heard_at(o, r % o->cut, l, c);   /* (cut: its rows below the cut
+                                                         * again, a note sounding at the cut ended at each wrap) */
+    if (!w) return got;
     if (!got) *c = NOTE_OFF;
     else stop_in(c);
     return 1;
@@ -590,11 +631,11 @@ static PLAT_COLD uint32_t write_heard(int i, uint8_t *b, int n, int sh, int wrap
     int cut = 0;
     for (int l = 0; lim < n && l < LP_LANES; l++) {    /* (the lanes sounding at the cut) */
         int on = 0;
-        heard_start(&o, i, n, sh, wrap);
+        heard_start(&o, i, n, sh, wrap, 0);
         for (int r = 0; r < lim; r++) if (heard_cell(&o, r, l, &c)) on = sounding(on, &c);
         cut |= on << l;
     }
-    heard_start(&o, i, n, sh, wrap);
+    heard_start(&o, i, n, sh, wrap, 0);
     loops_enc_start(&e, b, STORE_LOOP_STREAM_MAX);
     for (int r = 0; r < lim; r++)
         for (int l = 0; l < LP_LANES; l++) {
@@ -613,12 +654,43 @@ uint32_t loops_heard(int i, uint8_t *buf, uint32_t max)
     rec_cell_t c;
     int n = loops_rows();
     if (!real(i)) return 0;
-    heard_start(&o, i, n, loops_shift(i), 1);
     loops_enc_start(&e, buf, max);
+    heard_start(&o, i, n, loops_shift(i), 1, 0);        /* (a cut loop in full: the stage plays its rows below the cut) */
     for (int r = 0; r < n; r++)
         for (int l = 0; l < LP_LANES; l++) if (heard_cell(&o, r, l, &c)) loops_enc_cell(&e, 4 * r + l, &c);
     uint32_t len = loops_enc_end(&e);
     return buf || len <= max ? len : 0u;
+}
+PLAT_COLD int loops_set_cut(int i, int at)
+{
+    uint8_t h[LP_HEAD_MAX], *b;
+    int n = copy_head(h), len = h[7], lanes = 1, r;
+    if (i < 0 || i >= n) return LP_NO;
+    uint8_t *e = h + TABLE + ENTRY * i;
+    int cut = (int)REC_LOOP_CUT(e, len), c = at % len;
+    if (at < 0) {                       /* (removed: its notes past the mark heard again) */
+        if (!cut) return LP_NO;
+        e[2] &= (uint8_t)~0x40;
+        e[5] = 1;
+        return put_head(h);
+    }
+    if (!c) return LP_NO;               /* (nothing before the mark) */
+    if (!cut && (loops_base(i) != len || loops_repeats(i) != 1)) {   /* its repeats and rest written out first, over the
+                                                         * length (its SHIFT kept: it sounds the same) */
+        uint32_t l = write_heard(i, 0, len, 0, 1, len, 0);
+        if (!l) return LP_FULL;
+        if (store_edit_room() < need_for((uint16_t)i, l) + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)n)) return LP_FULL;
+        if (!(b = store_scratch_claim(1))) return LP_BUSY;
+        l = write_heard(i, b, len, 0, 1, len, &lanes);
+        r = store_edit_piece(REC_LOOPS, 0, (uint16_t)i, LOOPS_REC_VER, b, l);
+        store_scratch_claim(0);
+        if (r != STORE_OK) return result(r);
+        e[3] = (uint8_t)((e[3] & ~3) | (lanes - 1));
+    }
+    e[2] |= 0x40;
+    e[4] = (uint8_t)(len - 1);
+    e[5] = (uint8_t)c;
+    return put_head(h);
 }
 
 /* ------------------------------------------------------------------ the stage --- */
@@ -712,18 +784,18 @@ PLAT_COLD int loops_stage_write(int i, const uint8_t *s, uint32_t len, uint8_t c
     uint32_t sl = loops_enc_end(&e);
     int lanes = e.lanes;
     uint8_t *en = h + TABLE + ENTRY * i;
-    if (i == n) {                                       /* (a new loop: the next colour, the next loop's mix, its sends the
-                                                         * KEYS column's) */
+    int cut = i < n ? (int)REC_LOOP_CUT(en, rows) : 0;  /* (a cut loop's stage played round its cut: the cut kept) */
+    if (i == n) {                                       /* (a new loop: the next colour, NEW's mix) */
         en[2] = (uint8_t)(n ? (loops_colour(n - 1) + 1) % 12 : 0);
-        next_mix(h + NEXT_MIX, en + 6);
+        memcpy(en + 6, nw, RM_N);
         h[5] = (uint8_t)(n + 1);
     }
     en[0] = cart;
     en[1] = slot;
-    en[2] = (uint8_t)((en[2] & 0x2F) | (mono ? 0x10 : 0));   /* (its colour and mute kept, SHIFT 0) */
+    en[2] = (uint8_t)((en[2] & (cut ? 0x6F : 0x2F)) | (mono ? 0x10 : 0));   /* (its colour, mute and cut kept, SHIFT 0) */
     en[3] = (uint8_t)(lanes - 1);
     en[4] = (uint8_t)(rows - 1);
-    en[5] = 1;
+    en[5] = (uint8_t)(cut ? cut : 1);
     uint32_t need = need_for((uint16_t)i, sl) + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)h[5]) +
                     (i == n ? need_for(STORE_PC_PHEAD, 3) : 0u), room = store_edit_room();
     k = !sl ? LP_BIG : room + (stage ? store_stage_room() : 0u) < need ? LP_FULL : LP_OK;   /* (the stage's room the
@@ -741,6 +813,7 @@ PLAT_COLD int loops_stage_write(int i, const uint8_t *s, uint32_t len, uint8_t c
         player_lp_stage_end(i);
         store_stage_drop();
     }
+    if (k == LP_OK && i == n) loops_new_reset();        /* (a loop made from NEW: NEW the defaults again) */
     return k ? k : i;
 }
 
@@ -788,7 +861,7 @@ PLAT_COLD int loops_put(int i, int base, int repeats, int mono, const uint8_t *s
     if (i < 0 || i >= n || base < 1 || base > (int)PAT_ROWS_MAX || repeats < 1 || !s || !len || s[len - 1]) return LP_NO;
     if (len > STORE_LOOP_STREAM_MAX) return LP_FULL;
     uint8_t *e = h + TABLE + ENTRY * i;
-    e[2] = (uint8_t)((e[2] & ~0x10) | (mono ? 0x10 : 0));
+    e[2] = (uint8_t)((e[2] & ~0x50) | (mono ? 0x10 : 0));   /* (no cut: its base and repeats as given) */
     e[3] = (uint8_t)((e[3] & ~3) | (clamp(lanes, 1, LP_LANES) - 1));
     e[4] = (uint8_t)(base - 1);
     e[5] = (uint8_t)clamp(repeats, 1, 255);
@@ -824,8 +897,8 @@ PLAT_COLD int loops_new(uint8_t cart, uint8_t slot)
     e[3] = 0;                           /* 1 lane */
     e[4] = (uint8_t)(h[7] - 1);         /* its base: the length */
     e[5] = 1;                           /* once */
-    memcpy(e + 6, h + NEXT_MIX, RM_N);  /* (the next loop's mix as stored: the tests' constructor; the UI's new loops are
-                                         * REC's, loops_stage_write) */
+    memcpy(e + 6, nw, RM_N);            /* (NEW's mix, as REC's new loop takes it: the tests' constructor; the UI's new
+                                         * loops are REC's, loops_stage_write) */
     h[5] = (uint8_t)(n + 1);
     if (store_edit_room() < need_for((uint16_t)n, 1) + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)(n + 1)) +
                             need_for(STORE_PC_PHEAD, 3))
@@ -833,9 +906,10 @@ PLAT_COLD int loops_new(uint8_t cart, uint8_t slot)
     /* its stream empty (a stream the flash has at its number left out) */
     if ((r = store_edit_piece(REC_LOOPS, 0, (uint16_t)n, LOOPS_REC_VER, ZERO1, 1)) != STORE_OK) return result(r);
     r = put_head(h);
+    if (!r) loops_new_reset();          /* (NEW the defaults again) */
     return r ? r : n;
 }
-int loops_clear(void)
+static int clear_all(void)              /* every loop gone (CLEAR LOOPS, DELETE LOOP of the only one) */
 {
     uint8_t h[LP_HEAD_MAX];
     copy_head(h);
@@ -846,13 +920,19 @@ int loops_clear(void)
     for (int t = 0; t < LP_MAX; t++) store_edit_forget_piece(REC_LOOPS, 0, (uint16_t)t);   /* (past the loops: never read) */
     return LP_OK;
 }
+int loops_clear(void)
+{
+    int r = clear_all();
+    if (!r) loops_new_reset();          /* (NEW the defaults again; DELETE LOOP of the only loop leaves it) */
+    return r;
+}
 PLAT_COLD int loops_peel(int i)
 {
     uint8_t h[LP_HEAD_MAX];
     int n = copy_head(h), r;
     uint32_t need = 0, most = 0;
     if (i < 0 || i >= n) return LP_NO;
-    if (n == 1) return loops_clear();
+    if (n == 1) return clear_all();
     for (int k = i + 1; k < n; k++) {   /* the room first: each stream after it at the number before */
         const uint8_t *end, *s = loops_stream(k, &end);
         uint32_t l = stream_len(s, end);
@@ -873,13 +953,55 @@ PLAT_COLD int loops_peel(int i)
     if ((r = put_head(h)) == LP_OK) solo_ram = s;       /* (the solos after it move up with their loops) */
     return r;
 }
+uint32_t loops_mask_move(uint32_t m, int i, int to)
+{
+    int lo = i < to ? i : to, hi = i < to ? to : i;
+    uint32_t span = ((2u << hi) - 1u) & ~((1u << lo) - 1u), mid = m & span & ~(1u << i);
+    mid = i < to ? mid >> 1 : mid << 1;
+    return (m & ~span) | (mid & span) | (m >> i & 1u) << to;
+}
+/* the streams of the places between i and to written from the old ones, the store held meanwhile (each old one stays where
+ * it lies while the others are made from it: store_edit_hold), all the room made first */
+PLAT_COLD int loops_move(int i, int to)
+{
+    uint8_t h[LP_HEAD_MAX], e[ENTRY];
+    const uint8_t *src[LP_MAX], *end;
+    uint32_t len[LP_MAX], need = 0;
+    int n = copy_head(h), lo = i < to ? i : to, hi = i < to ? to : i, r = STORE_OK;
+    if (i < 0 || i >= n || to < 0 || to >= n) return LP_NO;
+    if (i == to) return LP_OK;
+    for (int k = lo; k <= hi; k++) {    /* (held, each piece goes to the top: its bytes and an entry) */
+        const uint8_t *s = loops_stream(k, &end);
+        need += a4(stream_len(s, end)) + 8u;
+    }
+    if (!store_edit_reserve(need + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)n))) return LP_FULL;
+    for (int k = lo; k <= hi; k++) {    /* (read once the room is made: pieces may have moved) */
+        src[k] = loops_stream(k, &end);
+        len[k] = stream_len(src[k], end);
+    }
+    store_edit_hold(1);
+    for (int k = lo; k <= hi && r == STORE_OK; k++) {
+        int f = k == to ? i : i < to ? k + 1 : k - 1;   /* (the loop that comes to place k) */
+        r = store_edit_piece(REC_LOOPS, 0, (uint16_t)k, LOOPS_REC_VER, src[f] ? src[f] : ZERO1, len[f]);
+    }
+    store_edit_hold(0);
+    if (r != STORE_OK) return result(r);
+    uint8_t *t = h + TABLE;
+    memcpy(e, t + ENTRY * i, ENTRY);
+    if (i < to) memmove(t + ENTRY * i, t + ENTRY * (i + 1), ENTRY * (uint32_t)(to - i));
+    else memmove(t + ENTRY * (to + 1), t + ENTRY * to, ENTRY * (uint32_t)(i - to));
+    memcpy(t + ENTRY * to, e, ENTRY);
+    uint16_t so = (uint16_t)loops_mask_move(solo_ram, i, to);
+    if ((r = put_head(h)) == LP_OK) solo_ram = so;      /* (the solos move with their loops) */
+    return r;
+}
 int loops_cut_drops(int rows)
 {
     int len = loops_rows();
     for (int i = 0; i < loops_n(); i++) {
         lp_heard_t o;
         rec_cell_t c;
-        heard_start(&o, i, len, loops_shift(i), 1);
+        heard_start(&o, i, len, loops_shift(i), 1, 0);   /* (a cut loop in full: its rows past the cut, heard or not) */
         for (int r = rows; r < len; r++)
             for (int l = 0; l < LP_LANES; l++) if (heard_cell(&o, r, l, &c) && loops_is_note(&c)) return 1;
     }
@@ -892,7 +1014,9 @@ int loops_cut_drops(int rows)
 enum { LW_KEEP, LW_SHIFT, LW_OVER, LW_CUT };
 static int length_way(uint8_t *e, int sh, int old, int rows)
 {
-    int base = e[4] + 1, reps = e[5] ? e[5] : 1, way = LW_KEEP;
+    int cut = (int)REC_LOOP_CUT(e, old);
+    if (cut && rows <= cut) { e[2] &= (uint8_t)~0x40; e[5] = 1; cut = 0; }   /* (as short as its cut: the cut goes) */
+    int base = e[4] + 1, reps = cut || !e[5] ? 1 : e[5], way = LW_KEEP;
     if (sh) { way = LW_SHIFT; base = old; reps = 1; }
     else if (rows > old && base * reps > old) {
         if (old % base) { way = LW_OVER; base = old; reps = 1; }
@@ -905,6 +1029,7 @@ static int length_way(uint8_t *e, int sh, int old, int rows)
     e[4] = (uint8_t)(base - 1);
     e[5] = (uint8_t)reps;
     shift_put(e, 0);
+    if (cut) { e[4] = (uint8_t)(rows - 1); e[5] = (uint8_t)cut; }   /* (the cut kept: its base the new length) */
     return way;
 }
 static uint32_t length_write(int i, int way, uint8_t *b, int old, int rows, int *lanes)
@@ -947,10 +1072,11 @@ PLAT_COLD int loops_double(void)
     int n = copy_head(h), len = h[7], r;
     uint32_t need = 0;
     if (!n || 2 * len > loops_max_rows()) return LP_NO;
-    for (int i = 0; i < n; i++) {       /* the room first: the loops written out */
-        int base = loops_base(i), reps = loops_repeats(i);
-        if (base * reps == len) continue;
-        uint32_t l = encode(i, 0, 4 * base, -1, 0, (len + base - 1) / base < reps ? (len + base - 1) / base : reps, 4 * len, 0);
+    for (int i = 0; i < n; i++) {       /* the room first: the loops written out (a cut loop's base twice, its cut kept) */
+        int base = loops_base(i), reps = loops_repeats(i), cut = loops_cut(i);
+        if (base * reps == len && !cut) continue;
+        uint32_t l = cut ? encode(i, 0, 4 * len, -1, 0, 2, 8 * len, 0)
+                         : encode(i, 0, 4 * base, -1, 0, (len + base - 1) / base < reps ? (len + base - 1) / base : reps, 4 * len, 0);
         if (!l) return LP_FULL;
         need += need_for((uint16_t)i, l);
     }
@@ -958,14 +1084,16 @@ PLAT_COLD int loops_double(void)
         return LP_FULL;
     for (int i = 0; i < n; i++) {
         uint8_t *e = h + TABLE + ENTRY * i;
-        int base = loops_base(i), reps = loops_repeats(i);
-        if (base * reps == len) { e[5] = (uint8_t)(2 * reps); continue; }   /* (it fills the length: twice as often) */
+        int base = loops_base(i), reps = loops_repeats(i), cut = loops_cut(i);
+        if (base * reps == len && !cut) { e[5] = (uint8_t)(2 * reps); continue; }   /* (it fills the length: twice as often) */
         uint8_t *b = store_scratch_claim(1);   /* its notes written out to the length (the cut applied), then twice */
         if (!b) return LP_BUSY;
-        uint32_t l = encode(i, b, 4 * base, -1, 0, (len + base - 1) / base < reps ? (len + base - 1) / base : reps, 4 * len, 0);
+        uint32_t l = cut ? encode(i, b, 4 * len, -1, 0, 2, 8 * len, 0)
+                         : encode(i, b, 4 * base, -1, 0, (len + base - 1) / base < reps ? (len + base - 1) / base : reps, 4 * len, 0);
         r = l ? store_edit_piece(REC_LOOPS, 0, (uint16_t)i, LOOPS_REC_VER, b, l) : STORE_ERR_FULL;
         store_scratch_claim(0);
         if (r != STORE_OK) return result(r);
+        if (cut) { e[4] = (uint8_t)(2 * len - 1); continue; }   /* (a cut loop: its base the new length, its cut kept) */
         e[4] = (uint8_t)(len - 1);
         e[5] = 2;
     }
@@ -1053,6 +1181,7 @@ int loops_revert(void)
 {
     int r = store_edit_forget(REC_LOOPS, 0, 0);
     sel_ok = 0;                         /* (the selection as saved too) */
+    loops_unloaded();                   /* (a load undone: no solos) */
     return result(r);
 }
 
@@ -1080,7 +1209,7 @@ static int store_plan(st_plan_t *pl, int n, int rows, int *left)
             rec_cell_t c;
             int first = -1, last = 0, held = 0, notes = 0, t;
             pl->trk[i][l] = -1;
-            heard_start(&o, i, rows, loops_shift(i), 1);
+            heard_start(&o, i, rows, loops_shift(i), 1, loops_cut(i));
             for (int r = 0; r < rows; r++) {
                 if (!heard_cell(&o, r, l, &c)) continue;
                 if (first < 0) first = r;
@@ -1124,7 +1253,7 @@ static PLAT_COLD uint32_t store_track(const st_plan_t *pl, int n, int rows, int 
             for (int l = 0; l < LP_LANES; l++)
                 if (pl->trk[i][l] == t && pl->from[i][l] <= r && r < pl->to[i][l]) { ai = i; al = l; }
         if (ai < 0) continue;
-        if (ai != ci || al != cl) { ci = ai; cl = al; first = 1; heard_start(&o, ai, rows, loops_shift(ai), 1); }
+        if (ai != ci || al != cl) { ci = ai; cl = al; first = 1; heard_start(&o, ai, rows, loops_shift(ai), 1, loops_cut(ai)); }
         if (!heard_cell(&o, r, al, &c)) continue;
         if (loops_is_note(&c)) {
             uint16_t in = loops_inst(ai);
@@ -1292,7 +1421,7 @@ static PLAT_COLD void ld_run(const rec_pat_t *p, int lim, int k, lp_enc_t *e, ld
         }
     }
 }
-PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res)
+PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res, int go)
 {
     ld_t d, x;                          /* (what the runs find: the first's kept) */
     uint8_t h[LP_HEAD_MAX], *b;
@@ -1321,6 +1450,7 @@ PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res)
     }
     if (store_edit_room() < need + need_for(STORE_PC_HEAD, TABLE + ENTRY * (uint32_t)n) + need_for(STORE_PC_PHEAD, 3))
         return LP_FULL;
+    if (!go) return LP_OK;              /* (the check alone, before the loops stop) */
     for (k = 0; k < n; k++) {           /* (each built in the store's scratch from the pattern read again: a write may
                                          * move its pieces) */
         if (rec_pattern(num, &p)) return LP_NO;
@@ -1353,16 +1483,211 @@ PLAT_COLD int loops_load(uint8_t num, const lp_timing_t *tm0, lp_loaded_t *res)
     sel_ram = 0;
     if ((r = put_head(h)) != LP_OK) return r;
     solo_ram = 0;
+    loaded = 1;
     for (k = n; k < LP_MAX; k++) store_edit_forget_piece(REC_LOOPS, 0, (uint16_t)k);   /* (past the loops: never read) */
+    loops_new_reset();                  /* (NEW the defaults again) */
     return LP_OK;
+}
+
+/* ------------------------------------------------------------------- the sets ---
+ * A set (specs/files/loops.md#sets): 16 bytes (its name, 16 characters of 6 bits in 0-11; its solos in 12-13), then the
+ * loops' record as it is; the store keeps it as LOOPS' pieces (its head the 16 bytes and LOOPS' head) under REC_LSET */
+#define SET_PRE REC_LSET_PRE
+#define SET_MOST (STORE_MAX_REC - STORE_HDR - (SET_PRE + TABLE + ENTRY * LP_MAX + 5u))   /* a stream beside a full head
+                                                 * in a set's part 0 */
+/* the sets this firmware reads; one of another version is left out, its number taken (loops_set_free) */
+int loops_sets(uint8_t *nums, int max)
+{
+    rec_loops_t l;
+    int n = store_list(REC_LSET, nums, max), k = 0;
+    for (int i = 0; i < n; i++) if (!rec_lset(nums[i], &l, 0, 0)) nums[k++] = nums[i];
+    return k;
+}
+int loops_set_free(void)
+{
+    uint8_t nums[256];
+    int n = store_list(REC_LSET, nums, 256), f = 0;    /* (every set there, one of another version too) */
+    for (int i = 0; i < n && nums[i] == f; i++) f++;    /* (in numbers' order: the first gap) */
+    return f <= LP_SET_LAST ? f : -1;
+}
+int loops_set_info(uint8_t num, lp_set_t *o)
+{
+    rec_loops_t l;
+    const uint8_t *pre;
+    if (rec_lset(num, &l, 0, &pre)) return 0;
+    rec_name(pre, 0, 16, o->name);
+    int b = l.head[8 + 11];             /* (its METRONOME's BEATS A BAR, 1-16; 0 read as 4) */
+    o->n = l.n;
+    o->rows = l.rows;
+    o->bar = (uint8_t)(GRID_RPB[(l.head[4] & 3) > 2 ? 0 : l.head[4] & 3] * (b < 1 ? 4 : b > 16 ? 16 : b));
+    return 1;
+}
+/* the pieces of (kind, num) made from head h (hl bytes, a set's 16 first), its streams' head (n loops, `rows` rows) and
+ * the n streams of `from` (-1 LOOPS' own, else that set's) as they lie: all the room made first, the store held while
+ * they are copied (no piece moves under the streams read), the head last; the pieces past them forgotten. CI_GO: only
+ * the room made without it (a load's check, before the loops stop); CI_NEW: a set that was not there, its pieces
+ * forgotten should a write fail. LP_BIG: a set's 16 loops none of which fits part 0 */
+enum { CI_GO = 1, CI_NEW = 2 };
+static int src_read(int from, rec_loops_t *l) { return from < 0 ? rec_loops(l, 1) : rec_lset((uint8_t)from, l, 1, 0); }
+static PLAT_COLD int copy_in(uint8_t kind, uint8_t num, uint8_t ver, const uint8_t *h, uint32_t hl, int n, int rows, int from,
+                             int how)
+{
+    rec_loops_t l;
+    uint32_t len[LP_MAX], need = a4(hl) + 8u + a4(3u) + 8u, big = 0;
+    const uint8_t ph[3] = {(uint8_t)n, (uint8_t)(rows - 1), 0};
+    int r = STORE_OK, k;
+    if (n && src_read(from, &l)) return LP_NO;
+    for (k = 0; k < n; k++) {           /* (held, each piece goes to the top: its bytes and an entry) */
+        len[k] = stream_len(l.trk[k], l.trk_end[k]);
+        need += a4(len[k]) + 8u;
+        big += len[k] > SET_MOST;
+    }
+    if (kind == REC_LSET && big == LP_MAX) return LP_BIG;
+    if (!store_edit_reserve(need)) return LP_FULL;
+    if (!(how & CI_GO)) return LP_OK;
+    if (n && src_read(from, &l)) return LP_NO;          /* (read once the room is made: pieces may have moved) */
+    store_edit_hold(1);
+    for (k = 0; k < n && r == STORE_OK; k++)
+        r = store_edit_piece(kind, num, (uint16_t)k, ver, l.trk[k] ? l.trk[k] : ZERO1, l.trk[k] ? len[k] : 1u);
+    if (r == STORE_OK && n) r = store_edit_piece(kind, num, STORE_PC_PHEAD, ver, ph, 3);
+    if (r == STORE_OK) r = store_edit_piece(kind, num, STORE_PC_HEAD, ver, h, hl);
+    store_edit_hold(0);
+    if (r != STORE_OK) {
+        if (how & CI_NEW) {                             /* (a new set's pieces written so far go, those alone: a delete
+                                                         * of that number waiting for SAVE stays) */
+            while (k--) store_edit_forget_piece(kind, num, (uint16_t)k);
+            store_edit_forget_piece(kind, num, STORE_PC_PHEAD);
+        }
+        return result(r);
+    }
+    if (!n) store_edit_forget_piece(kind, num, STORE_PC_PHEAD);
+    for (k = n; k < LP_MAX; k++) store_edit_forget_piece(kind, num, (uint16_t)k);   /* (past the loops: never read) */
+    return LP_OK;
+}
+PLAT_COLD int loops_set_store(uint8_t num, const uint8_t *name12)
+{
+    uint8_t h[SET_PRE + LP_HEAD_MAX];
+    const uint8_t *pre;
+    rec_loops_t l;
+    int n = loops_n(), had = !rec_lset(num, &l, 0, &pre);
+    memset(h, 0, SET_PRE);
+    if (name12) memcpy(h, name12, 12);
+    else if (had) memcpy(h, pre, 12);   /* (a set replaced keeps its name) */
+    h[12] = (uint8_t)solo_ram;
+    h[13] = (uint8_t)(solo_ram >> 8);
+    memcpy(h + SET_PRE, head(), TABLE + ENTRY * (uint32_t)n);
+    h[SET_PRE + 6] = (uint8_t)loops_sel();
+    return copy_in(REC_LSET, num, REC_LSET_VER, h, SET_PRE + TABLE + ENTRY * (uint32_t)n, n, loops_rows(), -1,
+                   CI_GO | (had ? 0 : CI_NEW));
+}
+PLAT_COLD int loops_set_load(uint8_t num, int go)
+{
+    uint8_t h[LP_HEAD_MAX];
+    const uint8_t *pre;
+    rec_loops_t l;
+    if (rec_lset(num, &l, 0, &pre)) return LP_NO;
+    int n = l.n, r;
+    uint16_t solos = (uint16_t)((pre[12] | pre[13] << 8) & ((1u << n) - 1u));
+    memcpy(h, l.head, TABLE + ENTRY * (uint32_t)n);     /* (copied first: making the room may move the set's pieces) */
+    h[5] = (uint8_t)n;
+    h[7] = l.rows;
+    if ((r = copy_in(REC_LOOPS, 0, LOOPS_REC_VER, h, TABLE + ENTRY * (uint32_t)n, n, l.rows, num, go ? CI_GO : 0)) != LP_OK ||
+        !go)
+        return r;
+    solo_ram = solos;
+    sel_ram = (uint8_t)sel_in(h[6], n);
+    sel_ok = 1;
+    loaded = 1;
+    loops_new_reset();                  /* (NEW the set's defaults) */
+    return LP_OK;
+}
+void loops_saved(void) { loaded = 0; }
+void loops_unloaded(void)
+{
+    if (loaded) solo_ram = 0;
+    loaded = 0;
+}
+/* a set's head (its 16 bytes, LOOPS' head) into h (SET_PRE + LP_HEAD_MAX): its bytes, 0 none */
+static uint32_t set_head(uint8_t num, uint8_t *h)
+{
+    rec_loops_t l;
+    const uint8_t *pre;
+    if (rec_lset(num, &l, 0, &pre)) return 0;
+    uint32_t hl = SET_PRE + TABLE + ENTRY * (uint32_t)l.n;
+    memcpy(h, pre, hl);
+    h[SET_PRE + 5] = l.n;
+    return hl;
+}
+/* a set's head rewritten saves it whole (SAVE lays out its parts again): refused (LP_BIG) for a set made elsewhere in 17
+ * parts (16 loops none of which fits part 0), whose last part no save keeps (the device never makes one) */
+static int set_put_head(uint8_t num, const uint8_t *h, uint32_t hl)
+{
+    if (store_get(REC_LSET, num, LP_MAX, 0, 0)) return LP_BIG;
+    return result(store_edit_piece(REC_LSET, num, STORE_PC_HEAD, REC_LSET_VER, h, hl));
+}
+int loops_set_rename(uint8_t num, const uint8_t *name12)
+{
+    uint8_t h[SET_PRE + LP_HEAD_MAX];
+    uint32_t hl = set_head(num, h);
+    if (!hl) return LP_NO;
+    memcpy(h, name12, 12);
+    return set_put_head(num, h, hl);
+}
+int loops_set_delete(uint8_t num) { return result(store_edit_del(REC_LSET, num, 0)); }
+/* every loop's instrument, LOOPS' own and every set's: those naming ref counted; with `used`, the slots of cartridge
+ * `cart` marked there (CLEAN UP's, a bit a slot); with `each`, each loop told (CHECK REFERENCES') */
+static int inst_walk(int ref, int cart, uint8_t *used, void (*each)(int set, int i, uint16_t ref))
+{
+    uint8_t nums[256];
+    rec_loops_t l;
+    int k = 0, ns = loops_sets(nums, 256);
+    for (int s = -1; s < ns; s++) {    /* (s -1: LOOPS' own) */
+        if (s < 0 ? rec_loops(&l, 0) : rec_lset(nums[s], &l, 0, 0)) continue;
+        for (int i = 0; i < l.n; i++) {
+            const uint8_t *e = l.head + TABLE + ENTRY * i;
+            k += (e[0] << 8 | e[1]) == ref;
+            if (used && e[0] == cart) used[e[1] >> 3] |= (uint8_t)(1u << (e[1] & 7));
+            if (each) each(s < 0 ? -1 : nums[s], i, (uint16_t)(e[0] << 8 | e[1]));
+        }
+    }
+    return k;
+}
+int loops_inst_uses(uint16_t ref) { return inst_walk(ref, -1, 0, 0); }
+void loops_cart_used(uint8_t cart, uint8_t *used) { inst_walk(-1, cart, used, 0); }
+void loops_each_inst(void (*each)(int set, int i, uint16_t ref)) { inst_walk(-1, -1, 0, each); }
+/* the loops naming `from` made to name `to` (MOVE and SWAP answered YES); write 0: only the edit memory their heads take
+ * (the caller makes it first: all or nothing) */
+PLAT_COLD uint32_t loops_remap(int from, int to, int swap, int whole_cart, int write)
+{
+    uint8_t nums[256], h[SET_PRE + LP_HEAD_MAX];
+    uint32_t need = 0, hl;
+    int ns = loops_sets(nums, 256);
+    for (int s = -1; s < ns; s++) {    /* (s -1: LOOPS' own head; a set's a piece of its own, rewritten once) */
+        int hit = 0;
+        hl = s < 0 ? SET_PRE + TABLE + ENTRY * (uint32_t)copy_head(h + SET_PRE) : set_head(nums[s], h);
+        for (uint32_t at = SET_PRE + TABLE; hl && at < hl; at += ENTRY) {
+            uint8_t *e = h + at;
+            int r = whole_cart ? e[0] : e[0] << 8 | e[1], nw = r == from ? to : swap && r == to ? from : -1;
+            if (nw < 0) continue;
+            hit = 1;
+            if (whole_cart) e[0] = (uint8_t)nw;
+            else { e[0] = (uint8_t)(nw >> 8); e[1] = (uint8_t)nw; }
+        }
+        if (!hit) continue;
+        need += a4(hl - (s < 0 ? SET_PRE : 0u)) + 8u;
+        if (!write) continue;
+        if (s < 0) put_head(h + SET_PRE);
+        else set_put_head(nums[s], h, hl);
+    }
+    return need;
 }
 
 /* ----------------------------------------------------------------- the player ---
  * The audio context calls the source's functions: they read the store (rec_loops), never the main loop's copy */
 static const uint8_t ORDER0 = 0;
 static const uint8_t DEF_HEAD[8] = {120, 0, 6 | 0x80, 50, 0, 0, 0, 0};    /* (no loops record: its setup's first bytes) */
-/* the loops' song: each loop's mix its track's, the next loop's as heard (next: next_mix's) its place's (track n: the
- * pattern recorder's preview and the stage on `+ NEW LOOP` play there) */
+/* the loops' song: each loop's mix its track's, NEW's (next) its place's (track n: the pattern recorder's preview and the
+ * stage on `+ NEW LOOP` play there) */
 static void song_of(const uint8_t *h, int n, const uint8_t *next, const uint8_t *fx, rec_song_t *s)
 {
     int g = h[4] & 3;
@@ -1383,14 +1708,13 @@ static int src_song(rec_song_t *s)
 {
     rec_loops_t l;
     uint8_t nx[RM_N];
+    memcpy(nx, nw_ok ? nw : NEW_DEF0, RM_N);            /* (NEW as it is now: the main loop's RAM, a copy) */
     if (rec_loops(&l, 0)) {
-        next_mix(0, nx);
         song_of(DEF_HEAD, 0, nx, def_ok ? fx_def : 0, s);
         return 0;
     }
     memcpy(fx_au, l.head + 8, FX_LEN);
     fx_mend(fx_au, def_ok ? fx_def : 0);
-    next_mix(l.head + NEXT_MIX, nx);
     song_of(l.head, l.n, nx, all_zero(fx_au, FX_LEN) ? 0 : fx_au, s);
     return 0;
 }
@@ -1420,9 +1744,7 @@ static const pl_source_t SRC = {src_song, src_pattern, src_inst, 1};
 int loops_song(rec_song_t *s)
 {
     const uint8_t *h = head();
-    uint8_t nx[RM_N];
-    next_mix(h + NEXT_MIX, nx);
-    song_of(h, h[5], nx, h + 8, s);
+    song_of(h, h[5], nw, h + 8, s);
     return 0;
 }
 /* the loops' mutes and solos to the player, now (always; else only when they differ from what it was given last: a

@@ -4,7 +4,8 @@
  * plain sound, held a second, its loudest 300 ms at -20 dB RMS of the 16-bit full scale at the voice's
  * output; then the same instruments as records (cartridges 01-04, LEVEL 0) played on the keys through the
  * player: voices enter the mix at half, so -26 dB there. The DX7's and the TB-303's pitch too. A sample instrument
- * naming a sample that is not there, or one whose entry and audio differ, silent.
+ * naming a sample that is not there, or one whose entry and audio differ, silent. The DX7's velocity: its modulators
+ * the note's, its carriers 100 (as loud soft or hard, brighter hard).
  *   ref_test */
 #include <math.h>
 #include <stdio.h>
@@ -192,7 +193,7 @@ int main(void)
         samp_t s;
         rec_dx7_vced(dx7_slot, vced);
         memset(buf, 0, sizeof buf);
-        dx7_note_on(&dv, vced, 60, 100);
+        dx7_note_on(&dv, vced, 60, 100, 100);
         for (b = 0; b + DX7_N <= N; b += DX7_N)
             dx7_render(&dv, buf + b);
         check("DX7 reference, dB", loudest(buf, N), -20.0, 0.3);
@@ -238,6 +239,53 @@ int main(void)
         check("sampler reference, dB", loudest(buf, N), -20.0, 0.3);
         check("sampler 441 Hz, Hz", pitch(buf, 4410, 30000), 441.0, 1.0);
     }
+    {   /* the DX7's velocity (specs/files/instruments.md#dx7): the modulators take the note's (its volume at its start),
+         * the carriers PL_VEL's 100. Algorithm 1 (OP1 and OP3 on the output), every operator's KEY VEL SENS 7, OP2
+         * modulating OP1 at OUTPUT LEVEL 80: a modulator's level follows the velocity, a carrier's does not; so the
+         * note is as loud soft or hard, and brighter hard (its first differences' energy over its own) */
+        static dx7_voice_t at[3];
+        static const int VEL[3] = {20, 100, 127};
+        static int32_t out[2][N / 2];
+        uint8_t vc[156];
+        int op, j, carriers = 1, modulators = 1;
+        double bright[2];
+        memcpy(vc, vced, sizeof vc);
+        vc[134] = 0;
+        for (op = 0; op < 6; op++)
+            vc[op * 21 + 15] = 7;
+        for (j = 0; j < 4; j++) {
+            vc[4 * 21 + j] = 99;
+            vc[4 * 21 + 4 + j] = j < 3 ? 99 : 0;
+        }
+        vc[4 * 21 + 16] = 80;
+        vc[4 * 21 + 17] = 0;
+        vc[4 * 21 + 18] = 1;
+        for (j = 0; j < 3; j++)
+            dx7_note_on(&at[j], vc, 60, 100, VEL[j]);
+        for (op = 0; op < 6; op++) {     /* (MSFA's order: OP6 first; OP3 and OP1 the carriers) */
+            int32_t a = at[0].env[op].outlevel, b = at[1].env[op].outlevel, c = at[2].env[op].outlevel;
+            if (op == 3 || op == 5)
+                carriers &= a == b && b == c;
+            else
+                modulators &= a < b && b < c;
+        }
+        check("DX7 velocity: the carriers kept", carriers, 1, 0);
+        check("DX7 velocity: the modulators follow", modulators, 1, 0);
+        for (j = 0; j < 2; j++) {
+            double d = 0, e = 0;
+            int i;
+            memset(out[j], 0, sizeof out[j]);
+            for (b = 0; b + DX7_N <= N / 2; b += DX7_N)
+                dx7_render(&at[j ? 2 : 0], out[j] + b);
+            for (i = 1; i < N / 2; i++) {
+                d += (double)(out[j][i] - out[j][i - 1]) * (out[j][i] - out[j][i - 1]);
+                e += (double)out[j][i] * out[j][i];
+            }
+            bright[j] = e > 0 ? d / e : 0;
+        }
+        check("DX7 velocity 20 to 127: dB", loudest(out[1], N / 2) - loudest(out[0], N / 2), -0.54, 0.5);
+        check("DX7 velocity 127 brighter: x", bright[1] / (bright[0] > 0 ? bright[0] : 1), 11.47, 1.0);
+    }
     {   /* through the player: the keys, the mix at half, centred; the default setup (LIMITER at -1 dB) */
         static const uint8_t NOTE[4] = {60, 60, 36, 60};
         static const char *WHAT[4] = {"DX7 played, dB", "Juno-106 played, dB", "TB-303 played, dB", "sampler played, dB"};
@@ -257,6 +305,37 @@ int main(void)
             player_key_off(NOTE[e]);
             check(WHAT[e], loudest(buf, N), -26.02, 0.4);
         }
+    }
+    {   /* a key's pressure (player_key_press, the tracker's: specs/hardware.md#the-keys-velocity): its own note's level x
+         * the gain from the next block, 6 dB at x2; another key's note as it was; let go and pressed again: none */
+        static int16_t half[512];
+        static int32_t other[N];
+        pl_inst_t in = {1, 0};
+        player_init();
+        player_key_on(60, in, 64);       /* (two keys' notes alike: one of them twice as loud is 10 log10(5 / 2) dB more) */
+        player_key_on(72, in, 64);
+        for (b = 0; b + 256 <= N; b += 256) {
+            if (b == N / 512 * 256)
+                player_key_press(60, 512);
+            player_audio(half, 256);
+            for (i = 0; i < 256; i++)
+                buf[b + i] = half[2 * i];
+        }
+        player_key_off(60);
+        player_key_off(72);
+        check("a key pressed harder (x2): its note alone, dB", loudest(buf + N / 2, N / 2) - loudest(buf, N / 2), 3.98, 0.3);
+        player_init();
+        player_key_on(60, in, 64);
+        player_key_press(60, 512);
+        player_key_off(60);
+        player_key_on(60, in, 64);
+        for (b = 0; b + 256 <= N / 2; b += 256) {
+            player_audio(half, 256);
+            for (i = 0; i < 256; i++)
+                other[b + i] = half[2 * i];
+        }
+        player_key_off(60);
+        check("... pressed again: no pressure (one note of the two), dB", loudest(other, N / 2) - loudest(buf, N / 2), -3.01, 0.3);
     }
     {   /* a sample instrument naming a sample that is not there, or one whose entry and audio's head differ (read as
          * missing): a note on it plays nothing, as an empty slot (specs/files/instruments.md#samples) */
@@ -355,6 +434,34 @@ int main(void)
             }
             check("TAPE STOP !08: its 2nd beat, dB", 20 * log10(q[1] / q[0] + 1e-9), -100, 70);
             check("TAPE STOP !08: after its rows, dB", 20 * log10(bk[1] / bk[0] + 1e-9), 0, 1.0);
+        }
+    }
+    {   /* the DX7's carriers as MSFA's n_out counts them (the out bus 0, added): the DX7's own charts' count for each
+         * algorithm (an operator adding into a modulators' bus is none); a stored patch's 7-bit fields read at most 99 */
+        static const int want[32] = {2, 2, 2, 2, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 3, 3, 4, 4, 4, 5, 5, 3, 3, 3, 4, 4, 5, 6};
+        static uint8_t ones[112], vc[156];
+        int a, op, bad = 0, over = 0;
+        for (a = 0; a < 32; a++) {
+            int n = 0;
+            for (op = 1; op <= 6; op++)
+                n += dx7_carrier(a, op);
+            bad += n != want[a];
+        }
+        check("DX7: algorithms, carriers miscounted", bad, 0, 0);
+        {   /* a stored patch of all ones (every field at its bits' most: 127 where the DX7 stops at 99) played: the
+             * pitch envelope's tables read at most at 99 (the sanitizer would stop an overrun), the rest as stored */
+            static dx7_voice_t dv;
+            static int32_t db[DX7_N];
+            memset(ones, 0xFF, sizeof ones);
+            rec_dx7_vced(ones, vc);
+            memset(&dv, 0, sizeof dv);
+            dx7_note_on(&dv, vc, 60, 100, 100);
+            for (a = 0; a < 200; a++)
+                dx7_render(&dv, db);
+            for (a = 0; a < 4; a++)
+                over += (dv.penv.rates[a] > 99) + (dv.penv.levels[a] > 99);
+            check("DX7: all ones, pitch EG over 99", over, 0, 0);
+            check("DX7: all ones, OUTPUT LEVEL kept", vc[16], 127, 0);
         }
     }
     printf("reference: %s\n", fails ? "FAILED" : "all as they should be");

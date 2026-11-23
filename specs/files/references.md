@@ -15,7 +15,8 @@ samples named by number: [the independent samples proposal](../proposals/2026110
 - a sample instrument to a sample, by its number `00`-`FF`, whatever sampler it is in
   ([instruments.md](instruments.md#samples));
 - the loops to their instruments, one a loop (the loop table); their cells name none
-  ([loops.md](loops.md#the-record));
+  ([loops.md](loops.md#the-record)); a LOOPS set's loops the same ([loops.md](loops.md#sets)), and nothing refers to a
+  set. A set of another version keeps its references as they are: never counted, never rewritten;
 - a FAVORITES slot to an instrument (cartridge:slot, [instruments.md](instruments.md#favorites)).
 
 Nothing refers to a FAVORITES cartridge or a favourite's place: a favourite is only ever the one referring. **A
@@ -30,8 +31,13 @@ keeps its number on the FM-1; on the EDITOR page's FM-1 panel it can take anothe
 following ([../editor.md](../editor.md)). That panel's SET NUMBER is a cartridge's MOVE or SWAP, always as YES below
 ([../editor.md](../editor.md#moving-items)).
 - **YES:** everything pending is saved; then the change and every record it touches (patterns, songs,
-  cartridges, the loops' table, the favourites) are written as one save ([store.md](store.md#saving)). A power cut
-  leaves the state before or the state after, never a mix.
+  cartridges, the loops' table and every LOOPS set's, the favourites) are written as one save
+  ([store.md](store.md#saving)). A power cut leaves the state before or the state after, never a mix. A loop counts
+  as a use in the questions, as a cell does (LOOPS' and a set's alike). **All of it or nothing:** the edit memory's
+  room for the whole change (the slots or the cartridge, the pattern tracks, favourites and loop heads it rewrites) is
+  made first; with none, `MEMORY FOR EDITS IS FULL`, nothing changes and nothing is saved. A set made elsewhere in 17
+  parts, too big to rewrite ([loops.md](loops.md#sets)), keeps its references as they are, its loops still counted as
+  uses.
 - **NO:** the references stay as they are, naming the place: one left naming nothing is grey and silent
   ([below](#a-reference-to-nothing)).
 - **A MOVE onto an empty place is a SWAP with it:** the references that still name that place, grey, go to the place
@@ -86,7 +92,8 @@ following ([../editor.md](../editor.md)). That panel's SET NUMBER is a cartridge
 - At power-on every record in the user area is checked ([store.md](store.md#power-on)). A record that
   fails falls back to its older version if the flash still holds one; else its object is missing.
   CHECK STORAGE (below) lists either.
-- CHECK REFERENCES lists references to nothing (the loops' too; not `FF`) and the old samplers; CLEAN UP deletes
+- CHECK REFERENCES lists references to nothing (the loops' too, after the rest: LOOPS' own as `LOOP 03: 0B:05`, then
+  each set's as `SET 02 LOOP 03: 0B:05`; not `FF`) and the old samplers; CLEAN UP deletes
   unused patterns, instruments and samples (those no instrument names, in any sampler), and clears references to
   nothing when asked; CHECK STORAGE reads and checks everything
   (SETTINGS → TOOLS,

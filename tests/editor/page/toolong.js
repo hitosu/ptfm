@@ -56,8 +56,9 @@ module.exports = async api => {
         for (let i = 0; i < n; i++) x[i] = 0.3 * Math.sin(i / 9);
         const r = ED.cutting.addSamples(ED.app.st, "L", [{ snd: { rate: 44100, ch: [x], bits: 16 }, how: { chan: "mix", rate: 44100, bits: 16 }, name: "TAKE" }], "RECORDING");
         ED.app.commit(r.st, "TEST: ANOTHER", { ok: true }); return ED.keep.flush(); })()`);
+    await evaluate("window.__reloading = 1");   /* the old page's status may read BACK AS YOU LEFT IT already */
     await api.send("Page.reload", {});
-    await api.until("!!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
+    await api.until("!window.__reloading && !!document.querySelector('#status') && /BACK AS YOU LEFT IT/.test(document.querySelector('#status').textContent)", 30);
     const back = await evaluate(`(() => { const L = ED.app.st.L, it = L[L.length - 1]; return [ED.model.isLong(it), it.long, !!(it.sound && it.sound.ch && it.sound.ch[0].length === ${Math.round(25 * 44100)})]; })()`);
     check(back[0] && back[1] === Math.round(25 * 44100) && back[2], "too long: over a reload, kept with its original: " + JSON.stringify(back));
 };

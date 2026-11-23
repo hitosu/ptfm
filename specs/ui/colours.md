@@ -68,8 +68,8 @@ in words only what this coding does not already say ([screens/](README.md#the-fi
   4 under it, light grey below; at 12 light grey under 8, yellow from 8, red from 12; at 16 yellow from 12, red from
   16; at 8 yellow from 4, red from 8. On every screen; a limit written after it (`06/12`) takes the count's colour.
 - **The screens' groups** colour their names in the header ([frame.md](frame.md#the-header)) and in
-  the help ([help.md](help.md)): MAKE light blue, PLAY green, HEAR brown, SYSTEM magenta; LOOPS' and
-  DJ's names are in the PLAY group's colour ([navigation.md](navigation.md)).
+  the help ([help.md](help.md)): MAKE light blue, PLAY green, HEAR brown, SYSTEM magenta; LOOPS', DJ's and
+  AUTOMATIONS' names are in the PLAY group's colour ([navigation.md](navigation.md)).
 - **In cells:**
 
   | Part | Colour |

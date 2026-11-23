@@ -4,7 +4,9 @@
 # The device side's host tests (gcc, the sanitizers where the code is ours):
 #   1. out_test: the analog out's last stage (MASTER, LINE GAIN, mono, the soft ceiling: fw/device/out.h);
 #      libc_test: the device's memset and memcpy (a word at a time) against byte-by-byte references
-#   2. enc_test: the knobs' decoder in hal/fm1_input.h, turns at speed
+#   2. enc_test: the knobs' decoder in hal/fm1_input.h, turns at speed; keyvel_test: the keys' velocity (device/keyvel.h:
+#      the readings' state machine, the map, the top row); scan_test: the scan's readings of the keys in hal/fm1_input.h
+#      against a model of the FM-1's registers (the conversion's slot, the drive, the LEDs, MASTER, OFF as before)
 #   3. the firmware built (fw/build.sh, a dev build) when the JieLi toolchain is there (JIELI_TOOLCHAIN,
 #      AC79_SDK as fw/build.sh takes them; PTFM_NO_BUILD=1 skips it); else the package tests below use a
 #      package already built, or are skipped
@@ -40,6 +42,10 @@ $CC $SAN -Wno-unused-function -o "$OUT/libc_test" fw/tests/libc_test.c
 run 1 "$OUT/libc_test"
 $CC -std=c11 $SAN -Wno-unused-function -Wno-unused-parameter -o "$OUT/enc_test" fw/tests/enc_test.c
 run 2 "$OUT/enc_test"
+$CC -std=c11 $SAN -Wno-unused-function -o "$OUT/keyvel_test" fw/tests/keyvel_test.c -lm
+run 1 "$OUT/keyvel_test" -q
+$CC -std=c11 $SAN -Wno-unused-function -Wno-unused-parameter -o "$OUT/scan_test" fw/tests/scan_test.c fw/tests/scan_off.c
+run 1 "$OUT/scan_test"
 
 TC="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"
 if [ -x "$TC/pi32v2/bin/clang" ] && [ "${PTFM_NO_BUILD:-0}" != 1 ]; then

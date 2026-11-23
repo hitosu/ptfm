@@ -12,14 +12,15 @@ it all.</p>
 cable); both behave the same.</p>
 <ul>
 <li><b>Notes play as the FM-1's keys do,</b> on every screen: they play the current instrument, write in the EDITOR
-with REC on, play onto LOOPS' stage, feed the arpeggiator. Velocity sets the note's volume. Every note plays, not only the
+with REC on, play onto LOOPS' stage, feed the arpeggiator. Velocity sets the note's volume (and a DX7's brightness). Every note plays, not only the
 keys' range.</li>
 <li><b>MIDI IN CHANNEL</b> picks the channel listened to (ALL at first).</li>
 <li><b>Program change</b> picks the instrument in the current cartridge, as PRESETS does: program <i>n</i> is the
 cartridge's <i>n</i>-th sound, counted from 0 and skipping empty slots, so it is not always slot <i>n</i>.
 <b>Bank select</b> (CC 0) picks the cartridge, as <span class="combo"><kbd>SEL</kbd> + <kbd>PRESETS</kbd></span> does:
-bank <i>n</i> is the <i>n</i>-th cartridge in the cartridge list, counted from 0, not cartridge number <i>n</i>. With
-the demo disk, bank 0 is 01 DRUM KIT and bank 6 is F0.</li>
+bank <i>n</i> is the <i>n</i>-th cartridge in the cartridge list, counted from 0, not cartridge number <i>n</i>. The
+list starts with FAVORITES: with the demo disk, bank 0 is FB FAVORITES, bank 1 A0 DRUM KIT and bank 7 F0. Editing an
+instrument on INSTRUMENTS, a bank that is a FAVORITES cartridge does nothing; editing a favourite, no bank does.</li>
 <li><b>Pitch bend</b> bends the keys' notes, plus or minus 2 semitones. <b>The sustain pedal</b> (CC 64) holds the
 notes played from MIDI.</li>
 <li>Every other controller does nothing until you <b>learn</b> it onto an FM-1 control (below).</li>
@@ -29,7 +30,8 @@ notes played from MIDI.</li>
 <section class="topic" id="midi-learn">
 <h3>MIDI learn</h3>
 <p>An outside controller's knobs and pads can work the FM-1's own controls: its 7 knobs, MASTER, every button but
-HOME (HOME cancels learning, so it cannot be learned) and the 27 keys. A learned control works exactly as the FM-1's, on every screen, with its combinations and holds.</p>
+HOME (HOME cancels learning, so it cannot be learned) and the 27 keys. A learned control works exactly as the FM-1's, on every screen, with its combinations and holds;
+AUTOMATIONS records it as that FM-1 control.</p>
 <ol class="steps">
 <li>SETTINGS, the MIDI page (<kbd>SEQ</kbd>), turn <kbd>SELECT</kbd> to LEARN and press <kbd>EDIT</kbd>.</li>
 <li><samp class="msg">TOUCH AN FM-1 CONTROL</samp>: turn the knob or press the button or key to learn (it does
@@ -88,10 +90,11 @@ music program, and its screen shows what it sends.</p>
 <li>Play. Switch the FM-1 off and on to get PT/FM back.</li>
 </ol>
 <dl class="params">
-<dt>GENERAL</dt><dd>A keyboard controller: the keys send notes (OCT- and OCT+ shift them, -3 to +3, both together back
-to 0); K1-K4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release); SELECT CC 1 (modulation); ALGORITHM CC 21;
-PRESETS program change; MASTER CC 7 (volume); PLAY starts and stops a music program (MIDI Machine Control, and CC
-114); the other buttons CC 102 and up.</dd>
+<dt>GENERAL</dt><dd>A keyboard controller: the keys send notes at the velocity you play them (KEYS VELOCITY; OCT- and
+OCT+ shift them, -3 to +3, both together back to 0); a held key pressed harder sends aftertouch (CONTROLLER AFTERTOUCH:
+Channel Pressure at first, or each note's); K1-K4 send CC 74, 71, 73, 72 (cutoff, resonance, attack, release); SELECT
+CC 1 (modulation); ALGORITHM CC 21; PRESETS program change; MASTER CC 7 (volume); PLAY starts and stops a music program
+(MIDI Machine Control, and CC 114); the other buttons CC 102 and up.</dd>
 <dt>MIRROR</dt><dd>Every control sends one fixed message, for working the virtual FM-1 of PT/FM's web pages from the
 real panel; the page lights the FM-1's LEDs back.</dd>
 </dl>

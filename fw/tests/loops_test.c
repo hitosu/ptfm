@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Vasily Kazantsev */
 /* LOOPS' loops (fw/core/play/loops.c, specs/files/loops.md) on the PC, against the store on a fake flash: the setup with
- * no record and its changes; new loops (colours, the next loops' mode, the next loop's mix, the first one's length);
+ * no record and its changes; new loops (colours, the next loops' mode, NEW's mix and a new loop's defaults, the first
+ * one's length);
  * cells at (row, lane) written, replaced and cleared, each stream's bytes as the editor page packs them (lane l of row r
  * at stream row 4r + l, gaps past 255 rows bridged with ED0), its 3,800 B refused past; peel (the streams after it
  * re-keyed, from the edit memory and from the flash), the selection; clear; mutes, solos, mixes; LENGTH shorter and
@@ -127,12 +128,18 @@ static void snap(snap_t *p)
         if (s) memcpy(p->l[i].s, s, p->l[i].len);
     }
 }
-static void fresh(void)                 /* an empty flash, no edits */
+static void fresh(void)                 /* an empty flash, no edits; NEW the defaults, as at LOOPS' first look */
 {
     fake_reset();
     store_edit_revert();
     store_init();
     loops_revert();
+    loops_new_reset();
+}
+static const uint8_t PLAIN[RM_N] = {0x7F, 0x80, 0, 0, 0, 0};   /* a new song's track's mix */
+static void new_plain(void)             /* NEW plain: the next loop made as before a new loop's defaults (the tests') */
+{
+    for (int k = 0; k < RM_N; k++) loops_set_mix(loops_n(), k, PLAIN[k]);
 }
 
 static void t_setup(void)
@@ -150,7 +157,14 @@ static void t_setup(void)
               "(MONO LEGATO JUMP) set, byte 4's bit 6 clear");
     }
     CHECK(!memcmp(loops_fx(), def, 64), "no record: the FX setup a new song's");
-    CHECK(loops_mix(0)[0] == 0x7F && loops_mix(0)[1] == 0x80 && !loops_mix(0)[2] && !loops_mix(0)[5], "no record: the next loop's mix plain");
+    {
+        static const uint8_t DEF[RM_N] = {0x40, 0x80, 0, 0x7F, 0x7F, 0x7F};
+        uint8_t d[LP_HEAD_MAX];
+        loops_record_default(d);
+        CHECK(!memcmp(loops_new_def(), DEF, RM_N) && !memcmp(loops_mix(0), DEF, RM_N) && !(d[79] & 0x80) && !memcmp(d + 72, PLAIN, RM_N),
+              "no record: a new loop's defaults LEVEL 40, PAN 80, DUCK 0, the sends 7F (not stored: byte 79's bit 7 clear, bytes "
+              "72-77 a plain mix), NEW the same");
+    }
     CHECK(loops_bar_rows() == 16 && loops_max_bars() == 8 && loops_max_rows() == 128 && loops_bpm() == 120,
           "1/16 at 4 beats: 16 rows a bar, 8 bars, 128 rows, 120 BPM");
     CHECK(!store_edit_count(), "reading it is no edit");
@@ -287,7 +301,8 @@ static void t_clear_mutes(void)
           "loop 02 soloed: the others silent, the mute kept beneath");
     CHECK(loops_set_mutes(0, 0) == LP_OK && !loops_silent_mask(), "all back on");
     CHECK(loops_set_inst(1, 0x0A, 0x05) == LP_OK && loops_inst(1) == 0x0A05, "APPLY INSTRUMENT");
-    CHECK(loops_set_mix(2, RM_REVERB, 0x20) == LP_OK && loops_mix(2)[RM_REVERB] == 0x20 && loops_mix(1)[RM_REVERB] == 0, "a loop's mix");
+    CHECK(loops_set_mix(2, RM_REVERB, 0x20) == LP_OK && loops_mix(2)[RM_REVERB] == 0x20 && loops_mix(1)[RM_REVERB] == 0x7F,
+          "a loop's mix (another's as it was made: NEW's, the defaults)");
     loops_play(0);
     CHECK(src_given && what_now == PL_LOOPS && mutes_given == 0, "played: the source given, no loop silent");
     loops_set_muted(0, 1);
@@ -483,11 +498,13 @@ static rec_cell_t cell_of(const tc_t *t)
     if (t->c0) { c.has |= RC_CMD; c.n = 1; c.cmd[0][0] = t->c0; c.cmd[0][1] = t->v0; }
     return c;
 }
-/* a loop more of instrument in: base rows played reps times (the first: the length len), its cells in stream order */
+/* a loop more of instrument in: base rows played reps times (the first: the length len), its cells in stream order; its
+ * mix plain (new_plain) */
 static int mk_loop(uint16_t in, int len, int base, int reps, const tc_t *t, int n)
 {
     static uint8_t b[3800];
     lp_enc_t e;
+    new_plain();
     int lanes = 1, i = loops_new((uint8_t)(in >> 8), (uint8_t)in);
     if (i < 0) return -1;
     if (!i) loops_set_rows(len);
@@ -585,7 +602,7 @@ static void t_store_load(void)
     lp_timing_t tm = {150, 6, 4, 50};
     lp_loaded_t res;
     loops_set_mix(1, RM_LEVEL, 0x7F);
-    CHECK(loops_load(0x10, &tm, &res) == LP_OK && res.loops == 2 && !res.insts && !res.cmds && loops_n() == 2 && loops_rows() == 16 &&
+    CHECK(loops_load(0x10, &tm, &res, 1) == LP_OK && res.loops == 2 && !res.insts && !res.cmds && loops_n() == 2 && loops_rows() == 16 &&
           loops_tempo() == 150, "LOAD FROM PATTERN: the stored loops back, 2 loops, nothing left out, the pattern's tempo");
     notes_of(0, got, sizeof got);
     CHECK(!strcmp(got, "0:0:60,2:0:off,4:0:60,6:0:off,8:0:60,10:0:off,12:0:60,14:0:off") && loops_base(0) == 16 &&
@@ -601,7 +618,7 @@ static void t_store_load(void)
                                {0, 4, 67, 0, 0, 0}, {4, 4, REC_NOTE_OFF, 0, 0, 0}, {5, 0, REC_NOTE_OFF, 0, 0x0A, 0x01}, {6, 4, 69, 0, 0, 0}};
     mk_pat(0x11, 5, 20, P1, 8, 0xF0);
     tm = (lp_timing_t){90, 6, 3, 50};
-    CHECK(loops_load(0x11, &tm, &res) == LP_OK && res.loops == 2 && res.cmds == 2 && loops_rows() == 32 && loops_tempo() == 120 &&
+    CHECK(loops_load(0x11, &tm, &res, 1) == LP_OK && res.loops == 2 && res.cmds == 2 && loops_rows() == 32 && loops_tempo() == 120 &&
           loops_grid() == 0, "LOAD: 5 notes at once of an instrument: 2 loops; the vibrato and the slide left out (2 commands); 3 "
           "rows a beat: 1/16, TEMPO 120 (the same BPM); 20 rows: 2 bars");
     notes_of(0, got, sizeof got);
@@ -612,12 +629,12 @@ static void t_store_load(void)
     CHECK(!strcmp(got, "0:0:67,4:0:off") && loops_inst(1) == 0xF000, "... the fifth another loop of its instrument (%s)", got);
     static const tc_t PL[2] = {{0, 0, 60, 0, 0, 0}, {4, 0, 64, 0, 0xD3, 0}};   /* LEG kept, as a glide is */
     mk_pat(0x12, 1, 16, PL, 2, 0xF0);
-    CHECK(loops_load(0x12, &tm, &res) == LP_OK && res.loops == 1 && !res.cmds && loops_cell(0, 4, 0, &c) && c.note == 64 &&
+    CHECK(loops_load(0x12, &tm, &res, 1) == LP_OK && res.loops == 1 && !res.cmds && loops_cell(0, 4, 0, &c) && c.note == 64 &&
           pat_cmd(&c, 0xD3) == 0, "LOAD: LEG kept with its note");
     /* LOAD of a pattern with no notes: no loops, the length and the timing the pattern's all the same */
     mk_pat(0x13, 3, 40, P1, 0, 0xF0);
     tm = (lp_timing_t){150, 3, 4, 60};
-    CHECK(loops_load(0x13, &tm, &res) == LP_OK && !res.loops && !loops_n() && loops_rows() == 48 && loops_tempo() == 150 &&
+    CHECK(loops_load(0x13, &tm, &res, 1) == LP_OK && !res.loops && !loops_n() && loops_rows() == 48 && loops_tempo() == 150 &&
           loops_ticks() == 3 && loops_swing() == 60 && loops_grid() == 0, "LOAD of a pattern with no notes: no loops, its 40 rows in whole bars "
           "(48), its timing (TEMPO 150, 3 ticks, SWING 60)");
     /* 17 instruments: the 17th left out */
@@ -625,7 +642,7 @@ static void t_store_load(void)
     for (int k = 0; k < 17; k++) many[k] = (tc_t){(uint8_t)k, 0, (uint8_t)(48 + k), (uint8_t)k, 0, 0};
     mk_pat(0x12, 1, 32, many, 17, 0x05);
     tm = (lp_timing_t){120, 6, 4, 50};
-    CHECK(loops_load(0x12, &tm, &res) == LP_OK && res.loops == 16 && res.insts == 1 && loops_n() == 16 && loops_colour(13) == 1,
+    CHECK(loops_load(0x12, &tm, &res, 1) == LP_OK && res.loops == 16 && res.insts == 1 && loops_n() == 16 && loops_colour(13) == 1,
           "LOAD: 16 loops at most, the 17th instrument left out; the colours round again");
     /* SAVE TO PATTERN: 5 loops of 4 lanes over all the rows: the fifth's notes fit no track, counted */
     fresh();
@@ -697,18 +714,18 @@ static void t_stops_ticks(void)
     mk_loop(0xF000, 16, 16, 1, K0, 2);
     CHECK(loops_store(0x33, &left) == LP_OK && pat_cell(0x33, 2, 0, &c) && !(c.has & RC_NOTE) && pat_cmd(&c, 0x14) == 3,
           "(SAVE TO PATTERN: the key off alone, K03)");
-    CHECK(loops_load(0x33, &tm, &res) == LP_OK && res.loops == 1 && !res.cmds && loops_cell(0, 2, 0, &c) && !(c.has & RC_NOTE) &&
+    CHECK(loops_load(0x33, &tm, &res, 1) == LP_OK && res.loops == 1 && !res.cmds && loops_cell(0, 2, 0, &c) && !(c.has & RC_NOTE) &&
           c.n == 1 && pat_cmd(&c, 0x14) == 3, "LOAD: a key off alone kept as itself, at its tick (not a note off at tick 0)");
     /* LOAD: a note delayed 2 ticks on another loop: the old note's off as late; on the same loop, another track's note at
      * that row takes another lane, the track's own its lane */
     static const tc_t D0[2] = {{0, 0, 60, 0, 0, 0}, {4, 0, 62, 1, 0x0E, 0xD2}};
     mk_pat(0x34, 1, 16, D0, 2, 0xF0);
-    CHECK(loops_load(0x34, &tm, &res) == LP_OK && res.loops == 2 && !res.cmds && loops_cell(0, 4, 0, &c) && c.note == REC_NOTE_OFF &&
+    CHECK(loops_load(0x34, &tm, &res, 1) == LP_OK && res.loops == 2 && !res.cmds && loops_cell(0, 4, 0, &c) && c.note == REC_NOTE_OFF &&
           pat_cmd(&c, 0x0E) == 0xD2 && loops_cell(1, 4, 0, &c) && c.note == 62 && pat_cmd(&c, 0x0E) == 0xD2,
           "LOAD: the next note delayed (ED2) on another loop: the old note's off as late (=== ED2)");
     static const tc_t D1[3] = {{0, 1, 60, 0, 0, 0}, {4, 1, 62, 0, 0x0E, 0xD2}, {4, 0, 64, 0, 0, 0}};
     mk_pat(0x35, 2, 16, D1, 3, 0xF0);
-    CHECK(loops_load(0x35, &tm, &res) == LP_OK && res.loops == 1, "(LOAD: one loop)");
+    CHECK(loops_load(0x35, &tm, &res, 1) == LP_OK && res.loops == 1, "(LOAD: one loop)");
     notes_of(0, got, sizeof got);
     CHECK(!strcmp(got, "0:0:60,4:0:62,4:1:64") && loops_cell(0, 4, 0, &c) && pat_cmd(&c, 0x0E) == 0xD2, "... on the same loop: "
           "another track's note at that row on another lane, the delayed one on its track's lane (%s)", got);
@@ -911,7 +928,7 @@ static void t_length_shift(void)
     /* LOAD FROM PATTERN: SHIFT 0 (the shifted loop stored as heard, loaded back unshifted, at the rows heard) */
     lp_timing_t tm = {120, 6, 4, 50};
     lp_loaded_t res;
-    CHECK(loops_store(0x41, &left) == LP_OK && loops_load(0x41, &tm, &res) == LP_OK && res.loops == 1 && !loops_shift(0) &&
+    CHECK(loops_store(0x41, &left) == LP_OK && loops_load(0x41, &tm, &res, 1) == LP_OK && res.loops == 1 && !loops_shift(0) &&
           (heard_str(0, got, sizeof got), !strcmp(got, "3:0:60,19:0:60")), "LOAD: SHIFT 0, the notes where they were heard (%s)", got);
     /* a shifted loop with a rest, shorter: written out as heard, then cut (its note sounding over the cut stopped) */
     fresh();
@@ -949,6 +966,67 @@ static void t_store_shift(void)
     CHECK(loops_store(0x51, &left) == LP_OK && !rec_pattern(0x51, &p) && p.ntrk == 2 && pat_cell(0x51, 14, 0, &c) && c.note == 60 &&
           pat_cell(0x51, 1, 0, &c) && c.note == REC_NOTE_OFF && pat_cell(0x51, 0, 1, &c) && c.note == 64,
           "SAVE TO PATTERN: a lane sounding over the line (SHIFT 2: 14 to 1) takes its track whole: the next loop's lane on the next track");
+}
+
+/* CUT (specs/ui/screens/loops.md#cut, specs/files/loops.md#the-record): the loop written out as heard first, the cut kept
+ * as the entry's byte 2 bit 6 with byte 5 over a base of the length; SAVE TO PATTERN's first pass round it; REMOVE CUT;
+ * SHIFT with a cut; LENGTH both ways; DOUBLE; REC into a cut loop; an older PT/FM's edit read as no cut; SAVE, a set */
+static void t_cut(void)
+{
+    char got[400];
+    int left;
+    rec_cell_t c;
+    rec_loops_t l;
+    rec_loop_t en;
+    static const tc_t A0[2] = {{1, 0, 60, 100, 0, 0}, {3, 0, REC_NOTE_OFF, 0, 0, 0}};
+    fresh();
+    mk_loop(0xF000, 16, 4, 4, A0, 2);                  /* (base 4 x4: its note at 1, 5, 9, 13, each off 2 rows on) */
+    CHECK(loops_set_cut(0, 0) == LP_NO && !loops_cut(0), "CUT AT the loops' first row: refused (nothing before the mark)");
+    CHECK(loops_set_cut(0, -1) == LP_NO, "REMOVE CUT with no cut: refused");
+    CHECK(loops_set_cut(0, 6) == LP_OK && loops_cut(0) == 6 && loops_base(0) == 16 && loops_repeats(0) == 1 && !loops_shift(0),
+          "CUT AT row 6: its cut 6, its base the length, once");
+    loop_str(0, got, sizeof got);
+    CHECK(!strcmp(got, "1:0:60,3:0:off,5:0:60,7:0:off,9:0:60,11:0:off,13:0:60,15:0:off"), "... written out as it was heard first (%s)", got);
+    CHECK(!rec_loops(&l, 0) && (l.head[REC_LOOPS_TABLE + 2] & 0x40) && l.head[REC_LOOPS_TABLE + 4] == 15 && l.head[REC_LOOPS_TABLE + 5] == 6 &&
+          (rec_loop(&l, 0, &en), en.cut == 6 && en.repeats == 1), "the record: byte 2's bit 6, byte 4 the length - 1, byte 5 the cut");
+    CHECK(loops_store(0x60, &left) == LP_OK && pat_cell(0x60, 1, 0, &c) && c.note == 60 && pat_cell(0x60, 5, 0, &c) && c.note == 60 &&
+          pat_cell(0x60, 7, 0, &c) && c.note == 60 && pat_cell(0x60, 11, 0, &c) && c.note == 60 && pat_cell(0x60, 13, 0, &c) &&
+          c.note == 60 && pat_cell(0x60, 9, 0, &c) && c.note == REC_NOTE_OFF && pat_cell(0x60, 3, 0, &c) && c.note == REC_NOTE_OFF,
+          "SAVE TO PATTERN: the first pass round the cut (its rows 0-5 at 0, 6 and 12: notes at 1, 5, 7, 11, 13; its note off at 3 and 9)");
+    CHECK(pat_cell(0x60, 6, 0, &c) && c.note == REC_NOTE_OFF && pat_cell(0x60, 12, 0, &c) && c.note == REC_NOTE_OFF,
+          "... the note sounding at the cut's end ended at each wrap (a note off at 6 and 12)");
+    heard_str(0, got, sizeof got);
+    CHECK(!strcmp(got, "1:0:60,3:0:off,5:0:60,7:0:off,9:0:60,11:0:off,13:0:60,15:0:off"), "EDIT's copy: the cut loop as it stands (%s)", got);
+    /* SHIFT turns the notes under the window; CUT HERE on a cut loop moves the mark */
+    set_shift(0, 2);
+    CHECK(loops_cut(0) == 6 && loops_shift(0) == 2, "SHIFT 2 on a cut loop: the cut stays");
+    CHECK(loops_set_cut(0, 10) == LP_OK && loops_cut(0) == 10 && loops_shift(0) == 2, "CUT HERE at 10 on it: the window to 10");
+    CHECK(loops_store(0x61, &left) == LP_OK && pat_cell(0x61, 3, 0, &c) && c.note == 60 && pat_cell(0x61, 7, 0, &c) && c.note == 60 &&
+          pat_cell(0x61, 13, 0, &c) && c.note == 60 && !(pat_cell(0x61, 11, 0, &c) && c.note == 60),
+          "SAVE TO PATTERN: the notes turned 2 rows under the window (3, 7; again from 10: 13), the one heard at 11 uncut left out");
+    /* LENGTH: longer and shorter past the cut keep it (a shifted loop written out, as any); as short as it or shorter
+     * drops it */
+    CHECK(loops_set_rows(32) == LP_OK && loops_cut(0) == 10 && loops_base(0) == 32 && !loops_shift(0), "LENGTH longer: the cut kept, "
+          "its base the new length, its SHIFT written out");
+    loop_str(0, got, sizeof got);
+    CHECK(!strcmp(got, "1:0:off,3:0:60,5:0:off,7:0:60,9:0:off,11:0:60,13:0:off,15:0:60"), "... as heard over 16 rows (%s)", got);
+    CHECK(loops_cut_drops(12) == 1, "LENGTH to 12: the question counts its notes past 12, heard or not (15)");
+    CHECK(loops_set_rows(12) == LP_OK && loops_cut(0) == 10 && loops_base(0) == 12, "... shorter past the cut: kept");
+    CHECK(loops_set_rows(8) == LP_OK && !loops_cut(0) && loops_rows() == 8, "LENGTH as short as the cut: the cut goes");
+    /* REMOVE CUT: its notes past the mark heard again */
+    fresh();
+    mk_loop(0xF000, 16, 16, 1, A0, 2);
+    CHECK(loops_set_cut(0, 3) == LP_OK && loops_set_cut(0, -1) == LP_OK && !loops_cut(0) && loops_repeats(0) == 1 && loops_base(0) == 16,
+          "REMOVE CUT: no cut, its base the length, once");
+    /* DOUBLE keeps the cut (the base twice) */
+    CHECK(loops_set_cut(0, 3) == LP_OK && loops_double() == LP_OK && loops_rows() == 32 && loops_cut(0) == 3 && loops_base(0) == 32,
+          "DOUBLE: the cut kept, its base the new length");
+    loop_str(0, got, sizeof got);
+    CHECK(!strcmp(got, "1:0:60,3:0:off,17:0:60,19:0:off"), "... its base written twice (%s)", got);
+    set_shift(0, 5);
+    CHECK(edits_saved() == STORE_OK && (store_init(), loops_cut(0) == 3 && loops_shift(0) == 5), "SAVE, a power cycle: the cut back");
+    CHECK(loops_set_store(4, 0) == LP_OK && loops_set_cut(0, -1) == LP_OK && loops_set_load(4, 1) == LP_OK && loops_cut(0) == 3,
+          "a set keeps the cut");
 }
 
 static void t_quantize(void)
@@ -1076,45 +1154,108 @@ static void t_rec_write(void)
     CHECK(loops_n() == 16 && loops_stage_write(16, sb, n, 0xF0, 0, 0) == LP_NO && loops_stage_write(15, sb, n, 0xF0, 0, 0) == 15,
           "16 loops: no new one; into the last");
 }
-/* the next loop's sends are the KEYS column's (loops_keys_mix) where it is heard (loops_mix, the loops' song's track) and
- * where REC writes a new loop; its LEVEL, PAN and DUCK the head's; the head's own sends kept as written, not read; REC into
- * a loop keeps its mix; no KEYS column known: the head's own */
-static void t_next_sends(void)
+/* a new loop's mix (specs/files/loops.md, bytes 72-77 and 79's bit 7): its defaults LOOPS' properties (not stored: LEVEL
+ * 40, PAN 80, DUCK 0, the sends 7F, whatever 72-77 hold; GLO's change writes the six, the bit set, NEW's value with it);
+ * NEW, the next loop's own (loops_mix(n)): RAM's alone, no edit, heard as the loops' song's track n (the main loop's and
+ * the source's), taken by REC's new loop and loops_new, the defaults again after them, after CLEAR LOOPS and LOAD FROM
+ * PATTERN, not after DELETE LOOP of the only loop nor REVERT; REC into a loop keeps its mix */
+/* REC into a cut loop keeps its cut (the stage played round it); a whole loop put (the pattern recorder's)
+ * has no cut; an entry an older PT/FM rewrote (its base, repeats: byte 2's bit 6 left) reads as no cut */
+static void t_cut_rec(void)
 {
     static uint8_t sb[3800];
-    static const uint8_t KM[RM_N] = {0x7F, 0x80, 0, 0x11, 0x22, 0x33}, KM2[RM_N] = {0x7F, 0x80, 0, 0x44, 0x55, 0x66};
+    static const tc_t A0[1] = {{1, 0, 60, 100, 0, 0}};
+    static const sc_t S[2] = {{0, 0, 64, -1, 1}, {1, 0, REC_NOTE_OFF, -1, 1}};
+    static const uint8_t ONE[3] = {0x80 | 0x20, 60, 0};
+    rec_loops_t l;
+    rec_loop_t en;
+    fresh();
+    mk_loop(0xF000, 16, 16, 1, A0, 1);
+    CHECK(loops_set_cut(0, 6) == LP_OK, "(a cut at 6)");
+    set_shift(0, 5);
+    uint32_t n = mk_stage(sb, sizeof sb, S, 2);
+    CHECK(loops_stage_write(0, sb, n, 0xF0, 0x01, 0) == 0 && loops_cut(0) == 6 && !loops_shift(0) && loops_inst(0) == 0xF001,
+          "REC into a cut loop: its cut kept, SHIFT 0 (the stage as heard)");
+    CHECK(loops_stage_write(1, sb, n, 0xF0, 0x01, 0) == 1 && !loops_cut(1), "REC on + NEW LOOP: no cut");
+    CHECK(loops_put(0, 8, 2, 0, ONE, 3, 1) == LP_OK && !loops_cut(0) && loops_repeats(0) == 2, "the pattern recorder's whole loop: no cut");
+    uint8_t h[LP_HEAD_MAX];
+    CHECK(!rec_loops(&l, 0), "(read)");
+    memcpy(h, l.head, LP_HEAD_MAX);
+    h[REC_LOOPS_TABLE + 2] |= 0x40;                     /* (bit 6 left by an older PT/FM, its base 8 x2 over 16) */
+    l.head = h;
+    rec_loop(&l, 0, &en);
+    CHECK(!en.cut && en.repeats == 2 && en.base == 8, "an entry with bit 6 whose base is not the length: no cut, its repeats as written");
+}
+static void t_new_mix(void)
+{
+    static uint8_t sb[3800];
+    static const uint8_t DEF[RM_N] = {0x40, 0x80, 0, 0x7F, 0x7F, 0x7F}, D2[RM_N] = {0x55, 0x80, 0, 0x7F, 0x7F, 0x10};
     static const sc_t S[2] = {{0, 0, 60, -1, 1}, {4, 0, REC_NOTE_OFF, -1, 1}};
+    static const tc_t P[1] = {{0, 0, 60, 0, 0, 0}};
     rec_song_t s;
     uint32_t len, n;
-    const uint8_t *h, *m;
+    const uint8_t *h;
+    char why[80];
     fresh();
     loops_set_rows(16);
-    loops_set_mix(0, RM_LEVEL, 0x60);
-    loops_set_mix(0, RM_PAN, 0x40);
-    loops_set_mix(0, RM_REVERB, 0x05);
-    CHECK(loops_mix(0)[RM_REVERB] == 0x05 && !loops_mix(0)[RM_CHORUS], "no KEYS column known: the next loop's sends its own");
-    loops_keys_mix = KM;
-    m = loops_mix(0);
-    CHECK(m[RM_LEVEL] == 0x60 && m[RM_PAN] == 0x40 && !m[RM_DUCK] && m[RM_CHORUS] == 0x11 && m[RM_DELAY] == 0x22 && m[RM_REVERB] == 0x33,
-          "the KEYS column known: the next loop's mix as heard its LEVEL, PAN and DUCK, the KEYS column's sends");
-    CHECK(!loops_song(&s) && !memcmp(s.mix[0], loops_mix(0), RM_N) && !s.mix[1][RM_REVERB] && s.mix[1][RM_LEVEL] == 0x7F,
-          "the loops' song: track 00 (the stage on + NEW LOOP, the preview) the next loop's as heard; past it plain");
+    int e0 = store_edit_count();
+    CHECK(loops_set_mix(0, RM_LEVEL, 0x60) == LP_OK && loops_set_mix(0, RM_PAN, 0x40) == LP_OK && loops_set_mix(0, RM_REVERB, 0x05) == LP_OK &&
+          loops_mix(0)[RM_LEVEL] == 0x60 && loops_mix(0)[RM_PAN] == 0x40 && loops_mix(0)[RM_REVERB] == 0x05 && loops_mix(0)[RM_CHORUS] == 0x7F &&
+          store_edit_count() == e0 && !memcmp(loops_new_def(), DEF, RM_N),
+          "NEW turned (loops_mix(n)): RAM's alone, no edit; the defaults as they were");
     h = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &len);
-    CHECK(h && h[72 + RM_REVERB] == 0x05 && !h[72 + RM_CHORUS] && h[72 + RM_LEVEL] == 0x60, "... the head's own sends kept as written");
+    CHECK(!loops_song(&s) && !memcmp(s.mix[0], loops_mix(0), RM_N) && s.mix[1][RM_LEVEL] == 0x7F && !s.mix[1][RM_REVERB] && h &&
+          !(h[79] & 0x80) && !memcmp(h + 72, PLAIN, RM_N), "the loops' song: track 00 (the stage on + NEW LOOP, the preview) NEW's, "
+          "past it plain; the head's bytes 72-77 untouched");
+    loops_cue();
+    CHECK(src_given && !src_given->song(&s) && !memcmp(s.mix[0], loops_mix(0), RM_N), "... the player's source the same (NEW's, read in "
+          "the audio context)");
     n = mk_stage(sb, sizeof sb, S, 2);
-    CHECK(loops_stage_write(0, sb, n, 0xF0, 0, 0) == 0 && loops_n() == 1, "REC on + NEW LOOP: a new loop, 00");
-    m = loops_mix(0);
-    CHECK(m[RM_LEVEL] == 0x60 && m[RM_PAN] == 0x40 && !m[RM_DUCK] && m[RM_CHORUS] == 0x11 && m[RM_DELAY] == 0x22 && m[RM_REVERB] == 0x33,
-          "... its mix the next loop's LEVEL, PAN and DUCK, the KEYS column's sends");
-    h = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &len);
-    CHECK(loops_mix(1)[RM_REVERB] == 0x33 && h && h[72 + RM_REVERB] == 0x05, "... the next loop's as before; its own sends still kept");
-    loops_keys_mix = KM2;
-    CHECK(loops_mix(1)[RM_CHORUS] == 0x44 && loops_mix(0)[RM_CHORUS] == 0x11, "the KEYS column changed: the next loop's sends with it, a "
-          "loop's its own");
+    CHECK(loops_stage_write(0, sb, n, 0xF0, 0, 0) == 0 && loops_n() == 1 && loops_mix(0)[RM_LEVEL] == 0x60 && loops_mix(0)[RM_PAN] == 0x40 &&
+          loops_mix(0)[RM_REVERB] == 0x05 && loops_mix(0)[RM_CHORUS] == 0x7F, "REC on + NEW LOOP: the new loop's mix NEW's");
+    CHECK(!memcmp(loops_mix(1), DEF, RM_N), "... NEW the defaults again");
+    loops_set_mix(1, RM_PAN, 0x30);
     n = mk_stage(sb, sizeof sb, S, 2);
-    CHECK(loops_stage_write(0, sb, n, 0xF0, 1, 0) == 0 && loops_n() == 1 && loops_mix(0)[RM_CHORUS] == 0x11 && loops_mix(0)[RM_REVERB] == 0x33,
-          "REC into a loop: its own mix kept");
-    loops_keys_mix = 0;
+    CHECK(loops_stage_write(0, sb, n, 0xF0, 1, 0) == 0 && loops_n() == 1 && loops_mix(0)[RM_LEVEL] == 0x60 && loops_mix(0)[RM_REVERB] == 0x05 &&
+          loops_mix(1)[RM_PAN] == 0x30, "REC into a loop: its own mix kept, NEW as it was");
+    CHECK(loops_set_new_def(RM_LEVEL, 0x55) == LP_OK && (h = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &len)) && h[79] == 0x80 &&
+          h[72] == 0x55 && h[73] == 0x80 && !h[74] && h[75] == 0x7F && h[76] == 0x7F && h[77] == 0x7F && loops_new_def()[RM_LEVEL] == 0x55 &&
+          loops_mix(1)[RM_LEVEL] == 0x55 && loops_mix(1)[RM_PAN] == 0x30, "GLO's NEW LOOP LEVEL 55: the six written (PAN and DUCK as "
+          "read), byte 79's bit 7 set (the jobs not stored), NEW's LEVEL with it, its own PAN kept");
+    CHECK(loops_set_new_def(RM_REVERB, 0x10) == LP_OK && !memcmp(loops_new_def(), D2, RM_N) && loops_mix(1)[RM_REVERB] == 0x10 &&
+          loops_set_job(0, LJ_VIEW) == LP_OK && (h = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &len)) && (h[79] & 0xC0) == 0xC0 &&
+          !memcmp(loops_new_def(), D2, RM_N), "... its REVERB 10; K1-K4's jobs stored beside them (byte 79's bit 6), the defaults kept");
+    loops_set_job(0, LJ_LEVEL);
+    CHECK(edits_saved() == STORE_OK && (store_init(), !memcmp(loops_new_def(), D2, RM_N)), "saved, a power cycle: the defaults kept "
+          "with LOOPS");
+    loops_set_mix(1, RM_LEVEL, 0x22);
+    CHECK(loops_new(0xF0, 2) == 1 && loops_mix(1)[RM_LEVEL] == 0x22 && !memcmp(loops_mix(2), D2, RM_N), "loops_new: NEW's mix, NEW the "
+          "defaults again");
+    loops_set_mix(2, RM_LEVEL, 0x23);
+    CHECK(loops_peel(1) == LP_OK && loops_peel(0) == LP_OK && !loops_n() && loops_mix(0)[RM_LEVEL] == 0x23, "DELETE LOOP down to none: "
+          "NEW kept");
+    loops_set_mix(0, RM_LEVEL, 0x24);
+    loops_revert();
+    CHECK(loops_mix(loops_n())[RM_LEVEL] == 0x24 && !memcmp(loops_new_def(), D2, RM_N), "REVERT: NEW kept, the defaults as saved");
+    loops_new(0xF0, 0);
+    loops_set_mix(loops_n(), RM_LEVEL, 0x26);
+    CHECK(loops_n() == 2 && loops_clear() == LP_OK && !loops_n() && !memcmp(loops_mix(0), D2, RM_N), "CLEAR LOOPS: NEW the defaults "
+          "again");
+    loops_set_mix(0, RM_LEVEL, 0x25);
+    mk_pat(0x12, 1, 16, P, 1, 0xF0);
+    lp_timing_t tm = {120, 6, 4, 50};
+    lp_loaded_t res;
+    CHECK(loops_load(0x12, &tm, &res, 1) == LP_OK && loops_n() == 1 && loops_mix(0)[RM_LEVEL] == 0x7F && !memcmp(loops_mix(1), D2, RM_N),
+          "LOAD FROM PATTERN: the loop's mix plain (no = command), NEW the defaults again");
+    head_poke(72, 0x11);
+    head_poke(79, 0);
+    snprintf(why, sizeof why, "%02X %02X", loops_new_def()[0], loops_new_def()[5]);
+    CHECK(!memcmp(loops_new_def(), DEF, RM_N), "a record with byte 79's bit 7 clear (from before): the defaults, whatever 72-77 hold "
+          "(%s)", why);
+    head_poke(79, 0x80);
+    CHECK(loops_new_def()[RM_LEVEL] == 0x11 && loops_new_def()[RM_REVERB] == 0x10, "... set: bytes 72-77 as written");
+    loops_new_reset();
+    CHECK(!memcmp(loops_mix(loops_n()), loops_new_def(), RM_N), "loops_new_reset: NEW the defaults");
 }
 
 static void t_stage_fit(void)
@@ -1290,6 +1431,278 @@ static void t_stage_rec(void)
           "... full even with it: refused, the stage kept, nothing told");
 }
 
+/* ---- sets (specs/files/loops.md#sets): kind 0x24, 16 bytes (the name, the solos), then the loops' record as it is ---- */
+static void name12(uint8_t *p, const char *s)           /* a name of 16 characters, 6 bits each (specs/files/README.md) */
+{
+    static const char SET[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.-?|/\\*#$@%";
+    memset(p, 0, 12);
+    for (int i = 0; i < 16 && s[i]; i++) {
+        uint32_t c = (uint32_t)(strchr(SET, s[i]) - SET), bit = 6u * (uint32_t)i;
+        for (int k = 0; k < 6; k++, bit++) if (c >> k & 1) p[bit >> 3] |= (uint8_t)(1u << (bit & 7));
+    }
+}
+/* a stream of 3,788-3,800 B (cells of four commands on stream rows one after another), as loops_set_stream keeps it */
+static uint32_t big_stream(uint8_t *b)
+{
+    lp_enc_t e;
+    loops_enc_start(&e, b, STORE_LOOP_STREAM_MAX);
+    for (int r = 0; r < 512 && e.n < 3787; r++) { rec_cell_t c = cmds(30 + r % 60, 4); loops_enc_cell(&e, r, &c); }
+    return loops_enc_end(&e);
+}
+static void three_loops(void)           /* 3 loops, a SHIFT, a mute, a solo, a mix, the setup changed, loop 02 selected */
+{
+    rec_cell_t c;
+    loops_set_rows(32);
+    for (int i = 0; i < 3; i++) {
+        loops_new((uint8_t)(0xF0 + i), (uint8_t)(i * 5));
+        for (int r = 0; r < 8; r++) { c = note(48 + r + 7 * i, 0x40 + r); loops_cell_put(i, r * 4, i % 2, &c); }
+    }
+    loops_set_shift(1, 5);
+    loops_set_muted(0, 1);
+    loops_set_soloed(1, 1);
+    loops_set_mix(2, RM_PAN, 0x20);
+    loops_set_tempo(140);
+    loops_set_quant(LQ_3_ROWS);
+    loops_set_job(0, LJ_TEMPO);
+    loops_set_new_def(RM_LEVEL, 0x33);
+    loops_set_sel(2);
+}
+static uint32_t built(uint8_t kind, uint8_t num, uint8_t *b, uint32_t max)   /* its part 0 as the edits make it, 0 none */
+{
+    uint32_t len = 0;
+    uint8_t v;
+    return store_edit_build(kind, num, 0, b, max, &len, &v) ? 0u : len;
+}
+static void t_sets(void)
+{
+    static uint8_t lb[4096], sb2[4096], big[3800];
+    uint8_t nm[12], nums[256];
+    lp_set_t s;
+    fresh();
+    CHECK(!loops_sets(nums, 256) && loops_set_free() == 0 && !loops_set_info(3, &s), "no set yet: the first free number 00");
+    three_loops();
+    loops_keep_sel();
+    snap(&sa);
+    uint32_t ll = built(REC_LOOPS, 0, lb, sizeof lb);
+    name12(nm, "SUNDAY JAM");
+    CHECK(loops_set_store(3, nm) == LP_OK && loops_sets(nums, 256) == 1 && nums[0] == 3 && loops_set_free() == 0,
+          "STORE AS A SET into 03: one set, 03");
+    snap(&sb);
+    CHECK(!memcmp(&sa, &sb, sizeof sa), "... the loops go on as they were");
+    CHECK(loops_set_info(3, &s) && !strcmp(s.name, "SUNDAY JAM") && s.n == 3 && s.rows == 32 && s.bar == 16,
+          "... its name, 3 loops, 32 rows (a bar 16) (%s %d %d)", s.name, s.n, s.rows);
+    uint32_t sl2 = built(REC_LSET, 3, sb2, sizeof sb2);
+    CHECK(ll && sl2 == ll + 16 && !memcmp(sb2, nm, 12) && sb2[12] == 2 && !sb2[13] && !sb2[14] && !sb2[15] &&
+          !memcmp(sb2 + 16, lb, ll), "... its record: the name, the solos (bit 1), 0 0, then the loops' record byte for byte (%u, %u B)",
+          ll, sl2);
+    CHECK(store_edit_count() >= 2 && store_edit_has(REC_LSET, 3, 0) == 1, "... an edit of its own");
+    /* REVERT ALL drops a set stored */
+    store_edit_revert();
+    CHECK(!loops_sets(nums, 256), "REVERT ALL: the set stored gone");
+    /* the loops saved, the set stored and saved; then the loops changed (saved too); LOAD A SET brings them back */
+    fresh();
+    three_loops();
+    loops_keep_sel();
+    CHECK(edits_saved() == STORE_OK, "the loops saved");
+    snap(&sa);
+    ll = built(REC_LOOPS, 0, lb, sizeof lb);
+    CHECK(loops_set_store(3, nm) == LP_OK && edits_saved() == STORE_OK && !store_edit_count(), "the set stored, saved");
+    store_init();
+    loops_revert();
+    {
+        rec_loops_t l;
+        const uint8_t *pre;
+        CHECK(loops_set_info(3, &s) && !strcmp(s.name, "SUNDAY JAM") && !rec_lset(3, &l, 0, &pre) && pre[12] == 2 && !pre[13],
+              "a power cycle: the set there, its name and solo");
+    }
+    loops_clear();
+    loops_set_tempo(90);
+    loops_set_soloed(0, 0);
+    CHECK(edits_saved() == STORE_OK && !loops_n() && !loops_soloed_mask(), "the loops cleared, saved");
+    loops_set_mix(loops_n(), RM_LEVEL, 0x11);           /* (NEW turned: the set's defaults after the load) */
+    snap(&sb);
+    CHECK(loops_set_load(3, 0) == LP_OK && !store_edit_count() && loops_mix(0)[RM_LEVEL] == 0x11, "LOAD A SET's check: it fits, "
+          "nothing changed");
+    {
+        snap_t sc;
+        snap(&sc);
+        CHECK(!memcmp(&sb, &sc, sizeof sb) && loops_set_load(0x40, 0) == LP_NO && loops_set_load(0x40, 1) == LP_NO,
+              "... the loops as they were; no set 40: LP_NO");
+    }
+    CHECK(loops_set_load(3, 1) == LP_OK, "LOAD A SET 03");
+    snap(&sb);
+    CHECK(!memcmp(&sa, &sb, sizeof sa) && loops_soloed(1) && loops_sel() == 2 && loops_tempo() == 140 && loops_mix(3)[RM_LEVEL] == 0x33,
+          "... every loop, its stream, mute, mix and SHIFT, the setup, the selection, the solo as the set holds them, NEW the set's "
+          "defaults (LEVEL %02X)", loops_mix(3)[RM_LEVEL]);
+    uint32_t l2 = built(REC_LOOPS, 0, sb2, sizeof sb2);
+    CHECK(l2 == ll && !memcmp(sb2, lb, ll), "... the loops' record byte for byte as stored (%u B)", l2);
+    CHECK(store_edit_has(REC_LOOPS, 0, 0) && !store_edit_has(REC_LSET, 3, 0), "... an edit of LOOPS, the set as it was");
+    loops_revert();
+    CHECK(!loops_n() && loops_tempo() == 90, "LOOPS' REVERT: the load undone (the loops as saved, cleared)");
+    /* a REVERT undoing a load leaves no solos (the solos the set brought); after a SAVE, a REVERT keeps them */
+    three_loops();
+    loops_set_soloed(1, 0);
+    CHECK(edits_saved() == STORE_OK && loops_n() == 3 && !loops_soloed_mask(), "three loops saved, no solo");
+    CHECK(loops_set_load(3, 1) == LP_OK && loops_soloed_mask() == 2, "LOAD A SET 03: its solo (loop 01)");
+    loops_revert();
+    CHECK(loops_n() == 3 && !loops_soloed_mask(), "REVERT: the loops as saved, no solo (%x)", (unsigned)loops_soloed_mask());
+    CHECK(loops_set_load(3, 1) == LP_OK && edits_saved() == STORE_OK, "loaded again, saved");
+    loops_saved();
+    loops_set_tempo(77);
+    loops_revert();
+    CHECK(loops_n() == 3 && loops_tempo() == 140 && loops_soloed_mask() == 2, "a change after the SAVE reverted: the solo kept");
+    CHECK(loops_set_load(3, 1) == LP_OK && (store_edit_revert(), loops_unloaded(), loops_n() == 3) && !loops_soloed_mask() &&
+          loops_tempo() == 140, "REVERT ALL after a load: no solo either");
+    loops_clear();
+    CHECK(edits_saved() == STORE_OK && !loops_n(), "(the loops cleared, saved)");
+    /* a rename and a delete, each kept by SAVE */
+    name12(nm, "RAINY DAY");
+    CHECK(loops_set_rename(3, nm) == LP_OK && edits_saved() == STORE_OK && (store_init(), loops_set_info(3, &s)) &&
+          !strcmp(s.name, "RAINY DAY") && s.n == 3, "a rename saved: the name after a power cycle (%s)", s.name);
+    CHECK(loops_set_delete(3) == LP_OK && edits_saved() == STORE_OK && (store_init(), !loops_set_info(3, &s)) &&
+          !loops_sets(nums, 256), "a delete saved: gone after a power cycle");
+    /* references: the loops naming an instrument (LOOPS' and a set's), and every one following MOVE, SWAP and DELETE */
+    fresh();
+    three_loops();
+    name12(nm, "REFS");
+    loops_set_store(0, nm);
+    loops_set_inst(1, 0xF0, 0);                         /* (the working area: 00 F0:00, 01 F0:00, 02 F2:0A) */
+    CHECK(loops_inst_uses(0xF000) == 3 && loops_inst_uses(0xF105) == 1 && loops_inst_uses(0xF20A) == 2,
+          "uses: F0:00 twice in LOOPS, once in the set; F1:05 once (the set's); F2:0A once each");
+    rec_loops_t l;
+    const uint8_t *pre;
+    {
+        uint32_t used = store_edit_used(), hl = REC_LOOPS_TABLE + 3u * REC_LOOPS_ENTRY;   /* (LOOPS' head of 3 loops) */
+        uint32_t need = loops_remap(0xF000, 0x0700, 0, 0, 0);
+        CHECK(need == ((hl + 3u) & ~3u) + 8u + ((16u + hl + 3u) & ~3u) + 8u && store_edit_used() == used && loops_inst(0) == 0xF000 &&
+              !rec_lset(0, &l, 0, &pre) && l.head[80] == 0xF0, "MOVE's room first: LOOPS' head and the set's (%u B), nothing changed",
+              need);
+        CHECK(!loops_remap(0xF900, 0x0700, 0, 0, 0), "... none for an instrument no loop names");
+    }
+    loops_remap(0xF000, 0x0700, 0, 0, 1);
+    CHECK(loops_inst(0) == 0x0700 && loops_inst(1) == 0x0700 && !rec_lset(0, &l, 0, &pre) && l.head[80] == 0x07 && !l.head[81] &&
+          l.head[92] == 0xF1, "MOVE F0:00 to 07:00: LOOPS' two and the set's one follow, the others stay");
+    loops_remap(0x0700, 0xF20A, 1, 0, 1);
+    CHECK(loops_inst(0) == 0xF20A && loops_inst(2) == 0x0700 && !rec_lset(0, &l, 0, &pre) && l.head[80] == 0xF2 &&
+          l.head[81] == 0x0A && l.head[104] == 0x07, "SWAP 07:00 with F2:0A: both ways, LOOPS' and the set's");
+    loops_remap(0xF2, 0x21, 0, 1, 1);
+    CHECK(loops_inst(0) == 0x210A && !rec_lset(0, &l, 0, &pre) && l.head[80] == 0x21 && l.head[81] == 0x0A,
+          "a cartridge's MOVE (F2 to 21): by cartridge, the slot kept");
+    CHECK(!loops_remap(0x210A, -1, 0, 0, 0), "a DELETE's (to none): no room asked");
+    loops_remap(0x210A, -1, 0, 0, 1);
+    CHECK(loops_inst(0) == 0x210A && loops_inst_uses(0x210A) == 3, "... the loops left naming the place");
+    /* the edit memory full: a store refused, nothing changed */
+    fresh();
+    three_loops();
+    static uint8_t junk[4000];
+    static const uint32_t SIZES[4] = {3000, 300, 30, 4};
+    int k = 0;
+    for (int z = 0; z < 4; z++)
+        while (k < 250 && store_edit_put(REC_SONG, (uint8_t)k, 0, 1, junk, SIZES[z]) == STORE_OK) memset(junk, ++k, sizeof junk);
+    snap(&sa);
+    CHECK(loops_set_store(5, nm) == LP_FULL && !loops_sets(nums, 256) && !store_edit_has(REC_LSET, 5, 0), "the edit memory full: "
+          "STORE AS A SET refused (%u B left), no set", store_edit_room());
+    snap(&sb);
+    CHECK(!memcmp(&sa, &sb, sizeof sa), "... the loops as they were");
+    /* 16 loops past 4 KB: the set in parts; 15 of them too big for part 0 beside the head, saved in 16 parts and back equal */
+    fresh();
+    loops_set_rows(128);
+    uint32_t bl = big_stream(big);
+    for (int i = 0; i < 16; i++) {
+        loops_new((uint8_t)i, (uint8_t)i);
+        if (i < 15) loops_set_stream(i, big, bl);
+        else { rec_cell_t c = note(60, 0x7F); loops_cell_put(i, 0, 0, &c); }
+    }
+    CHECK(bl >= 3788 && bl <= 3800 && edits_saved() == STORE_OK, "16 loops, 15 of %u B, saved", bl);
+    snap(&sa);
+    name12(nm, "BIG");
+    CHECK(loops_set_store(7, nm) == LP_OK && edits_saved() == STORE_OK, "... stored as set 07, saved (%u B of edits left)", store_edit_room());
+    {
+        int parts = 0, p0 = 0;
+        uint32_t len;
+        for (int p = 0; p < 16; p++) if (store_get(REC_LSET, 7, (uint8_t)p, &len, 0)) { parts++; if (!p) p0 = (int)len; }
+        CHECK(parts == 16 && p0 <= 4080, "... in 16 parts, part 0 within a block (%d B: the head and loop 0F's stream)", p0);
+    }
+    store_init();
+    loops_revert();
+    loops_clear();
+    CHECK(loops_set_load(7, 1) == LP_OK, "a power cycle, the loops cleared, the set loaded");
+    snap(&sb);
+    CHECK(!memcmp(&sa, &sb, sizeof sa), "... every loop and stream back equal");
+    /* 16 loops each past what part 0 holds beside the head: no set holds them */
+    loops_set_stream(15, big, bl);
+    CHECK(loops_set_store(8, nm) == LP_BIG && !loops_set_info(8, &s), "16 loops of %u B each: refused (too big for a set)", bl);
+    /* such a set made elsewhere, in 17 parts (the head alone in part 0, a stream a part): a rename refused, nothing lost */
+    {
+        static uint8_t p0[4096], pk[4096];
+        rec_loops_t w;
+        uint32_t hl;
+        CHECK(!rec_loops(&w, 0) && w.n == 16, "(LOOPS' head of 16)");
+        hl = REC_LOOPS_TABLE + 16u * REC_LOOPS_ENTRY;
+        memset(p0, 0, sizeof p0);
+        name12(p0, "ELSEWHERE");
+        memcpy(p0 + 16, w.head, hl);
+        p0[16 + 5] = 16;
+        p0[16 + hl] = 16; p0[16 + hl + 1] = 127;
+        store_save_begin();
+        store_save_put(REC_LSET, 9, 0, REC_LSET_VER, p0, 16 + hl + 5);
+        for (int i = 0; i < 16; i++) {
+            pk[0] = 16; pk[1] = 127; pk[2] = 0; pk[3] = (uint8_t)(1u << i); pk[4] = (uint8_t)((1u << i) >> 8);
+            memcpy(pk + 5, big, bl);
+            store_save_put(REC_LSET, 9, (uint8_t)(i + 1), REC_LSET_VER, pk, 5 + bl);
+        }
+        store_save_run();
+        store_edit_revert();
+        name12(nm, "RENAMED");
+        CHECK(loops_set_info(9, &s) && !strcmp(s.name, "ELSEWHERE") && loops_set_rename(9, nm) == LP_BIG && !store_edit_count() &&
+              store_get(REC_LSET, 9, 16, 0, 0), "a set of 17 parts made elsewhere: its rename refused, nothing changed (its "
+              "17th part kept)");
+        loops_remap(0x0000, 0x0700, 0, 0, 1);
+        CHECK(store_edit_has(REC_LSET, 7, 0) == 1 && !store_edit_has(REC_LSET, 9, 0) && store_get(REC_LSET, 9, 16, 0, 0),
+              "... a MOVE changes set 07, leaves it as it is");
+        store_edit_revert();
+    }
+    /* a set of another version (one this firmware does not read): not listed, its number taken, never loaded */
+    fresh();
+    {
+        static const uint8_t other[40] = {1, 2, 3};
+        store_save_begin();
+        store_save_put(REC_LSET, 0, 0, REC_LSET_VER + 1, other, sizeof other);
+        store_save_run();
+        store_init();
+        loops_revert();
+        CHECK(store_get(REC_LSET, 0, 0, 0, 0) && !loops_sets(nums, 256) && loops_set_free() == 1 && !loops_set_info(0, &s) &&
+              loops_set_load(0, 0) == LP_NO && loops_set_load(0, 1) == LP_NO && !store_edit_count(),
+              "a set of version %d in 00: not listed, 00 taken (the first free 01), no load", REC_LSET_VER + 1);
+        three_loops();
+        name12(nm, "MINE");
+        CHECK(loops_set_store((uint8_t)loops_set_free(), nm) == LP_OK && loops_sets(nums, 256) == 1 && nums[0] == 1 &&
+              loops_set_free() == 2 && edits_saved() == STORE_OK, "STORE AS A SET: into 01, 00 left as it was");
+        uint8_t ver;
+        CHECK(store_get(REC_LSET, 0, 0, 0, &ver) && ver == REC_LSET_VER + 1 && loops_inst_uses(0xF000) == 2,
+              "... 00 kept, its instruments never read (F0:00 used by LOOPS' loop and set 01's)");
+    }
+    /* a set's parts as the playground counts them too (tests/playground/records.js, the same loops): 16 loops of 128 rows, a
+     * note with its volume every 2 rows (a 256 B stream each, every note after the first with its long skip's byte), stored
+     * as a set: 2 parts, 14 streams beside the head in part 0 */
+    fresh();
+    loops_set_rows(128);
+    for (int i = 0; i < 16; i++) {
+        loops_new(0xF0, (uint8_t)i);
+        for (int r = 0; r < 128; r += 2) { rec_cell_t c = note(60, 0x7F); loops_cell_put(i, r, 0, &c); }
+    }
+    {
+        int parts = 0;
+        const uint8_t *end, *s = loops_stream(0, &end);
+        uint32_t sl = 0;
+        while (s && s + sl < end && s[sl]) sl++;        /* (to its first 0x00: no byte of this stream is 0 before its end) */
+        name12(nm, "PARTS");
+        CHECK(loops_set_store(0x10, nm) == LP_OK && edits_saved() == STORE_OK, "16 loops of 128 rows, a note every 2 rows, stored as set 10");
+        for (int p = 0; p < 16; p++) if (store_get(REC_LSET, 0x10, (uint8_t)p, 0, 0)) parts++;
+        CHECK(sl + 1 == 256 && parts == 2, "... a stream of %u B (with its 0x00), the set in %d parts", sl + 1, parts);
+    }
+}
+
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);                      /* (each line out before a sanitizer's report) */
@@ -1300,9 +1713,11 @@ int main(void)
     t_grid_steps();
     t_length_shift();
     t_store_shift();
+    t_cut();
+    t_cut_rec();
     t_quantize();
     t_rec_write();
-    t_next_sends();
+    t_new_mix();
     t_stage_fit();
     t_setup();
     t_new_and_cells();
@@ -1314,6 +1729,7 @@ int main(void)
     t_revert_v3();
     t_store_load();
     t_stops_ticks();
+    t_sets();
     printf("loops: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }

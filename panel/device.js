@@ -15,11 +15,15 @@
  * const dev = PTFM.createDevice(container) builds it inside container and returns:
  *   dev.on(type, fn)    input events, with the firmware's ids (hal/fm1_input.h):
  *                         "button"  {id 0-13, name, down}
- *                         "note"    {note 0-26 (F3-G5), name, down}
+ *                         "note"    {note 0-26 (F3-G5), name, down}, a press with how hard it went down when
+ *                                   known: reading (a pointer's: the driven landing the FM-1's scan reads for its press
+ *                                   point, dev.keyReading) or vel (1-127, given by code: an FM-1 as the controller)
  *                         "encoder" {id 0-6, name, step +1 / -1, t}: a click, the delta (the FM-1's
  *                                   encoders are endless: no position, no range); t, from dev.turn,
  *                                   when the click came (performance.now's clock), else undefined
  *                         "master"  {value 0-1}: MASTER is a pot, a position
+ *                         "pressure" {note, reading}: a held key's pointer moved on it, the driven reading its point
+ *                                   now stands for (dragged down: pressed harder; MIDI CONTROLLER's aftertouch)
  *                       and one output event:
  *                         "led"     {id, level}: an LED's level changed (dev.led with a new level)
  *                       "*" gets every event.
@@ -39,7 +43,10 @@
  *   dev.view()          "wide", "portrait" or "sideways": the view now (again on every resize).
  *   dev.slot            an empty place in the panel for the page's own key, shown in SIDEWAYS only (where
  *                       the page has no header: its menu goes there).
- *   dev.press(id, src), dev.release(id, src), dev.releaseAll()
+ *   dev.press(id, src, touch), dev.release(id, src), dev.releaseAll()   (touch: a note key's {reading} or {vel}, or
+ *                       none)
+ *   dev.keyReading(h)   the FM-1's driven landing for a key pressed h of its height down (0 the top edge, the
+ *                       lightest: KEYS VELOCITY's 1; 1 the bottom edge, the firmest: 127; specs/panel.md)
  *
  * A button or key is down while any source holds it: a pointer (fingers on a touch screen are
  * several), the computer keyboard, or a latch (Shift+click holds it, the next click lets go).
@@ -58,6 +65,11 @@
     const SHOW_MS = 1000;            /* a knob's clicks show this long after its last one */
     const REPEAT_FIRST = 380, REPEAT_MS = [120, 90, 70, 50, 35];   /* a held - or +: its clicks speed up */
     const POT_DRAG = 220;            /* page pixels for MASTER's whole range */
+    /* the driven landing the FM-1's scan reads for a key pressed h of its height down (specs/panel.md): the top edge the
+     * lightest press that seats (896: KEYS VELOCITY's 1), the bottom edge a firm one (530: 127), between them evenly on
+     * the log of the pill's resistance (the landing less the diode's 185), as the velocity's map reads it */
+    const keyReading = h => Math.round(185 + 345 * Math.pow(711 / 345, 1 - Math.min(1, Math.max(0, h))));
+    PTFM.keyReading = keyReading;
     const LED_COLOUR = { white: "#f4fffa", red: "#ff3b2f", green: "#3dff6a" };
     /* the views' rule (specs/panel.md): upright and either touch-driven or narrow, PORTRAIT; lying down and low
      * (a phone held sideways), SIDEWAYS; else WIDE. #wide, #portrait or #sideways in the page's address force one,
@@ -158,7 +170,7 @@
         }).observe(view);
 
         /* ---------------------------------------------------------- buttons and keys --- */
-        function setDown(id, down) {
+        function setDown(id, down, touch) {
             const key = keys[id];
             key.e.classList.toggle("down", down);
             if (id < NOTE0) {
@@ -167,14 +179,15 @@
             } else {
                 const note = id - NOTE0;
                 state.notes = down ? state.notes | 1 << note : state.notes & ~(1 << note);
-                emit("note", { note, name: key.name, down });
+                emit("note", Object.assign({ note, name: key.name, down }, down && touch ? touch : {}));
             }
         }
-        function press(id, src) {
+        function press(id, src, touch) {
             const key = keys[id];
             if (!key || key.src.has(src)) return;
             key.src.add(src);
-            if (key.src.size === 1) setDown(id, true);
+            key.reading = touch && touch.reading;
+            if (key.src.size === 1) setDown(id, true, touch);
         }
         function release(id, src) {
             const key = keys[id];
@@ -196,6 +209,11 @@
         /* a pointer on a note key glides: moved onto another note key it lets the one it holds go and plays that one,
          * as a finger along a keyboard; off the note keys it keeps the last. A button stays held wherever it goes */
         const gliding = new Map();       /* pointerId -> the note key it holds now */
+        /* how hard a pointer's press on a key is: the lower on the key, the harder (the FM-1's driven landing) */
+        const touchAt = (id, y) => {
+            const r = keys[id].e.getBoundingClientRect();
+            return { reading: keyReading(r.height > 0 ? (y - r.top) / r.height : 0.5) };
+        };
         function noteAt(x, y) {
             const t = document.elementFromPoint(x, y), k = t && t.closest ? t.closest("[data-key]") : null;
             const id = k ? +k.dataset.key : -1;
@@ -213,16 +231,21 @@
                 if (key.src.has("latch")) return latch(id, false);
                 if (ev.shiftKey) return latch(id, true);
                 capture(e, ev);
-                press(id, "p" + ev.pointerId);
+                press(id, "p" + ev.pointerId, id >= NOTE0 ? touchAt(id, ev.clientY) : undefined);
                 if (id >= NOTE0) gliding.set(ev.pointerId, id);
             });
             if (id >= NOTE0) e.addEventListener("pointermove", ev => {
                 const now = gliding.get(ev.pointerId);
                 if (now === undefined) return;
                 const to = noteAt(ev.clientX, ev.clientY);
-                if (to < 0 || to === now) return;
+                if (to === now) {               /* moved on the key it holds: pressed as hard as it now is (lower, harder) */
+                    const r = touchAt(now, ev.clientY).reading, k = keys[now];
+                    if (r !== k.reading) { k.reading = r; emit("pressure", { note: now - NOTE0, reading: r }); }
+                    return;
+                }
+                if (to < 0) return;
                 release(now, "p" + ev.pointerId);
-                press(to, "p" + ev.pointerId);
+                press(to, "p" + ev.pointerId, touchAt(to, ev.clientY));
                 gliding.set(ev.pointerId, to);
             });
             for (const t of ["pointerup", "pointercancel", "lostpointercapture"])
@@ -468,7 +491,7 @@
         zoom();
 
         return { on, led, glass, present, zoom, view: viewNow, slot: A.pg, state, press, release, releaseAll,
-                 turn, setMaster, NOTE0, LED_PLAY_GREEN };
+                 turn, setMaster, keyReading, NOTE0, LED_PLAY_GREEN };
     }
 
     PTFM.createDevice = createDevice;

@@ -10,7 +10,8 @@
  *   ED.keep.lock(onWait) -> Promise once this page is the one */
 (function (ED) {
 "use strict";
-const DB = "ptfm-editor-beta", STORE = "kv", KEY = "state", ORIG = "orig:", SIDES = ["L", "R", "base"];
+const DB = "ptfm-editor-beta", STORE = "kv", KEY = "state", ORIG = "orig:", SIDES = ["L", "R", "base"];   /* (the
+                                         * name from its beta, kept: a new one would leave what pages kept behind) */
 
 function open() {
     return new Promise(resolve => {

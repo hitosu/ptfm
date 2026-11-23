@@ -29,7 +29,8 @@ int fxt_edit(const fxt_t *t, void (*fn)(uint8_t *s64, void *arg), void *arg, int
 int fxt_time(const fxt_t *t, int *tempo, int *swing);
 int fxt_set_time(const fxt_t *t, int tempo, int swing, int button);
 
-/* the MIXER: columns (a song's tracks, the loops' loops), each its 6 bytes (LEVEL, PAN, DUCK, the sends) */
+/* the MIXER: columns (a song's tracks, the loops' loops), each its 6 bytes (LEVEL, PAN, DUCK, the sends); the loops' col
+ * loops_n() is NEW, the next loop's own (RAM's: no edit) */
 int fxt_unsaved(const fxt_t *t);        /* its setup differs from what is saved (REVERT listed) */
 int fxt_revert(const fxt_t *t);         /* REVERT: the setup as saved (fxt_edit's result) */
 int fxt_mix_cols(const fxt_t *t);

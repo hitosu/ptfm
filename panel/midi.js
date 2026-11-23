@@ -60,7 +60,7 @@
         }
 
         /* ---- the panel's side */
-        function press(id) { held.add(id); dev.press(id, "midi"); }
+        function press(id, touch) { held.add(id); dev.press(id, "midi", touch); }
         function release(id) { held.delete(id); dev.release(id, "midi"); }
         function releaseAll() { for (const id of [...held]) release(id); }
 
@@ -117,7 +117,7 @@
             if (s === NOTE_ON || s === NOTE_OFF) {
                 const k = a - NOTE_F3;
                 if (k < 0 || k >= KEYS) return;
-                if (s === NOTE_ON && v > 0) press(dev.NOTE0 + k);
+                if (s === NOTE_ON && v > 0) press(dev.NOTE0 + k, { vel: v });   /* (its velocity the key's: KEYS VELOCITY's) */
                 else release(dev.NOTE0 + k);
             } else if (s === CC) {
                 if (a >= CC_BUTTON && a < CC_BUTTON + BUTTONS) {

@@ -22,6 +22,7 @@
 #define CM_KEYS ((1u << B_REC) | (1u << B_HOME))   /* the start's: REC mirror mode, HOME general mode */
 typedef struct {
     uint8_t mode;                       /* CTL_MIRROR / CTL_GENERAL, once picked */
+    uint8_t at_mode;                    /* SETTINGS' CONTROLLER AFTERTOUCH (CTL_AT_*), as the tracker left it */
     uint8_t on;                         /* picked: the controller runs */
     int8_t chan;                        /* the start's SELECT: 0 the mode's own channel, else 1-16 */
     uint16_t armed;                     /* the start's keys seen up since it began: a press of one of them picks */
@@ -48,7 +49,8 @@ static cm_t *cm_p;
 
 static void cm_log(const ctl_ev_t *e)   /* a line of the log; a knob or MASTER turned again: its line */
 {
-    if (cm.nlog && (e->kind == CTL_EV_KNOB || e->kind == CTL_EV_MASTER) &&
+    if (cm.nlog && (e->kind == CTL_EV_KNOB || e->kind == CTL_EV_MASTER || e->kind == CTL_EV_PRESSURE ||
+                    e->kind == CTL_EV_POLY) &&
         cm.log[cm.nlog - 1u].kind == e->kind && cm.log[cm.nlog - 1u].id == e->id) {
         cm.sum[cm.nlog - 1u] = e->kind == CTL_EV_KNOB && cm.mode == CTL_MIRROR ? cm.sum[cm.nlog - 1u] + e->val : e->val;
         cm.log[cm.nlog - 1u] = *e;
@@ -100,6 +102,10 @@ static int ctl_emit(const ctl_ev_t *e)
     return ok;
 }
 
+/* (ctl.h's: a key's velocity, KEYS VELOCITY's as the tracker left it; 0 none. Its latest driven reading: 0 none) */
+static uint32_t ctl_vel(uint32_t k) { int v = plat_key_vel((int)k); return v > 0 ? (uint32_t)v : 0u; }
+static uint32_t ctl_reading(uint32_t k) { int d = plat_key_reading((int)k); return d > 0 ? (uint32_t)d : 0u; }
+
 static void cm_fast(const plat_input_t *in, uint32_t ms)   /* the platform's 1 kHz interrupt */
 {
     int32_t steps[CTL_NENC];
@@ -127,10 +133,11 @@ static void cm_drain(void)              /* main loop: the fast tick's SysEx sent
     }
 }
 
-void ctlmode_start(void)
+void ctlmode_start(int aftertouch)
 {
     cm_p = (cm_t *)(void *)store_scratch();
     memset(cm_p, 0, sizeof *cm_p);
+    cm.at_mode = (uint8_t)(aftertouch >= 0 && aftertouch <= 2 ? aftertouch : CTL_AT_CHANNEL);
     cm.dirty = 1;
     g_theme(0);                                         /* (the controller's own colours, whatever THEME was) */
     g_invalidate();
@@ -202,6 +209,14 @@ static void cm_row(int y, int i)        /* log line i */
         g_text(122, y, &FONT_T, ui_dec(v < 0 ? -v : v), col);
         break;
     }
+    case CTL_EV_PRESSURE:                /* (general mode's aftertouch: its line follows it) */
+    case CTL_EV_POLY:
+        col = C_LGREEN;
+        if (e->kind == CTL_EV_POLY) ui_note_name(b, e->b[1]);
+        g_text(2, y, &FONT_T, e->kind == CTL_EV_POLY ? b : T("KEYS"), col);
+        g_text(62, y, &FONT_T, e->kind == CTL_EV_POLY ? T("POLY PRESS") : T("CHAN PRESS"), col);
+        g_text(122, y, &FONT_T, ui_dec(e->val), col);
+        break;
     case CTL_EV_PROGRAM:
         col = C_YELLOW;
         g_text(2, y, &FONT_T, T("PRESETS"), col);
@@ -312,6 +327,7 @@ void ctlmode_poll(void)
             ctl_ev_t e;
             cm.mode = pick & (1u << B_REC) ? CTL_MIRROR : CTL_GENERAL;   /* (both at once: mirror, as the controller's) */
             ctl_init(&ctl, cm.mode, cm_ch(), in.notes, in.buttons);   /* (held now: nothing till let go) */
+            ctl.at_mode = cm.at_mode;   /* (SETTINGS' CONTROLLER AFTERTOUCH: general mode's) */
             cm.on = 1;
             cm.hello_due = 1;
             cm.resets = plat_usb_resets();
@@ -350,6 +366,7 @@ void ctlmode_poll(void)
         }
         if (cm.answer_due && cm_answer(CTL_EV_ANSWER))
             cm.answer_due = 0;
+        ctl_at_poll(&ctl, now);         /* (general mode's aftertouch: the next tick sends it) */
         if (cm.fast) {
             cm_drain();                 /* (the keys went at 1 kHz: their SysEx and lines here) */
         } else {

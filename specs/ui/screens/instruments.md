@@ -158,15 +158,19 @@ range, signed ones with their sign.
   time, ALGORITHM by 8; MOVE only to empty slots, and not at all in a full cartridge), DELETE: these ask
   about the cells that use the instrument ([../saving.md](../saving.md));
 - INIT, RENAME, AUTO LEVEL;
-- **ADD TO FAVORITES,** right after MARK (first with slots marked), on a slot that holds an instrument, while a
-  FAVORITES cartridge exists ([FAVORITES](#favorites));
+- **ADD TO FAVORITES** or **REMOVE FROM FAVORITES,** right after MARK (first with slots marked), on a slot that holds
+  an instrument ([FAVORITES](#favorites));
 - **NEW CARTRIDGE,** while browsing, after AUTO LEVEL: a group titled `NEW CARTRIDGE` ([../dialogs.md](../dialogs.md#levels)):
-  BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES. The cartridge is made as the cartridge list's NEW
-  makes it, at the smallest free number, and opened (`CARTRIDGE 11 MADE`);
+  BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION. The cartridge is made as the cartridge list's NEW makes it, at
+  the smallest free number, and opened (`CARTRIDGE 11 MADE`);
+- **DELETE CARTRIDGE,** while browsing with nothing marked, after NEW CARTRIDGE, on a cartridge of the user's (not a
+  built-in one): the cartridge on screen deleted as the cartridge list's DELETE deletes it (used, its uses asked about
+  first: `CARTRIDGE 01 IS USED 3 TIMES`, `UPDATE REFERENCES?`, [../saving.md](../saving.md)); the place then on the
+  list's first cartridge;
 - **REVERT:** the slot back as saved, after a question (`REVERT SLOT 01:00 TO SAVED?`, OCT+ `REVERT`,
   OCT- `KEEP`; then `REVERTED`), its sound heard so from the next note; listed only while the slot has
   something unsaved ([../saving.md](../saving.md)).
-- **In edit mode** only what changes the instrument itself: EDIT PATTERN (FUSION), ADD TO FAVORITES, COPY, PASTE,
+- **In edit mode** only what changes the instrument itself: EDIT PATTERN (FUSION), ADD TO / REMOVE FROM FAVORITES, COPY, PASTE,
   INIT, RENAME, AUTO LEVEL, REVERT. MOVE, SWAP and DELETE move slots and their references, so they
   wait until edit mode is left.
 - **Every change is heard at once:** a note that starts after it plays the slot as changed, whatever
@@ -185,9 +189,10 @@ range, signed ones with their sign.
 type (in its colour) and slots used ([../dialogs.md](../dialogs.md)).
 - **ENV again** shows the highlighted cartridge: its first used slot becomes current.
 - **The order,** one in every cartridge list (ENV's, PRESETS' cartridge list, K1's order, LOOPS' list, MIDI's bank
-  select): the built-in FAVORITES first, then the user's FAVORITES cartridges by number, then the other
-  cartridges, the user's then the built-in ones.
-- **SEL menu:** NEW (a group: pick its type, FAVORITES last), CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT.
+  select): the built-in FAVORITES first, then the user's FAVORITES cartridges by number (an earlier PT/FM's: none is
+  made now, [FAVORITES](#favorites)), then the other cartridges, the user's then the built-in ones.
+- **SEL menu:** NEW (a group: pick its type; no FAVORITES), CLONE (not on a FAVORITES cartridge), MOVE, DELETE,
+  RENAME, AUTO LEVEL ALL, REVERT.
   - **AUTO LEVEL ALL** asks first (`AUTO LEVEL 32 SOUNDS?`, `EACH ONE'S LEVEL SET AGAIN`, OCT+ `LEVEL`,
     OCT- `KEEP`): it changes every slot's LEVEL at once.
   - **REVERT:** the whole cartridge back as saved, every slot and its name, after a question (`REVERT
@@ -285,9 +290,13 @@ floats.
 ## FAVORITES
 
 A FAVORITES cartridge ([../../files/instruments.md](../../files/instruments.md#favorites)) collects instruments from
-any cartridges as bookmarks: each slot names an instrument, `CARTRIDGE:SLOT`. The built-in one is `FB`, named
-`FAVORITES`, empty at first; the user's own are made with NEW. Settled with
-[the proposal](../../proposals/202610311523-favorites.md).
+any cartridges as bookmarks: each slot names an instrument, `CARTRIDGE:SLOT`. **The FM-1 has one, the built-in
+`FB`,** named `FAVORITES`, empty at first: nothing on the FM-1 makes another (NEW CARTRIDGE and the cartridge list's
+NEW have no FAVORITES kind, CLONE is not offered on a FAVORITES cartridge); collections of favourites are kept on the
+EDITOR's TABLE ([../../editor.md](../../editor.md#moving-items)). A FAVORITES cartridge of the user's made by an earlier
+PT/FM is listed, browsed and played as any FAVORITES cartridge (no CLONE); ADD TO FAVORITES, SEL + GLO and GLO +
+PRESETS use `FB` alone. Settled with [the proposal](../../proposals/202610311523-favorites.md) and
+[one FAVORITES](../../proposals/202611131616-favorites-one.md).
 
 **The current place and the current instrument:** with a FAVORITES cartridge current, the cursor's place is a
 favourite (`FB:07`) and the current instrument is that favourite's source (`0B:05`). The keys play the source; REC,
@@ -362,23 +371,23 @@ K1: CARTRIDGE  PRESETS: INSTRUMENT
 - **PRESETS** and **SELECT** step through that cartridge's instruments, from its first when the source is missing,
   PRESETS' instrument list showing as they turn while SETTINGS' PRESETS LIST is ON.
 - **ENV** opens the same cartridge list as K1's; ENV again picks the highlighted one.
-- **SEL + PRESETS** turns the FAVORITES cartridges only, editing going on in the one it lands on (MIDI's bank select
-  the same: another cartridge there does nothing).
+- **SEL + PRESETS** does nothing (MIDI's bank select the same).
 - **EDIT** again keeps the change, **HOME** drops it, as in every editor. EDIT on an empty slot starts here, at the
   current instrument (`EMPTY SLOT: NOTHING TO EDIT` is not shown in a FAVORITES cartridge).
 - ALGORITHM and LFO do nothing here, GLO shows the cartridge's properties as while browsing, and SEL opens no menu.
 
-**ADD TO FAVORITES** (the SEL menu on a slot that holds an instrument, [above](#controls)):
-- Listed only while a FAVORITES cartridge exists.
-- With one FAVORITES cartridge it is an action and adds there at once. With several it is a group of them
-  ([../dialogs.md](../dialogs.md#levels)): titled `ADD TO FAVORITES`, BACK, then `FB FAVORITES` and the user's own in
-  the lists' order, the first six (the menu's room; a later one is filled from its own edit mode), the highlight on the last one used, else on `FB FAVORITES`.
-- It takes the first empty slot; marked slots each take one, in order, empty ones and those already there skipped.
-  Toasts: `ADDED TO FB:07` (the first one added); `ALREADY IN FB:07` (nothing to add: the first one already there);
-  `FAVORITES FULL` (not enough empty slots: nothing added).
+**ADD TO FAVORITES and REMOVE FROM FAVORITES** (the SEL menu on a slot that holds an instrument, [above](#controls);
+with slots marked, the empty ones among them left out): one item, an action on `FB`, named by what `FB` holds; not
+listed while `FB` is deleted. An instrument is in `FB` when a slot of `FB` names it.
+- **`ADD TO FAVORITES`** when the slot's instrument is not in `FB` (with slots marked: when any marked one's is not):
+  it takes `FB`'s first empty slot; marked slots each take one, in order, those already in `FB` skipped. Toasts:
+  `ADDED TO FB:07` (the first one added); `FAVORITES FULL` (not enough empty slots: nothing added).
+- **`REMOVE FROM FAVORITES`** when the slot's instrument is in `FB` already (with slots marked: when every marked
+  one's is): every slot of `FB` naming it (each marked one's) is emptied, no question; toast `REMOVED FROM FAVORITES`.
+- In a FAVORITES cartridge the menu has REMOVE instead ([below](#favorites)).
 
 **The SEL menu in a FAVORITES cartridge,** `SLOT FB:07` / `SLOTS FB:00-05`: MARK, COPY, PASTE, MOVE, SWAP, REMOVE,
-NEW CARTRIDGE, REVERT (only while the slot has something unsaved).
+NEW CARTRIDGE, DELETE CARTRIDGE (not on FB, built in), REVERT (only while the slot has something unsaved).
 - **REMOVE** empties the slot, or every marked one: the favourite goes, its source stays; no question.
 - **COPY** copies references, 4 at most; **PASTE** writes them as they are, into a FAVORITES cartridge only (a
   favourite pasted twice is allowed). A FAVORITES copy pasted elsewhere, and an instrument's copy pasted into
@@ -390,7 +399,7 @@ NEW CARTRIDGE, REVERT (only while the slot has something unsaved).
 
 **The built-in `FB`** is a changed built-in once something is added and saved ([../saving.md](../saving.md#fws)):
 its ID no longer brown; BACK TO BUILT-IN empties it again; emptied by REMOVE, it equals the firmware's own and SAVE
-deletes its record. It never moves; CLONE makes a copy at a user number.
+deletes its record. It never moves, and is never cloned.
 
 **Reaching it: SEL + GLO,** on every screen ([../controls.md](../controls.md)): SEL held, then GLO pressed, acting
 at GLO's press, switches the current cartridge to the built-in FAVORITES, at the favourite last used there (the
@@ -402,11 +411,11 @@ easy to press with it; SEL's hold layer says it (`GLO: FAVORITES AND BACK`, [../
 - **Where:** wherever SEL + PRESETS works (not on DJ, nor over a question, a name being typed or an overlay), and
   not in an editor's edit mode (INSTRUMENTS' EDIT, a favourite's edit): there it is refused, the button blinking.
   The header names the cartridge as SEL + PRESETS does.
-- With no FAVORITES cartridge at `FB` it goes to the first FAVORITES cartridge in the lists' order. With no
-  favourite in any FAVORITES cartridge it does not switch: `NO FAVORITES YET`.
+- With no favourite in `FB` (or `FB` deleted, [../../files/instruments.md](../../files/instruments.md#favorites)) it
+  does not switch: `NO FAVORITES YET`.
 
 **A favourite once: GLO + PRESETS,** on every screen but INSTRUMENTS ([../controls.md](../controls.md)): GLO held, then
-PRESETS turned, picks from the FAVORITES cartridge SEL + GLO goes to, without switching to it: the favourite's source
+PRESETS turned, picks from `FB`, without switching to it: the favourite's source
 becomes the current instrument (the keys play it, ARP too, the EDITOR writes it), and the current cartridge and slot
 stay as they were.
 - **A click** steps through that cartridge's favourites, empty and missing ones skipped, wrapping, from the favourite
@@ -768,48 +777,54 @@ foot dark grey.
 
 ### The SEL menu
 
-A menu ([../dialogs.md](../dialogs.md)) at the top right of the body, over the screen:
+A menu ([../dialogs.md](../dialogs.md#menus)) at the top of the body, its whole width, in S, over the screen (a
+character here one of S's, every item listed, though 11 show):
 
 ```
-              +----------------------+
-              | SLOT 01:00           |
-              |[MARK                ]|
-              | COPY                 |
-              | PASTE                |
-              | MOVE                 |
-              | SWAP                 |
-              | DELETE               |
-              | INIT                 |
-              | RENAME               |
-              | AUTO LEVEL           |
-              | NEW CARTRIDGE        |
-              | REVERT               |
-              +----------------------+
++----------------------------+
+| SLOT 01:00                 |
+|[MARK                      ]|
+|  COPY                      |
+|  PASTE                     |
+|  MOVE                      |
+|  SWAP                      |
+|  DELETE                    |
+|  INIT                      |
+|  RENAME                    |
+|  AUTO LEVEL                |
+|  NEW CARTRIDGE             |
+|  DELETE CARTRIDGE          |
+|  REVERT                    |
++----------------------------+
 ```
 
-ADD TO FAVORITES comes after MARK while a FAVORITES cartridge exists. Its title is
+ADD TO FAVORITES (or REMOVE FROM FAVORITES, [FAVORITES](#favorites)) comes after MARK on a slot that holds an
+instrument. Its title is
 `SLOT 01:00`, or `SLOTS 00-05` with slots marked (then without MARK); in edit mode `SLOT 11:00` with the edit
 mode's items (EDIT PATTERN first on a FUSION slot that has a pattern). REVERT is listed only while the slot
 has something unsaved (with slots marked, never). The last item used is preselected.
 
 ### The cartridges (ENV)
 
+The dialogs' cartridge list ([../dialogs.md](../dialogs.md#the-cartridge-list)): the IDs and names in S, the figures
+in T on their baseline (on the T grid, a line a 16-px row; 10 lines show):
+
 ```
- +--------------------------------------+
- | CARTRIDGES                           |
- | ID NAME         TYPE      SLOTS      |
- |  01 DRUM KIT     SAMPLER   010/064   |
- |  ...                                 |
- |  05 BASS         SAMPLER   004/064   |
- |  06 FUSION       FUSION    006/064   |
- |  F0 KEYS/ORGANS  DX7       032/032   |   built in, in FWS: the ID brown
- |  F1 BELLS/PLUCKS DX7       032/032   |
- |  ...                                 |
- |  F8 JUNO-106     JUNO-106  128/128   |
- |  F9 CHIPTUNE     CHIP      128/128   |
- | [FA TB-303       TB-303    064/128  ]|
- |     ALL SAMPLES  184K      023/256   |
- +--------------------------------------+
++--------------------------------------+
+|CARTRIDGES                            |
+| ID  NAME            TYPE      SLOTS  |
+| 01  DRUM KIT        SAMPLER   010/064|
+| ...                                  |
+| 05  BASS            SAMPLER   004/064|
+| 06  FUSION          FUSION    006/064|
+| F0  KEYS/ORGANS     DX7       032/032|   built in, in FWS: the ID brown
+| F1  BELLS/PLUCKS    DX7       032/032|
+| ...                                  |
+| F8  JUNO-106        JUNO-106  128/128|
+| F9  CHIPTUNE        CHIP      128/128|
+|[FA  TB-303          TB-303   064/128]|
+|     ALL SAMPLES     184K      023/256|
++--------------------------------------+
 ```
 
 With the demo disk uploaded: the built-in FAVORITES `FB` first, then its sampler cartridges `01`-`05` and FUSION
@@ -823,20 +838,20 @@ opens nothing (it is not a cartridge). In the list's columns:
 
 | Element | x | Font | Shows | Colour |
 |---|---|---|---|---|
-| the ID column | 8 | T | nothing | |
-| the name | 26 | T | `ALL SAMPLES` | yellow, as the samples' names (the cursor's white) |
-| the type column | 110 | T | their size, `184K` (as STATUS writes sizes) | light grey |
-| the slots column | 170 | T | their count of 256, `023/256` | light grey |
+| the ID column | 8 | S | nothing | |
+| the name | 32 | S | `ALL SAMPLES` | yellow, as the samples' names (the cursor's white) |
+| the type column | 134, the line + 2 | T | their size, `184K` (as STATUS writes sizes) | light grey |
+| the slots column | 192, the line + 2 | T | their count of 256, `023/256` | light grey |
 
 The cursor's box is any line's.
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 2, 19 | 236 × 206 | | a box |
-| the title | 6, 22 | | T | `CARTRIDGES` |
-| the column names | 8, 35 | | T | `ID NAME         TYPE      SLOTS` |
-| cartridge *i* | y = 49 + 13 × *i* | | T | its ID at x 8, its name at x 26, its type at x 110, its slots used of all at x 170 (`032/032`, decimal) |
-| the cursor | 4, y - 1 | 232 × 13 | | a box |
+| the title | 6, 22 | | S | `CARTRIDGES` |
+| the column names | 38 | | T | `ID` at 8, `NAME` 32, `TYPE` 134, `SLOTS` 192 |
+| cartridge *i* | y = 51 + 16 × *i* | | S, T | its ID at x 8 and its name at x 32 in S; its type at x 134 and its slots used of all at x 192 (`032/032`, decimal) in T, at y + 2 |
+| the cursor | 4, y - 1 | 232 × 16 | | a box |
 
 Colours: the panel's border light grey, the title cyan, the column names dark grey; IDs and names
 light grey (the cursor's white), the ID of a built-in cartridge brown while unchanged
@@ -846,9 +861,10 @@ box white, yellow while the cartridge floats (MOVE: it is listed under the numbe
 Its SEL menu, `CARTRIDGE 01`: NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL, REVERT (only while the
 cartridge has something unsaved, here and in the built-in ones' menus). NEW is a group
 ([../dialogs.md](../dialogs.md#levels)), `CARTRIDGE 01 > NEW`: BACK, then the new cartridge's type: DX7,
-JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES (named `MY FAVORITES`). On a built-in one, NEW, CLONE, RENAME,
-AUTO LEVEL ALL, and once changed BACK TO BUILT-IN. On a FAVORITES cartridge AUTO LEVEL ALL is left out, and its MOVE
-and DELETE ask nothing about references (none point at it).
+JUNO-106, TB-303, CHIP, SAMPLER, FUSION (no FAVORITES: the FM-1 has one, [FAVORITES](#favorites)). On a built-in one,
+NEW, CLONE, RENAME, AUTO LEVEL ALL, and once changed BACK TO BUILT-IN. On a FAVORITES cartridge CLONE and AUTO LEVEL
+ALL are left out (on `FB`: NEW, RENAME, BACK TO BUILT-IN once changed), and its MOVE and DELETE ask nothing about
+references (none point at it).
 
 ### The samples
 
@@ -954,7 +970,7 @@ A progress bar ([../dialogs.md](../dialogs.md)): `MEASURING EL PIANO`; AUTO LEVE
   measurement is made with the audio's interrupt held back, a few tens of µs at a time).
 - **The built-in ones are measured from their own menus** (AUTO LEVEL, a cartridge's AUTO LEVEL ALL) as
   any; SETTINGS → TOOLS → AUTO LEVEL ALL measures every cartridge in the user area and leaves the built-in
-  ones out.
+  ones out, changed ones too (their records are in the user area, but their numbers are F0-FF).
 
 ## Texts
 
@@ -988,29 +1004,28 @@ header's place for 1.2 s: `LEVEL +1.5 DB`, `RELEASE 33 MS`, `LOOP START 1F40`, `
   `48 FRAMES`, `WAVE TABLE`, `ONLY THE WAVE OSCILLATOR READS IT`.
 
 **Menus:**
-- the slots, `SLOT 01:00` / `SLOTS 00-05`: MARK (nothing marked), ADD TO FAVORITES, COPY, PASTE, REPLACE SAMPLE (a
-  sample instrument, one slot), MOVE, SWAP, DELETE, INIT (CREATE on an empty sampler slot), RENAME, AUTO LEVEL, NEW
-  CARTRIDGE, REVERT (one slot, with something unsaved);
-- in edit mode, `SLOT 01:00`: EDIT PATTERN, ADD TO FAVORITES, COPY, PASTE, REPLACE SAMPLE (a sample instrument),
-  INIT, RENAME, AUTO LEVEL, DELETE (a sample instrument), REVERT;
+- the slots, `SLOT 01:00` / `SLOTS 00-05`: MARK (nothing marked), ADD TO FAVORITES or REMOVE FROM FAVORITES, COPY,
+  PASTE, REPLACE SAMPLE (a sample instrument, one slot), MOVE, SWAP, DELETE, INIT (CREATE on an empty sampler slot),
+  RENAME, AUTO LEVEL, NEW CARTRIDGE, DELETE CARTRIDGE (one slot, not on a built-in cartridge), REVERT (one slot, with
+  something unsaved);
+- in edit mode, `SLOT 01:00`: EDIT PATTERN, ADD TO FAVORITES or REMOVE FROM FAVORITES, COPY, PASTE, REPLACE SAMPLE (a
+  sample instrument), INIT, RENAME, AUTO LEVEL, DELETE (a sample instrument), REVERT;
 - in a FAVORITES cartridge, `SLOT FB:07` / `SLOTS FB:00-05`: MARK, COPY, PASTE, MOVE, SWAP, REMOVE, NEW
   CARTRIDGE, REVERT;
-- ADD TO FAVORITES' group, `ADD TO FAVORITES`: BACK, `FB FAVORITES`, the user's own (`07 MY FAVORITES`);
-- NEW CARTRIDGE's group, `NEW CARTRIDGE`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES;
-- the cartridges, `CARTRIDGE 01`: NEW, CLONE, MOVE, DELETE, RENAME, AUTO LEVEL ALL (not in FAVORITES); built in:
-  NEW, CLONE, RENAME, AUTO LEVEL ALL, BACK TO BUILT-IN (once changed); each with REVERT last while the
-  cartridge has something unsaved;
-- NEW's group, `CARTRIDGE 01 > NEW`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION, FAVORITES;
+- NEW CARTRIDGE's group, `NEW CARTRIDGE`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION;
+- the cartridges, `CARTRIDGE 01`: NEW, CLONE (not in FAVORITES), MOVE, DELETE, RENAME, AUTO LEVEL ALL (not in
+  FAVORITES); built in: NEW, CLONE (not on `FB`), RENAME, AUTO LEVEL ALL (not on `FB`), BACK TO BUILT-IN (once
+  changed); each with REVERT last while the cartridge has something unsaved;
+- NEW's group, `CARTRIDGE 01 > NEW`: BACK, DX7, JUNO-106, TB-303, CHIP, SAMPLER, FUSION;
 - the samples, `SAMPLE 03`: DELETE.
 
-FAVORITES' texts: the type `FAVORITES` (and the built-in's name), a new one's name `MY FAVORITES`, `MISSING`,
-`EMPTY SLOT: EDIT PICKS AN INSTRUMENT`, `FAVORITE FB:07`, `SOURCE`, `K1: CARTRIDGE  PRESETS: INSTRUMENT`; toasts
-`ADDED TO FB:07`, `ALREADY IN FB:07`, `FAVORITES FULL`, `NO FAVORITES YET`, `CARTRIDGE 11 MADE`, `COPIED FROM
-FAVORITES: NOT HERE`, `COPIED FROM DX7: NOT HERE`.
+FAVORITES' texts: the type `FAVORITES` (and the built-in's name), `MISSING`, `EMPTY SLOT: EDIT PICKS AN INSTRUMENT`,
+`FAVORITE FB:07`, `SOURCE`, `K1: CARTRIDGE  PRESETS: INSTRUMENT`; toasts `ADDED TO FB:07`, `FAVORITES FULL`,
+`REMOVED FROM FAVORITES`, `NO FAVORITES YET`, `COPIED FROM FAVORITES: NOT HERE`, `COPIED FROM DX7: NOT HERE`.
 
 BACK TO BUILT-IN's toast is [../saving.md](../saving.md#texts)'s.
 
-**Lists and panels:** `CARTRIDGES`, `ID NAME         TYPE      SLOTS`, the samples' line `ALL SAMPLES`
+**Lists and panels:** `CARTRIDGES`, `ID`, `NAME`, `TYPE`, `SLOTS`, the samples' line `ALL SAMPLES`
 (`184K`, `023/256`); `SAMPLES (23)`, `(DELETED)`;
 `PATTERN FOR 11:00`; the properties `CARTRIDGE 01`: `NAME`, `TYPE`, `SLOTS USED` (`32 OF 32`),
 `RENAME WITH` (`EDIT`); text entry `INSTRUMENT 01:00`, `CARTRIDGE 01`.
@@ -1187,7 +1202,8 @@ FAVORITES: SOUNDS FROM ANY CARTRIDGE
   IN ONE LIST, BUILT IN AS FB
 EACH SLOT POINTS AT A SOUND; WHAT YOU
   RECORD KEEPS THE SOUND'S OWN NUMBER
-{SEL} ON A SOUND: ADD TO FAVORITES
+{SEL} ON A SOUND: ADD TO FAVORITES,
+  OR, ONCE IN FB, REMOVE FROM FAVORITES
 HOLD {SEL} + {GLO}: TO FAVORITES AND BACK
 {PRESETS}: THE NEXT FAVORITE
 {EDIT} ON ONE: POINT IT ELSEWHERE
@@ -1196,5 +1212,4 @@ HOLD {SEL} + {GLO}: TO FAVORITES AND BACK
 {SEL} IN FAVORITES: REMOVE, MOVE,
   SWAP, COPY, PASTE
 GREY, MISSING: ITS SOUND IS GONE
-NEW CARTRIDGE ({SEL}): ANY TYPE
 ```

@@ -18,6 +18,8 @@
 #include "fx_target.h"
 #include "../fx/fx.h"
 #include "../dbg.h"                     /* the debug build's figures (empty in the release) */
+#define PRESS_DEFINE                    /* (press_step's one copy) */
+#include "../press.h"                   /* the keys' pressure: their notes louder */
 #include "ui_punch.h"
 #include "ui_lp.h"                      /* lp_live_poll: RECORD LIVE goes on on LOOPS' FX */
 #include "ed_inst.h"                    /* ins_builtin: PRESETS' list browns the built-in ones */
@@ -33,12 +35,15 @@ int ui_white_index(int n) { for (int i = 0; i < 16; i++) if (UI_WHITE[i] == n) r
 int ui_black_index(int n) { for (int i = 0; i < 11; i++) if (UI_BLACK[i] == n) return i; return -1; }
 
 /* the black keys' screens (navigation.md): OP1 SONGS, OP2 EDITOR, OP3 INSTRUMENTS, OP4 PLAYBACK, OP5 DJ,
- * PIT VISUAL, GLO STATUS, MONO SETTINGS, POLY LOOPS; OP6 and the blank key none yet */
-static const txt_t SCREEN_KEY[11] = {TX("SONGS"), TX("EDITOR"), TX("INSTRUMENTS"), TX("PLAYBACK"), TX("DJ"), 0, TX("VISUAL"),
-                                     TX("STATUS"), TX("SETTINGS"), TX("LOOPS"), 0};
-/* the round HOME's SELECT turns: the start screen first, SETTINGS last */
-static const txt_t ROUND[10] = {TX("STATUS"), TX("SONGS"), TX("EDITOR"), TX("INSTRUMENTS"), TX("PLAYBACK"), TX("VISUAL"),
-                                TX("FX"), TX("LOOPS"), TX("DJ"), TX("SETTINGS")};
+ * OP6 AUTOMATIONS, PIT VISUAL, GLO STATUS, MONO SETTINGS, POLY LOOPS; the blank key none yet */
+static const txt_t SCREEN_KEY[11] = {TX("SONGS"), TX("EDITOR"), TX("INSTRUMENTS"), TX("PLAYBACK"), TX("DJ"), TX("AUTOMATIONS"),
+                                     TX("VISUAL"), TX("STATUS"), TX("SETTINGS"), TX("LOOPS"), 0};
+/* the round HOME's SELECT turns: the start screen first, AUTOMATIONS last; an automation's screen is its place here
+ * (specs/files/automations.md: 0 STATUS ... 9 SETTINGS), numbers fixed for good: a round ordered otherwise needs a table
+ * of its own for them */
+#define NROUND 11
+static const txt_t ROUND[NROUND] = {TX("STATUS"), TX("SONGS"), TX("EDITOR"), TX("INSTRUMENTS"), TX("PLAYBACK"), TX("VISUAL"),
+                                    TX("FX"), TX("LOOPS"), TX("DJ"), TX("SETTINGS"), TX("AUTOMATIONS")};
 const uint8_t UI_GROUP_COL[4] = {C_LBLUE, C_GREEN, C_BROWN, C_MAGENTA};
 
 ui_cur_t ui_cur = {0, UI_EDITOR_PATTERN, UI_FIRST_INST, UI_FIRST_INST, 0, 0, -1, 0};
@@ -49,6 +54,7 @@ uint8_t ui_scratch[UI_SCRATCH] PLAT_POOL;
 static const ui_screen_t *screens[MAX_SCREENS];
 static int nscreens;
 static const ui_screen_t *cur, *from_scr, *fx_from;
+static uint8_t back_to;                 /* (ui_go_back) */
 static int is(const ui_screen_t *s, const char *name) { return s && !strcmp(T(s->name), name); }   /* (s is the one named) */
 static int loops_shown(void);                           /* (LOOPS on screen, or FX from it: cue_poll) */
 static uint8_t cue_now;                                 /* (a screen changed: cue_poll at once) */
@@ -85,6 +91,7 @@ void ui_toast(const char *text)
     knob_show.until = 0;                /* (the newest of a toast and a knob turned shows) */
     dirty = 1;
 }
+void ui_toast_t(txt_t t) { ui_toast(T(t)); }
 void ui_toast_runs(const g_run_t *r, int n)
 {
     if (n > 6) n = 6;
@@ -110,7 +117,9 @@ void ui_show_knob(const char *name, const char *value)   /* (in the header's pla
     toast.until = 0;
     dirty = 1;
 }
+void ui_show_knob_t(txt_t name, const char *value) { ui_show_knob(T(name), value); }
 void ui_refuse(int b) { if (b >= 0 && b < B_COUNT) flash_until[b] = ui_now() + 600; }
+void ui_refuse_t(int b, txt_t t) { ui_refuse(b); ui_toast_t(t); }
 
 /* ------------------------------------------------------------------- overlays --- */
 #define MAX_OV 6                        /* (a menu over a list over a question, HOME's over them: 4 at most) */
@@ -145,7 +154,7 @@ typedef struct {
     uint8_t grace;                      /* released, its tap waiting until grace_until */
     uint32_t t, due, grace_until;
     int lock;                           /* the member that acted (CK_*), 0 none */
-    uint8_t solo;                       /* HOME's: the white keys solo (SEQ) */
+    uint8_t solo;                       /* HOME's: what its white keys do (combo_t's solo: SEQ, ARP, REC) */
 } btn_t;
 static btn_t btn[B_COUNT];
 enum { KU_NONE, KU_SCREEN, KU_MUTE, KU_PUNCH, KU_OVERLAY, KU_SCREENKEY, KU_ARP, KU_PLAY };
@@ -230,9 +239,30 @@ static int member(combo_t *c, int kind)
     ui_consume(B_HOME);
     return 1;
 }
-/* SEQ switches the white keys between mute and solo as long as they are members: before any member acted and
- * after they did, again and again */
+/* SEQ switches the white keys to solo, ARP to the automations, each back to mute (ARP from recording them too), as long
+ * as they are members: before any member acted and after they did, again and again; after ARP, REC (in button_down) from
+ * playing the automations to recording them and back */
 int ui_home_seq_switches(const combo_t *c) { return !c->lock || c->lock == CK_WHITE; }
+int ui_home_switch(combo_t *c, int b)
+{
+    int k = b == B_SEQ ? 1 : 2;
+    if ((b != B_SEQ && b != B_ARP) || !ui_home_seq_switches(c)) return 0;
+    c->solo = (uint8_t)(c->solo == k || (c->solo & k & 2) ? 0 : k);
+    return 1;
+}
+/* half of a line of two (the screens', SEQ's and ARP's): `KEY: what`, the key yellow, the rest col, kept in buf from *b
+ * (drawn later); pad: spaces after it to the second one's column, 19 characters in */
+static void half(g_run_t *r, char (*buf)[48], int *b, const char *key, const char *what, uint32_t col, int pad)
+{
+    char *k = buf[(*b)++], *w = buf[(*b)++];
+    ui_fmt(k, 48, "%s", key);
+    ui_fmt(w, 48, ": %s", what);
+    int len = (int)strlen(w), q = 19 - (int)strlen(k) - len;
+    for (int i = 0; pad && i < (q < 1 ? 1 : q) && len < 47; i++) w[len++] = ' ';
+    w[len] = 0;
+    r[0].s = k; r[0].c = C_YELLOW;
+    r[1].s = w; r[1].c = col;
+}
 
 /* HOME's lines: what can act; once a member has acted, only that one */
 static int home_line(int kind, const combo_t *c) { return !c->lock || c->lock == kind; }
@@ -248,36 +278,37 @@ int ui_home_lines(const combo_t *c, g_run_t (*lines)[UI_LINE_RUNS], int *nruns, 
         for (int i = 0; i < 11; i++) if (SCREEN_KEY[i] && ui_screen_named(T(SCREEN_KEY[i]))) ks[nk++] = i;
         for (int i = 0; i < nk && n < max; i += 2) {
             int r = 0;
-            for (int j = i; j < i + 2 && j < nk; j++) {
-                int k = ks[j];
-                ui_fmt(buf[b], 48, "%s", T(BLACK_LABEL[k]));                /* (the texts kept in buf: drawn later) */
-                lines[n][r].s = buf[b++]; lines[n][r++].c = C_YELLOW;
-                ui_fmt(buf[b], 48, ": %s", T(SCREEN_KEY[k]));
-                if (j == i && j + 1 < nk) {             /* spaces to the second one's column, after the first's name */
-                    int len = (int)strlen(buf[b]), pad = 19 - (int)strlen(buf[b - 1]) - len;
-                    for (int q = 0; q < (pad < 1 ? 1 : pad) && len < 47; q++) buf[b][len++] = ' ';
-                    buf[b][len] = 0;
-                }
-                lines[n][r].s = buf[b++];
-                lines[n][r++].c = is(cur, T(SCREEN_KEY[k])) ? C_WHITE : C_LGREY;
-            }
+            for (int j = i; j < i + 2 && j < nk; j++, r += 2)
+                half(lines[n] + r, buf, &b, T(BLACK_LABEL[ks[j]]), T(SCREEN_KEY[ks[j]]),
+                     is(cur, T(SCREEN_KEY[ks[j]])) ? C_WHITE : C_LGREY, j == i && j + 1 < nk);
             nruns[n++] = r;
         }
     }
-    LINE1(CK_WHITE, is(cur, "LOOPS") ? (c->solo ? T("WHITE KEY: SOLO A LOOP") : T("WHITE KEY: MUTE A LOOP, HELD: SOLO"))
-                                     : c->solo ? T("WHITE KEY: SOLO A TRACK") : T("WHITE KEY: MUTE A TRACK, HELD: SOLO"));
-    if (is(cur, "DJ")) LINE1(CK_WHITE, T("KEYS 1-8: LEFT DECK, 9-16: RIGHT"));
-    if (cur && cur->home_oct) {                         /* DJ: the tracks the keys reach, where there are more */
-        if (cur->home_oct(B_OCTP, 0)) {
-            LINE1(CK_WHITE, T("OCT+: TRACKS 08-0F"));
-        } else if (cur->home_oct(B_OCTM, 0)) {
-            LINE1(CK_WHITE, T("OCT-: TRACKS 00-07"));
+    int au = c->solo >= 2;                              /* (after ARP: the automations, in place of the mutes' lines) */
+    if (au) {
+        LINE1(CK_WHITE, T(c->solo == 3 ? TX("WHITE KEY: RECORD ITS AUTOMATION") : TX("WHITE KEY: PLAY ITS AUTOMATION")));
+    } else {
+        LINE1(CK_WHITE, is(cur, "LOOPS") ? (c->solo ? T("WHITE KEY: SOLO A LOOP") : T("WHITE KEY: MUTE A LOOP, HELD: SOLO"))
+                                         : c->solo ? T("WHITE KEY: SOLO A TRACK") : T("WHITE KEY: MUTE A TRACK, HELD: SOLO"));
+        if (is(cur, "DJ")) LINE1(CK_WHITE, T("KEYS 1-8: LEFT DECK, 9-16: RIGHT"));
+        if (cur && cur->home_oct) {                     /* DJ: the tracks the keys reach, where there are more */
+            if (cur->home_oct(B_OCTP, 0)) {
+                LINE1(CK_WHITE, T("OCT+: TRACKS 08-0F"));
+            } else if (cur->home_oct(B_OCTM, 0)) {
+                LINE1(CK_WHITE, T("OCT-: TRACKS 00-07"));
+            }
         }
     }
-    /* (SEQ goes with the white keys: it switches them as long as they are members) */
-    LINE1(CK_WHITE, c->solo ? T("SEQ: WHITE KEYS MUTE INSTEAD") : T("SEQ: WHITE KEYS SOLO INSTEAD"));
+    /* SEQ's and ARP's switches, two a line as the screens (they go with the white keys: as long as they are members) */
+    if (n < max && home_line(CK_WHITE, c)) {
+        half(lines[n], buf, &b, T("SEQ"), c->solo == 1 ? T("MUTE INSTEAD") : T("SOLO INSTEAD"), C_LGREY, 1);
+        half(lines[n] + 2, buf, &b, T("ARP"), au ? T("MUTE INSTEAD") : T("AUTOMATIONS"), C_LGREY, 0);
+        nruns[n++] = 4;
+    }
     LINE1(CK_PLAY, is(cur, "DJ") ? T("PLAY: BACK TO THE CUES") : T("PLAY: BACK TO THE START"));
-    LINE1(CK_REC, T("REC: CUT, SILENT WHILE HELD"));
+    /* (after ARP, REC's switch, or the end: with the white keys) */
+    LINE1(au ? CK_WHITE : CK_REC, T(!au ? TX("REC: CUT, SILENT WHILE HELD") : ua_state() == 1 ? TX("REC: END THE RECORDING")
+                                    : c->solo == 3 ? TX("REC: PLAY INSTEAD") : TX("REC: RECORD INSTEAD")));
     LINE1(CK_LFO, T("LFO: HELP FOR THIS SCREEN"));
 #undef LINE1
     return n;
@@ -297,23 +328,32 @@ void ui_go(const ui_screen_t *s)
     ndeep = 0;
     sel_armed = 0;
     ui_arp_off();                                       /* ARP stays with its screen */
-    if (is(s, "FX") && prev) fx_from = prev;
+    if (is(s, "FX") && prev && !back_to) fx_from = prev;   /* (back from AUTOMATIONS: FX's own origin kept) */
     from_scr = prev;
     int was_loops = loops_shown();
     cur = s;
     if (was_loops && !loops_shown()) player_cue_loops(0);   /* (LOOPS left: the loops' hold for the keys over, at once) */
     cue_now = 1;
-    if (s->enter) s->enter(prev);
+    if (s->enter) s->enter(back_to && is(s, "FX") ? fx_from : prev);
     g_invalidate();
     dirty = 1;
 }
+/* back to s from AUTOMATIONS (a recording's or a playback's start): as if it had not opened, FX keeping its own origin */
+void ui_go_back(const ui_screen_t *s)
+{
+    back_to = 1;
+    ui_go(s);
+    back_to = 0;
+}
 void ui_go_name(const char *name) { ui_go(ui_screen_named(name)); }
+int ui_round_at(const ui_screen_t *s) { for (int i = 0; i < NROUND; i++) if (is(s, T(ROUND[i]))) return i; return 0xFF; }
+const ui_screen_t *ui_round_screen(int i) { return i >= 0 && i < NROUND - 1 ? ui_screen_named(T(ROUND[i])) : 0; }
 static void screen_step(int d)
 {
-    int at = 0;
-    for (int i = 0; i < 10; i++) if (is(cur, T(ROUND[i]))) at = i;
-    for (int k = 1; k <= 10; k++) {                     /* the next one built, its way round */
-        const ui_screen_t *s = ui_screen_named(T(ROUND[ui_wrap(at + d * k, 10)]));
+    int at = ui_round_at(cur);
+    if (at == 0xFF) at = 0;
+    for (int k = 1; k <= NROUND; k++) {                 /* the next one built, its way round */
+        const ui_screen_t *s = ui_screen_named(T(ROUND[ui_wrap(at + d * k, NROUND)]));
         if (s) { ui_go(s); return; }
     }
 }
@@ -328,6 +368,17 @@ static uint16_t keys_inst(void)                         /* the instrument the ke
     uint16_t r = cur && cur->inst ? cur->inst() : 0xFFFFu;
     return r == 0xFFFFu ? ui_cur.inst : r;
 }
+/* a MIDI note's velocity; with KEYS VELOCITY on the key's own (MIRROR's Note On, else the FM-1's touch); else KEYS
+ * VOLUME (specs/hardware.md#the-keys-velocity) */
+int ui_key_vol(int n)
+{
+    int v = midi_key_vel(n);
+    if (!v && ui_set[S_KEYS_VELOCITY]) {
+        v = midi_mirror_vel(n);
+        if (!v) v = plat_key_vel(n);
+    }
+    return v >= 1 && v <= 127 ? v : ui_set[S_KEYS_VOLUME];
+}
 static void key_on(int n)
 {
     int m = ui_midi(n);
@@ -336,10 +387,10 @@ static void key_on(int n)
     key_at[n] = ui_now() | 1;
     uint16_t ref = keys_inst();
     pl_inst_t inst = {(uint8_t)(ref >> 8), (uint8_t)ref};
-    int vel = midi_key_vel(n);                          /* a MIDI note: its velocity; the FM-1's keys: KEYS VOLUME */
-    player_key_on((uint8_t)m, inst, (uint8_t)(vel ? vel : ui_set[S_KEYS_VOLUME]));
-    if (!vel) {                                         /* MIDI OUT: the FM-1's own keys (MIDI's never go back out) */
-        midi_out_key((uint8_t)m, (uint8_t)ui_set[S_KEYS_VOLUME], 1);
+    int vol = ui_key_vol(n);                            /* a MIDI note's velocity, the key's own, or KEYS VOLUME */
+    player_key_on((uint8_t)m, inst, (uint8_t)vol);
+    if (!midi_key_vel(n)) {                             /* MIDI OUT: the FM-1's own keys (MIDI's never go back out) */
+        midi_out_key((uint8_t)m, (uint8_t)vol, 1);
         key_out[n] = (uint8_t)(m + 1);
     }
 }
@@ -426,12 +477,12 @@ static void show_inst(int cart)
     if (cart) {
         ui_cart_name((uint8_t)(ref >> 8), nm);
         ui_fmt(v, sizeof v, "%02X %s", ref >> 8, nm);
-        ui_show_knob(T("CARTRIDGE"), v);
+        ui_show_knob_t(TX("CARTRIDGE"), v);
         return;
     }
     ui_ref_text(id, ref);
     ui_fmt(v, sizeof v, "%s %s", id, ui_inst_name(ref, nm) ? nm : T("EMPTY"));
-    ui_show_knob(T("PRESETS"), v);
+    ui_show_knob_t(TX("PRESETS"), v);
 }
 
 /* PRESETS' cartridge list (dialogs.md#presets-cartridge-list): SEL + PRESETS, SEL held or tapped first, opens it
@@ -566,19 +617,20 @@ void ui_mutes_changed(void)
     player_mutes(m);
     dirty = 1;
 }
-void ui_all_sound_off(void) { player_all_sound_off(); ui_punch_off(); ui_toast(T("ALL SOUND OFF")); }
+void ui_all_sound_off(void) { player_all_sound_off(); ui_punch_off(); ui_toast_t(TX("ALL SOUND OFF")); }
 /* CUT (controls.md#cut): HOME + REC, REC held as it: all sound off; while held no note starts and nothing is worked
  * on (what plays keeps its time); let go, heard again from its next notes, the effects starting dry. Held 2 s, every
  * effect of the setup FX would edit from this screen is switched off: an edit (SAVE keeps it, REVERT brings them back) */
 static uint8_t cut_on, cut_fx;
 static uint32_t cut_at;
+static void ui_hush(void);              /* (CUT held or a save under way: the sound off; below, with saving) */
 static void cut(int on)
 {
     cut_on = (uint8_t)(on != 0);
     cut_fx = 0;
     cut_at = ui_now();
-    player_hush(on);
-    if (on) { ui_punch_off(); ui_toast(T("SOUND CUT: LET GO OF REC")); }
+    ui_hush();
+    if (on) { ui_punch_off(); ui_toast_t(TX("SOUND CUT: LET GO OF REC")); }
 }
 static void all_off_fn(uint8_t *s64, void *arg)
 {
@@ -602,7 +654,7 @@ static void cut_poll(void)
         if (fxt_edit(&tg, all_off_fn, 0, B_REC) < 0) return;   /* (refused, or the edit's own toast said why) */
         if (tg.plays) player_fx_reload();
     }
-    ui_toast(T("SOUND CUT, EFFECTS OFF"));
+    ui_toast_t(TX("SOUND CUT, EFFECTS OFF"));
 }
 
 /* ---------------------------------------------------- ARP (specs/ui/controls.md) ---
@@ -618,10 +670,10 @@ void ui_arp_refresh(void)
 void ui_arp_off(void) { if (arp_is_on) { arp_is_on = 0; player_arp(0, 0, 0, 0); } }
 static void arp_tap(void)
 {
-    if (arp_is_on) { ui_arp_off(); ui_toast(T("ARP OFF")); return; }
+    if (arp_is_on) { ui_arp_off(); ui_toast_t(TX("ARP OFF")); return; }
     arp_is_on = 1;
     ui_arp_refresh();
-    ui_toast(ui_txt_v(T("ARP #"), T(UI_SETTINGS[S_ARP_PATTERN].list[ui_set[S_ARP_PATTERN]])));
+    ui_toast(ui_txt_t(TX("ARP #"), T(UI_SETTINGS[S_ARP_PATTERN].list[ui_set[S_ARP_PATTERN]])));
 }
 /* ARP held + a knob: its settings (SETTINGS' ARP RHYTHM, PATTERN, LATCH), a running arpeggio taking them */
 static void arp_knob(int e, int step)
@@ -631,13 +683,13 @@ static void arp_knob(int e, int step)
     if (e == K_SELECT) {
         ui_set[S_ARP_RHYTHM] = (int16_t)ui_clamp(ui_set[S_ARP_RHYTHM] + d, 0, UI_SETTINGS[S_ARP_RHYTHM].n - 1);
         ui_setting_text(&UI_SETTINGS[S_ARP_RHYTHM], ui_set[S_ARP_RHYTHM], v);
-        ui_show_knob(T("RHYTHM"), v);
+        ui_show_knob_t(TX("RHYTHM"), v);
     } else if (e == K_ALG) {
         ui_set[S_ARP_PATTERN] = (int16_t)ui_wrap(ui_set[S_ARP_PATTERN] + d, UI_SETTINGS[S_ARP_PATTERN].n);
-        ui_toast(ui_txt_v(T("ARP #"), T(UI_SETTINGS[S_ARP_PATTERN].list[ui_set[S_ARP_PATTERN]])));
+        ui_toast(ui_txt_t(TX("ARP #"), T(UI_SETTINGS[S_ARP_PATTERN].list[ui_set[S_ARP_PATTERN]])));
     } else {
         ui_set[S_ARP_LATCH] = (int16_t)ui_clamp(ui_set[S_ARP_LATCH] + d, 0, UI_SETTINGS[S_ARP_LATCH].n - 1);
-        ui_toast(ui_txt_v(T("LATCH #"), T(UI_SETTINGS[S_ARP_LATCH].list[ui_set[S_ARP_LATCH]])));
+        ui_toast(ui_txt_t(TX("LATCH #"), T(UI_SETTINGS[S_ARP_LATCH].list[ui_set[S_ARP_LATCH]])));
     }
     ui_settings_changed();
     ui_arp_refresh();
@@ -668,7 +720,7 @@ void ui_play_press(void)
 void ui_play_song(uint8_t song, int from)
 {
     ui_song_t s;
-    if (!ui_song(song, &s) || !s.npos) { ui_refuse(B_PLAY); ui_toast(T("NO SONG TO PLAY")); return; }
+    if (!ui_song(song, &s) || !s.npos) { ui_refuse_t(B_PLAY, TX("NO SONG TO PLAY")); return; }
     player_state_t st;
     ui_player_state(&st);
     if (from >= 0) player_play_song(song, (uint8_t)from, 0);
@@ -680,14 +732,29 @@ void ui_play_song(uint8_t song, int from)
 /* ------------------------------------------------------------------- saving --- */
 static uint8_t save_waiting;
 uint32_t ui_unsaved;
-/* SAVE: the store writes the changes a little each pass (store_poll); a bar shows how far */
-static uint8_t saving;
+/* SAVE (specs/ui/saving.md): all sound off first, as CUT does, and once it has faded the store writes the changes a
+ * little each pass (store_poll); a bar shows how far; the sound back when the save ends, whatever its result. No voice,
+ * effect or core 2's work runs between the save's flash steps (each stops the flash with the interrupts off) */
+static uint8_t saving, save_hold;       /* saving: from SAVE to the save's end; save_hold: the sound fading, nothing
+                                         * written yet */
+static uint32_t save_at;
+#define SAVE_FADE_MS 25u                /* CUT's fade (8 blocks, 11.6 ms) from the next half (5.8 ms), with room */
+static void ui_hush(void) { player_hush(cut_on || saving); }
 static void (*save_after)(void);        /* the next step once this save is written (the MIDI CONTROLLER's switch) */
 static uint16_t save_refs;              /* this save is a reference update's: the references it updates */
 static int save_pct(void) { uint8_t p = 0; store_save_status(&p); return p; }
 static void do_save(void)
 {
+    if (saving) { ui_toast_t(TX("SAVE: THE STORE IS BUSY")); return; }
+    save_waiting = 0;
+    saving = save_hold = 1;
+    save_at = ui_now();
+    ui_hush();
+}
+static void save_begin(void)            /* the sound faded: the save itself (save_poll) */
+{
     char t[32];
+    save_hold = 0;
     lp_song_stop();                                     /* (first: a save under way refuses it) */
     ui_settings_keep_state();                           /* (the current instrument, and the screen, with the rest) */
     ui_dj_stand_put();                                  /* (DJ's decks where they paused, if they moved) */
@@ -696,11 +763,16 @@ static void do_save(void)
     uint32_t n = ui_unsaved;
     save_waiting = 0;
     if (save_refs)
-        ui_fmt(t, sizeof t, "%s", ui_txt_v(save_refs == 1 ? T("UPDATING # REFERENCE") : T("UPDATING # REFERENCES"),
-                                           ui_dec(save_refs)));
-    else ui_fmt(t, sizeof t, "%s", ui_txt_v(n == 1 ? T("SAVING # CHANGE") : T("SAVING # CHANGES"), ui_dec((int)n)));
-    if (ui_save_all()) { save_refs = 0; return; }      /* (its question or toast says why; CLEAN UP's SAVE a plain one) */
-    saving = 1;
+        ui_fmt(t, sizeof t, "%s", ui_txt_d(save_refs == 1 ? TX("UPDATING # REFERENCE") : TX("UPDATING # REFERENCES"), save_refs));
+    else ui_fmt(t, sizeof t, "%s", ui_txt_d(n == 1 ? TX("SAVING # CHANGE") : TX("SAVING # CHANGES"), (int)n));
+    if (ui_save_all()) {                                /* (its question or toast says why; CLEAN UP's SAVE a plain one;
+                                                         * what waited for it does not happen) */
+        save_refs = 0;
+        save_after = 0;
+        saving = 0;
+        ui_hush();
+        return;
+    }
     ui_progress_pct(t, save_pct);
 }
 /* YES to UPDATE REFERENCES? (specs/ui/saving.md#references), the change and its references made in the edit memory:
@@ -715,6 +787,10 @@ void ui_save_refs(int uses)
 static void save_poll(void)
 {
     if (!saving) return;
+    if (save_hold) {
+        if (ui_now() - save_at >= SAVE_FADE_MS) save_begin();
+        return;
+    }
     uint8_t p;
     int r = store_save_status(&p);
     if (r == STORE_BUSY) return;
@@ -723,12 +799,14 @@ static void save_poll(void)
     saving = 0;
     save_after = 0;
     save_refs = 0;
+    ui_hush();                                          /* (heard again from the next notes) */
     ui_progress_close();
     ui_unsaved_refresh();
     player_store_changed();                             /* (the records are where the save put them now) */
+    if (r == STORE_OK) loops_saved();                   /* (a LOOPS load kept: a REVERT keeps the solos again) */
     if (r == STORE_OK) ui_toast(refs ? T("REFERENCES UPDATED, SAVED") : T("SAVED"));
     else if (r == STORE_ERR_FULL) ui_ask_storage_full();    /* (its deletions written first, the rest not) */
-    else ui_toast(T("SAVE FAILED"));
+    else ui_toast_t(TX("SAVE FAILED"));
     if (r == STORE_OK && after) after();                /* (not saved: what waited for it does not happen) */
 }
 void ui_save_answer(int a)
@@ -744,24 +822,22 @@ static void save_tap(void)
     player_state_t st;
     ui_player_state(&st);
     ui_settings_keep_state();                           /* (a new current instrument is something to save) */
-    if (!ui_unsaved) { ui_toast(T("NOTHING TO SAVE")); return; }
-    if (st.playing) { save_waiting = 1; ui_toast(T("SAVE WAITS FOR A PAUSE")); return; }
+    if (!ui_unsaved) { ui_toast_t(TX("NOTHING TO SAVE")); return; }
+    if (st.playing) { save_waiting = 1; ui_toast_t(TX("SAVE WAITS FOR A PAUSE")); return; }
     do_save();
 }
 static void revert_done(int a)
 {
     if (a != 1) return;
     ui_revert_all();                                    /* (it pauses playback first) */
-    ui_toast(T("REVERTED TO SAVED"));
+    ui_toast_t(TX("REVERTED TO SAVED"));
 }
 void ui_revert_all_ask(void)
 {
-    static char l2[40];
-    if (!ui_unsaved) { ui_toast(T("NOTHING TO REVERT")); return; }
-    ui_fmt(l2, sizeof l2, "%s", ui_txt_v(ui_unsaved == 1 ? T("DROP # UNSAVED CHANGE") : T("DROP # UNSAVED CHANGES"),
-                                         ui_dec(ui_unsaved)));
-    const char *lines[3] = {T("REVERT TO SAVED?"), l2, T("AND RELOAD FROM FLASH")};
-    ui_ask(lines, 3, T("REVERT"), T("KEEP"), revert_done);
+    if (!ui_unsaved) { ui_toast_t(TX("NOTHING TO REVERT")); return; }
+    const char *l2 = ui_txt_d(ui_unsaved == 1 ? TX("DROP # UNSAVED CHANGE") : TX("DROP # UNSAVED CHANGES"), ui_unsaved);
+    const char *lines[3] = {T("REVERT TO SAVED?"), l2, T("AND RELOAD FROM FLASH")};   /* (the question copies its lines) */
+    ui_ask_t(lines, 3, TX("REVERT"), TX("KEEP"), revert_done);
 }
 
 /* SETTINGS' MIDI CONTROLLER (specs/ui/screens/settings.md#midi-controller): there is no way back but switching the
@@ -769,6 +845,7 @@ void ui_revert_all_ask(void)
  * tracker (ui_controller_wanted) and the controller's start screen comes */
 static uint8_t ctl_want;
 int ui_controller_wanted(void) { return ctl_want; }
+int ui_controller_aftertouch(void) { return ui_midi_set[S_MIDI_CTL_AT]; }
 static void ctl_go(void) { ctl_want = 1; }
 static void ctl_save_answer(int a)
 {
@@ -776,23 +853,22 @@ static void ctl_save_answer(int a)
     if (a == 0) { ctl_go(); return; }                   /* DROP: the changes go with the tracker */
     player_pause();
     save_after = ctl_go;
-    do_save();
-    if (!saving) save_after = 0;                        /* (it could not start: its question or toast says why) */
+    do_save();                                          /* (could it not start, save_begin drops save_after: its question
+                                                         * or toast says why) */
 }
 static void ctl_answer(int a)
 {
-    static char l2[40];
     if (a != 1) return;
     if (!ui_unsaved) { ctl_go(); return; }
-    ui_fmt(l2, sizeof l2, "%s", ui_txt_v(ui_unsaved == 1 ? T("# UNSAVED CHANGE") : T("# UNSAVED CHANGES"), ui_dec(ui_unsaved)));
-    const char *lines[3] = {T("SAVE BEFORE SWITCHING?"), l2, T("DROP: THEY ARE LOST")};
-    ui_ask(lines, 3, T("SAVE"), T("DROP"), ctl_save_answer);
+    const char *l2 = ui_txt_d(ui_unsaved == 1 ? TX("# UNSAVED CHANGE") : TX("# UNSAVED CHANGES"), ui_unsaved);
+    const char *lines[3] = {T("SAVE BEFORE SWITCHING?"), l2, T("DROP: THEY ARE LOST")};   /* (the question copies them) */
+    ui_ask_t(lines, 3, TX("SAVE"), TX("DROP"), ctl_save_answer);
 }
 void ui_controller_ask(void)
 {
-    if (saving) { ui_toast(T("A SAVE IS UNDER WAY")); return; }
+    if (saving) { ui_toast_t(TX("A SAVE IS UNDER WAY")); return; }
     const char *lines[3] = {T("SWITCH TO MIDI CONTROLLER?"), T("PT/FM STOPS UNTIL THE FM-1"), T("IS SWITCHED OFF AND ON")};
-    ui_ask(lines, 3, T("SWITCH"), T("BACK"), ctl_answer);
+    ui_ask_t(lines, 3, TX("SWITCH"), TX("BACK"), ctl_answer);
 }
 
 /* SETTINGS' FACTORY RESET (specs/ui/screens/settings.md): two questions, the second counting the changes not
@@ -807,23 +883,21 @@ static int wipe_pct(void)
 static void reset_erase(int a)
 {
     if (a != 1) return;
-    if (saving || seed_wipe()) { ui_toast(T("A SAVE IS UNDER WAY")); return; }
+    if (saving || seed_wipe()) { ui_toast_t(TX("A SAVE IS UNDER WAY")); return; }
     ui_progress_pct(T("ERASING"), wipe_pct);
 }
 static void reset_answer(int a)
 {
-    char l3[40];
     if (a != 1) return;
-    ui_fmt(l3, sizeof l3, "%s", ui_txt_v(ui_unsaved == 1 ? T("# UNSAVED CHANGE LOST TOO") : T("# UNSAVED CHANGES LOST TOO"),
-                                         ui_dec(ui_unsaved)));
-    const char *lines[3] = {T("ERASE IT ALL NOW?"), T("THERE IS NO WAY BACK"), l3};
-    ui_ask(lines, ui_unsaved ? 3 : 2, T("ERASE"), T("KEEP"), reset_erase);
+    const char *l3 = ui_txt_d(ui_unsaved == 1 ? TX("# UNSAVED CHANGE LOST TOO") : TX("# UNSAVED CHANGES LOST TOO"), ui_unsaved);
+    const char *lines[3] = {T("ERASE IT ALL NOW?"), T("THERE IS NO WAY BACK"), l3};   /* (the question copies them) */
+    ui_ask_t(lines, ui_unsaved ? 3 : 2, TX("ERASE"), TX("KEEP"), reset_erase);
 }
 void ui_factory_reset_ask(void)
 {
-    if (saving) { ui_toast(T("A SAVE IS UNDER WAY")); return; }
+    if (saving) { ui_toast_t(TX("A SAVE IS UNDER WAY")); return; }
     const char *lines[3] = {T("FACTORY RESET?"), T("ERASES ALL YOU SAVED OR UPLOADED"), T("ONLY THE BUILT-IN INSTRUMENTS STAY")};
-    ui_ask(lines, 3, T("RESET"), T("KEEP"), reset_answer);
+    ui_ask_t(lines, 3, TX("RESET"), TX("KEEP"), reset_answer);
 }
 
 /* ----------------------------------------------------------- the button grammar --- */
@@ -854,7 +928,7 @@ static void fx_tap(void)
     }
     const ui_screen_t *fx = ui_screen_named("FX");
     if (fx) ui_go(fx);
-    else ui_toast(T("FX: NOT IN THIS FIRMWARE YET"));
+    else ui_toast_t(TX("FX: NOT IN THIS FIRMWARE YET"));
 }
 void ui_tap(int b)
 {
@@ -879,7 +953,7 @@ void ui_octave(int step)
     ui_cur.octave = (int8_t)ui_clamp(ui_cur.octave + step, -4, 4);
     char s[8];
     ui_fmt(s, sizeof s, "%s%d", ui_cur.octave > 0 ? "+" : "", ui_cur.octave);
-    ui_toast(ui_txt_v(T("OCT #"), s));
+    ui_toast(ui_txt_t(TX("OCT #"), s));
 }
 /* button + button (either order), HOME's aside */
 static int combo(int m, int b)
@@ -888,7 +962,7 @@ static int combo(int m, int b)
     if (m == B_SAVE && b == B_OCTM) { ui_revert_all_ask(); return 1; }
     if (m == B_SAVE && b == B_OCTP) { save_tap(); return 1; }  /* (SAVE held past its layer: let go, no tap) */
     if (cur->combo && cur->combo(m, b)) return 1;
-    if (m == B_ARP && b == B_LFO && !cur->own_arp) { player_arp_clear(); ui_toast(T("LATCHED NOTES LET GO")); return 1; }
+    if (m == B_ARP && b == B_LFO && !cur->own_arp) { player_arp_clear(); ui_toast_t(TX("LATCHED NOTES LET GO")); return 1; }
     return 0;
 }
 static int combo_known(int m, int b)
@@ -904,30 +978,28 @@ static void start_hold(int b)
     btn[b].timer = 1;
 }
 
-/* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES (FB; deleted, the first
- * FAVORITES cartridge in the lists' order), at the favourite last used there; with it current, back to the place before
- * it. Where SEL + PRESETS works; refused in INSTRUMENTS' edit mode. (SEL's hold layer says so: ui_sel_fav_here) */
+/* SEL held + GLO (specs/ui/screens/instruments.md#favorites): to the built-in FAVORITES, FB, at the favourite last used
+ * there; with it current, back to the place before it; with no favourite there (or FB deleted) NO FAVORITES YET. Where
+ * SEL + PRESETS works; refused in INSTRUMENTS' edit mode. (SEL's hold layer says so: ui_sel_fav_here) */
 static int sel_fav_here(void) { return !cur->no_keyboard && !nov; }
 int ui_sel_fav_here(void) { return sel_fav_here() && !(cur == &SCR_INSTRUMENTS && scr_instr_edit()); }
 static void sel_fav(void)
 {
-    uint8_t c[256];
-    int n = ui_carts(c, 256), any = 0;
+    int any = 0;
     if (cur == &SCR_INSTRUMENTS && scr_instr_edit()) { ui_refuse(B_GLO); return; }
-    if (!n || ui_cart_rank(c[0]) > 1) { ui_toast(T("NO FAVORITES YET")); return; }     /* (the FAVORITES come first) */
-    if (ui_cur.place >> 8 == c[0]) { if (fav_back != 0xFFFFu) ui_set_inst(fav_back); }    /* (with it current: back) */
+    if (!ui_fb()) { ui_toast_t(TX("NO FAVORITES YET")); return; }
+    if (ui_cur.place >> 8 == UI_FB) { if (fav_back != 0xFFFFu) ui_set_inst(fav_back); }    /* (with it current: back) */
     else {
-        for (int i = 0; i < n && ui_cart_rank(c[i]) < 2; i++)
-            for (int s = 0; s < ui_cart_slots(c[i]); s++) any |= ui_slot_has((uint16_t)(c[i] << 8 | s), 0);
-        if (!any) { ui_toast(T("NO FAVORITES YET")); return; }
-        ui_set_inst((uint16_t)(c[0] << 8 | (fav_at >> 8 == c[0] ? fav_at & 255 : ui_cart_first(c[0]))));
+        for (int s = 0; s < ui_cart_slots(UI_FB); s++) any |= ui_slot_has((uint16_t)(UI_FB << 8 | s), 0);
+        if (!any) { ui_toast_t(TX("NO FAVORITES YET")); return; }
+        ui_set_inst((uint16_t)(UI_FB << 8 | (fav_at >> 8 == UI_FB ? fav_at & 255 : ui_cart_first(UI_FB))));
     }
     show_inst(1);
 }
-/* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of the FAVORITES cartridge SEL + GLO goes
- * to, picked once: the keys' instrument becomes its source, the current cartridge and slot stay (PRESETS alone goes on
- * from them); a click from the favourite last used, the favourites' list shown till GLO is let go. Where SEL + GLO
- * works, not on INSTRUMENTS (its cursor is the current instrument: GLO blinks). 1 when PRESETS was taken so */
+/* GLO held + PRESETS (specs/ui/screens/instruments.md#favorites): a favourite of FB, picked once: the keys' instrument
+ * becomes its source, the current cartridge and slot stay (PRESETS alone goes on from them); a click from the favourite
+ * last used, the favourites' list shown till GLO is let go. Where SEL + GLO works, not on INSTRUMENTS (its cursor is
+ * the current instrument: GLO blinks). 1 when PRESETS was taken so */
 int ui_glo_fav_here(void) { return sel_fav_here() && cur != &SCR_INSTRUMENTS; }
 static int glo_fav(int d)
 {
@@ -939,12 +1011,10 @@ static int glo_fav(int d)
     ui_use_combo(B_GLO, CK_PRESETS);
     close_combos(B_GLO);
     if (cur == &SCR_INSTRUMENTS) { ui_refuse(B_GLO); return 1; }
-    uint8_t c[256];
-    int n = ui_carts(c, 256), at = -1;
-    if (n && ui_cart_rank(c[0]) < 2)
-        at = step_from(c[0], fav_at >> 8 == c[0] ? fav_at & 255 : d > 0 ? ui_cart_slots(c[0]) - 1 : 0, d);
-    uint16_t ref = (uint16_t)((at < 0 ? 0 : c[0]) << 8 | (at & 255)), src;
-    if (at < 0 || ui_fav(ref, &src) != UI_FAV_OK) { ui_toast(T("NO FAVORITES YET")); return 1; }
+    int at = -1;
+    if (ui_fb()) at = step_from(UI_FB, fav_at >> 8 == UI_FB ? fav_at & 255 : d > 0 ? ui_cart_slots(UI_FB) - 1 : 0, d);
+    uint16_t ref = (uint16_t)((at < 0 ? 0 : UI_FB) << 8 | (at & 255)), src;
+    if (at < 0 || ui_fav(ref, &src) != UI_FAV_OK) { ui_toast_t(TX("NO FAVORITES YET")); return 1; }
     fav_at = ref;
     inst_now(src);
     inst_once = 1;
@@ -970,13 +1040,21 @@ static void button_down(int b)
         memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t;
         return;
     }
-    /* HOME's combination: PLAY back to the start, REC all sound off (on press); held, LFO the help, SEQ the
-     * white keys' mute / solo; any other button closes it */
+    /* HOME's combination: PLAY back to the start, REC all sound off (on press); held, LFO the help, SEQ and ARP what
+     * the white keys do; any other button closes it */
     if (hc && b != B_HOME) {
         /* DJ: OCT- / OCT+ the tracks the white keys reach, with them (a member of theirs); nowhere to go: nothing */
         if ((b == B_OCTM || b == B_OCTP) && cur->home_oct) {
-            if (cur->home_oct(b, 0) && member(hc, CK_WHITE)) cur->home_oct(b, 1);
+            if (hc->solo < 2 && cur->home_oct(b, 0) && member(hc, CK_WHITE)) cur->home_oct(b, 1);
             else if (!hc->is_ov) { home_sync(hc); ui_consume(B_HOME); }   /* (HOME held: its let-go no tap either way) */
+            memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t;
+            return;
+        }
+        /* after ARP: REC switches the white keys to recording the automations, and back (the combination open); while
+         * one records, it ends there (closed). Its press nothing more: no CUT */
+        if (b == B_REC && hc->solo >= 2 && ui_home_seq_switches(hc)) {
+            if (ua_state() == 1) { close_home(hc); ua_end(); }
+            else { hc->solo ^= 1; home_sync(hc); ui_consume(B_HOME); }
             memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t;
             return;
         }
@@ -989,8 +1067,8 @@ static void button_down(int b)
         }
         if (!hc->is_ov) {
             if (b == B_LFO && member(hc, CK_LFO)) { memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t; ui_open_help(); return; }
-            if (b == B_SEQ && ui_home_seq_switches(hc)) {
-                hc->solo = !hc->solo; home_sync(hc); ui_consume(B_HOME);
+            if (ui_home_switch(hc, b)) {        /* (SEQ, ARP: what the white keys do) */
+                home_sync(hc); ui_consume(B_HOME);
                 memset(h, 0, sizeof *h); h->down = 1; h->used = 1; h->t = t;
                 return;
             }
@@ -1090,8 +1168,8 @@ static void solo(int t)
 {
     if (cur->solo_key) { cur->solo_key(t); return; }    /* DJ: a deck's track, within its deck */
     ui_cur.solo = (int8_t)(ui_cur.solo == t ? -1 : t);
-    if (ui_cur.solo < 0) ui_toast(T("SOLO OFF"));
-    else ui_toast(ui_txt_v(T("TRACK # SOLO"), ui_hex2(t)));
+    if (ui_cur.solo < 0) ui_toast_t(TX("SOLO OFF"));
+    else ui_toast(ui_txt_h(TX("TRACK # SOLO"), t));
     ui_mutes_changed();
 }
 static void note_down(int n)
@@ -1103,6 +1181,13 @@ static void note_down(int n)
     combo_t *hc = home();
     keyuse_t *k = &key_use[n];
     memset(k, 0, sizeof *k);
+    if (hc && wi >= 0 && hc->solo >= 2 && ui_home_seq_switches(hc)) {   /* (after ARP: its automation played, or after
+                                                         * REC recorded into, the combination closed; refused, it stays as
+                                                         * it was) */
+        ui_consume(B_HOME);
+        if (ua_shortcut(wi, hc->solo & 1)) close_home(hc);
+        return;
+    }
     if (hc && member(hc, bi >= 0 ? CK_BLACK : CK_WHITE)) {
         if (bi >= 0) {
             k->kind = KU_SCREEN;
@@ -1146,7 +1231,7 @@ static void note_up(int n)
         else if (cur->mute_key) cur->mute_key(k.t);    /* LOOPS: white key n mutes loop n; DJ a deck's track */
         else {
             ui_cur.mutes ^= 1u << k.t;
-            ui_toast(ui_txt_v(ui_cur.mutes >> k.t & 1 ? T("TRACK # MUTED") : T("TRACK # ON"), ui_hex2(k.t)));
+            ui_toast(ui_txt_h(ui_cur.mutes >> k.t & 1 ? TX("TRACK # MUTED") : TX("TRACK # ON"), k.t));
             ui_mutes_changed();
         }
         break;
@@ -1157,14 +1242,58 @@ static void note_up(int n)
     default: break;
     }
 }
+/* the keys' pressure (press.h, specs/hardware.md#the-keys-velocity): every 5 ms each held key read, its own notes
+ * louder, from its velocity's volume toward 127 at the most (a note written keeps its velocity; an EDITOR take and LOOPS'
+ * stage write the changes as volumes alone: the screen's pressure) */
+static uint32_t key_press[20], press_t;
+static uint8_t key_pv[20];                              /* each held key's volume as the screen last took it (0: none) */
+#define PRESS_STEP 4                                    /* the screen takes a change of 4 or more (and its return) */
+static void keys_press(uint32_t notes)
+{
+    uint32_t now = ui_now(), dt = now - press_t, n;
+    if (dt < 5u) return;
+    press_t = now;
+    for (n = 0; n < 20u; n++) {
+        uint32_t was = ((key_press[n] >> 14 & 0x7FFu) + 8u) >> 4, d = 0, p, vel, pv;
+        int m = ui_midi((int)n);
+        if (notes >> n & 1u) d = (uint32_t)plat_key_reading((int)n);
+        else key_pv[n] = 0;
+        p = press_step(&key_press[n], d, dt);
+        if (p == was || m < 12 || m > 127 || !d) continue;
+        vel = (uint32_t)ui_key_vol((int)n);
+        pv = vel + ((127u - vel) * p + 63u) / 127u;
+        player_key_press((uint8_t)m, (pv * 256u + vel / 2u) / vel);
+        if (!key_pv[n]) key_pv[n] = (uint8_t)vel;
+        uint32_t kp = key_pv[n];
+        if (cur->pressure && (pv >= kp + PRESS_STEP || pv + PRESS_STEP <= kp || (pv == vel && kp != vel))) {
+            key_pv[n] = (uint8_t)pv;                    /* (written there: the EDITOR's take, LOOPS' stage) */
+            cur->pressure((int)n, (int)pv);
+        }
+    }
+}
 int ui_keys_held(void)
 {
     int c = 0;
     for (int n = 0; n < 27; n++) if (key_use[n].kind == KU_PLAY || key_use[n].kind == KU_SCREENKEY) c++;
     return c;
 }
+int ui_key_free(int n) { return n >= 0 && n < 27 && key_use[n].kind == KU_PLAY; }
+void ui_key_take(int n)
+{
+    if (!ui_key_free(n)) return;
+    key_off(n);
+    key_use[n].kind = KU_SCREENKEY;
+    for (int i = 0; i < nscreens; i++) if (screens[i] == cur) key_use[n].s = (uint8_t)i;
+}
+void ui_key_lit(int n)
+{
+    if (n < 0 || n >= 27) return;
+    key_max[n] = 0;
+    key_at[n] = ui_now() | 1;
+}
 
 /* ---------------------------------------------------------------- the knobs --- */
+uint32_t ui_in_t;                       /* the pass's input time (ui_priv.h) */
 static int accel(int e, uint32_t t)
 {
     uint32_t dt = t - enc_t[e];
@@ -1177,7 +1306,7 @@ static int accel(int e, uint32_t t)
 static void encoder(int e, int step)
 {
     if (ui_blocking()) return;
-    int steps = step * accel(e, ui_now());
+    int steps = step * accel(e, ui_in_t);
     combo_t *hc = home();
     if (hc) {
         if (e == K_SELECT && member(hc, CK_SELECT)) { screen_step(step); return; }
@@ -1284,7 +1413,7 @@ void ui_unload_song(void)
     player_cue(UI_KEYS_SONG);
     last_song_played = 0xFF;
     cue_now = 1;
-    ui_toast(T("SONG UNLOADED"));
+    ui_toast_t(TX("SONG UNLOADED"));
 }
 
 static void timers(void)
@@ -1392,8 +1521,12 @@ static void leds(void)
         if (home_line(CK_PLAY, hc)) lv[B_PLAY] = LV_DIM;
         if (home_line(CK_REC, hc)) lv[B_REC] = LV_DIM;
         if (home_line(CK_LFO, hc)) lv[B_LFO] = LV_DIM;
-        if (ui_home_seq_switches(hc)) lv[B_SEQ] = hc->solo ? LV_FULL : LV_DIM;
-        if (home_line(CK_WHITE, hc) && cur->home_oct)   /* DJ: tracks that way */
+        if (ui_home_seq_switches(hc)) {
+            lv[B_SEQ] = hc->solo == 1 ? LV_FULL : LV_DIM;
+            lv[B_ARP] = hc->solo >= 2 ? LV_FULL : LV_DIM;
+            if (hc->solo >= 2) lv[B_REC] = hc->solo == 3 ? LV_FULL : LV_DIM;   /* (after ARP: full while they record) */
+        }
+        if (home_line(CK_WHITE, hc) && cur->home_oct && hc->solo < 2)   /* DJ: tracks that way */
             for (int b = B_OCTM; b <= B_OCTP; b++) lv[b] = cur->home_oct(b, 0) ? LV_DIM : 0;
     }
     if (cut_on) lv[B_REC] = LV_FULL;                    /* (CUT held) */
@@ -1408,7 +1541,9 @@ static void leds(void)
             for (int i = 0; i < 11; i++) if (SCREEN_KEY[i] && ui_screen_named(T(SCREEN_KEY[i])))
                 keys[UI_BLACK[i]] = is(cur, T(SCREEN_KEY[i])) ? LV_FULL : LV_DIM;
         if (home_line(CK_WHITE, hc)) {
-            if (cur->mute_leds) cur->mute_leds(keys);
+            if (hc->solo >= 2)                          /* (the automations: recording, each dim) */
+                for (int t = 0; t < 16; t++) keys[UI_WHITE[t]] = hc->solo == 3 || ua_holds(t) ? LV_DIM : 0;
+            else if (cur->mute_leds) cur->mute_leds(keys);
             else for (int t = 0; t < 16; t++) keys[UI_WHITE[t]] = ui_cur.solo == t ? LV_FULL : ui_muted(t) ? 0 : LV_DIM;
         }
     } else if (ui_active(B_FX)) {
@@ -1418,13 +1553,13 @@ static void leds(void)
         if (!took) {
             /* a played key's light: full while its note is loud, dim under half its loudest, off under an
              * eighth; lit at once for 100 ms */
-            pl_voice_info_t v[PL_VOICES];
-            int nv = player_voices_now(v, PL_VOICES);
+            pl_voice_info_t v[PL_ENGINES];
+            int nv = player_voices_now(v, PL_ENGINES);
             uint8_t lvl[27];
             memset(lvl, 0, sizeof lvl);
             for (int i = 0; i < nv; i++) {
-                if (!v[i].on || v[i].track != 0xFF) continue;
-                int n = v[i].note - ui_midi(0);
+                if (!v[i].on || !v[i].key) continue;
+                int n = v[i].key - ui_midi(0);
                 if (n < 0 || n >= 27) continue;
                 if (v[i].level > key_max[n]) key_max[n] = v[i].level;
                 if (v[i].level > lvl[n]) lvl[n] = v[i].level;
@@ -1458,7 +1593,7 @@ static void cpu_watch(void)
     /* (only a change to STOPPED: stopped from the start on, after a crash, it is DEVICE's to say) */
     if (c.c2_state == PLAT_C2_STOPPED && c2_seen != 0xFF && c2_seen != PLAT_C2_STOPPED && !c2_told) {
         c2_told = 1;
-        ui_toast(T("SECOND CORE STOPPED"));
+        ui_toast_t(TX("SECOND CORE STOPPED"));
     }
     c2_seen = c.c2_state;
     if (!primed) { primed = 1; sum0 = c.sum_us; sum20 = c.c2_sum_us; n0 = c.halves; return; }
@@ -1495,6 +1630,7 @@ int ui_cpu2_mean(uint32_t *sum0, uint32_t *halves0)
     return cpu_mean(c.c2_sum_us, c.halves, c.half_us, sum0, halves0);
 }
 /* the header's text: the screen's name, subpage and page, a toast, a knob turned or the help's; SEQ's place */
+static void transport(int x, int kind, int c);
 static void header_text(void)
 {
     char sub_b[40], page_b[24], name_b[16];
@@ -1504,7 +1640,11 @@ static void header_text(void)
     if (ui_now() < knob_show.until) text = knob_show.text;   /* a knob turned: its name and value, white, 1.2 s */
     else if (ui_now() < toast.until) { text = toast.text; runs = toast.nruns; }
     else if (help) { text = T("LOOK FOR ONSWERS"); col = C_CYAN; page = ui_help_page_text(help, page_b); }
-    else {
+    else if (ua_state()) {                              /* an automation records (red) or plays (green): AUTO 03 */
+        transport(2, ua_state() == 1 ? 3 : 1, ua_state() == 1 ? C_RED : C_GREEN);
+        g_text(12, 0, &FONT_S, ui_txt_h(TX("AUTO #"), ua_slot()), ua_state() == 1 ? C_RED : C_GREEN);
+        return;
+    } else {
         ui_fmt(name_b, sizeof name_b, "%s", T(cur->name));   /* (kept: the screen's sub, page and seq unpack theirs) */
         text = name_b;
         col = UI_GROUP_COL[cur->group];
@@ -1637,7 +1777,7 @@ static void footer(void)
             left_n -= l;
         }
     } else g_textn(0, 228, &FONT_T, left, room, has ? ENG_COL[eng] : C_DGREY);
-    if (right && right[0]) g_text(240 - g_tw(&FONT_T, right), 228, &FONT_T, right, rcol);
+    if (right && right[0]) g_text_r(240, 228, &FONT_T, right, rcol);
 }
 /* the count-in's box (specs/ui/transport.md#the-count-ins-box), over the screen that counts in: the beats left as
  * a digit 32 x 64, a dot a beat, the bar; armed (COUNT-IN KEY), what starts the take */
@@ -1651,22 +1791,19 @@ static void count_box(void)
     g_rect(x, y, w, h, C_BLACK);
     g_box(x, y, w, h, C_RED);
     if (!st.count_beats) {
-        const char *ta = T("TAKE ARMED"), *pl = T("PLAY"), *an = T("A NOTE");
-        g_text(g_centre(&FONT_S, ta, x, w), y + 12, &FONT_S, ta, C_RED);
-        g_text(g_centre(&FONT_L, pl, x, w), y + 36, &FONT_L, pl, C_WHITE);
-        g_text(g_centre(&FONT_S, an, x, w), y + 74, &FONT_S, an, C_WHITE);
+        g_text_c(x, w, y + 12, &FONT_S, T("TAKE ARMED"), C_RED);
+        g_text_c(x, w, y + 36, &FONT_L, T("PLAY"), C_WHITE);
+        g_text_c(x, w, y + 74, &FONT_S, T("A NOTE"), C_WHITE);
         g_run_t r[2] = {{T("HOME"), C_YELLOW}, {T(": CANCEL"), C_LGREY}};
         g_runs(x + (w - g_runs_w(&FONT_T, r, 2)) / 2, y + h - 16, &FONT_T, r, 2);
         return;
     }
     int k = st.count_beat ? st.count_beat - 1 : 0, beat = k % 4;
-    const char *ci = T("COUNT-IN");
-    char left[2] = {(char)('4' - beat), 0}, bar[24];
-    g_text(g_centre(&FONT_T, ci, x, w), y + 6, &FONT_T, ci, C_RED);
-    g_text(g_centre(&FONT_X, left, x, w), y + 20, &FONT_X, left, beat == 0 ? C_YELLOW : C_WHITE);
+    char left[2] = {(char)('4' - beat), 0};
+    g_text_c(x, w, y + 6, &FONT_T, T("COUNT-IN"), C_RED);
+    g_text_c(x, w, y + 20, &FONT_X, left, beat == 0 ? C_YELLOW : C_WHITE);
     for (int i = 0; i < 4; i++) g_rect(x + 45 + i * 14, y + 92, 8, 8, i > beat ? C_DGREY : i == 0 ? C_YELLOW : C_WHITE);
-    ui_fmt(bar, sizeof bar, "%s", ui_txt_v(ui_txt_v(T("BAR # OF #"), ui_dec(k / 4 + 1)), ui_dec(st.count_beats / 4)));
-    g_text(g_centre(&FONT_T, bar, x, w), y + h - 14, &FONT_T, bar, C_LGREY);
+    g_text_c(x, w, y + h - 14, &FONT_T, ui_txt_v(ui_txt_d(TX("BAR # OF #"), k / 4 + 1), ui_dec(st.count_beats / 4)), C_LGREY);
 }
 static void draw_frame(void)
 {
@@ -1689,7 +1826,7 @@ uint32_t ui_frame_ms(void) { return frame_ms_last; }
 uint32_t ui_fps(void) { return fps; }
 /* the player as the frame shows it: taken once at its start, read by both halves */
 static player_state_t frame_ps;
-static pl_voice_info_t frame_pv[PL_VOICES];
+static pl_voice_info_t frame_pv[PL_ENGINES];
 static int frame_nv;
 static uint8_t drawing;
 void ui_player_state(player_state_t *s)
@@ -1725,7 +1862,7 @@ void ui_render(void)
 {
     uint32_t t0 = plat_us();
     player_state(&frame_ps, 0);
-    frame_nv = player_voices_now(frame_pv, PL_VOICES);
+    frame_nv = player_voices_now(frame_pv, PL_ENGINES);
     ui_cpu_now();
     drawing = 1;
     for (int half = 0; half < 2; half++) {
@@ -1761,9 +1898,9 @@ static void after_seed(void)
     pick_current();
     if (cur->enter) cur->enter(cur);
     g_invalidate();
-    if (si.result) ui_toast(T("DATA NOT RECEIVED: TRY AGAIN"));
-    else if (si.bad) ui_toast(ui_txt_v(T("DATA RECEIVED, # BAD RECORDS"), ui_dec(si.bad)));
-    else ui_toast(ui_txt_v(T("DATA RECEIVED: # RECORDS"), ui_dec(si.records)));
+    if (si.result) ui_toast_t(TX("DATA NOT RECEIVED: TRY AGAIN"));
+    else if (si.bad) ui_toast(ui_txt_d(TX("DATA RECEIVED, # BAD RECORDS"), si.bad));
+    else ui_toast(ui_txt_d(TX("DATA RECEIVED: # RECORDS"), si.records));
 }
 static void turn(int e, int k)                          /* a knob's clicks, one at a time */
 {
@@ -1788,6 +1925,8 @@ void ui_poll(void)
     memset(&in, 0, sizeof in);                          /* (knob_pre 0 where the platform cannot tell) */
     plat_input(&in);
     midi_merge(&in);                                    /* MIDI's learned controls and notes: as the FM-1's own */
+    ui_in_t = ui_now();
+    ua_input(&in, &in_last);                            /* AUTOMATIONS: recorded, or stood in for while one plays */
     /* MIDI learn takes the FM-1's input while it waits (it does nothing else then) */
     int learning = midi_learning() && midi_learn_take(&in, &in_last);
     /* the clicks that came before the pass's first press, then the presses (buttons, then keys), the other
@@ -1806,6 +1945,7 @@ void ui_poll(void)
     for (int e = 0; e < K_COUNT; e++) turn(e, in.knob[e] - in.knob_pre[e]);
     for (int n = 0; n < 27; n++) if (nu >> n & 1) { note_up(n); dirty = 1; }
     for (int b = 0; b < B_COUNT; b++) if (bu >> b & 1) { button_up(b); dirty = 1; }
+    keys_press(in.notes);
     in_last = in;
     ui_master = in.master;
     {                                                   /* the favourite at the cursor changed (EDIT, PASTE, REVERT, a
@@ -1837,6 +1977,7 @@ void ui_poll(void)
 #endif
     if (now - frame_at >= 33) {                         /* about 30 frames a second */
         frame_at = now;
+        plat_step(PLAT_STEP_DRAW);                      /* (the freeze record's: plat.h) */
         ui_render();
 #ifdef PTFM_DEBUG
         frozen_drawn = (uint8_t)dbg_frozen();
@@ -1867,12 +2008,12 @@ void ui_init(void)
 {
     lp_init();                                          /* (LOOPS' screen's state, as at power-on) */
     loops_fx_new = fxd_loops;                           /* (LOOPS with no FX setup yet) */
-    loops_keys_mix = ui_keys_mix;                       /* (the next loop's sends: FX MIXER's KEYS column's) */
     ui_keys_song_init();                                /* (the keys' song: the firmware's own, never listed) */
     ui_editor_pattern_init();                           /* (the EDITOR's own pattern: the same) */
     ui_edit_init();
     seed_set_unsaved(edits_unsaved);                    /* seeding refuses with edits unsaved: SAVE OR REVERT FIRST */
     ui_settings_load();
+    ui_settings_apply(S_SUPPLIES);                      /* (the core supplies as saved, raised before any sound or core 2) */
     g_theme(ui_set[S_THEME]);
     ui_settings_apply(S_KEYS_OCTAVE);
     ui_settings_apply(S_VOICES);
@@ -1881,6 +2022,7 @@ void ui_init(void)
     ui_settings_apply(S_USB_GAIN);
     ui_settings_apply(S_KEYS_GAIN);
     ui_settings_apply(S_KEYS_FX);
+    ui_settings_apply(S_KEYS_VELOCITY);                 /* (the keys' touch read, or not, as saved) */
     ui_cur.inst = ui_settings_inst();                   /* (as SAVE last kept it) */
     ui_cur.pattern = ui_settings_pattern();             /* (the EDITOR's: the same; gone, its own) */
     pick_current();

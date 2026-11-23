@@ -67,7 +67,8 @@ that level (DRIVE's drive, DUCK's source, LIMITER's CEILING), so a reference sou
 ## DX7
 
 The 145 parameters of Yamaha's packed voice, in its order (operator 6 first, then 5 to 1, then the
-voice), each in the bits its range needs; values past 99, as some factory voices have, are kept.
+voice), each in the bits its range needs; values past 99, as some factory voices have, are kept (and played as
+stored, but for the pitch envelope's rates and levels, read at most at 99: its tables stop there).
 
 | Part | Fields (bits) |
 |---|---|
@@ -78,6 +79,12 @@ voice), each in the bits its range needs; values past 99, as some factory voices
 A `.syx` cartridge converts both ways exactly, except the bits the DX7 itself ignores and the
 names' characters outside the names' set ([README.md](README.md#names-numbers-and-bits): lowercase
 becomes capitals, any other a space).
+
+**Velocity is the note's volume at its start** (1-127, `01`-`7F`): a cell's, a key's, a MIDI note's, LOOPS',
+the arpeggiator's, a DJ deck's, a preview's; a note that comes back after losing its voice keeps its own. KEY VEL SENS
+works on the operators not on the output, the modulators, at that velocity: a harder note is brighter. The carriers
+(the operators on the output, added) play at velocity 100 whatever the note's, so its loudness is its volume's gain,
+as on every engine; a carrier's KEY VEL SENS plays as at 100. At velocity 100 a voice sounds as it always did.
 
 ## Juno-106 and TB-303
 
@@ -125,7 +132,7 @@ OFF, SHIFT 2, PACE 2; PSG ENV SHAPE 9, PERIOD `0320`; WAVE 0 (SAW).
 | START, END, LOOP START, LOOP END: positions in the sample | 20 each |
 | LOOP: OFF, FORWARD, PING-PONG | 2 |
 | BASE NOTE | 7 |
-| TUNE, in 1/128 of a semitone, 0x80 none | 8 |
+| TUNE, in 1/128 of a semitone, 0x80 none (played in steps of 1/64: its half, toward zero) | 8 |
 | LEVEL | 8 |
 | VOLUME: a module's default volume, 0-64 | 7 |
 | the envelope: R1-R4 and L1-L4, as the DX7's | 56 |
@@ -139,7 +146,9 @@ The fields are packed in this order from the slot's first bit.
 - **The loop is a sustain loop:** playing goes from START into LOOP START - LOOP END, and repeats it
   while the key is held. At release it goes on from where it is, through the rest of the loop (a
   ping-pong pass going backwards back to LOOP START, then forwards) and on to END, while the envelope
-  releases. Nothing jumps, so nothing clicks.
+  releases. Nothing jumps, so nothing clicks. A loop needs room, LOOP END past LOOP START + 1 (END taken for LOOP END
+  when it comes first): without it a note plays on to END as with LOOP OFF, and a sounding note whose points a command
+  turns to leave none loops no more ([commands.md](commands.md#the-instruments-parameters-0x40-0x7f)).
 - **A new instrument** plays its sample whole, named after it: START 0, END its length, LOOP OFF, BASE NOTE C-4,
   TUNE none, VOLUME 64, LEVEL 0 dB, a new instrument's envelope.
 - **A sampler cartridge's record:** name (9 B), instruments stored (1 B), the instruments (40 B each): 2,570 B at
@@ -160,7 +169,7 @@ The fields are packed in this order from the slot's first bit.
 - **It has no owner:** any number of instruments, in any sampler cartridges, name it by its number. A sample has no
   loop of its own: loops belong to instruments, and one sample serves any number of them.
 - **Its number is apart from the cartridges':** sample `05` and cartridge `05` have nothing to do with each other.
-- **256 at most** on an FM-1: the store's map (about 560 objects of every kind) and the user area run out first.
+- **256 at most** on an FM-1: the store's list of 560 records of every kind ([store.md](store.md#the-list-of-records)) and the user area run out first.
   All of `00`-`FF` are the user's: the firmware carries no samples ([below](#built-in-instruments)).
 - **A sample instrument naming a number with no sample** (a partial upload, a disk without it, a save cut between a
   sample's deletion and its instruments', [store.md](store.md#the-room-for-the-editors-pattern)) plays nothing, as
@@ -209,17 +218,20 @@ instruments from any cartridges as bookmarks: each slot is a reference, `CARTRID
 - **It only refers; nothing refers to it.** No record holds a FAVORITES cartridge's number or a favourite's
   place: not a cell, a song, the loops' table, a FUSION slot, DJ's setup, the MIDI map, nor the settings'
   current instrument ([settings.md](settings.md)). What is played, recorded or written with a favourite current
-  carries the source's own number. So a FAVORITES cartridge or its slots can be moved, swapped, cloned, emptied
-  or deleted without a question and without rewriting anything.
+  carries the source's own number. So a FAVORITES cartridge or its slots can be moved, swapped, emptied or deleted
+  without a question and without rewriting anything.
 - **A source that is gone** (its cartridge deleted, its slot emptied, its number now a FAVORITES cartridge's) is
   **missing**: the favourite plays nothing and keeps naming the place, and plays again once an instrument is put
   there ([references.md](references.md)).
 - **The built-in FAVORITES, `FB`,** named `FAVORITES`, is the firmware's own and empty ([below](#built-in-instruments)):
   a changed built-in like the others once something is added and saved, BACK TO BUILT-IN empties it again, and
-  emptied by REMOVE it equals the firmware's own, so SAVE deletes its record. It never moves; CLONE makes a copy at
-  a user number; it can be deleted as any built-in ([below](#deleting-a-built-in-cartridge)), SEL + GLO and ADD TO
-  FAVORITES then going to the first FAVORITES cartridge left. Any number of the user's own are made with NEW, at
-  `00`-`EF`.
+  emptied by REMOVE it equals the firmware's own, so SAVE deletes its record. It never moves and is never cloned; it
+  can be deleted as any built-in ([below](#deleting-a-built-in-cartridge)): ADD TO FAVORITES is then not listed, and
+  SEL + GLO and GLO + PRESETS say `NO FAVORITES YET`.
+- **The FM-1 holds `FB` alone** ([one FAVORITES](../proposals/202611131616-favorites-one.md)): nothing on it makes
+  another FAVORITES cartridge; the EDITOR's TABLE holds any number, and one moved onto the FM-1 replaces `FB`'s slots
+  ([../editor.md](../editor.md#moving-items)). A user FAVORITES cartridge at `00`-`EF`, made by an earlier PT/FM, is kept
+  and works as any FAVORITES cartridge, but nothing picks it in `FB`'s place.
 - **An older firmware** keeps these records byte for byte, as every record it does not know
   ([README.md](README.md#extending)), but does not see their numbers as taken: its NEW may make another cartridge
   under one. Back on a firmware that knows the kind, another cartridge kind under the number wins

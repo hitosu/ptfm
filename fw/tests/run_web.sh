@@ -8,6 +8,8 @@
 #      old form, tools/pack.py --old-form) converted at the page's first load after it;
 #   2. one session (web_session.txt) on both builds from that flash: the same audio, screens and LEDs
 #      at every shot. The native run's screens: build/fw/web/test/shot_<n>.png (2x) to look at.
+# Before them the EDITOR's WebAssembly is built too (editor/build.py's: the firmware with editor/wasm, which compiles
+# against the player's headers), so a change that breaks it fails here (its own tests: tests/editor/run_tests.sh).
 # Needs clang + lld (wasm32), cc, node, python3.
 set -e
 cd "$(dirname "$0")/../.."
@@ -16,6 +18,8 @@ GEN=$OUT/gen
 mkdir -p "$OUT"
 [ -f dist/firmware/demo.ptfmdsk ] || { echo "run_web.sh: no dist/firmware/demo.ptfmdsk (tools/pack.py makes it)"; exit 1; }
 python3 -I emulator/build.py --out "$OUT" --fw-end 50000 > "$OUT/build.log"
+python3 -I emulator/build.py --extra editor/wasm --define PTFM_EDITOR --out "$OUT/editor" > "$OUT/editor-build.log" ||
+    { cat "$OUT/editor-build.log"; echo "run_web.sh: the EDITOR's WebAssembly did not build"; exit 1; }
 SRC=$(find fw/core -name '*.c' | sort)
 INC=$(find fw/core -mindepth 2 -name '*.h' -exec dirname {} \; | sort -u | while read d; do printf ' -I%s' "$d"; done)
 cc -O2 -std=gnu11 -Wall -Wno-unused-function -DWEB_NATIVE -DWEB_FW_END=0x50000u -Ifw/core $INC -I"$GEN" \

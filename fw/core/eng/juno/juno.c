@@ -6,10 +6,15 @@
  * integer for integer; the analog parts are this engine's own, simpler than KR-106's. */
 #include "juno.h"
 #include "juno_tables.h"                 /* made once from KR-106's models (its header says how) */
+#include "juno_rel_tables.h"             /* fw/tools/gen_tables.py: the ticks to silence, by RELEASE */
 #include "../dx7/dx7.h"                  /* dx7_tanh, dx7_freq: MSFA's integer helpers */
 #ifndef PLAT_COLD
 #define PLAT_COLD                        /* (a patch's work: built for size on the FM-1, core/plat.h) */
 #endif
+#ifndef PLAT_NOINIT
+#define PLAT_NOINIT                      /* (the FM-1's: kept through a watchdog restart, core/plat.h) */
+#endif
+volatile juno_mark_t juno_mark PLAT_NOINIT;
 
 enum { JF_SAW = 1, JF_PULSE = 2, JF_PWM_MAN = 4, JF_ENV_NEG = 8, JF_GATE = 16 };
 enum { ENV_ATTACK, ENV_DECAY, ENV_RELEASE, ENV_DONE };
@@ -44,14 +49,14 @@ void juno_init(void)
         noise_st[i] = 0;
 }
 
-void juno_noise_get(juno_noise_t *n)
+PLAT_COLD void juno_noise_get(juno_noise_t *n)   /* (AUTO LEVEL's measuring, in the main loop) */
 {
     int i;
     n->seed = noise_seed;
     for (i = 0; i < 6; i++)
         n->st[i] = noise_st[i];
 }
-void juno_noise_set(const juno_noise_t *n)
+PLAT_COLD void juno_noise_set(const juno_noise_t *n)
 {
     int i;
     noise_seed = n->seed;
@@ -103,8 +108,9 @@ void juno_block(int tick)
 }
 
 /* ------------------------------------------------- envelope (ADSR) --- */
-/* KR106ADSR CalcDecay: the D7811G's 16 x 16 multiply from three 8 x 8 products (VL x CL left out) */
-static uint16_t calc_decay(uint16_t value, uint16_t coeff)
+/* KR106ADSR CalcDecay: the D7811G's 16 x 16 multiply from three 8 x 8 products (VL x CL left out). Always inlined:
+ * env_go, built for size, would otherwise call it in its loop; env_tick's code stays as it was */
+static inline __attribute__((always_inline)) uint16_t calc_decay(uint16_t value, uint16_t coeff)
 {
     uint32_t vh = value >> 8, vl = value & 0xFFu, ch = coeff >> 8, cl = coeff & 0xFFu;
     return (uint16_t)(vh * ch + ((vh * cl) >> 8) + ((vl * ch) >> 8));
@@ -207,16 +213,21 @@ static uint16_t vcf_dac(const juno_voice_t *v, uint32_t lfo_signal, int lfo_neg)
     return (uint16_t)ea;
 }
 
+/* the measured envelope -> gain curve (Q15), before the levels; always inlined (juno_heard reads it too) */
+static inline __attribute__((always_inline)) int32_t vca_gain(uint32_t env)
+{
+    uint32_t x = (env * 1020u) >> 8, i = x >> 8, f = x & 255u;
+    return JUNO_VCA[i] + (((JUNO_VCA[i + 1u] - JUNO_VCA[i]) * (int32_t)f) >> 8);
+}
+
 /* the VCA's target: the measured envelope -> gain curve (or the gate), x the levels */
 static void vca_target(juno_voice_t *v)
 {
     int32_t g;
-    if (v->flags & JF_GATE) {
+    if (v->flags & JF_GATE)
         g = v->env_state < ENV_RELEASE ? JUNO_VCA[256] : 0;
-    } else {
-        uint32_t x = ((uint32_t)v->env * 1020u) >> 8, i = x >> 8, f = x & 255u;
-        g = JUNO_VCA[i] + (((JUNO_VCA[i + 1u] - JUNO_VCA[i]) * (int32_t)f) >> 8);
-    }
+    else
+        g = vca_gain(v->env);
     v->vca_target = (int32_t)(((int64_t)g * v->level_q12) >> 12);   /* (levels up to x 12.6: trims) */
 }
 
@@ -360,7 +371,7 @@ void juno_idle(juno_voice_t *v, int tick)
         lfo_tick(v);
 }
 
-/* a block of a sounding voice's time without its sound (the player's parked voices): the firmware loop, the
+/* a block of a sounding voice's time without its sound (what juno_forward's work stands for): the firmware loop, the
  * cutoff's and the VCA's smoothing (to where they head) and the oscillator go on; the filter, DC and HPF states
  * stay as they were */
 void juno_skip(juno_voice_t *v, int tick)
@@ -376,6 +387,169 @@ void juno_skip(juno_voice_t *v, int tick)
         v->sub ^= (uint8_t)((to >> 32) & 1u);
         v->phase = (uint32_t)to;
     }
+}
+
+/* -------------------------------------------------- the forward work --- */
+/* (juno.h) a note's firmware loop worked on over many ticks at once (juno_forward: a note coming back after its voice
+ * was taken), to the state its ticks leave (voice_tick, as juno_skip runs it at each): the envelope a stretch at a time
+ * (env_go), the LFO's triangle and delay in one sum each (lfo_go), the last tick by voice_tick itself (the cutoff, the
+ * pitch, the pulse width and the VCA's target, which it makes from them), then the cutoff's and the VCA's smoothing
+ * where they head, as juno_skip leaves them. The oscillator's phase and the sub are not kept; the filter's, the DC's
+ * and the HPF's states stay as the note on left them, as juno_skip leaves them too */
+#define JUNO_FWD_TICKS 4u                /* the faster DECAYs' and RELEASEs' ticks a step (juno.h) */
+
+/* the envelope moved on by up to n ticks as env_tick moves it, a stretch a step: its attack to its top in one sum; its
+ * DECAY and its RELEASE (calc_decay's ticks on its distance d to the sustain, or to 0) by stretches where its
+ * coefficient's high byte ch is 254 or 255 (DECAY or RELEASE 43 and up: the slow ones), JUNO_FWD_TICKS ticks a step
+ * below (a stretch there spans a tick or three). A tick takes d down by vh x w - (vh x cl >> 8) + (vl - (vl x ch >> 8)):
+ * d's bytes vh, vl, the coefficient's ch, cl, w = 256 - ch. Its parts here:
+ * - q, the last term: ceil(vl x w / 256), the same for every vl of a band (w 1: 1-255; w 2: 1-128, 129-255; 0 alone);
+ * - lo, the band's lowest vl: (q - 1) x 256 / w + 1 for w 1 and 2, a shift;
+ * - by, the amount a tick: 1 or more while d > 0 (vh x w > vh x cl >> 8 once vh > 0; q >= 1 once vl > 0);
+ * - k, the ticks that start in the band: vh stands through them, so each takes by, the last one's amount decided at its
+ *   start (it may leave the band, or vh, or reach 0: never below, as calc_decay never does); so d - k x by >= 0.
+ * A stretch is one sum (forward_test checks the rule at every d of every coefficient). At its sustain or ended it stands
+ * (nothing). The budget's clamp cannot overflow: it takes *steps x JUNO_FWD_TICKS only when that is under m. Returns
+ * the ticks gone: n, or fewer where the budget ran out */
+static PLAT_COLD uint32_t env_go(juno_voice_t *v, uint32_t n, int32_t *steps)
+{
+    uint32_t t = 0, k, m, e, s, c, d;
+    while (t < n) {
+        e = v->env;
+        if (v->env_state == ENV_ATTACK) {
+            k = e < ENV_MAX ? (ENV_MAX - 1u - e) / v->atk + 1u : 1u;   /* (the tick that reaches the top) */
+            if (n - t < k) {
+                v->env = (uint16_t)(e + (n - t) * v->atk);
+                t = n;
+            } else {
+                v->env = ENV_MAX;
+                v->env_state = ENV_DECAY;
+                t += k;
+            }
+            (*steps)--;
+        } else if (v->env_state == ENV_RELEASE || (v->env_state == ENV_DECAY && e > v->sus)) {
+            s = v->env_state == ENV_DECAY ? v->sus : 0u;
+            c = v->env_state == ENV_DECAY ? v->dec : v->rel;
+            d = e - s;
+            if (c >> 8 >= 254u && d) {   /* (a stretch: its band, its amount a tick, its ticks) */
+                uint32_t w = 256u - (c >> 8), vh = d >> 8, vl = d & 255u, q = (vl * w + 255u) >> 8;
+                uint32_t lo = q ? ((q - 1u) << (9u - w)) + 1u : 0u, by = vh * w - ((vh * (c & 255u)) >> 8) + q;
+                k = (vl - lo) / by + 1u;
+                k = k < n - t ? k : n - t;
+                d -= k * by;
+                (*steps)--;
+            } else {
+                m = n - t;               /* (the ticks the budget allows, JUNO_FWD_TICKS a step) */
+                if ((uint32_t)*steps <= (m - 1u) / JUNO_FWD_TICKS)
+                    m = (uint32_t)*steps * JUNO_FWD_TICKS;
+                k = 0;
+                do
+                    d = calc_decay((uint16_t)d, (uint16_t)c);
+                while (++k < m && d);
+                *steps -= (int32_t)((k + JUNO_FWD_TICKS - 1u) / JUNO_FWD_TICKS);   /* (k: 544 at most) */
+            }
+            v->env = (uint16_t)(d + s);
+            if (!d && v->env_state == ENV_RELEASE)
+                v->env_state = ENV_DONE;
+            t += k;
+        } else {                         /* at its sustain (a tick puts it there) or ended: it stands */
+            if (v->env_state == ENV_DECAY)
+                v->env = v->sus;
+            return n;
+        }
+        if (*steps <= 0)
+            break;
+    }
+    return t;
+}
+
+/* the LFO moved on n ticks as lfo_tick moves it. Its triangle rises from 0 and falls from 0x1FFF, each for
+ * h = 0x1FFF / coeff + 1 ticks, its sign flipping as each rise starts: from the next rise's first tick on, its place
+ * is the ticks after it mod 2h and its sign flips once more for each 2h. Its delay: the hold, then the ramp, each to
+ * its end in one sum */
+static PLAT_COLD void lfo_go(juno_voice_t *v, uint32_t n)
+{
+    uint32_t c = v->lfo_coeff, h = 0x1FFFu / c + 1u, a = v->lfo_acc, t, r;
+    if (!n)
+        return;
+    t = v->lfo_rising ? (0x1FFFu - a) / c + 1u + h : a / c + 1u;   /* (the next rise's first tick) */
+    if (n < t) {                         /* (within this rise and fall) */
+        if (!v->lfo_rising) {
+            v->lfo_acc = (uint16_t)(a - n * c);
+        } else if (n < t - h) {
+            v->lfo_acc = (uint16_t)(a + n * c);
+        } else {
+            v->lfo_acc = (uint16_t)(0x1FFFu - (n - (t - h)) * c);
+            v->lfo_rising = 0;
+        }
+    } else {
+        r = n - t;
+        v->lfo_pol ^= (uint8_t)((1u + r / (2u * h)) & 1u);
+        r %= 2u * h;
+        v->lfo_rising = r < h;
+        v->lfo_acc = (uint16_t)(r < h ? r * c : 0x1FFFu - (r - h) * c);
+    }
+    if (v->in_hold) {                    /* (lfo_amp 0 throughout, the tick that ends it too) */
+        t = (0x3FFFu - v->hold_acc) / v->hold_inc + 1u;
+        v->lfo_amp = 0;
+        if (n < t) {
+            v->hold_acc = (uint16_t)(v->hold_acc + n * v->hold_inc);
+            return;
+        }
+        v->in_hold = 0;
+        v->hold_acc = 0x4000;
+        if (!(n -= t))
+            return;
+    }
+    t = (0xFFFFu - v->ramp_acc) / v->ramp_inc + 1u;   /* (the tick that fills it) */
+    if (n < t) {
+        v->ramp_acc = (uint16_t)(v->ramp_acc + n * v->ramp_inc);
+        v->lfo_amp = (uint8_t)(v->ramp_acc >> 8);
+    } else {
+        v->ramp_acc = 0xFFFF;
+        v->lfo_amp = 255;
+    }
+}
+
+/* the firmware loop moved on by up to n ticks (n > 0): the envelope and the LFO to the tick before the last one gone,
+ * that tick by voice_tick, then the smoothing where it heads (a step with the LFO's move). Returns the ticks gone */
+static PLAT_COLD uint32_t fwd_run(juno_voice_t *v, uint32_t n, int32_t *steps)
+{
+    uint32_t to = env_go(v, n - 1u, steps);
+    lfo_go(v, to);
+    voice_tick(v);
+    v->dac_s = v->dac << 8;
+    v->vca = v->vca_target;
+    (*steps)--;
+    return to + 1u;
+}
+
+/* (juno.h) the held time, the note off, the release */
+PLAT_COLD int juno_forward(juno_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps)
+{
+    for (;;) {
+        if (!*on && (*off == FWD_HELD || (!*off && !v->gate)))
+            return 1;
+        if (*steps <= 0)
+            return 0;
+        if (*on) {
+            *on -= fwd_run(v, *on, steps);
+        } else if (v->gate) {            /* the note off, once (its gate tells it was): the release it starts */
+            juno_note_off(v);
+            (*steps)--;
+        } else {
+            *off -= fwd_run(v, *off, steps);
+        }
+    }
+}
+
+/* (juno.h) JUNO_REL_TICKS (juno_rel_tables.h): the ticks from a note let go at its envelope's top (0x3FFF) until the
+ * envelope is under JUNO_REL_SILENT, where the VCA's gain (the curve, before the levels) is 0, by RELEASE: its VCA's
+ * target is then 0 at any level, the note silent for good. Each is checked against the envelope's own ticks
+ * (fw/tests/sound/forward_test.c) */
+PLAT_COLD uint32_t juno_release_ticks(const uint8_t *p)
+{
+    return p[17] & 4 ? 1u : JUNO_REL_TICKS[p[14] & 127];   /* (VCA GATE: the first tick closes it) */
 }
 
 /* ----------------------------------------------------------- render --- */
@@ -396,6 +570,7 @@ static inline int32_t blep_before(uint32_t t, uint32_t recip)
 #define K_IN 1090519                     /* KR106VCF kInputRatio 0.065, Q24 */
 #define K_DIRECT 2382364                 /* kDirectGain 0.142 */
 #define K_OUT 35185                      /* output make-up 8.59, Q12 */
+#define K_OUT_Q24 ((int32_t)(((int64_t)K_OUT * JUNO_OUT_Q16) >> 4))   /* the same x the output scale, Q24 */
 
 /* The render keeps the arithmetic of a plain per-frame loop (every sample the same to the bit) in a form the
  * FM-1's core runs faster (a taken jump costs it ~6 cycles, a 64-bit multiply ~5-10, a load ~4):
@@ -631,15 +806,20 @@ void juno_render(juno_voice_t *v, int32_t *out, int tick)
 {
     int32_t y[JUNO_N];
     int j, mode;
+    juno_mark.v = v;                     /* (PT/FM FROZE's marks: stores only) */
+    juno_mark.p = v->p;
+    juno_mark.at = JM_TICK;
     if (!v->p)
         return;
     mode = 3 - ((v->p[17] >> 3) & 3);
     if (tick)
         voice_tick(v);
+    juno_mark.at = JM_DCO;
     dco_run(v, y);
     for (j = 0; j < JUNO_N; j += 16) {
         int32_t code, g1, g1_2, G, k, seed, energy, *s = v->s;
         uint32_t e;
+        juno_mark.at = (uint8_t)(JM_VCF + j / 16);
         /* KR106VCF's seed: white noise into the filter at 0.01 / (1 + 1000 x the signal's level),
          * which starts the self-oscillation of patches without oscillators (at 1x: half of its
          * 4x level, for the same noise density in the audio band) */
@@ -670,15 +850,34 @@ void juno_render(juno_voice_t *v, int32_t *out, int tick)
             vcf_flat(v, y + j, noise_white + j, seed);
         }
     }
-    v->f_out = (int32_t)(((int64_t)K_OUT * JUNO_OUT_Q16) >> 4);   /* Q24, x the output scale */
+    v->f_out = K_OUT_Q24;                /* (Q24, x the output scale) */
     {   /* the VCA's smoothing steps by (target - vca) x SLEW >> 15: 0 at every frame when that is 0 at the first (the
          * target stays for the block), as when a held note's gain has settled */
         int32_t d = v->vca_target - v->vca;
+        juno_mark.at = JM_VCA;
         if (d >= 0 && (d * JUNO_VCA_SLEW_Q15) >> 15 == 0)
             vca_hpf(v, y, out, mode, 1);
         else
             vca_hpf(v, y, out, mode, 0);
     }
+    juno_mark.at = JM_DONE;
+}
+
+/* (juno.h) the forward work's measure: the VCA (its target or its smoothing, the larger; an attack rising at its top,
+ * as vca_target makes it there) times the make-up and the output scale as vca_run applies them, for a filter's output
+ * at Q20's 1.0; four times that with the bass boost (the HPF switch's mode 0, as juno_render reads it) */
+PLAT_COLD int32_t juno_heard(const juno_voice_t *v)
+{
+    int32_t t, top;
+    if (!v->p)
+        return 0;
+    t = v->vca_target > v->vca ? v->vca_target : v->vca;
+    if (v->env_state == ENV_ATTACK && !(v->flags & JF_GATE)) {
+        top = (int32_t)(((int64_t)vca_gain(ENV_MAX) * v->level_q12) >> 12);
+        t = top > t ? top : t;
+    }
+    t = (int32_t)(((int64_t)t * K_OUT_Q24) >> 24);
+    return 3 - ((v->p[17] >> 3) & 3) == 0 ? 4 * t : t;
 }
 
 /* ---------------------------------------------------------- chorus --- */

@@ -6,13 +6,19 @@
  * only; repeats, the rest after them, a cut repeat's end, a note ringing across the wrap; SHIFT (its repeats, rest and
  * cut turned with it); the length going round with no loops; EDx and Kxx to the tick, an EDx past the row never; a
  * TB-303 lane's gate and its SLD slide; a 3xx glide's pitch; FUSION lanes (their layers, the songs' FUSION notes for tick
- * commands); mutes and solos now and at the bar line; notes asked for at once and at a row ahead; the stage
+ * commands); mutes and solos now and at the bar line, and the ghosts they make (a muted loop's notes ghosts within a
+ * block, its engines going to other notes, its new notes ghosts, back once heard; a TB-303's and DUCK's source's keep
+ * their engines; a muted note taken, no fade; a mute and a take at one bar line; a stage's FUSION runner on a muted
+ * loop; a note REC hands over into a muted loop; BYPASS as a change of DUCK's source; a solo's ghosts past the list's
+ * room); the lanes' ghosts (LEG and a glide on a ghost, a ghost let go whose note count came round passed by, a held
+ * ghost going on as a loop's at REC's hand-over); notes asked for at once and at a row ahead; the stage
  * (specs/ui/screens/loops.md#the-stage): its keys' notes heard once as played, then from the stage; the lanes held from
- * their row; jumps (back, forward past the end, landing in a loop's rest, the notes asked for); a POLY stage played MONO;
- * its column (no mute or solo), the keys while it is off (16 lanes of their own), the selected loop silent, its rest
- * while a song is armed, REC's hand-over; the pattern
- * recorder's preview (with the loops, NOTE LENGTH, ties, its cut, alone, PLAY pausing, kept onto the stage); a DELETE
- * LOOP and REC into a loop stopping what a loop holds; the store's edits heard from the next row. */
+ * their row; jumps (back, forward past the end, landing in a loop's rest, the notes asked for); a POLY stage played
+ * MONO; its column (no mute or solo), the keys while it is off (16 lanes of their own), the selected loop silent, its
+ * rest while a song is armed, REC's hand-over; the pattern recorder's preview (with the loops, NOTE LENGTH, ties, its
+ * cut, alone, PLAY pausing, kept onto the stage); a DELETE LOOP and REC into a loop stopping what a loop holds; the
+ * store's edits heard from the next row. The pool's links and lists are checked after every block
+ * (sound/pool_check.h). */
 #include <stdio.h>
 #include <string.h>
 #include "store_plat.h"
@@ -24,12 +30,19 @@ static ev_t evs[1024];
 static int nev;
 static void lane_ev(uint32_t i, uint32_t note, int32_t vol, uint32_t glide);
 #define PL_TEST_LANE(i, note, vol, glide) lane_ev(i, note, vol, glide)
+#define POOL_CHECK 1                     /* (the pool's links and lists checked after every block: sound/pool_check.h) */
 #include "../core/play/player.c"
+#include "sound/pool_check.h"
+
+/* the returns' rules cases written before the FM-1's weights (a mute's, a solo's, DUCK's source's and the keys' ghosts
+ * back, the waits they count): run with the budget out of their way, as voices_test.c's; the rest on the FM-1's own */
+#define LT_RULES_BUDGET 65536
+#define RULES(call) (pl_budget = LT_RULES_BUDGET, call, pl_budget = PL_BUDGET)
 
 /* the second core: none here (every job at once on this one) */
 int plat_c2_half(void) { return 0; }
 void plat_c2_post(void (*job)(uint32_t), uint32_t j) { job(j); }
-void plat_c2_wait(void) {}
+int plat_c2_wait(void) { return 0; }
 
 static int fails, checks;
 #define CHECK(c, ...) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -72,7 +85,7 @@ static int count(int lane)
 }
 
 static int16_t buf[2 * 64];
-static void blk(int n) { while (n-- > 0) player_audio(buf, 64); }
+static void blk(int n) { while (n-- > 0) { player_audio(buf, 64); pool_check("lanes_test"); } }
 static int to(int row, int tick)         /* on, a block at a time, to (row, tick) of the loops: 1 there */
 {
     for (int k = 0; k < 40000; k++) {
@@ -338,14 +351,14 @@ static void t_tb303(void)
     to(5, 0);
     blk(1);
     v = lane_voice(0);
-    CHECK(v && v - pl_v == vi && v->held && v->u.tb.inc != v->u.tb.inc_to && v->note == 53,
+    CHECK(v && v - pl_v == vi && v->held && PL_E(v)->u.tb.inc != PL_E(v)->u.tb.inc_to && v->note == 53,
           "row 5: the same voice slides to 53 (its pitch gliding, nothing restarted)");
     to(5, 4);
     CHECK(!held_of(0), "... no SLD on it: its gate closes half a row on");
     to(8, 0);
     blk(1);
     v = lane_voice(0);
-    CHECK(v && v->held && v->u.tb.inc == v->u.tb.inc_to, "row 8: a note started again (its pitch at once)");
+    CHECK(v && v->held && PL_E(v)->u.tb.inc == PL_E(v)->u.tb.inc_to, "row 8: a note started again (its pitch at once)");
     player_stop();
     blk(1);
 }
@@ -369,9 +382,52 @@ static void t_glide(void)
           "row 1, 320: the same voice, no new one");
     CHECK(pl_ln[0].bend == 0 && pl_ln[0].bend_to == 256, "... at tick 0 still on 60, going to 64");
     to(1, 1);
-    CHECK(pl_ln[0].bend == 128 && v->u.dx.bend == 128 * 21845 + 128 / 3, "tick 1: 2 semitones on (its bend %d)", pl_ln[0].bend);
+    CHECK(pl_ln[0].bend == 128 && PL_E(v)->u.dx.bend == 128 * 21845 + 128 / 3, "tick 1: 2 semitones on (its bend %d)",
+          pl_ln[0].bend);
     to(1, 2);
     CHECK(pl_ln[0].bend == 256 && !pl_ln[0].glide && pl_ln[0].note == 64, "tick 2: there");
+    player_stop();
+    blk(1);
+}
+
+/* a volume alone on a lane (specs/ui/screens/loops.md#the-stage: the keys' pressure as the stage writes it): its sounding
+ * note glides there over the row, a share a block, from where it stood (its note's 80, then the last volume), there as
+ * the row ends; the next volume alone glides from there; nothing between */
+static void t_vol_glide(void)
+{
+    fresh();
+    loop_of(0xF0, 0);
+    put(0, 0, 0, cell(60, 80));
+    rec_cell_t c;
+    memset(&c, 0, sizeof c);
+    c.has = RC_VOL;
+    c.vol = 127;
+    put(0, 2, 0, c);
+    c.vol = 80;
+    put(0, 6, 0, c);
+    loops_play(0);
+    to(1, 0);
+    pl_voice_t *v = lane_voice(0);
+    int32_t g80 = v ? v->gain : 0, g[400], n = 0, most = 0, back = 0, flat = 1;
+    while (n < 400) {                    /* (row 2's blocks, then row 3's) */
+        int r, t;
+        blk(1);
+        now(&r, &t);
+        if (r >= 4) break;
+        if (r >= 2) g[n++] = v->gain;
+    }
+    int32_t g127 = n ? g[n - 1] : 0, share = n > 2 ? (g127 - g80) / (n / 2) : 0;
+    for (int k = 1; k < n; k++) {
+        int32_t d = g[k] - g[k - 1];
+        if (d < 0) back = 1;
+        if (d > most) most = d;
+    }
+    to(5, 0);
+    flat = v->gain == g127;
+    to(7, 0);
+    CHECK(v && lane_voice(0) == v && n > 20 && g127 > g80 + g80 / 4 && !back && most <= 2 * share + 2 && flat &&
+          v->gain == g80, "a volume alone: the note glides 80 -> 127 over its row, a share a block (most %d, the row's share "
+          "%d over %d blocks), held there (%d), back to 80 over row 6 (%d of %d)", most, share, n / 2, flat, v ? v->gain : -1, g80);
     player_stop();
     blk(1);
 }
@@ -395,7 +451,7 @@ static void t_legato(void)
     CHECK(v && lane_voice(0) == v && v->held && v->note == 60 && v->age == age, "row 1, LEG: the same voice, nothing "
           "started again");
     CHECK(pl_ln[0].bend == 256 && pl_ln[0].bend_to == 256 && !pl_ln[0].glide && pl_ln[0].note == 64 && v &&
-          v->u.dx.bend == 256 * 21845 + 256 / 3, "... on 64 at once (its bend %d)", pl_ln[0].bend);
+          PL_E(v)->u.dx.bend == 256 * 21845 + 256 / 3, "... on 64 at once (its bend %d)", pl_ln[0].bend);
     player_lp_note(0, 0, 67, 0x7F, -1, 0, PL_LP_LEG);   /* (a take's, heard at once) */
     blk(1);
     CHECK(lane_voice(0) == v && v->age == age && pl_ln[0].bend == 7 * 64 && pl_ln[0].note == 67,
@@ -411,7 +467,8 @@ static void t_legato(void)
     to(0, 5);
     v = lane_voice(0);
     to(1, 0);
-    CHECK(v && lane_voice(0) == v && v->held && v->u.ju.pitch88 == 64 << 8, "JUNO-106: LEG moves its key follow to 64");
+    CHECK(v && lane_voice(0) == v && v->held && PL_E(v)->u.ju.pitch88 == 64 << 8,
+          "JUNO-106: LEG moves its key follow to 64");
     player_stop();
     blk(1);
     fresh();                             /* onto no held note: a plain note */
@@ -489,6 +546,37 @@ static void t_fusion(void)
     printf("lanes: FUSION A5:00-04, %d by their layers, %d as songs' FUSION notes\n", direct, runs);
 }
 
+/* a FUSION note's layers on a lane at the lane's own volume: another lane of the loop (its track) playing louder changes
+ * nothing of them (each layer started later, each layer's Axy) */
+static void t_fusion_vol(void)
+{
+    int bad = 0, tried = 0;
+    for (int s = 0; s < 5; s++) {
+        int32_t g[2][40];
+        for (int run2 = 0; run2 < 2; run2++) {
+            fresh();
+            CHECK(!fusion_from_disk(), "FUSION: the demo disk's cartridge A5 and its patterns into the store");
+            loop_of(0xA5, (uint8_t)s);
+            put(0, 0, 0, cell(60, 30));
+            if (run2) put(0, 1, 1, cell(67, 127));
+            put(0, 15, 0, cell(REC_NOTE_OFF, -1));
+            loops_play(0);
+            to(0, 1);
+            for (int b = 0; b < 40; b++) {
+                int32_t sum = 0;
+                blk(8);
+                for (int k = 0; k < (int)PL_NV; k++) if (pl_v[k].held && pl_ln_mine(&pl_v[k], 0u, pl_ln[0].gen)) sum += pl_v[k].gain;
+                g[run2][b] = sum;
+            }
+            player_stop();
+            blk(1);
+        }
+        for (int b = 0; b < 40; b++) if (g[0][b] != g[1][b]) { bad++; printf("  06:%02X block %d: lane 0's layers %d alone, %d beside a louder lane\n", s, b * 8, g[0][b], g[1][b]); break; }
+        tried++;
+    }
+    CHECK(!bad, "FUSION lanes: a lane's layers at its own volume, whatever another lane of the loop plays (%d of %d differ)", bad, tried);
+}
+
 /* mutes and solos, now and at the bar line */
 static void t_mutes(void)
 {
@@ -528,6 +616,399 @@ static void t_mutes(void)
     to(0, 1);
     CHECK(state().muted == 4 && !state().lp_bar_wait, "a change now drops one waiting for the bar");
     player_stop();
+    blk(1);
+}
+
+/* mutes make ghosts (specs/proposals/202611121830-ghost-notes.md, section 3) */
+static uint32_t eng_blocks(void) { return pl_eng_blocks[0] + pl_eng_blocks[1] + pl_eng_blocks[2] + pl_eng_blocks[3]; }
+static int lanes_n(int from, int to, int ghosts)   /* lanes from..to's latest notes in an engine, or (ghosts) held
+                                                     * ghosts */
+{
+    int n = 0;
+    for (int i = from; i <= to; i++) {
+        pl_voice_t *v = lane_voice(i);
+        n += v && (ghosts ? v->held && v->place == PL_NO_ENG && v->gh == GH_GHOST : v->place != PL_NO_ENG);
+    }
+    return n;
+}
+static int let_go_ghosts(uint32_t who)   /* ghosts let go of track who */
+{
+    int n = 0;
+    for (uint32_t k = 0; k < pl_gn; k++) n += pl_v[pl_gl[k]].who == who && !pl_v[pl_gl[k]].held;
+    return n;
+}
+static pl_inst_t pad_in;                 /* a built-in JUNO-106 pad: ATTACK 30 at most, SUSTAIN 100 or more, its VCA on
+                                          * the envelope, RELEASE 20 or more (heard a block after its let-go) */
+static int pad_found(void)
+{
+    rec_cart_t rc;
+    if (rec_cart(0xF8, &rc)) return 0;
+    for (int s = 0; s < rc.nslots && s < 128; s++) {
+        const uint8_t *p;
+        if (!rec_slot(&rc, (uint8_t)s)) continue;
+        pad_in.cart = 0xF8;
+        pad_in.slot = (uint8_t)s;
+        if (pl_engine(pad_in, &p) != EN_JUNO) continue;
+        uint8_t jp[JUNO_PATCH_BYTES];
+        rec_juno_patch(p, jp);
+        if (jp[11] <= 30 && jp[13] >= 100 && jp[14] >= 20 && !(jp[17] & 4u)) return 1;
+    }
+    return 0;
+}
+/* VOICES 8, loops 00-02 a chord of four held each (12 notes for 8 engines: loop 00's, started first, taken as ghosts),
+ * loop 01's let go at row 12. Loop 01 muted: within a block its notes are ghosts, and the engines it gave up go to loop
+ * 00's ghosts a block on; at VOICES 12, with engines free, its ghosts stay ghosts while muted and nothing renders them;
+ * unmuted, they come back at once (4 a block); let go and muted, its tails are ghosts let go; the next bar's notes
+ * start as ghosts, taking no engine; loop 02 soloed: every other loop's notes ghosts */
+static void t_mute_ghosts(void)
+{
+    fresh();
+    CHECK(pad_found(), "a JUNO-106 pad among the built-in ones (%02X:%02X)", pad_in.cart, pad_in.slot);
+    for (int i = 0; i < 3; i++) {
+        loop_of(pad_in.cart, pad_in.slot);
+        for (int l = 0; l < 4; l++) note_at(i, 0, l, 48 + 12 * i + 3 * l);
+    }
+    for (int l = 0; l < 4; l++) put(1, 12, l, off_cell());
+    player_voice_count(8);
+    blk(1);
+    loops_play(0);
+    blk(2);
+    CHECK(lanes_n(0, 3, 1) == 4 && lanes_n(4, 11, 0) == 8 && state().ghosts == 4,
+          "VOICES 8, 12 notes: loop 00's ghosts, 01's and 02's in engines");
+    uint8_t had[4];
+    for (int l = 0; l < 4; l++) had[l] = lane_voice(4 + l) ? lane_voice(4 + l)->place : PL_NO_ENG;
+    player_lp_mutes(2, 0);
+    blk(1);
+    CHECK(lanes_n(4, 7, 1) == 4 && lanes_n(8, 11, 0) == 4 && state().ghosts == 8,
+          "loop 01 muted: its notes ghosts within a block (%d)", lanes_n(4, 7, 1));
+    blk(1);
+    int reused = 1;
+    for (int l = 0; l < 4; l++) {
+        uint32_t k = had[l] < PL_NE ? pl_e[had[l]].voice : PL_NO_VOICE;
+        reused &= k != PL_NO_VOICE && pl_v[k].who == 16 && pl_v[k].back > 0;
+    }
+    CHECK(reused && lanes_n(0, 3, 0) == 4 && lanes_n(4, 7, 1) == 4 && state().ghosts == 4,
+          "... a block on, the engines it gave up loop 00's ghosts coming back");
+    player_voice_count(12);
+    blk(1);
+    uint32_t b0 = eng_blocks();
+    blk(8);
+    CHECK(lanes_n(4, 7, 1) == 4 && lanes_n(0, 3, 0) == 4 && lanes_n(8, 11, 0) == 4 && eng_blocks() - b0 == 8u * 8u,
+          "VOICES 12, 4 engines free: its ghosts never back while muted, unrendered (%u engine blocks in 8: the other "
+          "loops' 8 notes)", eng_blocks() - b0);
+    player_lp_mutes(0, 0);
+    blk(1);
+    CHECK(lanes_n(4, 7, 0) == 4 && lane_voice(4)->back > 0 && state().ghosts == 0,
+          "unmuted: its 4 ghosts back at once, fading in");
+    to(12, 1);
+    CHECK(!held_n(4, 7) && lanes_n(4, 7, 0) == 4, "row 12: loop 01's notes let go, ringing in their engines");
+    player_lp_mutes(2, 0);
+    blk(1);
+    CHECK(let_go_ghosts(17) == 4 && lanes_n(4, 7, 0) == 0, "... muted: its tails ghosts let go (%d)",
+          let_go_ghosts(17));
+    uint32_t a0 = pl_age, s0 = pl_steals;
+    to(0, 1);
+    int born = 1;
+    for (int l = 0; l < 4; l++) {
+        pl_voice_t *v = lane_voice(4 + l);
+        born &= v && v->age > a0 && v->held && v->place == PL_NO_ENG && v->gh == GH_GHOST && v->m_last == 0;
+    }
+    CHECK(born && lanes_n(0, 3, 0) == 4 && lanes_n(8, 11, 0) == 4 && pl_steals - s0 == 4u, "the next bar: its notes "
+          "start as ghosts, no engine (loops 00's and 02's 8 into 4 free engines and 4 taken: %u)", pl_steals - s0);
+    player_lp_mutes(0, 4);
+    blk(1);
+    CHECK(lanes_n(0, 7, 1) == 8 && lanes_n(8, 11, 0) == 4 && state().ghosts == 8,
+          "loop 02 soloed: loop 00's and 01's notes ghosts, 02's in engines");
+    player_lp_mutes(0, 0);
+    blk(2);
+    CHECK(lanes_n(0, 11, 0) == 12 && state().ghosts == 0, "the solo ended: all 12 back");
+    player_stop();
+    blk(1);
+}
+/* a TB-303's note keeps its engine muted, and a muted TB-303 loop's notes still take engines: a TB-303 loop (a note a
+ * row) and a pad loop, both muted */
+static void t_mute_tb(void)
+{
+    fresh();
+    pad_found();
+    loop_of(0xFA, 0);
+    for (int r = 0; r < 16; r++) note_at(0, r, 0, 36 + (r & 3));
+    loop_of(pad_in.cart, pad_in.slot);
+    for (int l = 0; l < 4; l++) note_at(1, 0, l, 60 + 3 * l);
+    loops_play(0);
+    blk(2);
+    player_lp_mutes(3, 0);
+    blk(1);
+    int tb = 1, n = 0;
+    for (int r = 2; r < 10; r++) {       /* (each row's TB-303 note, held: in an engine, a ghost never) */
+        to(r, 1);
+        pl_voice_t *v = lane_voice(0);
+        tb &= v && v->engine == EN_TB && v->held && v->place != PL_NO_ENG && v->gh == GH_NO && v->m_last == 0;
+        n += lanes_n(4, 7, 1);
+    }
+    CHECK(tb && n == 8 * 4, "muted: each row's TB-303 note in an engine, silent; the pad's notes ghosts (%d)", n);
+    player_voice_count(8);               /* (VOICES 8: 7 keys and the TB-303; an 8th key takes the TB-303's note, the
+                                          * quietest held, silent: cut at once, no fade rendered) */
+    for (int k = 0; k < 7; k++) player_key_on((uint8_t)(72 + k), KEYS_IN, 100);
+    to(11, 1);
+    pl_voice_t *v = lane_voice(0);
+    int tb_was = v && v->engine == EN_TB && v->place != PL_NO_ENG;
+    uint32_t b0 = eng_blocks();
+    player_key_on(80, KEYS_IN, 100);
+    blk(1);
+    n = 0;
+    for (int k = 0; k < (int)PL_NV; k++) n += pl_v[k].use != PV_FREE && pl_v[k].engine == EN_TB;
+    CHECK(tb_was && !n && eng_blocks() - b0 == 8u,
+          "... its note taken by a key: gone, no fade rendered (%u engine blocks)", eng_blocks() - b0);
+    player_keys_off();
+    player_voice_count(12);
+    player_stop();
+    blk(1);
+}
+/* DUCK's source (track 1, loop 01) muted keeps its engines and DUCK follows it; a change of the source acts as a mute
+ * on the old source's muted notes and an unmute on the new one's muted ghosts; DUCK off, a mute again */
+static void t_mute_duck(void)
+{
+    fresh();
+    pad_found();
+    for (int i = 0; i < 3; i++) {
+        loop_of(pad_in.cart, pad_in.slot);
+        for (int l = 0; l < 4; l++) note_at(i, 0, l, 48 + 12 * i + 3 * l);
+    }
+    loops_play(0);
+    blk(2);
+    fx_cmd(0xAA, 1);                     /* (DUCK's SOURCE track 01, DEPTH 100, on) */
+    fx_cmd(0xAB, 100);
+    fx_cmd(0xAE, FX_DUCK);
+    blk(8);
+    player_lp_mutes(2, 0);
+    blk(8);
+    pl_voice_t *v = lane_voice(4);
+    CHECK(lanes_n(4, 7, 0) == 4 && v && v->m_last == 0 && player_duck_env() > 0,
+          "DUCK's source muted: its notes keep their engines, silent, DUCK following them (%d)",
+          (int)player_duck_env());
+    fx_cmd(0xAA, 2);
+    blk(1);
+    CHECK(lanes_n(4, 7, 1) == 4 && lanes_n(8, 11, 0) == 4, "the source now loop 02: loop 01's muted notes ghosts");
+    player_lp_mutes(6, 0);
+    blk(2);
+    CHECK(lanes_n(4, 7, 1) == 4 && lanes_n(8, 11, 0) == 4, "loop 02 muted too: the source's notes keep their engines");
+    fx_cmd(0xAA, 1);
+    blk(2);
+    CHECK(lanes_n(4, 7, 0) == 4 && lanes_n(8, 11, 1) == 4,
+          "the source loop 01 again: its ghosts back, loop 02's ghosts");
+    player_fx_bypass(1);                 /* (BYPASS: no DUCK in force, no source) */
+    blk(2);
+    CHECK(lanes_n(4, 7, 1) == 4 && lanes_n(8, 11, 1) == 4, "BYPASS: no source, loop 01's muted notes ghosts too");
+    player_fx_bypass(0);
+    blk(2);
+    CHECK(lanes_n(4, 7, 0) == 4 && lanes_n(8, 11, 1) == 4, "BYPASS off: the source's ghosts back");
+    fx_cmd(0xAF, FX_DUCK);
+    blk(1);
+    CHECK(lanes_n(4, 11, 1) == 8 && lanes_n(0, 3, 0) == 4, "DUCK off: the muted loops' notes all ghosts");
+    player_stop();
+    blk(1);
+}
+/* a mute and a take at the same bar line: VOICES 8, loop 00 a quiet chord of 4 from row 4, loop 01 a loud one from row
+ * 8, both held across the bar line (the 8 engines full); loop 01 muted at the bar line, and a note asked for on loop 02
+ * at row 0. The note takes one of loop 01's (muted now: silent, though its last block was heard), never loop 00's heard
+ * ones (which would fade out, and back in a block on) */
+static void t_mute_bar_take(void)
+{
+    fresh();
+    pad_found();
+    for (int i = 0; i < 3; i++) loop_of(pad_in.cart, pad_in.slot);
+    for (int l = 0; l < 4; l++) put(0, 4, l, cell(48 + 3 * l, 0x10));
+    for (int l = 0; l < 4; l++) note_at(1, 8, l, 60 + 3 * l);
+    player_voice_count(8);
+    blk(1);
+    loops_play(0);
+    to(12, 1);
+    int p0 = lane_voice(0) ? lane_voice(0)->peak : -1, p1 = lane_voice(4) ? lane_voice(4)->peak : -1;
+    CHECK(lanes_n(0, 7, 0) == 8 && p0 > 0 && p0 < p1, "8 notes in the 8 engines, loop 00's quieter (peaks %d, %d)", p0,
+          p1);
+    player_lp_mutes_at_bar(2, 0, 16);
+    player_lp_note(2, 0, 72, 0x7F, 0, 0, 0);
+    to(0, 0);
+    int taken = lanes_n(0, 3, 1);
+    blk(1);
+    int back = 0;
+    for (int l = 0; l < 4; l++) back += lane_voice(l) && lane_voice(l)->back > 0;
+    CHECK(!taken && !back && lanes_n(0, 3, 0) == 4 && lanes_n(8, 8, 0) == 1 && lanes_n(4, 7, 1) == 4,
+          "the bar line: loop 02's note took a muted note's engine; loop 00's untouched (%d taken, %d back)", taken,
+          back);
+    player_stop();
+    blk(1);
+}
+/* a FUSION note with tick commands (a songs' FUSION note's runner, pl_sf: its layers started by pl_kl_start) on the
+ * stage's column of a muted loop: its layers in engines from their first block, no fade in (never ghosts) */
+static void t_mute_fusion_column(void)
+{
+    int found = -1;
+    for (int s = 0; s < 5 && found < 0; s++) {   /* (the demo disk's FUSION instrument whose row runs so) */
+        fresh();
+        fusion_from_disk();
+        loop_of(0xA5, (uint8_t)s);
+        note_at(0, 0, 0, 60);
+        loops_play(0);
+        to(0, 2);
+        for (int f = 0; f < (int)PL_SF; f++) found = pl_sf[f].on && pl_sf[f].lane == 0 ? s : found;
+        player_stop();
+        blk(1);
+    }
+    CHECK(found >= 0, "a FUSION instrument of A5 whose row runs with tick commands (A5:%02X)", found);
+    fresh();
+    fusion_from_disk();
+    loop_of(0xF0, 0);
+    note_at(0, 0, 0, 48);
+    stage_begin();
+    stage_cell(1, 0, cell(60, 0x7F), 0);
+    stage_put();
+    pl_lp_stage_t st = {{0xA5, (uint8_t)found}, 0, 0, 0, 0};   /* (the stage on loop 00's track, that FUSION) */
+    player_lp_stage(&st);
+    loops_play(0);
+    player_lp_mutes(1, 0);
+    to(0, 3);
+    int seen = 0, ok = 0, runner = 0;
+    for (int b = 0; b < 400 && !seen; b++) {
+        blk(1);
+        for (int k = 0; k < (int)PL_NV; k++)
+            if (pl_v[k].use == PV_SONG && pl_v[k].lc == PL_LC_STAGE) {
+                seen++;
+                ok += pl_v[k].place != PL_NO_ENG && !pl_v[k].back;
+            }
+    }
+    for (int f = 0; f < (int)PL_SF; f++) runner |= pl_sf[f].on && pl_sf[f].lane == PL_LPS;
+    CHECK(runner && seen > 0 && ok == seen,
+          "loop 00 muted: the stage's FUSION runner's layers in engines from their first block, no fade in (%d of %d)",
+          ok, seen);
+    player_stop();
+    blk(1);
+}
+
+/* section 2's rule on the lanes' ghosts (specs/proposals/202611121830-ghost-notes.md): the keys holding every engine
+ * (VOICES 8), MONO loops: loop 00 a JUNO-106 note and LEG at row 1, loop 01 a DX7 note and a 3xx glide at row 1, both
+ * ghosts from their start; LEG moves loop 00's ghost there at once (its pitch, its JUNO-106 key), the glide loop 01's a
+ * tick at a time, as on sounding lanes; the keys let go, both back at their pitch and key. A ghost let go whose note
+ * count is the lane's again (a lane's wraps every 32 notes) is no lane's note now: LEG and the glide pass it by. A
+ * stage's held note taken by the keys (a held ghost) goes on as the loop's at REC's hand-over (MOVE), back as the
+ * loop's */
+static void t_lane_ghosts(void)
+{
+    fresh();
+    loops_set_keys_mono(1);
+    loop_of(0xF8, 0);
+    note_at(0, 0, 0, 60);
+    rec_cell_t c = cell(64, 0x7F);
+    cmd(&c, 0xD3, 0);
+    put(0, 1, 0, c);
+    loop_of(0xF0, 0);
+    note_at(1, 0, 0, 60);
+    rec_cell_t g3 = cell(64, 0x7F);
+    cmd(&g3, 0x03, 0x20);
+    put(1, 1, 0, g3);
+    player_voice_count(8);
+    for (int k = 0; k < 8; k++) player_key_on((uint8_t)(72 + k), KEYS_IN, 100);
+    blk(2);
+    loops_play(0);
+    to(0, 5);
+    pl_voice_t *a = lane_voice(0), *b = lane_voice(4);
+    CHECK(a && b && a->place == PL_NO_ENG && b->place == PL_NO_ENG && a->gh == GH_GHOST && b->gh == GH_GHOST,
+          "the keys holding every engine: loops 00's and 01's notes ghosts");
+    if (!a || !b) return;
+    to(1, 0);
+    CHECK(lane_voice(0) == a && a->held && a->note == 60 && a->bend == 256 && a->key == 64 && a->place == PL_NO_ENG,
+          "LEG on a lane's ghost: its pitch and key there at once (bend %d, key %d)", a->bend, a->key);
+    CHECK(lane_voice(4) == b && pl_ln[4].bend_to == 256 && b->bend == 0, "a 3xx glide on a lane's ghost: begun");
+    to(1, 1);
+    CHECK(b->bend == 128 && b->place == PL_NO_ENG, "... a tick on: 2 semitones (its bend %d)", b->bend);
+    to(1, 2);
+    CHECK(b->bend == 256 && b->place == PL_NO_ENG, "... there, a ghost still");
+    player_keys_off();
+    blk(4);
+    CHECK(a->place != PL_NO_ENG && PL_E(a)->u.ju.pitch88 == 64 << 8 && PL_E(a)->u.ju.bend == 256 * 21845 + 256 / 3 &&
+          b->place != PL_NO_ENG && PL_E(b)->u.dx.bend == 256 * 21845 + 256 / 3,
+          "the keys let go: both back at their pitch and key");
+    pl_voice_t *h = pl_v_spare();        /* (a ghost let go of lane 0, its note count the lane's now: as 32 notes on) */
+    *h = *a;
+    h->age = ++pl_age;                   /* (an age of its own, as every voice's) */
+    h->place = PL_NO_ENG;
+    h->held = 0;
+    h->back = 0;
+    h->bend = 0;
+    h->key = 60;
+    h->t_off = pl_blk;
+    h->t_end = pl_blk + PL_GH_KEEP;
+    pl_gh_add(h);
+    pl_use(1);
+    int leg = pl_ln_leg(0, *pl_ln_in(0), 67, -1);
+    pl_ln[0].bend_to = 0;                /* (and a glide back from there) */
+    pl_ln[0].glide = 0x40;
+    pl_ln_glide(0);
+    pl_use(0);
+    CHECK(leg && a->bend == 7 * 64 - 0x40 * 4 && h->bend == 0 && h->key == 60, "LEG and a glide pass by a ghost let go "
+          "whose note count came round (the lane's note %d, the ghost's %d)", a->bend, h->bend);
+    pl_v_free(h);
+    player_stop();
+    blk(1);
+    fresh();                             /* MOVE: the stage's held note a ghost, handed over by REC */
+    loop_of(0xF0, 3);
+    stage_begin();
+    stage_cell(1, 0, cell(60, 0x7F), 0);
+    stage_put();
+    stage_set(0, 1, 0xFF, 0);
+    player_voice_count(8);
+    loops_play(0);
+    to(1, 1);
+    for (int k = 0; k < 8; k++) player_key_on((uint8_t)(48 + k), KEYS_IN, 100);
+    blk(2);
+    pl_voice_t *s = 0;
+    for (int k = 0; k < (int)PL_NV; k++)
+        if (pl_v[k].use == PV_SONG && pl_v[k].gh == GH_GHOST && pl_v[k].held && pl_v[k].who == pl_ln_who(PL_LPS))
+            s = &pl_v[k];
+    CHECK(s != 0, "a stage's held note taken by the keys: a held ghost");
+    if (!s) return;
+    player_lp_stage_end(0);
+    blk(1);
+    CHECK(s->gh == GH_GHOST && s->held && s->who == pl_ln_who(0) && s->lc == PL_LC_NONE && pl_ln_mine(s, 0, pl_ln[0].gen),
+          "MOVE (REC's hand-over): the held ghost goes on as loop 00's lane 0's");
+    player_keys_off();
+    blk(4);
+    CHECK(s->place != PL_NO_ENG && s->held && s->who == pl_ln_who(0), "... the keys let go: back as the loop's");
+    player_stop();
+    player_voice_count(12);
+    blk(1);
+}
+/* the list full of a solo's ghosts when it ends (section 3): VOICES 8, eight POLY loops of a JUNO-106 pad chord of four
+ * held (32 notes: 8 sound, 24 ghosts, the list full); loop 07 soloed: every other loop's notes ghosts, the 4 past the 24
+ * lost (counted; which go is the list full's rule, tested in voices_test), loop 07's in engines; the solo ended: none
+ * lost then, 4 back in the block (the engines free), the rest waiting, held ghosts */
+static void t_solo_full(void)
+{
+    fresh();
+    CHECK(pad_found(), "a JUNO-106 pad among the built-in ones");
+    for (int i = 0; i < 8; i++) {
+        loop_of(pad_in.cart, pad_in.slot);
+        for (int l = 0; l < 4; l++) note_at(i, 0, l, 36 + 5 * i + l);
+    }
+    player_voice_count(8);
+    blk(1);
+    loops_play(0);
+    blk(4);
+    int held0 = held_n(0, 31);
+    CHECK(held0 == 32 && state().voices == 8 && pl_gn == 24, "32 notes at VOICES 8: 8 heard, 24 ghosts (%d %d %d)", held0,
+          state().voices, (int)pl_gn);
+    player_lp_mutes(0, 0x80);
+    blk(2);
+    int held1 = held_n(0, 31);
+    CHECK(pl_gn == 24 && lanes_n(28, 31, 0) == 4 && held1 == 28, "loop 07 soloed: its notes heard, the others' ghosts, "
+          "the list full, 4 past it lost (%d held, %d ghosts)", held1, (int)pl_gn);
+    player_lp_mutes(0, 0);
+    blk(1);
+    CHECK(held_n(0, 31) == 28 && pl_gn == 20 && state().voices == 8, "the solo ended: none lost then, 4 back in the "
+          "engines free (%d held, %d ghosts)", held_n(0, 31), (int)pl_gn);
+    player_stop();
+    player_voice_count(12);
     blk(1);
 }
 
@@ -615,6 +1096,74 @@ static void t_shift(void)
     blk(1);
 }
 
+/* CUT (specs/ui/screens/loops.md#cut): the loops' rows from their start, across the length's end, go round a cut loop's
+ * cut, so it drifts against the length; at each it plays what it plays at that row uncut (SHIFT turning its notes under
+ * the window); a note sounding over its wrap ends there; its notes past the mark unheard; PLAY from the start plays the
+ * same again; the stage over it (its track's) wraps there too */
+static void t_cut(void)
+{
+    fresh();
+    loop_of(0xF0, 0);
+    loop_of(0xF0, 1);
+    note_at(0, 0, 0, 67);
+    note_at(0, 2, 0, 62);
+    note_at(0, 4, 0, 60);                /* (past the mark at 3: unheard) */
+    note_at(1, 1, 0, 64);                /* (cut at 3: its note held over rows 1-2, ended at its wrap) */
+    CHECK(loops_set_cut(0, 3) == LP_OK && loops_set_cut(1, 3) == LP_OK, "cuts at 3 (a bar of 16 rows)");
+    loops_play(0);
+    to(2, 3);
+    CHECK(held_of(4), "row 2: loop 1's note from row 1 held");
+    to(3, 1);
+    CHECK(!held_of(4), "... ended at its wrap (row 3)");
+    to(15, 5);
+    CHECK(ev_at(0, 0, 0) == 67 && ev_at(0, 0, 3) == 67 && ev_at(0, 0, 15) == 67 && ev_at(0, 0, 2) == 62 && ev_at(0, 0, 14) == 62 &&
+          !ev_at(0, 0, 4) && count(0) == 11, "pass 0: its rows 0 and 2 round the cut (0, 3 ... 15 and 2, 5 ... 14), its note at 4 unheard");
+    to_pass(1, 15, 5);
+    CHECK(ev_at(0, 1, 2) == 67 && ev_at(0, 1, 1) == 62 && !ev_at(0, 1, 0), "pass 1: it runs on across the length's end (its row 0 at "
+          "row 2, its row 2 at 1): drifting");
+    player_stop();
+    blk(1);
+    nev = 0;
+    loops_play(0);
+    to(3, 1);
+    CHECK(ev_at(0, 0, 0) == 67 && ev_at(0, 0, 3) == 67, "PLAY from the start: the same again");
+    player_stop();
+    blk(1);
+    /* SHIFT on a cut loop: the window stays, its notes turn under it */
+    nev = 0;
+    CHECK(loops_set_shift(0, 1) == LP_OK && loops_cut(0) == 3, "(SHIFT 1: the cut kept)");
+    loops_play(0);
+    blk(2);
+    to(7, 1);
+    CHECK(ev_at(0, 0, 1) == 67 && ev_at(0, 0, 4) == 67 && ev_at(0, 0, 7) == 67 && count(0) == 3,
+          "SHIFT 1: the window's rows play the loop's 15, 0, 1: its note at 0 at rows 1, 4, 7; its note at 2 out of the window");
+    player_stop();
+    blk(1);
+    /* the stage over a cut loop wraps at its mark */
+    nev = 0;
+    stage_begin();
+    stage_cell(0, 0, cell(72, 0x7F), 1);
+    stage_cell(5, 0, cell(74, 0x7F), 1);                 /* (past the mark: unheard) */
+    stage_put();
+    stage_set(0, 0, 0, 0);
+    loops_play(0);
+    blk(2);
+    to(7, 1);
+    CHECK(ev_at(PL_LPS, 0, 0) == 72 && ev_at(PL_LPS, 0, 3) == 72 && ev_at(PL_LPS, 0, 6) == 72 && !ev_at(PL_LPS, 0, 5),
+          "the stage over loop 0 (cut 3): its row 0 at 0, 3, 6; its row 5 unheard");
+    player_stop();
+    blk(1);
+    stage_set(0, 2, 0xFF, 0);
+    nev = 0;
+    loops_play(0);
+    blk(2);
+    to(7, 1);
+    CHECK(ev_at(PL_LPS, 0, 0) == 72 && ev_at(PL_LPS, 0, 5) == 74 && !ev_at(PL_LPS, 0, 3), "... over + NEW LOOP: the length's rows, as ever");
+    player_stop();
+    blk(1);
+    store_stage_drop();
+}
+
 /* the length goes round with no loops (specs/ui/screens/loops.md#the-length: PLAY plays the loops with none) */
 static void t_clock(void)
 {
@@ -675,6 +1224,101 @@ static void t_once(void)
           !ev_at(PL_LPT + 1, 1, 5) && !ev_at(PL_LPT + 2, 1, 7), "the next pass: all three from the stage");
     player_stop();
     blk(1);
+}
+
+/* the stage's keys heard at once (PL_LP_NOW, specs/ui/screens/loops.md#the-stage: each key sounds at its press): a note
+ * landing on a row ahead heard now, standing in for its cell there that once (neither the stage's lane nor the keys'
+ * starts it there), then from the stage the next pass; a quick tap let go before its row heard short, nothing at its row,
+ * the next pass from the stage; a jump forward passing over its row drops it silently, a jump back keeps it; MONO's merge
+ * stood in for alike, LEG at once on the note sounding */
+static void t_now(void)
+{
+    fresh();
+    loop_of(0xF0, 0);                    /* (16 rows) */
+    stage_set(0, 1, 0xFF, 0);
+    stage_begin();
+    stage_cell(5, 1, cell(64, 0x7F), 1); /* (as the screen writes it: the key at row 3 lands on row 5) */
+    stage_cell(12, 2, cell(67, 0x7F), 1);
+    stage_cell(13, 2, off_cell(), 1);
+    stage_put();
+    loops_play(0);
+    to(3, 2);
+    nev = 0;
+    player_lp_note(PL_LP_STAGE_KEYS, 1, 64, 0x7F, 5, 0, PL_LP_NOW);
+    blk(1);
+    CHECK(ev_at(PL_LPT + 1, 0, 3) == 64 && held_of(PL_LPT + 1), "a key at row 3 landing on row 5: heard at once, at row 3");
+    to(6, 1);
+    CHECK(count(PL_LPT + 1) == 1 && !ev_at(PL_LPS + 1, 0, 5) && held_of(PL_LPT + 1) && !pl_lpq_n,
+          "... not started again at row 5 (the stage's cell stood in for, the keys' lane's note going on)");
+    player_lp_off(PL_LP_STAGE_KEYS, 1, -1);
+    blk(1);
+    CHECK(!held_of(PL_LPT + 1), "... its release: ended at once");
+    to(10, 2);                           /* a quick tap at row 10 landing on row 12, let go at once */
+    player_lp_note(PL_LP_STAGE_KEYS, 2, 67, 0x7F, 12, 0, PL_LP_NOW);
+    blk(2);
+    CHECK(ev_at(PL_LPT + 2, 0, 10) == 67, "a quick tap at row 10 landing on row 12: heard at once");
+    player_lp_off(PL_LP_STAGE_KEYS, 2, -1);
+    blk(1);
+    CHECK(!held_of(PL_LPT + 2), "... let go before its row: ended at once, heard short");
+    to(14, 0);
+    CHECK(!ev_at(PL_LPS + 2, 0, 12) && count(PL_LPT + 2) == 1, "... nothing at row 12 that pass (stood in for)");
+    to_pass(1, 14, 0);
+    CHECK(ev_at(PL_LPS + 1, 1, 5) == 64 && ev_at(PL_LPS + 2, 1, 12) == 67 && count(PL_LPT + 1) == 1 && count(PL_LPT + 2) == 1,
+          "the next pass: both from the stage, at their rows (5, 12)");
+    player_stop();
+    blk(1);
+    /* jumps: forward over its row, dropped without a sound; back, kept for its row */
+    fresh();
+    loop_of(0xF0, 0);
+    stage_set(0, 1, 0xFF, 0);
+    stage_begin();
+    stage_cell(3, 0, cell(60, 0x7F), 1);
+    stage_cell(8, 1, cell(62, 0x7F), 1);
+    stage_put();
+    loops_play(0);
+    to(1, 2);
+    nev = 0;
+    player_lp_note(PL_LP_STAGE_KEYS, 0, 60, 0x7F, 3, 0, PL_LP_NOW);
+    player_lp_jump(4);                   /* (the next row 2 + 4: row 6, row 3 passed over) */
+    to(7, 0);
+    CHECK(ev_at(PL_LPT, 0, 1) == 60 && count(PL_LPT) == 1 && !count(PL_LPS) && !pl_lpq_n,
+          "a jump forward over its row (3): heard at once only, its stand-in dropped without a sound");
+    player_lp_off(PL_LP_STAGE_KEYS, 0, -1);
+    nev = 0;
+    player_lp_note(PL_LP_STAGE_KEYS, 1, 62, 0x7F, 8, 0, PL_LP_NOW);
+    player_lp_jump(-4);                  /* (the next row 8 - 4: row 4, the same pass) */
+    to(9, 1);
+    CHECK(ev_at(PL_LPT + 1, 0, 7) == 62 && count(PL_LPT + 1) == 1 && !ev_at(PL_LPS + 1, 0, 8) && !pl_lpq_n && pl_lp_pass == 0,
+          "a jump back before its row (8): kept, the stage's cell stood in for there");
+    player_lp_off(PL_LP_STAGE_KEYS, 1, -1);
+    player_stop();
+    blk(1);
+    /* MONO: the merge's cell stood in for alike; LEG at once on the note the keys' lane holds */
+    fresh();
+    loops_set_rows(16);
+    stage_set(1, 0, 0xFF, 0);
+    stage_begin();
+    stage_cell(2, 0, cell(60, 0x7F), 1);
+    stage_cell(4, 0, cell(64, 0x7F), 1);
+    stage_put();
+    loops_play(0);
+    to(1, 2);
+    nev = 0;
+    player_lp_note(PL_LP_STAGE_KEYS, 0, 60, 0x7F, 2, 0, PL_LP_NOW);
+    to(3, 1);
+    player_lp_note(PL_LP_STAGE_KEYS, 0, 64, 0x7F, 4, 0, PL_LP_LEG | PL_LP_NOW);
+    blk(1);
+    pl_voice_t *v = lane_voice(PL_LPT);
+    CHECK(ev_at(PL_LPT, 0, 1) == 60 && ev_at(PL_LPT, 0, 3) == 64 && pl_ln[PL_LPT].note == 64 && held_n(PL_LPT, PL_LPT) == 1 &&
+          v && v->held, "MONO: a key at once, LEG over it at once: the one voice held moves to its note");
+    to(6, 0);
+    CHECK(!count(PL_LPS) && count(PL_LPT) == 2 && !pl_lpq_n, "... neither started again by the stage (rows 2, 4: stood in for)");
+    player_lp_off(PL_LP_STAGE_KEYS, 0, -1);
+    to_pass(1, 5, 0);
+    CHECK(ev_at(PL_LPS, 1, 2) == 60 && ev_at(PL_LPS, 1, 4) == 64, "... the next pass: from the stage");
+    player_stop();
+    blk(1);
+    store_stage_drop();
 }
 
 /* the lanes held (player_lp_hold, specs/ui/screens/loops.md#the-stage): from their row only those lanes are not read and
@@ -908,17 +1552,23 @@ static void t_column(void)
     stage_cell(1, 0, cell(60, 0x7F), 0);
     stage_put();
     stage_set(0, 0, 0, 0);               /* (loop 00 selected: silent, the stage in its place) */
-    player_lp_mutes(1, 0);               /* (loop 00 muted) */
     loops_play(0);
-    to(2, 2);
+    player_lp_mutes(1, 0);               /* (loop 00 muted: after the start, which sends the loops' own mutes) */
+    to(1, 0);
     pl_voice_t *v = lane_voice(PL_LPS);
-    CHECK(v && v->who == 16 && v->m_last == 4096, "loop 00 muted: the stage on its track heard");
+    CHECK(v && v->place != PL_NO_ENG && !v->back,
+          "loop 00 muted: the stage's note in an engine from its first block, no fade in (never a ghost)");
+    to(2, 2);
+    v = lane_voice(PL_LPS);
+    CHECK(v && v->who == 16 && v->m_last == 4096 && v->place != PL_NO_ENG,
+          "loop 00 muted: the stage on its track heard (no ghost)");
     player_lp_mutes(0, 2);               /* (loop 01 soloed) */
     blk(2);
-    CHECK(v->m_last == 4096 && lane_voice(4) && lane_voice(4)->m_last == 4096, "loop 01 soloed: the stage still heard");
+    CHECK(v->m_last == 4096 && v->place != PL_NO_ENG && lane_voice(4) && lane_voice(4)->m_last == 4096,
+          "loop 01 soloed: the stage still heard");
     stage_set(0, 2, 0xFF, 0);            /* (+ NEW LOOP: track 18, silenced by the solo) */
     blk(2);
-    CHECK(v->who == 18 && v->held && v->m_last == 4096 && v->pan == pl_ctxs[1].ch[2].pan,
+    CHECK(v->who == 18 && v->held && v->m_last == 4096 && v->place != PL_NO_ENG && v->pan == pl_ctxs[1].ch[2].pan,
           "a new track: its sounding note there at once (track 18), heard");
     pl_lp_grid_t g;
     memset(&g, 0, sizeof g);
@@ -932,13 +1582,15 @@ static void t_column(void)
     player_lp_preview(&g);
     to(4, 2);
     pl_voice_t *p = lane_voice(4 * PL_LPV);
-    CHECK(p && p->who == 16 && p->lc == PL_LC_PREVIEW && p->m_last == 4096, "the preview on loop 00's muted track: heard");
+    CHECK(p && p->who == 16 && p->lc == PL_LC_PREVIEW && p->m_last == 4096 && p->place != PL_NO_ENG,
+          "the preview on loop 00's muted track: heard");
     player_lp_preview(0);
     player_hear(74, KEYS_IN, 0x7F, 0);
-    blk(2);
+    blk(1);
     int heard = 0;
     for (int k = 0; k < (int)PL_NV; k++)
-        heard |= pl_v[k].held && pl_v[k].lc == PL_LC_HEAR && pl_v[k].who == 16 && pl_v[k].m_last == 4096;
+        heard |= pl_v[k].held && pl_v[k].lc == PL_LC_HEAR && pl_v[k].who == 16 && pl_v[k].m_last == 4096 &&
+                 pl_v[k].place != PL_NO_ENG && !pl_v[k].back;
     CHECK(heard, "a note heard on its own (player_hear) on the muted track: heard");
     player_hear(0, KEYS_IN, 0, 0);
     player_stop();
@@ -1020,7 +1672,7 @@ static void t_off_keys(void)
 }
 
 /* a song's note taking the voice of a stage's note still sounding (VOICES 8, the keys holding the other 7): the
- * song's own, the stage's mark gone, so its muted track keeps it silent */
+ * song's own, the stage's mark gone, so its track's mute makes it a ghost */
 static uint8_t st_pat[16], st_song[95];
 static void t_steal(void)
 {
@@ -1062,13 +1714,14 @@ static void t_steal(void)
     blk(1);
     for (int i = 0; i < 8; i++) n += pl_v[i].use != PV_FREE;
     CHECK(v && v->lc == PL_LC_STAGE && k < 8 && n == 8, "VOICES 8: the stage's note (voice %d) and 7 keys", k);
-    player_mutes(1);                     /* (the song's track 0 muted) */
     player_play_song(0x40, 0, 0);
     blk(1);
     CHECK(k >= 0 && pl_v[k].use == PV_SONG && pl_v[k].who == 0 && pl_v[k].held && pl_v[k].lc == PL_LC_NONE,
           "the song's note in the stage's voice: the song's own, no stage mark");
+    player_mutes(1);                     /* (the song's track 0 muted) */
     blk(2);
-    CHECK(k >= 0 && pl_v[k].m_last == 0, "... its muted track silent");
+    CHECK(k >= 0 && pl_v[k].m_last == 0 && pl_v[k].held && pl_v[k].place == PL_NO_ENG && pl_v[k].gh == GH_GHOST,
+          "... its track muted: a ghost, silent");
     for (int i = 0; i < 7; i++) player_key_off((uint8_t)(72 + i));
     player_stop();
     player_mutes(0);
@@ -1145,6 +1798,34 @@ static void t_hand(void)
     CHECK(held_of(PL_LPS), "a new stage's note held");
     CHECK(store_stage_drop() == STORE_OK, "dropped");
     CHECK(!held_of(PL_LPS) && !pl_lps.cur.s, "... its note stops at once, the stage unread");
+    player_stop();
+    blk(1);
+}
+
+/* a note moving into a muted loop: REC hands the stage's held note (heard: the stage's column) over to loop 01, muted;
+ * a block on it goes on as that loop's note, a ghost, its engine free */
+static void t_hand_muted(void)
+{
+    fresh();
+    loop_of(0xF0, 0);
+    note_at(0, 0, 0, 48);
+    stage_begin();
+    stage_cell(2, 1, cell(64, 0x7F), 1);
+    stage_put();
+    stage_set(0, 1, 0xFF, 0);            /* (+ NEW LOOP) */
+    loops_play(0);
+    to(5, 0);
+    pl_voice_t *v = lane_voice(PL_LPS + 1);
+    CHECK(v && v->held && v->who == 17 && v->place != PL_NO_ENG, "the stage's note held at row 5, on track 17, heard");
+    uint32_t len;
+    const uint8_t *s = store_stage(&len);
+    CHECK(loops_stage_write(1, s, len, KEYS_IN.cart, KEYS_IN.slot, 0) == 1 && loops_set_muted(1, 1) == LP_OK,
+          "REC: the stage as loop 01, muted");
+    loops_changed(0);
+    stage_set(0, 2, 0xFF, 0);
+    blk(2);
+    CHECK(v->held && v->who == 17 && v->lc == PL_LC_NONE && v->place == PL_NO_ENG && v->gh == GH_GHOST &&
+          state().muted == 2, "... its note goes on as muted loop 01's: a ghost");
     player_stop();
     blk(1);
 }
@@ -1412,8 +2093,9 @@ static void t_tap(void)
     blk(1);
     n = tap_read();
     CHECK(n == 2 && tgot[0].note == PT_OFF && tgot[1].note == PT_OFF, "... their ends");
-    /* a key on any screen (a key's own lane), a FUSION-free note here; VOICES 8: 8 notes told, a 9th takes a voice: told lost,
-     * then the note; the note let go: the parked one back, nothing told; a parked one's own end ends nothing heard */
+    /* a key on any screen (a key's own lane), a FUSION-free note here; VOICES 8: 8 notes told, a 9th takes an engine: told
+     * lost, then the note; the note let go: the ghost back at once into its tail's engine (none free), nothing told; a
+     * ghost's own end ends nothing heard */
     player_stop();
     blk(2);
     fresh();
@@ -1434,11 +2116,18 @@ static void t_tap(void)
     CHECK(lost >= 0 && lost < 8 && tgot[1].note == 70 && tgot[1].lane == PL_LPO + 8, "... a ninth takes a voice: the note taken told lost "
           "(lane %d), then the new one (%d events)", lost, n);
     blk(8);
-    CHECK(pl_parks && state().parked == 1, "... the note taken parked");
+    CHECK(pl_steals && state().ghosts == 1, "... the note taken a ghost");
+    int c9 = -1, gv = -1, nb = 0;
+    for (int k = 0; k < (int)PL_NV; k++) {
+        if (pl_v[k].use == PV_SONG && pl_v[k].lc == PL_LC_OKEYS + 8 && pl_v[k].place != PL_NO_ENG) c9 = pl_v[k].place;
+        if (pl_v[k].use == PV_SONG && pl_v[k].lc == PL_LC_OKEYS + lost && pl_v[k].gh == GH_GHOST) gv = k;
+    }
     player_lp_off(PL_LP_STAGE_KEYS, 4 + 8, -1);
     n = 0;
-    for (int k = 0; k < 600 && state().parked; k++) { blk(1); n += tap_read(); }
-    CHECK(n == 1 && !state().parked && held_of((int)PL_LPO + lost), "... a voice free: the parked note back, nothing told but the ninth's end (%d events)", n);
+    for (int k = 0; k < 600 && state().ghosts; k++) { blk(1); n += tap_read(); nb++; }
+    CHECK(n == 1 && !state().ghosts && held_of((int)PL_LPO + lost) && gv >= 0 && c9 >= 0 && pl_v[gv].place == c9 && nb <= 2,
+          "... the ninth let go: the ghost back in its tail's engine at once, nothing told but the ninth's end (%d events, %d "
+          "blocks)", n, nb);
     player_lp_off(PL_LP_STAGE_KEYS, 4 + lost, -1);
     blk(1);
     n = tap_read();
@@ -1446,7 +2135,7 @@ static void t_tap(void)
     for (int k = 0; k < 8; k++) player_lp_off(PL_LP_STAGE_KEYS, 4 + k, -1);
     blk(400);
     tap_read();
-    /* a smaller count parks a note: told lost */
+    /* a smaller count makes a note a ghost: told lost */
     for (int k = 0; k < 8; k++) player_lp_note(PL_LP_STAGE_KEYS, 4 + k, (uint8_t)(60 + k), 0x7F, -1, 0, 0);
     blk(2);
     tap_read();
@@ -1458,7 +2147,7 @@ static void t_tap(void)
     for (int k = 0; k < 8; k++) player_lp_off(PL_LP_STAGE_KEYS, 4 + k, -1);
     blk(400);
     tap_read();
-    /* the keys hold every voice: a lane's note starts parked, given no voice: not told; a key's on and off told */
+    /* the keys hold every engine: a lane's note starts as a ghost, given no engine: not told; a key's on and off told */
     for (int k = 0; k < 8; k++) player_key_on((uint8_t)(60 + k), KEYS_IN, 100);
     blk(2);
     n = tap_read();
@@ -1493,6 +2182,32 @@ static void t_tap(void)
     player_stop();
     blk(1);
     player_tap(0, 0);
+    /* a stage's note taken by the keys (VOICES 8), let go while a ghost, goes on as the loop's at REC's hand-over as its
+     * tail in an engine would: its return on the loop's track */
+    fresh();
+    loop_of(0xF0, 3);                    /* (a sustaining sound) */
+    stage_begin();
+    stage_cell(1, 0, cell(60, 0x7F), 0);
+    stage_cell(3, 0, off_cell(), 0);
+    stage_put();
+    stage_set(0, 1, 0xFF, 0);
+    player_voice_count(8);
+    loops_play(0);
+    to(1, 1);
+    for (int k = 0; k < 8; k++) player_key_on((uint8_t)(48 + k), KEYS_IN, 100);
+    to(3, 1);
+    pl_voice_t *g = 0;
+    for (int k = 0; k < (int)PL_NV; k++)
+        if (pl_v[k].use == PV_SONG && pl_v[k].gh == GH_GHOST && !pl_v[k].held && pl_v[k].who == pl_ln_who(PL_LPS))
+            g = &pl_v[k];
+    CHECK(g != 0, "... a stage's note taken by the keys, let go while a ghost");
+    player_lp_stage_end(0);
+    blk(1);
+    CHECK(g && g->gh == GH_GHOST && g->who == pl_ln_who(0) && pl_ln_of(g, 0, pl_ln[0].gen), "... REC's hand-over: the ghost "
+          "moved to the loop's lane with it");
+    player_keys_off();
+    player_stop();
+    blk(1);
 }
 
 int main(void)
@@ -1504,13 +2219,24 @@ int main(void)
     t_ticks();
     t_tb303();
     t_glide();
+    t_vol_glide();
+    t_fusion_vol();
     t_legato();
     t_fusion();
     t_mutes();
+    RULES(t_mute_ghosts());
+    t_mute_tb();
+    RULES(t_mute_duck());
+    t_mute_bar_take();
+    t_mute_fusion_column();
+    RULES(t_lane_ghosts());
+    RULES(t_solo_full());
     t_requests();
     t_shift();
+    t_cut();
     t_clock();
     t_once();
+    t_now();
     t_held();
     t_jump();
     t_length();
@@ -1520,9 +2246,10 @@ int main(void)
     t_steal();
     t_silent();
     t_hand();
+    t_hand_muted();
     t_preview();
     t_edits();
-    t_tap();
+    RULES(t_tap());
     printf("lanes: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }

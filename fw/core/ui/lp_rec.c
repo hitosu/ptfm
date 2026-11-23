@@ -166,11 +166,11 @@ static uint32_t make(uint8_t *buf, uint32_t max)
  * was; nothing playing: nothing starts). No step on, or the stage refusing it: refused, nothing changed */
 static int write(void)
 {
-    if (!lanes()) { ui_refuse(B_REC); ui_toast(T("NO STEPS ON")); return 0; }
+    if (!lanes()) { ui_refuse_t(B_REC, TX("NO STEPS ON")); return 0; }
     int heard = lp_playing_here() || alone();
     if (lp_stage_from(make, lp_rec_inst(), lanes() > 1)) return 0;
     if (heard) player_lp_preview_keep();
-    ui_toast(T("PATTERN ON THE STAGE"));
+    ui_toast_t(TX("PATTERN ON THE STAGE"));
     return 1;
 }
 
@@ -230,7 +230,7 @@ static int rec_tap(ui_overlay_t *o, int b)
         ui_cur.octave = (int8_t)(ui_cur.octave + d);
         set_note(n);
         ui_note_name(nm, n);
-        ui_toast(ui_txt_v(T("NOTE #"), nm));
+        ui_toast(ui_txt_t(TX("NOTE #"), nm));
     } else if (b == B_SAVE) return 0;                   /* (SAVE as everywhere) */
     return 1;
 }
@@ -298,9 +298,8 @@ static int sx(int k) { return 30 + 12 * k + 2 * (k / 4); }   /* step k's x */
 /* what it makes: its whole repeats x its steps (+ the cut one's) = the length, and its lanes */
 void lp_rec_makes(char *dst, int max)
 {
-    char ln[12];
     int b = lp_pr.len, k = lanes(), len = loops_rows(), whole = len / b, rest = len % b;
-    ui_fmt(ln, sizeof ln, "%s", k == 1 ? T("1 LANE") : ui_txt_v(T("# LANES"), ui_dec(k)));
+    const char *ln = k == 1 ? T("1 LANE") : ui_txt_d(TX("# LANES"), k);   /* (its format's text one more: a buffer apart) */
     if (rest) ui_fmt(dst, max, T("%d X %d + %d = %d ROWS, %s"), whole, b, rest, len, ln);
     else ui_fmt(dst, max, T("%d X %d = %d ROWS, %s"), whole, b, len, ln);
 }
@@ -329,12 +328,13 @@ static void rec_draw(ui_overlay_t *o)
     }
     for (int i = 0; i < 4; i++) {
         int y = 140 + 12 * i;
-        if (i == 0) ui_fmt(b, sizeof b, "%s", T(NL[lp_pr.nlen].name));
-        else if (i == 1) ui_fmt(b, sizeof b, "%s", ui_txt_v(T("# STEPS"), ui_dec(lp_pr.len)));
+        const char *v = b;              /* (the value: a text or the note, drawn after its name's: a buffer apart) */
+        if (i == 0) v = T(NL[lp_pr.nlen].name);
+        else if (i == 1) v = ui_txt_d(TX("# STEPS"), lp_pr.len);
         else if (i == 2) ui_note_name(b, note_of(lp_pr.sel));
-        else ui_fmt(b, sizeof b, "%s", ui_txt_v(T("OVER #"), lp_len_text(loops_rows())));
+        else v = ui_txt_t(TX("OVER #"), lp_len_text(loops_rows()));
         g_text(12, y, &FONT_T, T(NAMES[i]), i == 3 ? C_DGREY : C_CYAN);   /* (REPEATS: no knob, told dim) */
-        g_text(228 - g_tw(&FONT_T, b), y, &FONT_T, b, i == 3 ? C_DGREY : i == 2 ? C_WHITE : C_LGREY);
+        g_text_r(228, y, &FONT_T, v, i == 3 ? C_DGREY : i == 2 ? C_WHITE : C_LGREY);
     }
     lp_rec_makes(b, sizeof b);
     g_text(12, 192, &FONT_T, b, C_LGREY);

@@ -16,33 +16,77 @@ void ui_panel(int x, int y, int w, int h, const char *title, int col)
     g_box(x, y, w, h, C_LGREY);
     if (title) g_text(x + 4, y + 3, &FONT_T, title, col);
 }
+void ui_panel_s(int x, int y, int w, int h, const char *title, int col)
+{
+    ui_panel(x, y, w, h, 0, col);
+    if (title) g_text(x + 4, y + 3, &FONT_S, title, col);
+}
+int ui_hints(int x, int y, const txt_t *t)
+{
+    for (int i = 0; t[i]; i++) x = g_text(x, y, &FONT_T, T(t[i]), i & 1 ? C_LGREY : C_YELLOW);
+    return x;
+}
+int ui_row_lines(const char *name, const char *value, int room)
+{
+    return (int)strlen(name) + 2 + (int)strlen(value) > room ? 2 : 1;
+}
+int ui_rows_top(int n, int sel, int lines, int mid, const uint8_t *nl)
+{
+    int end = n, used = 0, top = sel, m = 0;
+    if (n <= 0 || sel < 0 || sel >= n) return 0;
+    while (end > 0 && used + nl[end - 1] <= lines) used += nl[--end];  /* the first from which every row fits */
+    while (top > 0 && m + nl[top - 1] <= mid) m += nl[--top];           /* the first with sel mid lines down or less */
+    if (end < top) top = end;
+    for (;;) {                                          /* the selected row whole (the rule; it acts only where mid + 2
+                                                         * passes the lines in view, which no list has) */
+        int s = 0;
+        for (int i = top; i <= sel; i++) s += nl[i];
+        if (s <= lines || top >= sel) return top;
+        top++;
+    }
+}
+int ui_rows_draw(int n, int sel, int lines, int mid, const uint8_t *nl, int y0, void (*row)(int i, int y, int k, int whole, int on))
+{
+    int line = 0;
+    for (int i = ui_rows_top(n, sel, lines, mid, nl); i < n && line < lines; i++) {
+        int k = nl[i];
+        row(i, y0 + line * UI_ROW, k, line + k <= lines, i == sel);
+        line += k;
+    }
+    return line;
+}
 /* a panel's texts, kept while its lines wait to be drawn (a text T() unpacked lives in a buffer the next T()s take
- * again): a ring of bytes, a panel's lines ~600 at most */
+ * again): a ring of bytes, a panel's lines and their keys ~600 at most (HOME's: 14 lines) */
 static char keep_pool[768];
 static int keep_at;
-static const char *keep(const char *t)
+#ifdef UI_TXT_CHECK                             /* (the host tests: one panel's texts, from its lines' start to its
+                                                 * drawing, never more than the ring, which would write over its own
+                                                 * first lines: the bound holds by the texts' lengths, so it is checked) */
+static int keep_used;
+#define KEEP_START() (keep_used = 0)
+#define KEEP_USED(n) do { keep_used += (n); if (keep_used > (int)sizeof keep_pool) __builtin_trap(); } while (0)
+#else
+#define KEEP_START() ((void)0)
+#define KEEP_USED(n) ((void)0)
+#endif
+static const char *keep_n(const char *t, int n)
 {
-    int n = (int)strlen(t);
     if (n > 47) n = 47;
+    KEEP_USED(n + 1);
     if (keep_at + n + 1 > (int)sizeof keep_pool) keep_at = 0;
     char *p = keep_pool + keep_at;
-    memcpy(p, t, (size_t)n);
+    memmove(p, t, (size_t)n);
     p[n] = 0;
     keep_at += n + 1;
     return p;
 }
+static const char *keep(const char *t) { return keep_n(t, (int)strlen(t)); }
 void ui_key_line(g_run_t *runs, int *n, const char *line)
 {
-    static char keys[16][11];                           /* (a panel's keys: 15 lines at most; ALGORITHM the longest) */
-    static int nk;
     line = keep(line);
     const char *k = strchr(line, ':');
-    if (!k) { nk++; runs[0].s = line; runs[0].c = C_LGREY; *n = 1; return; }
-    char *b = keys[nk++ % 16];
-    int len = (int)(k - line) < 10 ? (int)(k - line) : 10;
-    memcpy(b, line, (size_t)len);
-    b[len] = 0;
-    runs[0].s = b; runs[0].c = C_YELLOW;
+    if (!k) { runs[0].s = line; runs[0].c = C_LGREY; *n = 1; return; }
+    runs[0].s = keep_n(line, (int)(k - line)); runs[0].c = C_YELLOW;   /* (the key, up to the colon, whole) */
     runs[1].s = k; runs[1].c = C_LGREY;
     *n = 2;
 }
@@ -50,10 +94,15 @@ void ui_key_line(g_run_t *runs, int *n, const char *line)
 /* ------------------------------------------------------------------------ menus --- */
 #define M_ITEMS 28                      /* the top's items and every group's, together */
 #define M_GROUPS 4
-/* an item: an action, or a group's head (group: its number); parent: the group it is in, -1 the top */
-typedef struct { char name[20]; int16_t id; int8_t group, parent; } mi_t;
+/* an item: an action, or a group's head (group: its number); parent: the group it is in, -1 the top. Its name is the
+ * fixed text the screen gave (TX), drawn through T() in FONT_S, 26 characters at most: to x 218, before a group's `>`
+ * (the longest, REMOVE FROM FAVORITES, 21) */
+typedef struct { txt_t name; int16_t id; int8_t group, parent; } mi_t;
+#define M_SHOWN 11                      /* the items in view (dialogs.md#menus): more scroll, the highlight kept 5 down */
+#define M_ITEM_MAX 26                   /* an item's characters at most; a title's 28 */
+#define M_TITLE_MAX 28
 typedef struct {
-    char key[12], title[28];
+    char key[12], title[M_TITLE_MAX + 1];
     mi_t it[M_ITEMS]; int n;
     int level;                          /* the group shown, or -1 */
     int sel;
@@ -62,16 +111,22 @@ typedef struct {
 static menu_t menu_s;
 /* each menu's last action, and each group's last used item, by the menu's key */
 typedef struct { char key[12]; int8_t group; int16_t item; int16_t used[M_GROUPS]; } menu_mem_t;
-static menu_mem_t mem[12];
+#define M_MEMS 14                       /* the menus' keys: 12 (block, loops-q, loops, slot-edit, slots, carts, samples, fx,
+                                         * songs, order, plist, settings) and 2 spare */
+static menu_mem_t mem[M_MEMS];
 static menu_mem_t *memory(const char *key)
 {
-    for (int i = 0; i < 12; i++) if (!strcmp(mem[i].key, key)) return &mem[i];
-    for (int i = 0; i < 12; i++) if (!mem[i].key[0]) {
+    for (int i = 0; i < M_MEMS; i++) if (!strcmp(mem[i].key, key)) return &mem[i];
+    for (int i = 0; i < M_MEMS; i++) if (!mem[i].key[0]) {
         strncpy(mem[i].key, key, sizeof mem[i].key - 1);
         mem[i].group = -1; mem[i].item = -1;
         for (int g = 0; g < M_GROUPS; g++) mem[i].used[g] = -1;
         return &mem[i];
     }
+#ifdef UI_TXT_CHECK
+    __builtin_trap();                   /* (the host tests: a menu's key past the table, which would share another's
+                                         * memory: grow M_MEMS) */
+#endif
     return &mem[0];
 }
 static int m_count(const menu_t *m)
@@ -83,8 +138,7 @@ static int m_count(const menu_t *m)
 /* the list shown: item i (BACK first in a group) */
 static const mi_t *m_item(const menu_t *m, int i)
 {
-    static mi_t back = {"", -1, -1, -1};
-    ui_fmt(back.name, sizeof back.name, "%s", T("BACK"));
+    static const mi_t back = {TX("BACK"), -1, -1, -1};
     if (m->level >= 0) { if (!i) return &back; i--; }
     for (int k = 0; k < m->n; k++) if (m->it[k].parent == m->level && !i--) return &m->it[k];
     return &back;
@@ -132,34 +186,34 @@ static void menu_draw(ui_overlay_t *o)
 {
     (void)o;
     menu_t *m = &menu_s;
-    int n = m_count(m), w = 150, x = 240 - w - 6, y = BODY_Y + 4, h = (n < 15 ? n : 15) * 12 + 22;
+    /* the body's width in FONT_S (dialogs.md#menus): the panel at 2, 19, the title at 8, 22, item i at 10, 39 + 16 i */
+    int n = m_count(m), y = BODY_Y + 2, h = (n < M_SHOWN ? n : M_SHOWN) * UI_ROW + 22;
     char t[48];
     if (m->level >= 0) {
         const char *g = 0;
-        for (int i = 0; i < m->n; i++) if (m->it[i].parent < 0 && m->it[i].group == m->level) g = m->it[i].name;
+        for (int i = 0; i < m->n; i++) if (m->it[i].parent < 0 && m->it[i].group == m->level) g = T(m->it[i].name);
         ui_fmt(t, sizeof t, "%s > %s", m->title, g ? g : "");
-        if (strlen(t) > 23) ui_fmt(t, sizeof t, "%s", g ? g : "");
+        if (strlen(t) > M_TITLE_MAX) ui_fmt(t, sizeof t, "%s", g ? g : "");
     } else ui_fmt(t, sizeof t, "%s", m->title);
-    ui_panel(x, y, w, h, t, C_CYAN);
-    int top = m->sel - 7 < n - 15 ? m->sel - 7 : n - 15;
+    t[M_TITLE_MAX] = 0;                                 /* (cut past 28 characters) */
+    ui_panel(2, y, 236, h, 0, C_CYAN);
+    g_text(8, y + 3, &FONT_S, t, C_CYAN);
+    int top = m->sel - 5 < n - M_SHOWN ? m->sel - 5 : n - M_SHOWN;
     if (top < 0) top = 0;
-    for (int i = top; i < n && i < top + 15; i++) {
-        int yy = y + 18 + (i - top) * 12, on = i == m->sel;
+    for (int i = top; i < n && i < top + M_SHOWN; i++) {
+        int yy = y + 20 + (i - top) * UI_ROW, on = i == m->sel;
         const mi_t *it = m_item(m, i);
-        if (on) { g_rect(x + 2, yy - 1, w - 4, 12, C_DEEP + C_BLUE); g_box(x + 2, yy - 1, w - 4, 12, C_WHITE); }
+        if (on) { g_rect(4, yy - 1, 232, UI_ROW, C_DEEP + C_BLUE); g_box(4, yy - 1, 232, UI_ROW, C_WHITE); }
         if (m->level >= 0 && i == 0) {
-            if (!on) g_hline(x + 4, yy + 10, w - 8, C_DGREY);
-            g_text(x + 6, yy, &FONT_T, "<", on ? C_WHITE : C_CYAN);
-            g_text(x + 18, yy, &FONT_T, T("BACK"), on ? C_WHITE : C_CYAN);
+            if (!on) g_hline(6, yy + UI_ROW - 2, 228, C_DGREY);   /* (at 53, in BACK's own row: the next item's bar
+                                                         * never covers it) */
+            g_text(10, yy, &FONT_S, "<", on ? C_WHITE : C_CYAN);
+            g_text(26, yy, &FONT_S, T("BACK"), on ? C_WHITE : C_CYAN);
             continue;
         }
-        g_text(x + 6, yy, &FONT_T, it->name, on ? C_WHITE : C_LGREY);
-        if (it->group >= 0 && m->level < 0) g_text(x + w - 12, yy, &FONT_T, ">", on ? C_WHITE : C_LGREY);
+        g_textn(10, yy, &FONT_S, T(it->name), M_ITEM_MAX, on ? C_WHITE : C_LGREY);
+        if (it->group >= 0 && m->level < 0) g_text(222, yy, &FONT_S, ">", on ? C_WHITE : C_LGREY);
     }
-}
-void ui_menu_name(int id, const char *name)
-{
-    for (int i = 0; i < menu_s.n; i++) if (menu_s.it[i].id == id) strncpy(menu_s.it[i].name, name, sizeof menu_s.it[i].name - 1);
 }
 void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n, void (*pick)(int id), int opener)
 {
@@ -175,11 +229,11 @@ void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n,
         if (!x->name) continue;
         if (x->items && x->n > 1 && ng < M_GROUPS) {    /* a group: one level; a group of one shows it in its place */
             mi_t *t = &m->it[m->n++];
-            strncpy(t->name, T(x->name), sizeof t->name - 1);   /* (each name copied as it comes: T()'s buffers) */
+            t->name = x->name;
             t->id = -1; t->group = (int8_t)ng; t->parent = -1;
             for (int j = 0; j < x->n && m->n < M_ITEMS; j++) {
                 mi_t *g = &m->it[m->n++];
-                strncpy(g->name, T(x->items[j].name), sizeof g->name - 1);
+                g->name = x->items[j].name;
                 g->id = (int16_t)x->items[j].id; g->group = -1; g->parent = (int8_t)ng;
             }
             ng++;
@@ -188,7 +242,7 @@ void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n,
         const ui_mitem_t *a = x->items && x->n == 1 ? &x->items[0] : x;
         if (x->items && !x->n) continue;
         mi_t *t = &m->it[m->n++];
-        strncpy(t->name, T(a->name), sizeof t->name - 1);
+        t->name = a->name;
         t->id = (int16_t)a->id; t->group = -1; t->parent = -1;
     }
     if (!m->n) return;
@@ -214,7 +268,7 @@ void ui_ask_foot(int ay, int bottom, const char *yes, const char *no, const g_ru
     const char *nm[2] = {T(UI_BNAME[lb]), T(UI_BNAME[rb])}, *an[2] = {no, yes};
     for (int i = 0; i < 2; i++) {
         int x = i ? 120 : 8;
-        g_text(g_centre(&FONT_T, nm[i], x, 112), ay, &FONT_T, nm[i], C_YELLOW);
+        g_text_c(x, 112, ay, &FONT_T, nm[i], C_YELLOW);
         g_text_crop(g_centre(&FONT_S, an[i], x, 112), ay + 13, &FONT_S, an[i], C_WHITE, 0, 16);
     }
     int kw = g_runs_w(&FONT_T, keys, nk);
@@ -237,7 +291,7 @@ static void ask_draw(ui_overlay_t *o)
     int h = ask_s.n * 12 + 62, y = BODY_Y + (BODY_H - h) / 2;
     ui_panel(8, y, 224, h, 0, C_CYAN);
     for (int i = 0; i < ask_s.n; i++)
-        g_text(g_centre(&FONT_T, ask_s.lines[i], 8, 224), y + 8 + i * 12, &FONT_T, ask_s.lines[i], i ? C_LGREY : C_WHITE);
+        g_text_c(8, 224, y + 8 + i * 12, &FONT_T, ask_s.lines[i], i ? C_LGREY : C_WHITE);
     g_run_t k[2] = {{T("HOME"), C_YELLOW}, {T(": CANCEL"), C_LGREY}};
     ui_ask_foot(y + 12 + ask_s.n * 12, y + h, ask_s.yes, ask_s.no, k, 2, B_OCTM, B_OCTP);
 }
@@ -251,19 +305,29 @@ void ui_ask(const char *const *lines, int nlines, const char *yes, const char *n
     ui_overlay_t o = {.kind = OV_QUESTION, .opener = -1, .knob = ask_knob, .tap = ask_tap, .cancel = ask_cancel, .draw = ask_draw};
     ui_open(&o);
 }
+void ui_ask_t(const char *const *lines, int nlines, txt_t yes, txt_t no, void (*done)(int answer))
+{
+    ui_ask(lines, nlines, T(yes), T(no), done);
+}
 
 const char *ui_overlay_words(const ui_overlay_t *o)    /* (the state a page asks for) */
 {
     if (!o) return 0;
     if (o->draw == ask_draw) return ask_s.lines[0];
-    if (o->draw == menu_draw) return m_item(&menu_s, menu_s.sel)->name;   /* the highlighted item (BACK in a group) */
+    if (o->draw == menu_draw) return T(m_item(&menu_s, menu_s.sel)->name);    /* the highlighted item (BACK in a group;
+                                                         * T()'s rotating buffer: copied by whoever keeps it) */
     return 0;
 }
 
 /* --------------------------------------------------------------- properties --- */
-#define P_ITEMS 12                      /* (a screen's properties: LOOPS' 12 at most; their names fixed texts, drawn
+#define P_ITEMS 16                      /* (a screen's properties: LOOPS' 16 at most; their names fixed texts, drawn
                                          * through T() as they are drawn) */
-static struct { char title[32], sub[20]; ui_prop_t items[P_ITEMS]; int n, sel; } props_s;
+#define P_SHOWN 11                      /* (the lines in view, 10 under a title of two lines: more scroll by rows, the
+                                         * selected row whole and kept 5 lines down while it can) */
+#define P_LINE 27                       /* (a row's characters on one line, its name, two spaces and its value: past
+                                         * them the value goes to the next line) */
+static struct { char title[32], sub[20]; const ui_prop_t *items; int n, sel; } props_s;   /* (the screen's own list,
+                                         * static: read while the dialog is open, never copied) */
 static void props_knob(ui_overlay_t *o, int e, int s, int c)
 {
     (void)o;
@@ -278,29 +342,45 @@ static int props_tap(ui_overlay_t *o, int b)
     if (b == B_LFO && it->reset) { it->reset(); return 1; }
     return 0;
 }
+/* a draw's values, each getter read once (some walk the store) and copied at once (getters share buffers) */
+static char (*props_val)[P_LINE + 1];
+static void props_row(int i, int y, int k, int whole, int on)
+{
+    const ui_prop_t *it = &props_s.items[i];
+    if (on) g_box(6, y - 1, 228, UI_ROW * k, C_WHITE);
+    g_text(10, y, &FONT_S, T(it->name), on ? C_WHITE : C_CYAN);
+    int col = it->col ? it->col(on) : on ? C_WHITE : C_LGREY;
+    if (!it->change && !it->edit) col = C_DGREY;
+    const char *v = props_val[i];
+    if (whole) g_text_r(230, y + (k - 1) * UI_ROW, &FONT_S, v, col);   /* (its value on the next line
+                                                         * when the row passes P_LINE) */
+}
 static void props_draw(ui_overlay_t *o)
 {
     (void)o;
-    int n = props_s.n, sub = props_s.sub[0] ? 12 : 0, h = n * 14 + 24 + sub, y = BODY_Y + 4;
-    ui_panel(6, y, 228, h, props_s.title, C_CYAN);
-    if (sub) g_text(10, y + 15, &FONT_T, props_s.sub, C_WHITE);   /* (whose they are, under a title ending in FOR) */
+    /* in FONT_S (dialogs.md#properties): the panel at 4, 19, its height the rows' lines (at most those in view) whatever
+     * the scroll; the title at 8, 22, row names at 10, 40 + 16 x line, values right-aligned to 230 */
+    char val[P_ITEMS][P_LINE + 1];
+    uint8_t nl[P_ITEMS];
+    int n = props_s.n, sub = props_s.sub[0] ? UI_ROW : 0, lines = sub ? P_SHOWN - 1 : P_SHOWN, y = BODY_Y + 2, all = 0;
     for (int i = 0; i < n; i++) {
         const ui_prop_t *it = &props_s.items[i];
-        int yy = y + 19 + sub + i * 14, on = i == props_s.sel;
-        if (on) g_box(8, yy - 2, 224, 14, C_WHITE);
-        g_text(12, yy, &FONT_T, T(it->name), on ? C_WHITE : C_CYAN);
-        const char *v = it->get ? it->get() : "";
-        int col = it->col ? it->col(on) : on ? C_WHITE : C_LGREY;
-        if (!it->change && !it->edit) col = C_DGREY;
-        g_text(228 - g_tw(&FONT_T, v), yy, &FONT_T, v, col);
+        ui_fmt(val[i], sizeof val[i], "%s", it->get ? it->get() : "");
+        nl[i] = (uint8_t)ui_row_lines(T(it->name), val[i], P_LINE);
+        all += nl[i];
     }
+    ui_panel_s(4, y, 232, (all < lines ? all : lines) * UI_ROW + 24 + sub, props_s.title, C_CYAN);
+    if (sub) g_text(8, y + 19, &FONT_S, props_s.sub, C_WHITE);   /* (whose they are, under a title ending in FOR) */
+    props_val = val;
+    ui_rows_draw(n, props_s.sel, lines, 5, nl, y + 21 + sub, props_row);
+    props_val = 0;
 }
 void ui_props(const char *title, const ui_prop_t *items, int n, int opener)
 {
     strncpy(props_s.title, title, sizeof props_s.title - 1);
     props_s.sub[0] = 0;
     props_s.n = n > P_ITEMS ? P_ITEMS : n;
-    for (int i = 0; i < props_s.n; i++) props_s.items[i] = items[i];
+    props_s.items = items;
     props_s.sel = 0;
     ui_overlay_t o = {.kind = OV_PROPS, .opener = (int8_t)opener, .knob = props_knob, .tap = props_tap, .draw = props_draw};
     ui_open(&o);
@@ -364,12 +444,12 @@ static void te_draw(ui_overlay_t *o)
     }
     char done_b[16];
     ui_fmt(done_b, sizeof done_b, "%s", T(UI_BNAME[o->opener]));
-    g_run_t a[4] = {{T("ALGORITHM"), C_YELLOW}, {T(": MOVE  "), C_LGREY}, {T("SELECT"), C_YELLOW}, {T(": LETTER"), C_LGREY}};
+    static const txt_t A[] = {TX("ALGORITHM"), TX(": MOVE  "), TX("SELECT"), TX(": LETTER"), 0};
+    static const txt_t C[] = {TX("LFO"), TX(": DELETE  "), TX("OCT+"), TX(": SPACE"), 0};
+    ui_hints(16, y + 56, A);
     g_run_t b[4] = {{done_b, C_YELLOW}, {T(": DONE  "), C_LGREY}, {T("HOME"), C_YELLOW}, {T(": CANCEL"), C_LGREY}};
-    g_runs(16, y + 56, &FONT_T, a, 4);                  /* (each line drawn as it is made: T()'s buffers turn) */
-    g_runs(16, y + 70, &FONT_T, b, 4);
-    g_run_t c[4] = {{T("LFO"), C_YELLOW}, {T(": DELETE  "), C_LGREY}, {T("OCT+"), C_YELLOW}, {T(": SPACE"), C_LGREY}};
-    g_runs(16, y + 84, &FONT_T, c, 4);
+    g_runs(16, y + 70, &FONT_T, b, 4);                  /* (each line drawn as it is made: T()'s buffers turn) */
+    ui_hints(16, y + 84, C);
 }
 void ui_text_entry(const char *title, const char *name, int max, int opener, void (*done)(const char *name))
 {
@@ -394,7 +474,7 @@ static void pr_draw(ui_overlay_t *o)
     int k = pr.pct ? pr.pct() * 176 / 100 : pr.ms ? (int)((ui_now() - pr.t0) * 176 / (uint32_t)pr.ms) : 176, y = BODY_Y + 80;
     if (k > 176) k = 176;
     ui_panel(20, y, 200, 44, 0, C_CYAN);
-    g_text(g_centre(&FONT_T, pr.text, 20, 200), y + 6, &FONT_T, pr.text, C_WHITE);
+    g_text_c(20, 200, y + 6, &FONT_T, pr.text, C_WHITE);
     g_box(30, y + 24, 180, 10, C_LGREY);
     g_rect(32, y + 26, k, 6, C_GREEN);
 }
@@ -433,11 +513,11 @@ void ui_dlg_poll(void)
 
 /* --------------------------------------------------------------- the help --- */
 /* readings of the keys whose names say little (help.md) */
-static const char *const READ_KEY[12] = {"LFO", "ENV", "SEQ", "ARP", "OP1", "OP2", "OP3", "OP4", "OP5", "PIT", "MONO", "POLY"};
-static const txt_t READ_TXT[12] = {
+static const char *const READ_KEY[13] = {"LFO", "ENV", "SEQ", "ARP", "OP1", "OP2", "OP3", "OP4", "OP5", "PIT", "MONO", "POLY", "OP6"};
+static const txt_t READ_TXT[13] = {
     TX("LEAVE FIELD OPEN"), TX("EXPLORE NAMED VAULTS"), TX("SHOW ELSE, QUICK"), TX("AUTOMATIC REPEAT PROCEDURE"), TX("OPEN PAGE 1"),
     TX("OPEN PAGE 2"), TX("OPEN PAGE 3"), TX("OPEN PAGE 4"), TX("OPEN PAGE 5"), TX("PICTURES IN TIME"), TX("MY OWN NERDY OPTIONS"),
-    TX("PARTY ON, LOOP YOURSELF")};
+    TX("PARTY ON, LOOP YOURSELF"), TX("OPEN PAGE 6")};
 static int screen_col(const char *n)
 {
     static const char *const S[10] = {"SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "FX", "LOOPS", "DJ", "VISUAL", "STATUS", "SETTINGS"};
@@ -485,7 +565,7 @@ static void help_line(const char *s, int len, int first, int y, uint16_t *named,
             if (autor) name[--nl] = 0;
             PUT(name, C_YELLOW);
             int r = -1;
-            for (int k = 0; k < 12; k++) if (!strcmp(READ_KEY[k], name)) r = k;
+            for (int k = 0; k < 13; k++) if (!strcmp(READ_KEY[k], name)) r = k;
             if (r >= 0) {
                 char rd[32];
                 ui_fmt(rd, sizeof rd, " (%s)", T(READ_TXT[r]));
@@ -565,19 +645,26 @@ void ui_open_help(void)
 }
 
 /* --------------------------------------- HOME's combination, the held layers --- */
-/* a combination's lines at the body's bottom: the heading, then a control and what it does a line */
-static void combo_panel(const g_run_t *heading, int nh, g_run_t (*lines)[UI_LINE_RUNS], const int *nr, int n)
+/* a combination's lines at the body's bottom: the heading, then a control and what it does a line. A held layer
+ * (may_s) is in FONT_S when every line fits, 28 characters and 11 lines at most, else the whole of it in FONT_T
+ * (dialogs.md#hold-layers); HOME's always in FONT_T */
+static int runs_len(const g_run_t *r, int n) { int k = 0; for (int i = 0; i < n; i++) k += (int)strlen(r[i].s); return k; }
+static void combo_panel(const g_run_t *heading, int nh, g_run_t (*lines)[UI_LINE_RUNS], const int *nr, int n, int may_s)
 {
-    int h = n * 12 + 26, y = BODY_Y + BODY_H - h - 2;
+    int s = may_s && n <= 11 && runs_len(heading, nh) <= 28;   /* (11: the rule's; no layer has more than 8 lines) */
+    for (int i = 0; s && i < n; i++) s = runs_len(lines[i], nr[i]) <= 28;
+    const ui_font_t *f = s ? &FONT_S : &FONT_T;
+    int lh = s ? UI_ROW : 12, h = n * lh + 26, y = BODY_Y + BODY_H - h - 2;
     ui_panel(4, y, 232, h, 0, C_CYAN);
-    g_runs(8, y + 5, &FONT_T, heading, nh);
-    for (int i = 0; i < n; i++) g_runs(8, y + 19 + i * 12, &FONT_T, lines[i], nr[i]);
+    g_runs(8, y + 5, f, heading, nh);
+    for (int i = 0; i < n; i++) g_runs(8, y + (s ? 21 : 19) + i * lh, f, lines[i], nr[i]);
 }
 static void home_panel(const combo_t *c, int held)
 {
+    KEEP_START();
     g_run_t lines[14][UI_LINE_RUNS];
     int nr[14];
-    char buf[24][48];
+    char buf[24][48];                   /* (the screens' 20, SEQ's and ARP's 4) */
     int n = ui_home_lines(c, lines, nr, buf, 13);
     const ui_screen_t *s = ui_screen_now();
     int ay, ah;
@@ -591,24 +678,24 @@ static void home_panel(const combo_t *c, int held)
         r[k].s = " + "; r[k++].c = C_CYAN;
         for (int i = 0; i < nr[0]; i++) r[k++] = lines[0][i];
         g_runs(8, ay + 2, &FONT_T, r, k);
-        if (!held) { g_run_t cl[2] = {{T("HOME"), C_YELLOW}, {T(": CLOSE"), C_LGREY}}; g_runs(8, ay + 14, &FONT_T, cl, 2); }
+        if (!held) { static const txt_t CL[] = {TX("HOME"), TX(": CLOSE"), 0}; ui_hints(8, ay + 14, CL); }
         return;
     }
     if (held) {
         g_run_t hd[3] = {{T("HOLD "), C_CYAN}, {T("HOME"), C_YELLOW}, {" +", C_CYAN}};
-        combo_panel(hd, 3, lines, nr, n);
+        combo_panel(hd, 3, lines, nr, n, 0);
     } else {
         ui_key_line(lines[n], &nr[n], T("HOME: CLOSE"));
         n++;
         g_run_t hd[2] = {{T("HOME"), C_YELLOW}, {" +", C_CYAN}};
-        combo_panel(hd, 2, lines, nr, n);
+        combo_panel(hd, 2, lines, nr, n, 0);
     }
 }
 static int home_tap_ov(ui_overlay_t *o, int b)
 {
     combo_t *c = ui_home_combo();
     if (b == B_LFO && c && (!c->lock || c->lock == CK_LFO)) { ui_close(o); ui_open_help(); return 1; }
-    if (b == B_SEQ && c && ui_home_seq_switches(c)) { c->solo = !c->solo; return 1; }
+    if (c && ui_home_switch(c, b)) return 1;            /* (SEQ, ARP: what the white keys do) */
     ui_close(o);
     return 0;
 }
@@ -759,11 +846,15 @@ void ui_layers_draw(void)
             home_panel(c ? c : &none, 1);
             continue;
         }
+        ui_overlay_t *o = ui_top();
+        KEEP_START();
+        if (b == B_SEL && o && o->kind == OV_LIST && o->opener == B_SEL) continue;   /* (gone while the cartridge list SEL +
+                                                         * PRESETS opens shows, as GLO's while its favourites' list does) */
         g_run_t lines[8][UI_LINE_RUNS];
         int nr[8], n = layer_lines(b, lines, nr, 8);
         if (!n) continue;
         g_run_t hd[4] = {{T("HOLD "), C_CYAN}, {T(UI_BNAME[b]), C_YELLOW}, {b == B_FX ? " + " : " +", C_CYAN}, {T("KEYS"), C_YELLOW}};
-        combo_panel(hd, b == B_FX ? 4 : 3, lines, nr, n);
+        combo_panel(hd, b == B_FX ? 4 : 3, lines, nr, n, 1);
     }
 }
 
@@ -774,12 +865,9 @@ void ui_seed_draw(void)
     seed_info_t si;
     seed_info(&si);
     g_rect(0, BODY_Y, 240, BODY_H, C_BLACK);
-    const char *a = T("RECEIVING DATA"), *c = T("SOUND AND KEYS WAIT");
-    g_text(g_centre(&FONT_S, a, 0, 240), BODY_Y + 66, &FONT_S, a, C_WHITE);
-    char t[32];
-    ui_fmt(t, sizeof t, "%s", ui_txt_v(ui_txt_v(T("BLOCK # OF #"), ui_dec(si.done)), ui_dec(si.total)));
-    g_text(g_centre(&FONT_T, t, 0, 240), BODY_Y + 92, &FONT_T, t, C_LGREY);
+    g_text_c(0, 240, BODY_Y + 66, &FONT_S, T("RECEIVING DATA"), C_WHITE);
+    g_text_c(0, 240, BODY_Y + 92, &FONT_T, ui_txt_v(ui_txt_d(TX("BLOCK # OF #"), si.done), ui_dec(si.total)), C_LGREY);
     g_box(30, BODY_Y + 108, 180, 10, C_LGREY);
     if (si.total) g_rect(32, BODY_Y + 110, (int)(176u * si.done / si.total), 6, C_GREEN);
-    g_text(g_centre(&FONT_T, c, 0, 240), BODY_Y + 134, &FONT_T, c, C_DGREY);
+    g_text_c(0, 240, BODY_Y + 134, &FONT_T, T("SOUND AND KEYS WAIT"), C_DGREY);
 }

@@ -18,7 +18,15 @@ The two cores are **core 1** (the one every firmware runs on) and **core 2**; th
   divide ahead of the test that guards it, so a guarded float divide by zero still traps. PT/FM builds without float.
 - **Time:** TIMER4 runs free from the 24 MHz crystal (wrapping every 178.9 s): the time base. TIMER5 is free for a
   periodic interrupt (PT/FM's 10 kHz scan).
-- **Supplies:** as the boot loader leaves them, 1.40 V and 1.26 V (measured); every figure here is at those levels.
+- **Supplies:** the boot loader leaves VDC14 at 1.40 V and SYSVDD (the cores and the SRAM) at 1.26 V (measured); every
+  figure here was measured at those levels. At 360 MHz that is under the chip maker's own table (1.45 V even at 320
+  MHz), and at those levels some FM-1s misread their RAM under load. With SETTINGS' CORE SUPPLIES at STOCK (the
+  default; [ui/screens/settings.md](ui/screens/settings.md)) PT/FM raises both at every start, once the settings are
+  read and before any sound or core 2, to the levels the FM-1's stock firmware sets: VDC14 1.60 V (level 7: 1.25 V +
+  50 mV a level), SYSVDD 1.38 V (level 15: 0.93 V + 30 mV a level), each range's top; up only, a level every 100 µs,
+  VDC14 first (SYSVDD is regulated from it), interrupts off (`fw/hal/fm1_supply.h`). A P33 transfer that times out
+  stops the raise where it stands. STOCK picked later raises them at once; LOWER leaves them as they are: nothing
+  lowers raised supplies but a power-off (a restart keeps them), so LOWER takes effect at the next power-on.
 - **Costs measured:** a taken jump ~6 cycles; a RAM load ~10 cycles; a code-cache line missed ~465 cycles (~1.3 µs);
   64-bit fixed point is cheap, a 64-bit divide (a library call) and float are not.
 
@@ -139,7 +147,9 @@ The sequences (start, hold, faults) are [second-core.md](second-core.md#the-chip
   ±1.3 % whatever core 2 does); both cores reading RAM at once ~10 % slower each.
 - **No misreads** in 5 minutes of checking (5.1 million rounds), a song playing.
 - **Its faults:** a fault of its own (its stack limit, its PC limit) is taken on core 2 (one vector table for both: the
-  handler asks `cnum`); a bus error is flagged in the debug unit both cores share and likely taken on core 1.
+  handler asks `cnum`); a bus error is flagged in the debug unit both cores share and taken on both: twice an invalid
+  AXI write of core 2's (the culprit registers named it) faulted core 2, which kept its record and parked, and core 1,
+  which showed its red screen.
 - **12 + 4 voices fit a half** (5,804 µs; interrupts off, no other work): 12 voices on core 1 took 30-48 % of a half
   on average (all 6-operator DX7s the most: 2,546 µs), 4 voices and 222 µs of effects a block on core 2 24-30 %;
   core 1 waited ~1.3 µs a half for core 2; no half late. A plain firmware's interrupts (a 10 kHz panel scan, USB
@@ -187,6 +197,72 @@ The sequences (start, hold, faults) are [second-core.md](second-core.md#the-chip
 - **LEDs** on every button and key; PLAY has a red (id 12) and a green one (the matrix's column 8, bit 1).
 - **MASTER** is an analog pot on ADC channel 4 (0-1023); **the battery** on channel 3 (PT/FM reads 501-621 as 0-100 %
   and lights the bars from 10 / 34 / 67 %, i.e. 513 / 542 / 582; the voltage behind them unknown).
+
+### The keys' velocity
+
+The keys carry no velocity sensor: each is a rubber dome over one contact of the diode matrix. But the contact is a
+carbon pill whose resistance falls with the force on it, and two of the matrix's rows, PA7 and PA8, are inputs of the
+chip's converter (channels 0 and 1): they hold 20 of the 27 note keys, F3 to C5. The top seven, C#5 to G5 on PA6, have
+no converter. SETTINGS' KEYS VELOCITY ([ui/screens/settings.md](ui/screens/settings.md)) reads them; CONSTANT, the scan, the
+converter and MASTER work as without it. The record: [the keys' velocity proposal](proposals/202611221230-key-velocity.md).
+
+- **One conversion a scan tick** (`fw/hal/fm1_input.h`): once the tick has latched column n, it starts a conversion of
+  that column's PA7 key (even frames) or PA8 key (odd frames) and takes it first thing at the next tick, 100 µs later,
+  before the rows are read (a conversion takes about 60 µs at the converter's clock divider 7 and start delay 2: faster
+  settings read rails, a longer delay runs past the tick). Each of the 20 keys is read every 2.2 ms. The scan's rate
+  and its debounce stay: the digital scan is the truth for pressed and let go; the readings only add the velocity.
+- **Driven readings.** Pulled up, a seated key reads about 185 of 1023 whatever the force (the matrix diode's drop),
+  and a harder press moves it 10-20. So once a key has been touched, every other reading of it is taken with its row
+  driven high at the pin's second-weakest drive (HD0 alone; the level the figures here were measured at): that driver
+  cannot hold the line against a seated pill, and the reading less the diode's 185 is the pill's resistance. Soft and
+  firm presses then differ by 100-150, firm ones repeat within about 5; a hard press lands at about 390-450, a gentle one
+  at 515-584. The row is an input with its pull-up again at the next tick, before the rows are read.
+- **A key's readings:** open; touched (pulled up under 900: the pill has started to conduct); seated (under 400); open
+  again after two readings over 600 (a landed key can read open once: a bounce), or when the digital scan lets it go.
+  A touch that goes before it seats is a graze: it plays nothing (the digital scan never saw a press).
+- **The velocity** is how deep the key sits, not how fast it went down: the dome snaps, every press landing within a
+  reading or two whatever its speed. The first driven reading after the touch is the landing (WAIT 1; the debug build
+  can take the lower of the first two, WAIT 2, about 4.4 ms later: [debug.md](debug.md#the-keys-bytes)). On a log scale
+  of the pill's resistance, as conductive rubber's falls as a power of the force: t = log(r / r_firm) / log(r_light /
+  r_firm), r the landing less 185, r_firm from 530 (velocity 127), r_light from 896 (velocity 1); velocity = 1 + 126
+  (1 − t)^c, c by KEYS VELOCITY: SOFT 0.25, NORMAL 0.5, HARD 1.0 (softer playing reaches 127 at SOFT). In integers
+  (`fw/device/keyvel.h`: a log2 table and the curves' tables), mapped where the press is taken, never in the tick. FM-1s
+  differ by about 120 at the firm end; a key pressed off its centre reads softer.
+- **The note waits for it:** a key's press reaches the app (`plat_input`'s notes) once its velocity is known, at most
+  one reading (2.2 ms) after the touch, so a note comes about 1-2 ms later than without it; a press whose velocity is not
+  known 10 ms after the digital scan saw it plays at KEYS VOLUME.
+- **The top row** (C#5-G5) plays at the mean of the last four velocities read (fewer, theirs), at KEYS VOLUME before any.
+- **The LEDs.** A lit LED on the column being read lifts the reading by about 25: a held key's column is dark on the
+  tick that reads it (1 tick in 22 for that column).
+- **MASTER and the battery** come from the scan while it reads the keys (the converter is its own then): MASTER in
+  OCT-'s slot (odd frames, column 0), every 2.2 ms; the battery in a short pause of the readings, every 2 s as without
+  them (the tick takes the conversion it started and starts none, the main loop converts as before, then the readings go
+  on).
+- **The rows' digital inputs stay on.** With them off, every key on PA7 and PA8 reads pressed, OCT− and OCT+ among
+  them (OCT− at power-on is UPDATE MODE); a row left driven reads its keys as let go. A crash's screen, which scans the
+  panel itself, releases both rows first. The scan's host test checks the rows' direction at every read
+  (`fw/tests/scan_test.c`).
+- **The pressure:** a held key's driven readings go on every 4.4 ms; how much harder than it rests the key is pressed
+  is worked out in the main loop every 5 ms (`fw/core/press.h`: the rest follows the reading down for 250 ms after the
+  landing, then creeps after it, and comes up at once when the key eases; log2(rest / reading), nothing under 0.04
+  octave, the most at 0.46 more, smoothed over ~30 ms). MIDI CONTROLLER's general mode sends it as aftertouch
+  ([controller.md](controller.md#3-general-mode)); in the tracker it makes **the key's own sounding notes louder,
+  live**: the note's volume rises from its velocity's toward 127 at the most and falls back as the key eases (a note at
+  127 already gains nothing). Loudness only: a DX7's modulators keep the press's velocity. The voices it reaches are
+  the key's own as the keys start them (any engine, a FUSION's layers, the TB-303 the keys glide) and, on LOOPS, the
+  lane a key plays through (the stage's keys, those held into PLAY, the keys with the stage off); not the
+  arpeggiator's; none on the top row or at CONSTANT. Each change reaches the player as a gain on the key's notes
+  (`player_key_press`) or a lane's volume, ramped in the voices' own gain over a block. **Recorded** by an EDITOR take
+  and LOOPS' stage as volumes alone, a change of 4 or more at a time and the return to the key's velocity, nothing
+  while the key is held steady, and played back smoothly: a take's track slides to each (`Axy` written on the row
+  before it, [ui/screens/editor.md](ui/screens/editor.md#realtime-takes)), a stage's lane glides to each over its row
+  ([ui/screens/loops.md](ui/screens/loops.md#the-stage)); the notes written and MIDI OUT keep the press's velocity.
+- **The cost:** the tick's own work grows by one conversion's registers, a key's state and, on a driven reading, a few
+  pin writes (no loop, no divide): 1.25 us a tick in the debug build (10.2 against 8.95 at CONSTANT, measured on the
+  FM-1); RAM about 260 B with the pressure; in the audio interrupt nothing but a pressure's change taken on (a key's
+  voices' gain set). Since then the tick does less: a key at rest reading open is left at once (24 instructions in the
+  debug build, 31 before; 17 in the release), the rows' drive strength is set once as the readings start, not at each
+  driven reading (two read-modify-writes fewer), and a conversion's start writes its last word whole (a read fewer).
 
 ## USB and MIDI
 
@@ -254,13 +330,68 @@ The sequences (start, hold, faults) are [second-core.md](second-core.md#the-chip
   (`fw/device/crash_screen.c`):
   - two words a line: `VEC` (the vector), `PC`, `EMU` (the stack-pointer windows' flags), `DBG` (the debug unit's:
     bit 13 a write limit, bit 12 or 10 the PC limits, bits 4, 5, 16-21 the bus), `RETS`, `SP`;
-  - `WRITE LIMIT` and the windows core 1 wrote into, a bit each, named when it is one (`MAIN LOOP'S STACK BAND`,
-    `INTERRUPTS' STACK BAND`, `THE TOP (VECTORS)`, `CORE 2'S CODE`): the chip keeps which window, not the address;
+  - the debug unit's culprit registers, which name the bus master of a bad access (the chip keeps who and which
+    window, not the address), in the smaller font, a row each 12 px:
+    - `WR` and the write limits hit by core 1, core 2 and the DMAs, a bit a window, core 1's named when it is one
+      (`MAIN LOOP BAND`, `INTERRUPT BAND`: the 256-byte bands under the two stacks; `TOP (VECTORS)`, `CORE 2'S
+      CODE`), then `DMA`, the DMA that hit one;
+    - `AXI W` and `R`, the bus masters of an invalid AXI write and read (`0100` core 1), and `MMU W` and `R`, the DMAs
+      of an MMU write and read error; four hex digits each, the window masks two;
   - `ETM`, the last four branches traced; `USP` and `SSP`; `PSR` and `ICFG` (the interrupt level it ran at);
   - `UP`, the seconds since the start, and `LATE`, the halves the sound was late;
-  - core 2 as the crash found it: `RUNNING`, `OFF`, `OFF: AFTER A CRASH`, or `STOPPED:` and why (`FAULT AT` its own
-    fault's PC);
+  - core 2 as the crash found it: `RUNNING AT` where it was (paused at the fault, its PC read, before the hold), `OFF`,
+    `OFF: AFTER A CRASH`, or `STOPPED:` and why. **A fault of its own** (one since its start, in its record: a fault on
+    core 2 records itself and parks it, so where the pause finds it says nothing) reads `CORE 2 FAULT AT` its PC and
+    `R` its RETS, whether core 1 had held it yet or not. A bus-invalid trap is imprecise on core 2 as on core 1: the
+    write came a few instructions before that PC;
   - `STACK: INTERRUPTS` or `STACK: MAIN LOOP` when the stack check found one past its end.
+
+  Only the record's words are kept for the next start (debug's RECORDS); the culprit registers and core 2's PC are
+  the screen's alone.
+- **A freeze** (the main loop stuck, so the watchdog restarts the chip after ~8 s) leaves a record in RAM the restart
+  keeps: the main loop's step now (each part of its pass marks itself: the store, the UI, drawing, USB, an update, and
+  every flash step with its address, the wait for core 2 before it apart), the time of its last pass, the audio
+  halves and input ticks begun since and whether either interrupt was inside at the end. The next start, P33 naming
+  the watchdog, shows a blue screen until a button or a key is pressed (one held let go first), then goes on:
+  `PT/FM FROZE`, `THE WATCHDOG RESTARTED IT`, `THE MAIN LOOP STOOD AT` and the step (`A FLASH ERASE`, `ADDRESS
+  000A3000`), `ITS LAST PASS AT 717.123 S`, `AUDIO: 1378 HALVES AFTER, OUT` (the audio went on: the main loop alone
+  stuck, or starved), `INPUT: ... TICKS AFTER` (none: the interrupts were off), core 2's queue (`CORE 2 POSTED ...
+  DONE ...`, from its memory the restart keeps: a job handed over and never done; shown when core 2 was marked as
+  running at the freeze, read before the start works out its ban), core 2 stopped by a fallback earlier in that run
+  (the first time: why, when, and where it stood, paused and read as the hold came; the record keeps them: `CORE 2
+  STUCK AT 1234 S PC 01C78472`, `MISREAD`, `NO ANSWER` with no PC, `FAULT`), or `CORE 2 OFF`; with the audio interrupt inside
+  at the end, where it stood: `IN THE AUDIO: ` and `ITS START`, `CORE 2'S LAST HALF` (the wait for core 2's blocks of
+  the half before), `MAKING THE SOUND`, `CORE 2'S QUEUE FULL`, `WAITING FOR CORE 2`, `A FLASH READ` and its address
+  (a direct read in the audio context, interrupts off), or `ITS END`; making the sound, the core's own mark names
+  where in it (a byte the platform keeps through the restart, plat.h's `plat_sound_at`): `ITS START`, `THE NOTES`,
+  `THE GHOSTS` (the ghosts coming back: their checks, starts and forward work), `THE VOICES`, `A JUNO-106 VOICE`
+  (`DX7`, `SAMPLER`, `TB-303`, `CHIP`), `THE EFFECTS` or `THE OUTPUT`; in a Juno-106 voice, the engine's own marks
+  (`juno_mark`, kept the same way) on the next row: the part of its render (`START`, `OSCILLATORS`, `FILTER 1/4` to
+  `FILTER 4/4`, `VCA`, `END`), the voice and its patch as the render began (`FILTER 2/4 V 01C3A0B4 P 01C3A0A2`; the
+  marks are whichever core's rendered last: core 1's when core 2 was off); and when a fault began in that run but its
+  red screen never came (the crash record's count grew), `A CRASH BEGAN: VEC 01 PC 0200B086`; last, the supplies as
+  the frozen run left them (read at this start, before anything raises them: a restart keeps them),
+  `SUPPLIES 1.60 V, 1.38 V` (`: NOT RAISED` when they are not both at the stock levels: CORE SUPPLIES LOWER, or a
+  raise stopped short). The small rows run from y 98, 12 px each, the last at 170: with every row in use the
+  supplies' is left out. Then the version,
+  `BUILD` and `PRESS A BUTTON TO GO ON`. Every restart of PT/FM's own (an update's, which then restarts through the
+  loader, the chip's USB update mode, FACTORY RESET's, the debug build's watchdog test) disarms the record first:
+  those can read as the watchdog's at the next start, and none is a freeze.
+- **Core 2's own fault record** (in core 2's room: kept through restarts and installs, lost at a power-off) is shown
+  once. A crash's red screen that names it (`CORE 2 FAULT AT`) marks it shown; one no screen has shown (core 1 held
+  core 2 and ran on, or an older build's crash, whose screen read where core 2 was paused) is shown at the next start,
+  after PT/FM FROZE's check, on a red screen until a button or a key is pressed: `CORE 2 FAULTED`, its `VEC`, `PC`,
+  `EMU`, `DBG`, `RETS` and `SP`, `UP 181 S  FAULT 1` (the seconds that run had been up; the faults since the power came
+  on), `FROM AN EARLIER RUN, SHOWN ONCE`, then the version, `BUILD` and `PRESS A BUTTON TO GO ON`.
+- **Core 2's fills and copies write only into the RAM** (0x01C00000-0x01C7FFFF): its memset and memcpy check the
+  destination and its end first, a compare and a branch a call. One that leaves the RAM (an invalid write over the
+  bus: a crash on both cores) is written nowhere: core 2's fault record says so (its kind, `pc` the caller, the
+  destination and length, the time up) and core 2 parks as at a fault of its own, so core 1 holds it at its next half
+  (`STOPPED: FAULT`) and goes on alone, VOICES 16 counting as 12; on core 1 (core 2 off, its jobs run there) the
+  record alone and the block's work goes on. STATUS' DEVICE shows it at once (`BAD FILL TO ... +n`, `ASKED FROM ...`);
+  after a restart CORE 2 FAULTED shows it once: `A BAD FILL STOPPED IT` (`A BAD COPY`), `TO` and `LEN`, `FROM` (the
+  caller) and `DBG`, the time up and the count, `NOT WRITTEN; CORE 1 WENT ON ALONE` (`ON CORE 1 (CORE 2 OFF); NOT
+  WRITTEN`).
 - **The build's code** names the very build a crash report comes from, as a release's version is its number alone: 8
   hex digits holding the build's time to the minute (UTC) and its kind (release, debug, dev, bring-up), scrambled so
   they read as no date, with a check that catches most misread digits. `fw/tools/buildcode.py CODE` reads one back;

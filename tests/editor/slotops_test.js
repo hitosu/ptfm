@@ -35,6 +35,39 @@ if (b != null) {
     const notes = items => items.filter(i => i.kind === K.PATTERN).map(p => [...R.unpackPattern(p.recs.map(x => x.payload)).cells.values()].map(c => c.note).join()).join("/");
     check(notes(m.items) === notes(Rr), "the notes as they were");
 }
+/* a FAVORITES item moved onto the panel is FB, the FM-1's one: its favourite is among the slot's uses and follows a
+ * rearranging */
+{
+    const cL = T.items.find(i => M.isCart(i.kind) && i.orig === cart.num);
+    const fav = { id: M.newId(), side: "L", kind: K.FAVORITES, num: null, orig: null, src: "NEW", name: "MINE", link: { [M.lk("c", cart.num)]: cL.id },
+        recs: [{ sub: 0, ver: 1, payload: R.packCart(K.FAVORITES, { name: "MINE", slots: [{ cart: cart.num, slot: a }] }) }] };
+    const mv = M.transfer({ L: T.items.concat([fav]), R: Rr, base: [] }, "L", [fav.id], {});
+    const R2 = mv.st.R, fb = R2.find(i => i.kind === K.FAVORITES), mine = O.refs(R2, "R", cart).filter(x => x.id === (fb && fb.id));
+    check(mv.ok && fb && fb.num === M.FB && mine.length === 1 && mine[0].slot === a && O.uses(R2, "R", cart, [a]) === O.uses(Rr, "R", cart, [a]) + 1,
+          `FB's favourite naming ${M.H2(cart.num)}:${M.H2(a)} is among its uses (${mv.msg})`);
+    if (b != null) {
+        const m = O.remap(R2, "R", cart, new Map([[a, b], [b, a]])), fb2 = m.items.find(i => i.id === fb.id);
+        check(fb2 && R.unpackCart(K.FAVORITES, fb2.recs[0].payload).slots[0].slot === b, "... and follows a rearranging's SAVE");
+    }
+}
+
+/* a LOOPS set on the panel (specs/files/loops.md#sets): its loop naming the slot is among the slot's uses and follows a
+ * rearranging, as LOOPS' own */
+{
+    const head = new Uint8Array(16 + 80 + 12 + 5);
+    head.set(R.packName("SLOT JAM", 16), 0);
+    head[16 + 5] = 1; head[16 + 7] = 16; head[16 + 80] = cart.num; head[16 + 81] = a; head[16 + 84] = 15; head[16 + 85] = 1;
+    head.set([1, 15, 0, 0, 0], 16 + 92);
+    const set = { id: M.newId(), side: "R", kind: K.LSET, num: 0, orig: 0, src: "TEST", link: { [M.lk("c", cart.num)]: cart.id },
+        recs: [{ sub: 0, ver: 1, payload: head }] };
+    const R3 = Rr.concat([set]), mine = O.refs(R3, "R", cart).filter(x => x.id === set.id);
+    check(mine.length === 1 && mine[0].slot === a && O.uses(R3, "R", cart, [a]) === O.uses(Rr, "R", cart, [a]) + 1,
+          `a LOOPS set's loop naming ${M.H2(cart.num)}:${M.H2(a)} is among its uses`);
+    if (b != null) {
+        const m = O.remap(R3, "R", cart, new Map([[a, b], [b, a]])), s2 = m.items.find(i => i.id === set.id);
+        check(s2 && s2.recs[0].payload[16 + 81] === b && m.ids.includes(set.id), "... and follows a rearranging's SAVE");
+    }
+}
 
 /* ---- a sampler's samples (the sampler tab, specs/editor.md The tabs: Cartridges): any sample on the panel by number or
  * name, REPLACE SAMPLE, CREATE, THE SAMPLES IT USES, PASTE bringing an equal sample or a new one ---- */

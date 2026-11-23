@@ -1,12 +1,15 @@
 # The second core
 
 Status: **settled** (2026-10-22). The record: [the second core's proposal](proposals/202610220009-second-core.md),
-and for the voices on core 2 [its own](proposals/202610222227-voices-on-core-2.md).
+and for the voices on core 2 [its own](proposals/202610222227-voices-on-core-2.md), its pool since [the ghost notes
+proposal](proposals/202611121830-ghost-notes.md), the split moved every block since [its
+proposal](proposals/202611211228-moving-split.md).
 
 The AC791N has two cores at the same speed. **Core 1** runs everything it always has: the interrupts, the main loop,
-every flash access and every peripheral, the replays and up to 12 voices (10 at VOICES 16). **Core 2** runs each
-audio block's effects and its output stage, handed over block by block, and at VOICES 16 the voices past 10: up to
-six, so 16 notes are heard at once ([the voices on core 2](#the-voices-on-core-2)). The screens call them CPU 1 and CPU 2 ([ui/frame.md](ui/frame.md#the-header),
+every flash access and every peripheral, the replays and the voices before the block's split (all of them while core
+2 does not run). **Core 2** runs each audio block's effects and its output stage, handed over block by block, and the
+voices from the split on, up to 10, at any VOICES, so that both cores finish their block together and 16 notes are
+heard at once ([the voices on core 2](#the-voices-on-core-2)). The screens call them CPU 1 and CPU 2 ([ui/frame.md](ui/frame.md#the-header),
 [ui/screens/status.md](ui/screens/status.md)); the chip numbers them 0 and 1 (its `cnum`), and code that touches the
 chip says which numbering it uses.
 
@@ -22,11 +25,11 @@ chip says which numbering it uses.
 - **the output stage:** the keys heard dry joined to the mix, CUT's fade, USB audio's stream (the mix at USB GAIN,
   resampled to the computer's clock), the soft ceiling, SYNC PULSE, VISUAL's ring, and the block converted into the
   codec's half (LINE GAIN, MASTER, mono);
-- **the voice job,** when any of the pool's places 11-16 sounds at VOICES 16: those voices rendered one after another
-  into a block buffer and mixed into mixes of core 2's own ([the voices on core 2](#the-voices-on-core-2)).
+- **the voice job,** when any of the pool's places from the block's split on sounds: those voices rendered one after
+  another into a block buffer and mixed into mixes of core 2's own ([the voices on core 2](#the-voices-on-core-2)).
 
 **Core 1, everything else:** the half's start (the requests, a chase's share, a deck's start made ready), each
-block's control, the replays, the voices in places 1-10 (1-12 below VOICES 16 or without core 2), adding core 2's
+block's control, the replays, the voices in the places before the split (all of them without core 2), adding core 2's
 mixes to its own, DJ's decks' mix (each deck's GATE,
 FILTER, DRIVE and LO-FI, the DJ FILTERs, VOLUME and the crossfader), the music clocks, each block's copy of the
 effects' settings, MIDI; the main loop, every interrupt, every flash access, every peripheral.
@@ -76,19 +79,42 @@ core 2           [fx+out 0][fx+out 1][fx+out 2][fx+out 3]
 
 ## The voices on core 2
 
-**The pool has 20 places:** at VOICES 16 places 1-10 are core 1's and 11-16 core 2's; at 8 and 12 every place
-sounding is core 1's. The places past the count hold the parked notes, four at VOICES 16 and 12, eight at 8
-([ui/screens/settings.md](ui/screens/settings.md#voices)): below VOICES 16 the pool holds 16 notes at most. Measured
-on the FM-1: with eight places past 12, DJ HEAVY on core 1 alone kept more notes sounding (parked ones coming back:
-11.3 on average against 10.5) and ran late more often (117 halves in 30 s against 68). While core 2 does not run
-(SECOND CORE off, before its start, after a fallback) the limit in force is 12, all on core 1. A new note takes a free
-place of core 1's first, core 2's only once all 10 of core 1's sound.
+**The pool has 16 engines,** the places VOICES counts; no place belongs to a core. **Each block a split** says which
+are whose: core 2 renders the sounding places from it on, core 1 those before it ([the split](#the-split)). A note
+without one is a ghost, its voice alone, unheard, costing no engine's
+work (only the walk over the ghosts each block), 24 at most ([ui/screens/settings.md](ui/screens/settings.md#voices)).
+VOICES caps the cost, not the ghosts: more notes kept to come back keep more notes sounding. Measured on the FM-1 with
+eight notes kept past VOICES 12 to come back rather than four, DJ HEAVY on core 1 alone kept more notes sounding (11.3
+on average against 10.5) and ran late more often (117 halves in 30 s against 68).
+While core 2 does not run (SECOND CORE off, before its start, after a fallback) the limit in force is 12, all on core
+1. A new note takes the first free place.
+
+### The split
+
+- **Chosen each block** by core 1, after the block's control and fades, before the voice job is handed over. Each
+  sounding voice weighs its engine's cost a block (the load guard's weights,
+  [ui/screens/settings.md](ui/screens/settings.md#coming-back): DX7 78, JUNO-106 64, sampler 52, TB-303 76, CHIP 40);
+  taken from the top place down, voices go to core 2 while its share, with a margin for its effects, stays under core
+  1's, 10 at most. **The margin follows what happened:** core 1 waited for core 2 where its places begin, the next
+  block gives core 2 less; core 2 was done first, more. So the effects' real cost is found as they change, with no
+  table of their own.
+- **At every VOICES while core 2 runs;** without it the split stands past the last place: core 1 renders them all.
+- **The sound does not depend on it:** the mixes are whole-number sums and the decisions drawn from each voice keep
+  the places' order, so a block sounds the same sample for sample wherever the split stands. It is the one part of
+  the sound's work decided by the FM-1's timing; the load guard does not read it (it counts its own split by the
+  weights alone: [ui/screens/settings.md](ui/screens/settings.md#coming-back)).
+- **The debug build's switch** puts it back where it stood before (places 11-16 at VOICES 16, past the last at 8 and
+  12) for AUTOTEST's comparisons ([debug.md](debug.md)).
 
 **Each block, core 1:**
 
 1. makes the block's control (the requests' share, the replays' ticks, the notes on and off, the levels and pitches,
-   the parked notes back, the Juno-106's noise for the block);
-2. when any of places 11-16 sounds, works out how each of those voices goes into the mix this block (its gain ramp,
+   the ghosts' ends and returns, the Juno-106's noise for the block), then renders the block's fades: each note taken
+   from its engine this block fades out there, its last block rendered on core 1 whatever its place, before the
+   hand-over, and the note that took the engine starts in it (or, for a ghost's claim of a tail's engine, its return
+   begins there in the next block);
+2. sets the block's split and, when any place from it on sounds, works out how each of those voices goes into the mix
+   this block (its gain ramp,
    pan, sends and Juno-106 chorus bus, as it would mixing it) and hands core 2 the block's **voice job**: those
    voices, rendered one after another into core 2's block buffer and each mixed, as core 1 mixes, into a mix of core
    2's own (a replay's stereo mix, its sends and chorus buses, or the keys' heard dry), writing each voice's scope and
@@ -100,35 +126,48 @@ place of core 1's first, core 2's only once all 10 of core 1's sound.
 5. hands the block's effects and output to core 2, as before.
 
 ```
-core 1  [control 0][post V0][voices 1-10][add V0][post FX0][control 1][post V1][voices 1-10][add V1] ...
-core 2             [V0: voices 11-16, mixed]          [FX0 + out 0][V1: voices 11-16, mixed]
+core 1  [control 0][post V0][voices before the split][add V0][post FX0][control 1][post V1][voices ...][add V1] ...
+core 2             [V0: voices from the split, mixed]               [FX0 + out 0][V1: voices from the split, mixed]
 ```
 
 - **The same sound, sample for sample,** as one core rendering and mixing the same 16 voices: the mixes are whole-number
   sums, so adding core 2's mix to core 1's gives what mixing every voice into one gives, in any order. Core 1 decides
   everything that goes into the mixing (the gains, pans, sends, the mutes, the buses) and keeps every decision drawn
-  from it (DUCK, the meters, the end of a voice). A voice of places 11-16 whose mute fades this block is not handed
-  over: core 1 renders and mixes it in its place, as its own, after the job. With 10 notes or fewer nothing changes at
-  all.
+  from it (DUCK, the meters, the end of a voice). A voice of core 2's places whose mute fades this block is not handed
+  over: core 1 renders and mixes it in its place, as its own, after the job.
 - **Why core 2 mixes too:** at 16 voices core 1 mixing all of them was what made DJ HEAVY run late more often than at
   12 (measured on the FM-1: MIX 528 against 442 us a half, 8 late halves in 30 s against 4); core 2 mixing its own
   takes their mixing off core 1 for the cost of adding core 2's mixes. Measured on the FM-1 with 12 + 4: with 16 keys
   held, core 2's four voices cost core 1 about 2.7 % of a half instead of about 5 %; in DJ HEAVY almost nothing, as
   core 2's voices there go into some four of the two decks' sends, chorus buses and mixes each block, and adding each
   back costs core 1 nearly what mixing those voices did.
-- **Why 10 + 6:** in DJ HEAVY at VOICES 16 (12 + 4) core 1 ran at 67 % of a half on average, 109 % at worst, core 2 at
-  28 %, 37 % at worst: the late halves were core 1's (a half's last block reaches core 2 too late when core 1 runs
-  past ~95 %). Each voice moved to core 2 is about 4 % of a half off core 1 there.
-- **A note keeps its place while it sounds;** it moves from one core to the other only by parking: a note parked from
-  core 2's places comes back into the first place that frees, of either core. When core 2 stops running, the notes in
-  places 11 and 12 sound on, on core 1.
-- **Without core 2** (SECOND CORE off, before its start, after a fallback) a note in places 13-16 is parked, fading
-  out on core 1, which renders it for that fade; 16 comes back when core 2 runs again.
+- **Why a split each block:** a fixed one (12 + 4 at first, then 10 + 6) left core 1 the late halves. In DJ HEAVY at
+  VOICES 16 with 12 + 4 core 1 ran at 67 % of a half on average, 109 % at worst, core 2 at 28 %, 37 % at worst (a
+  half's last block reaches core 2 too late when core 1 runs past ~95 %); with 10 + 6 core 1 63.4 %, core 2 34.3 %, 15
+  late halves in 30 s, and at VOICES 12 (every place core 1's) 75.3 % against 14.7 %, 79 late. Each voice moved to core
+  2 is about 4 % of a half off core 1 there; a split that moves with the work keeps both cores near even. Measured
+  on the FM-1 with the split moving: at VOICES 16 core 1 60.4 %, core 2 40.1 %, 5 late halves (the fixed split in the
+  same run 16); at VOICES 12 59.8 % against 38.1 %, 4 late (80).
+- **A note keeps its place while it sounds;** a ghost comes back into the first place free, or a held one into a
+  release tail's ([ui/screens/settings.md](ui/screens/settings.md#coming-back)). The place's core is the block's
+  split's. When core 2 stops running, every note sounds on, on core 1, up to 12.
+- **Without core 2** (SECOND CORE off, before its start, after a fallback) the held notes in places 13-16 fade out
+  there on core 1, which renders their last block, and become ghosts; their tails ring out there on core 1; 16 comes
+  back when core 2 runs again.
 - **A fallback during a voice job** (stuck, a misread, a fault): core 1 holds core 2, that block's voices of core 2's
-  are left out of the mix (one block, 1.45 ms, unheard). A job core 2 never started: its voices are parked, their
-  state as it was. A job core 2 started: its voices are let go (gone, as a note cut), as core 2 may have left their
-  state half done. Core 1 never renders a block core 2 was handed: it would carry 16 voices and the effects in that
-  block, from that same state.
+  are left out of the mix (one block, 1.45 ms, unheard), and the count falls to 12. Core 1 never renders a block core
+  2 was handed: it would carry 16 voices and the effects in that block, from that same state.
+  - **A job core 2 never started** left its places' state as it was: places 11 and 12 sound on (fading in from that
+    silent block), the held notes in 13-16 become ghosts with no fade (that block unheard), as at any smaller count
+    otherwise (a TB-303's let go, ringing on), and the tails there ring out where they are.
+  - **A job core 2 started** may have left its places' state half done: every note of it leaves its place (the next
+    note there starts it from zero) and goes on as a ghost, held or let go (its voice holds all a return needs; a
+    sampler's place and a CHIP's figures taken from its place as it stands, within the block; one let go ends 10 s
+    after its let-go at the latest), made after the ghosts the count's fall makes, in their places' order, so the
+    first back within their rank; a TB-303's note goes, and so does a note being cut. The list full drops by its
+    order ([ui/screens/settings.md](ui/screens/settings.md#the-list-full)).
+  - RECORD LIVE's tap is told of each held note that loses its place
+    ([ui/screens/loops.md](ui/screens/loops.md#record-live)).
 - **The time core 1 waits** for the voice job counts in core 1's share; the job's own time in core 2's.
 
 ## Who owns what
@@ -149,11 +188,11 @@ Every datum the sound uses belongs to one core at a time:
   The queue holds 64 events, far more than a half makes (a punch-in, a click, all sound off, a setup's end each
   take one), so in practice it is never full; a change made at once past it would land after the blocks core 2
   already took, the one place one core and two could sound different.
-- **A voice handed over in a voice job** (places 11-16) is core 2's from the hand-over until core 1 has seen the job
+- **A voice handed over in a voice job** (a place from the block's split on) is core 2's from the hand-over until core 1 has seen the job
   done: core 2 runs its engine (its state, its scope) in its block buffer and writes core 2's mixes, and core 1
   touches none of them meanwhile. Core 1 makes every change to it (a note on, off or cut, a level, a pitch, a
-  parameter command, a park, how it goes into the mix) in the block's control, before the hand-over, and reads its
-  peak, its end and core 2's mixes after the job.
+  parameter command, a take and its fade, a return, how it goes into the mix) in the block's control, before the
+  hand-over, and reads its peak, its end and core 2's mixes after the job.
 - **The engines' shared state:** the DX7's operators' buses are one scratch per core (the engine takes the scratch of
   the core it runs on); the Juno-106's noise generator runs on core 1 for the block before the voice job is handed
   over, and core 2's voices only read it; the engines' tables (the DX7's built at power-on in RAM, the others in the
@@ -200,7 +239,10 @@ queue in its loop in RAM when it has nothing to do; it takes no interrupts.
 - **Held at three moments only:** first thing at every start; before every reset (the crash screen's, an update's,
   the chip's USB update mode, the debug build's watchdog test); and by a fallback (below). Always with the safe hold:
   the bus traps off around it, the hold's own bus flag cleared. Never for flash work or anything else: a hold is final
-  until the next start (a start after a hold faults in the ROM; a restart of the chip clears that).
+  until the next start (a start after a hold faults in the ROM; a restart of the chip clears that). Before a crash's
+  hold and a fallback's, core 2 running is first paused through its debug bank and its PC read, as the chip's SDK does
+  in its exception handler: where it stood, for the red screen and PT/FM FROZE
+  ([hardware.md](hardware.md#updates-and-rescue)).
 - **SECOND CORE works at once both ways.** OFF: core 1 stops handing blocks over from the next half and runs the
   effects itself, the limit in force 12; core 2 waits in its loop. ON: blocks are handed over again from the next
   half, and VOICES 16 is 16 again; if core 2 has not started yet in this start (SECOND CORE was off at the start), it
@@ -211,11 +253,13 @@ queue in its loop in RAM when it has nothing to do; it takes no interrupts.
   - **stuck:** at a half's start, the blocks handed over in the half before not finished, and still not after 1 ms
     more;
   - **a fault:** core 2's exception keeps a record in its own RAM and parks core 2 in a loop of its own in RAM (the
-    park); core 1 sees it at the next half.
+    park); core 1 sees it at the next half. A fill or a copy of core 2's own (`memset`, `memcpy`) aimed outside the
+    RAM writes nothing and is such a fault, its record saying what it was
+    ([hardware.md](hardware.md#updates-and-rescue)).
 
   A fallback holds core 2, and core 1 runs the effects from that half on: their state is all in RAM, so the sound
   goes on, at worst the blocks of one half lost (they play as silence); the limit in force falls to 12: the notes
-  of a voice job core 2 had started are let go, the others in places 13-16 parked ([the voices on core
+  of a voice job core 2 had started become ghosts, and so do the held notes in places 13-16 ([the voices on core
   2](#the-voices-on-core-2)). The toast `SECOND CORE STOPPED` once, on
   any screen; STATUS' DEVICE page says why ([ui/screens/status.md](ui/screens/status.md#device)).
 - **A restart with core 2 running that was not ours:** a word kept across restarts says core 2 runs; it is set
@@ -226,15 +270,19 @@ queue in its loop in RAM when it has nothing to do; it takes no interrupts.
   restarts, which a power-off clears, so a fault core 2 caused cannot loop. The boot guard is unchanged: two failed
   starts in a row end in update mode; a crash core 2 caused counts once, and the next start, on one core, is
   healthy.
-- **The supplies stay at the boot loader's levels.**
+- **The supplies are raised at every start** to the FM-1's stock firmware's levels, VDC14 1.60 V and SYSVDD 1.38 V,
+  before core 2 can start, unless SETTINGS' CORE SUPPLIES says LOWER ([hardware.md](hardware.md#the-chip)): at the boot
+  loader's (1.40 V, 1.26 V) some FM-1s misread their
+  RAM under load, on both cores, and PT/FM's long runs under load froze on core 1 there. The measurements below were made
+  at the boot loader's levels.
 
 ## RAM
 
 **Core 2's room** is a part of its own at the top of the RAM's data region, under the main loop's stack's guard
-band, 40 KB, of which today's code leaves about 2.5 KB ([files/ram.md](files/ram.md#the-layout)):
+band, 40 KB, of which the code leaves about 1.3 KB (0.8 KB in the debug build: [files/ram.md](files/ram.md#the-layout)):
 
 - its code: the effects, the output stage, USB audio's stream writer, its loop, its fault handler's park, its own
-  `memset` / `memcpy` and the timer read; and their constant tables, about 30 KB together, all copied from the
+  `memset` / `memcpy` and the timer read; and their constant tables, about 31 KB together, all copied from the
   image at power-on, as the flash driver's code is;
 - its stacks: the jobs' (6 KB) and the exceptions' (1 KB), filled with a mark at each start (their depth); the voice
   job's deepest and the effects job's never nest, and the build works out both;
@@ -242,8 +290,8 @@ band, 40 KB, of which today's code leaves about 2.5 KB ([files/ram.md](files/ram
 
 **The voice job lies in the image,** with the engines it runs: core 2 fetches it from the flash through the shared
 code cache, as core 1 does (the same engine code on both cores costs nothing more). Its block buffer (256 B, each
-voice in turn), its three mixes (a replay's stereo mix, sends and chorus buses each: 5,376 B) and the four more
-places of the pool (2.6 KB) are in the data region ([files/ram.md](files/ram.md)).
+voice in turn) and its three mixes (a replay's stereo mix, sends and chorus buses each: 5,376 B) are in the data
+region, beside the pool whose places from the split on it renders ([files/ram.md](files/ram.md)).
 
 **One copy of the code, reached through pointers across the gap:** RAM lies out of a direct call's reach from the
 image and the image from RAM, so the code in core 2's room calls only code in its room (its own `memset` / `memcpy`
@@ -296,17 +344,19 @@ What the start, the hold and the fault use (the chip's own numbering: core 2 is 
   keeps the record in core 2's room (the vector, PC, RETS, its EMU flags, DBG, SP, the time) and jumps to the park in
   RAM through a register (RAM is out of a direct call's reach), never the crash screen or a reset. That holds for
   core 2's own EMU bank's faults (its stack limit: taken on core 2, as the FM-1 showed). **A bus error of core 2's**
-  (a wild pointer) is flagged in the debug unit both cores share, whose traps core 1 keeps armed, and is likely taken
-  on core 1: its crash screen, a restart, then core 2 off until the power goes off (core 2's record still says it
-  runs). Contained, and it cannot loop; telling such a fault apart on core 1 and falling back without a restart is
+  (a wild pointer) is flagged in the debug unit both cores share, whose traps core 1 keeps armed: core 2 takes it
+  (its record), and so does core 1: its crash screen, naming core 2's own fault (`CORE 2 FAULT AT`,
+  [hardware.md](hardware.md#updates-and-rescue)), a restart, then core 2 off until the power goes off (core 2's
+  running word still says it runs). Contained, and it cannot loop; telling such a fault apart on core 1 and falling back without a restart is
   left for later.
 
 ## The emulator and the playground
 
 One core, the same sound. The emulator runs the same code: each block's job, the voice job too, runs at once where
 it is handed over, in the device's order, and its time counts as core 2's. The playground estimates core 2's share
-from the effects' and the voices' costs as it estimates the rest. Both have the pool of 20 places with core 1's
-first, VOICES 16 counted as 12 while their second core is off, and show the two columns, the two CPU figures, SECOND
+from the effects' and the voices' costs as it estimates the rest. Both have the pool of 16 places and 40 voices with
+core 1's places first, VOICES 16 counted as 12 while their second core is off (neither has a fallback during a voice
+job), and show the two columns, the two CPU figures, SECOND
 CORE in SETTINGS (OFF moves core 2's share back into core 1's) and DEVICE's line (`STARTING`, then `ON` or `OFF`;
 never `STOPPED`).
 
@@ -357,6 +407,14 @@ Core 2 with the flash and with voices (measured on the FM-1, 2026-10-22; the det
 - **the cache RAM** (28 KB of data RAM made of the data cache's ways) works at RAM's speed and through flash work;
   no code runs from it.
 
-**Not measured yet:** PT/FM's own 16 voices (AUTOTEST's KEYS at 16, DJ HEAVY and a dense song at 16, SECOND CORE on
-and off, and saving while 16 voices play); a long run with two full DJ decks; a bus error of core 2's (no PROVE action
+With the voices on both cores, the split moving each block (the full AUTOTEST of 1.0's debug build):
+
+- DJ HEAVY at VOICES 16: core 1 60.4 % a half on average, 107.2 % at worst, core 2 40.1 %, 5 late halves in 30 s,
+  against 64.1 %, 116.6 %, 35.2 % and 16 late with the fixed split (places 11-16 core 2's) in the same run; at VOICES 12
+  59.8 %, 38.1 % and 4 late, against 75.6 %, 14.7 % and 80 with every place core 1's;
+- 16 DX7 keys held: core 1 55.8 %, core 2 49.7 %, no half late, core 2 taking 7.5 voices a block on average; the loop
+  station's 12 loops core 1 40.4 %, core 2 26.8 %;
+- core 2 ran in every window, no misread; its start answered in 1.16 µs; its jobs' stack 4,820 of 6,144 B at most.
+
+**Not measured yet:** a dense song at 16 voices, SECOND CORE switched while 16 voices play, and saving while they play; a long run with two full DJ decks; a bus error of core 2's (no PROVE action
 makes one).

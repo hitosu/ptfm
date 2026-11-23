@@ -2,22 +2,31 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* The second core's hand-over (specs/second-core.md#when) on the PC: one session through player.h, made in whichever
  * mode the test platform's second core is in (C2_MODE: disk_store.c), each case's output in files of its own;
- * run_sound.sh runs it in every mode and compares modes 1-4 with mode 0, byte for byte. The cases, in this order:
- * DJ HEAVY's pair on two decks (first: mode 4's fallback lands in it), DJ's stops on the shared DELAY and REVERB with
- * a DJ FILTER and its LFO, 20 s of every song of the disk from its start, PUNCH IN with the punch-ins pressed and let
- * go at odd blocks, a song with the METRONOME on through a COUNT-IN, CUT pressed and let go at odd halves, the keys
- * DRY with notes, SYNC PULSE, LOOPS with the stage over a muted loop and SETTINGS' SECOND CORE switched at odd halves
- * (the 16 voices' session: LOOPS with the stage too). A case's files: .lr every half as player_audio leaves it, read
- * once the next half is made (as the codec reads it: core 2 may still be on a half's last blocks when player_audio
- * returns), .usb USB audio's tap and .out player_out's blocks as they come, a hash a block (each counted to the case
- * that made it). Each case must be heard, every block must reach the taps once, and the blocks go to core 2 as the
- * mode has it (none in mode 0).
+ * run_sound.sh runs the plain session (VOICES 12, the voices' split moving there too) in modes 0-4 and 6 and compares
+ * modes 1-3 and 6 with one core's (built with PL_ONE_CORE_16: every voice rendered in place, the load guard counting as
+ * with core 2), byte for byte, and so with the split forced (C2_SPLIT); mode 4 with mode 0 whose guard counts as mode
+ * 4's (C2_GUARD) (modes 5 and 7 lose a voice job: they run in the 16 voices' session). The
+ * cases, in this order: DJ HEAVY's pair on two decks (first: mode 4's fallback lands in it), DJ's stops on the shared
+ * DELAY and REVERB with a DJ FILTER and its LFO, 20 s of every song of the disk from its start, PUNCH IN with the
+ * punch-ins pressed and let go at odd blocks, a song with the METRONOME on through a COUNT-IN, CUT pressed and let go
+ * at odd halves, the keys DRY with notes, SYNC PULSE, LOOPS with the stage over a muted loop and SETTINGS' SECOND CORE
+ * switched at odd halves (the 16 voices' session: LOOPS with the stage too). A case's files: .lr every half as
+ * player_audio leaves it, read once the next half is made (as the codec reads it: core 2 may still be on a half's last
+ * blocks when player_audio returns), .usb USB audio's tap and .out player_out's blocks as they come, a hash a block
+ * (each counted to the case that made it). Each case must be heard, every block must reach the taps once, and the
+ * blocks go to core 2 as the mode has it (none in mode 0). Built with POOL_CHECK it includes the player, its pool's
+ * links checked after every half (pool_check.h), and mode 7 (a voice job lost part way: disk_store.c) runs; without,
+ * the player is an object of its own.
  *   c2_test DISK OUT */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../../core/plat.h"
+#ifdef POOL_CHECK
+#include "../../core/play/player.c"
+#include "pool_check.h"
+#endif
 #include "../../core/play/player.h"
 #include "../../core/play/dj.h"
 #include "../../core/fx/fx.h"
@@ -26,9 +35,22 @@
 
 int disk_load(const char *path);
 extern uint32_t c2_posts;                /* (disk_store.c: the blocks handed over to core 2) */
-extern uint32_t c2_voice_jobs, c2_lost;  /* (the voice jobs handed over; mode 5's one lost) */
+extern uint32_t c2_voice_jobs, c2_lost;  /* (the voice jobs handed over; mode 5's or 7's one lost) */
 static int v16, mode;                    /* C2_V16: the 16 voices' session; C2_MODE */
 static int finish(void);
+#define LOST(m) ((m) == 4 || (m) == 5 || (m) == 7)   /* (modes whose core 2 stops: the limit 12 after) */
+#ifdef POOL_CHECK
+extern void (*c2_part)(void (*job)(uint32_t), uint32_t j);
+static void c2_part_way(void (*job)(uint32_t), uint32_t j)   /* (mode 7: the voice job begun, its first half of voices
+                                                             * rendered and mixed, then lost: not done) */
+{
+    uint8_t n = pl_v2.n;
+    pl_v2.n = (uint8_t)(n / 2u);
+    job(j);
+    pl_v2.n = n;
+    pl_v2.done = 0;
+}
+#endif
 
 #define NCASE 48
 static struct {
@@ -120,9 +142,20 @@ static void put(void)                    /* the half made before, finished now: 
     cs[pend].frames += (uint64_t)pend_frames;
     pend = -1;
 }
+#ifdef POOL_CHECK
+static uint32_t guard_n;                 /* (C2_GUARD: the load guard counting as with core 2 taking the voices' share for
+                                          * the session's first guard_n - 1 halves, then as without: mode 4's, in mode 0) */
+#endif
 static void half(int frames)             /* a half made (frames: whole blocks, 256 at most) */
 {
+#ifdef POOL_CHECK
+    if (guard_n)
+        pl_guard_c2 = (int8_t)(nh + 1u < guard_n);
+#endif
     player_audio(buf[nh & 1u], frames);
+#ifdef POOL_CHECK
+    pool_check(ncase ? cs[ncase - 1].name : "c2_test");
+#endif
     put();
     pend = ncase - 1;
     pend_frames = frames;
@@ -319,10 +352,12 @@ static void loops_case(const char *name)
     run(1.0);
 }
 
-/* ---- 16 voices (C2_V16; specs/second-core.md#the-voices-on-core-2): VOICES 16, core 2's places (PL_C2_FROM on) on
- * core 2 through the voice job. Built with PL_ONE_CORE_16 and run in mode 0, one core renders all 16 in place: the
+/* ---- 16 voices (C2_V16; specs/second-core.md#the-voices-on-core-2): VOICES 16, the places from each block's split on
+ * on core 2 through the voice job. Built with PL_ONE_CORE_16 and run in mode 0, one core renders all 16 in place: the
  * reference modes 1-3 and 6 must equal, but v16_switch (SECOND CORE off counts 16 as 12): the modes among themselves
- * there. Mode 4's fallback (at a half's start) and mode 5's (a voice job lost) only run on, the limit 12 after ---- */
+ * there. Mode 4's fallback (at a half's start), mode 5's (a voice job never begun, lost) and mode 7's (one begun, lost)
+ * only run on, the limit 12 after, their own checks ---- */
+static pl_tap_t tq[64];                  /* (RECORD LIVE's tap while the 16 keys are held) */
 static const pl_inst_t V16_IN[4] = {{0xF0, 0x02}, {0xF8, 0x03}, {0xF0, 0x10}, {0xA2, 0x08}};   /* DX7, JUNO-106, DX7,
                                                                                             * a sampler's (03:08) */
 static void v16_keys(int on, int from, int to, int gap)   /* keys from..to on (DX7, Juno-106, DX7, sampler in turn) */
@@ -336,6 +371,69 @@ static void v16_keys(int on, int from, int to, int gap)   /* keys from..to on (D
         halves(gap);
     }
 }
+#ifdef POOL_CHECK
+static uint32_t lost_n;                  /* (mode 7: the notes of the job lost, each told to the tap as lost) */
+/* (modes 5 and 7, 16 keys held, a half after the voice job was lost: was, each engine's voice before; the job's places
+ * those its split handed over, pl_v2.place, from the split up, all 16 sounding. A job never begun left its engines'
+ * state: its places under 13 sound on, as every place before the split, 13-16's notes ghosts in their engines' order. A
+ * begun one: its notes ghosts made last in their engines' order, the ones made last back first, each into the first of
+ * its places under 13 free (a return under way there or none yet in the rest); its engines' state given up (kind 255:
+ * a note there starts it from zero), as places 13-16, unused at the limit 12, still show; the places before the split
+ * untouched. The count 12 and no fade left over either way; the tap told each held note that lost its engine, PT_LOST
+ * on the keys' lane) */
+static void v16_lost(const uint8_t *was)
+{
+    uint32_t i, n = pl_v2.n, k = n ? pl_v2.place[0] : PL_ENGINES, back = 0;
+    int ok = pl_nv == PL_VOICES_C1 && !pl_nfd && n && k + n == PL_ENGINES;
+    lost_n = n;
+    for (i = 0; i < (mode == 5 ? PL_VOICES_C1 : k); i++)
+        ok &= pl_e[i].voice == was[i];
+    if (mode == 5) {
+        ok &= pl_gn == PL_ENGINES - PL_VOICES_C1;
+        for (i = 0; ok && i < pl_gn; i++)
+            ok &= pl_gl[i] == was[PL_VOICES_C1 + i] && pl_v[pl_gl[i]].held;
+    } else {
+        for (i = PL_VOICES_C1; i < PL_ENGINES; i++)
+            ok &= pl_e[i].voice == PL_NO_VOICE && pl_e[i].kind == 255;
+        while (k + back < PL_VOICES_C1 && pl_e[k + back].voice != PL_NO_VOICE)
+            back++;
+        for (i = 0; i < back; i++)
+            ok &= pl_e[k + i].voice == was[PL_ENGINES - 1u - i];
+        for (i = k + back; i < PL_VOICES_C1; i++)
+            ok &= pl_e[i].voice == PL_NO_VOICE;
+        ok &= pl_gn == n - back;
+        for (i = 0; ok && i < pl_gn; i++)
+            ok &= pl_gl[i] == was[k + i] && pl_v[pl_gl[i]].held;
+    }
+    printf("  the voice job lost (%s): places %u-16, %u ghosts, %u back, the count %u\n", mode == 7 ? "begun" : "never begun",
+           (unsigned)k + 1u, (unsigned)pl_gn, (unsigned)back, (unsigned)pl_nv);
+    check(mode == 7 ? "a job begun, lost: its notes ghosts made last, the last back first into its places, 13-16 zeroed"
+                    : "a job never begun, lost: its places under 13 sound on, 13-16's notes ghosts in order", ok);
+}
+#endif
+/* (the tap's events of the 16 keys held: each key's note told, and in modes 5 and 7 the notes losing their engines) */
+static void v16_tapped(void)
+{
+    pl_tap_t e;
+#ifdef POOL_CHECK
+    int notes = 0, lost = 0, after = 0, want = mode == 5 ? 4 : mode == 7 ? (int)lost_n : 0;
+#else
+    int notes = 0, lost = 0, after = 0, want = mode == 5 ? 4 : 0;
+#endif
+    while (player_tap_peek(&e)) {
+        player_tap_next();
+        if (e.lane == PT_KEY && e.note == PT_LOST) {
+            lost++;
+        } else if (e.lane == PT_KEY && e.note >= 12u) {
+            notes++;
+            after += lost > 0;
+        }
+    }
+    player_tap(0, 0);
+    printf("  the tap, 16 keys held: %d notes told, %d lost, %d notes told after a loss\n", notes, lost, after);
+    check("RECORD LIVE's tap: the keys' notes, each lost one told, none coming back", notes == 16 && lost == want &&
+          !after && !player_tap_lost());
+}
 static void v16_session(void)
 {
     static player_dj_t mix;
@@ -343,24 +441,43 @@ static void v16_session(void)
     int i, n, k;
     player_voice_count(16);
 
-    begin("v16_keys");                   /* 16 keys held, started at odd halves, let go one at a time */
+    begin("v16_keys");                   /* 16 keys held, started at odd halves, let go one at a time; the tap on while
+                                          * they are held (modes 5 and 7: the voice job lost then) */
     halves(1);
+    player_tap(tq, 64);
     v16_keys(1, 0, 15, 3);
-    halves(397);
-    check("16 keys held: 16 voices sound", key_voices() == 16 || (mode == 4 || mode == 5));
+    for (k = 0; k < 397; k++) {
+        uint32_t lost = c2_lost;
+#ifdef POOL_CHECK
+        uint8_t was[PL_ENGINES];
+        for (i = 0; i < (int)PL_ENGINES; i++)
+            was[i] = pl_e[i].voice;
+#endif
+        halves(1);
+        if (c2_lost != lost) {           /* (a half on: what came back in it too) */
+            halves(1);
+            k++;
+#ifdef POOL_CHECK
+            v16_lost(was);
+#endif
+        }
+    }
+    check("16 keys held: 16 voices sound", key_voices() == 16 || LOST(mode));
+    v16_tapped();
     v16_keys(0, 0, 15, 5);
     run(2.0);
 
-    begin("v16_park");                   /* 20 keys: the newest park the oldest; 6 let go, the parked back in */
+    begin("v16_ghost");                  /* 20 keys: the newest take the oldest's engines (ghosts); 6 let go, the ghosts
+                                          * back in (into their tails' engines, each tail fading out) */
     v16_keys(1, 0, 19, 1);
     halves(201);
-    check("20 keys held: 16 sound, 4 parked", (key_voices() == 16 && st().parked == 4) || (mode == 4 || mode == 5));
+    check("20 keys held: 16 sound, 4 ghosts", (key_voices() == 16 && st().ghosts == 4) || LOST(mode));
     v16_keys(0, 4, 9, 7);
-    for (k = 0; k < 100 && st().parked; k++)   /* (their tails ending free their voices for the parked) */
+    for (k = 0; k < 100 && st().ghosts; k++)
         halves(17);
-    printf("  6 let go: the parked back after %d x 17 halves, %d parked, %d keys' voices\n", k, st().parked,
+    printf("  6 let go: the ghosts back after %d x 17 halves, %d ghosts, %d keys' voices\n", k, st().ghosts,
            key_voices());
-    check("6 let go: the 4 parked back as their tails end", !st().parked || (mode == 4 || mode == 5));
+    check("6 let go: the 4 ghosts back into their tails' engines", !st().ghosts || LOST(mode));
     v16_keys(0, 0, 3, 1);
     v16_keys(0, 10, 19, 1);
     run(2.0);
@@ -375,24 +492,24 @@ static void v16_session(void)
     player_all_sound_off();
     run(1.0);
 
-    begin("v16_mutes");                  /* 10 keys held, SPICE ROAD's notes in the places past them (core 2's), its
-                                          * tracks muted and heard again at odd halves: core 2's places whose mute
-                                          * fades, rendered and mixed by core 1 that block */
-    v16_keys(1, 0, PL_C2_FROM - 1, 1);
+    begin("v16_mutes");                  /* 10 keys held, SPICE ROAD's notes in the places past them (the top places,
+                                          * core 2's from the split on), its tracks muted and heard again at odd halves:
+                                          * core 2's places whose mute fades, rendered and mixed by core 1 that block */
+    v16_keys(1, 0, 9, 1);
     player_play_song(0xA1, 0, 0);
     run(2.0);
     for (k = 0, n = 0; k < 24; k++) {
         pl_voice_info_t v[PL_VOICES];
         int nv = player_voices_now(v, PL_VOICES), c;
-        for (c = PL_C2_FROM; c < nv; c++)
+        for (c = 10; c < nv; c++)
             n += v[c].on && v[c].track != 0xFF;
         player_mutes(k & 1 ? 0u : 0x5555u << (k & 2 ? 1 : 0));
         halves(3 + 2 * (k % 5));
     }
-    printf("  song voices in core 2's places at the mutes: %d\n", n);
-    check("mutes at 16: song voices in core 2's places as their tracks fade", n > 0);
+    printf("  song voices in the top 6 places at the mutes: %d\n", n);
+    check("mutes at 16: song voices in the top places as their tracks fade", n > 0);
     player_mutes(0);
-    v16_keys(0, 0, PL_C2_FROM - 1, 1);
+    v16_keys(0, 0, 9, 1);
     player_stop();
     player_all_sound_off();
     run(1.0);
@@ -455,6 +572,64 @@ static void v16_session(void)
 
     loops_case("v16_loops");             /* (LOOPS with the stage: its voices in core 2's places too) */
 
+    begin("v16_count");                  /* 16 keys held, VOICES 8, 16, 12, 16: at 8 the notes of engines 9-16 fade out
+                                          * there in one block and go on as ghosts in their engines' order; at 16 they
+                                          * come back as the block's budget lets them, 4 a block at most, the one made
+                                          * last first, into the first free engines (a return under way holding its
+                                          * engine into the next block), all back within 6 blocks */
+    v16_keys(1, 0, 15, 1);
+    halves(53);
+    {
+        int fell, rose = 1, s[7], g[7];
+#ifdef POOL_CHECK
+        uint8_t was[PL_ENGINES];
+        uint32_t b0;
+        for (i = 0; i < (int)PL_ENGINES; i++)
+            was[i] = pl_e[i].voice;
+        b0 = pl_eng_blocks[0] + pl_eng_blocks[1] + pl_eng_blocks[2] + pl_eng_blocks[3];
+#endif
+        player_voice_count(8);
+        blocks(1);
+        s[0] = key_voices();
+        g[0] = st().ghosts;
+        fell = s[0] == 8 && g[0] == 8;
+#ifdef POOL_CHECK
+        fell &= pl_eng_blocks[0] + pl_eng_blocks[1] + pl_eng_blocks[2] + pl_eng_blocks[3] - b0 == 16u && pl_gn == 8;
+        for (i = 0; fell && i < 8; i++)
+            fell &= pl_gl[i] == was[8 + i];
+#endif
+        halves(37);
+        player_voice_count(16);
+        int n = s[0], all = -1;
+        for (i = 1; i < 7; i++) s[i] = s[0], g[i] = g[0];
+        for (i = 1; i <= 60 && all < 0; i++) {   /* (the FM-1's budget: about a return begun a block) */
+            blocks(1);
+            int sv = key_voices(), gv = st().ghosts;
+            if (i < 7) { s[i] = sv; g[i] = gv; }
+            rose &= sv + gv == 16 && sv >= n && sv - n <= 4;
+            n = sv;
+            if (n == 16) all = i;
+        }
+        rose &= all > 0;
+#ifdef POOL_CHECK
+        for (i = 0; rose && i < 8; i++)
+            rose &= pl_e[8 + i].voice == was[15 - i];
+#endif
+        printf("  16 keys, VOICES 8: %d sound, %d ghosts; 16 again: %d %d %d %d %d %d sound a block on and the next, "
+               "all 16 in %d blocks\n", s[0], g[0], s[1], s[2], s[3], s[4], s[5], s[6], all);
+        check("VOICES 8: 8 ghosts, their fades in their engines in one block, in order", fell || LOST(mode));
+        check("VOICES 16 again: back 4 a block at most, the one made last first, all within 60 blocks", rose || LOST(mode));
+    }
+    halves(41);
+    player_voice_count(12);
+    halves(29);
+    check("VOICES 12: 12 sound, 4 ghosts", (key_voices() == 12 && st().ghosts == 4) || LOST(mode));
+    player_voice_count(16);
+    halves(31);
+    check("VOICES 16: 16 sound", key_voices() == 16 || LOST(mode));
+    v16_keys(0, 0, 15, 1);
+    run(2.0);
+
     begin("v16_switch");                 /* 16 keys held, SECOND CORE off and on at odd halves: 16 counted as 12 */
     v16_keys(1, 0, 15, 1);
     for (k = 0; k < 6; k++) {
@@ -480,12 +655,22 @@ int main(int argc, char **argv)
         return 2;
     }
     dir = argv[2];
+#ifdef POOL_CHECK
+    c2_part = c2_part_way;
+#endif
     player_init();
     player_usb = usb_tap;
     player_out = out_block;
     dj_record_default(DJ_REC);
     player_dj_mem(spare_borrow(player_dj_mem_size()));   /* (lent as dj.c has it lent: the spare zone's top) */
     mode = getenv("C2_MODE") ? atoi(getenv("C2_MODE")) : 0;
+#ifdef POOL_CHECK
+    if (getenv("C2_SPLIT"))              /* (the block's split forced, player.c's SPLIT_*: 1 fixed as before it moved, 2 every
+                                          * voice core 1's, 3 the top 10 core 2's, 4 a place at random each block) */
+        pl_split_how = (uint8_t)atoi(getenv("C2_SPLIT"));
+    if (getenv("C2_GUARD"))
+        guard_n = (uint32_t)atoi(getenv("C2_GUARD"));
+#endif
     if ((v16 = getenv("C2_V16") != 0)) {
         v16_session();
         return finish();
@@ -682,18 +867,31 @@ static int finish(void)
     }
     check("every case heard (above -60 dB RMS)", !quiet);
     check("every block given to USB audio's tap and to player_out once", n_usb == made && n_out == made);
+#ifdef POOL_CHECK
+    int none = pl_split_how == SPLIT_CORE1 || (!v16 && pl_split_how == SPLIT_FIXED);   /* (no voice job: forced so) */
+#else
+    int none = 0;
+#endif
     if (!v16) {                          /* (handed over: all but CUT's and SECOND CORE off's in modes 1-3 and 6, the
-                                          * first 499 halves' in mode 4, none in mode 0) */
-        printf("  %u of %llu blocks handed over to core 2\n", (unsigned)c2_posts, (unsigned long long)made);
+                                          * first 499 halves' in mode 4, none in mode 0; the voice jobs at VOICES 12 too,
+                                          * the split moving there, mode 4's in its first halves) */
+        printf("  %u voice jobs, %u of %llu blocks handed over to core 2\n", (unsigned)c2_voice_jobs,
+               (unsigned)(c2_posts - c2_voice_jobs), (unsigned long long)made);
         check("the blocks handed over to core 2 as its mode has it",
-              mode == 0 ? !c2_posts : mode == 4 ? c2_posts && c2_posts <= 4u * 500u : c2_posts > made * 9u / 10u);
+              mode == 0 ? !c2_posts : mode == 4 ? c2_posts && c2_posts - c2_voice_jobs <= 4u * 500u :
+              c2_posts - c2_voice_jobs > made * 9u / 10u);
+        check("the voice jobs at VOICES 12 as the mode has it (the split moves there too)",
+              mode == 0 || none ? !c2_voice_jobs : mode == 4 ? c2_voice_jobs && c2_voice_jobs <= 4u * 500u :
+              c2_voice_jobs > 1000u);
     } else {                             /* (16 voices: voice jobs in modes 1-3, 5, 6 and mode 4's first halves; none
                                           * in one core's reference) */
         printf("  %u voice jobs, %u of %llu jobs handed over to core 2\n", (unsigned)c2_voice_jobs, (unsigned)c2_posts,
                (unsigned long long)made);
-        check("the voice jobs handed over as the mode has it", mode == 0 ? !c2_voice_jobs : c2_voice_jobs > 1000u);
-        if (mode == 5)
-            check("mode 5: the voice job lost, core 2 stopped, the limit 12", c2_lost == 1 && st().voice_count == 12);
+        check("the voice jobs handed over as the mode has it", mode == 0 || none ? !c2_voice_jobs :
+              c2_voice_jobs > 1000u);
+        if (mode == 5 || mode == 7)
+            check("modes 5 and 7: the voice job lost, core 2 stopped, the limit 12", c2_lost == 1 &&
+                  st().voice_count == 12);
         else
             check("the limit in force 16 at the end", st().voice_count == 16 || mode == 4);
     }

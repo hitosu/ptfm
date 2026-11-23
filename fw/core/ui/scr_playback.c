@@ -90,7 +90,7 @@ static void set_share(uint32_t share, const ui_song_t *sg)
     int own = own10(sg), now = (int)(((uint32_t)own * share + 32768u) >> 16), c = own ? (now - own) * 1000 / own : 0;
     char v[28];                                         /* `124.0 BPM -3.2%` (DJ's words: the change x 0.1 %) */
     ui_fmt(v, sizeof v, "%d.%d BPM %c%d.%d%%", now / 10, now % 10, c < 0 ? '-' : '+', (c < 0 ? -c : c) / 10, (c < 0 ? -c : c) % 10);
-    ui_show_knob(T("K4 TEMPO"), v);
+    ui_show_knob_t(TX("K4 TEMPO"), v);
 }
 static void set_db(int db)
 {
@@ -99,9 +99,8 @@ static void set_db(int db)
     spd.db_at = ui_now() | 1;
     spd.last = K_K3;
     char v[12];                                         /* `-3 DB`, `0 DB`, `+2 DB`, `OFF` (DJ's VOLUME's words) */
-    if (db <= VOL_OFF) ui_fmt(v, sizeof v, "%s", T("OFF"));
-    else ui_fmt(v, sizeof v, "%s%d DB", db > 0 ? "+" : "", db);
-    ui_show_knob(T("K3 VOLUME"), v);
+    if (db > VOL_OFF) ui_fmt(v, sizeof v, "%s%d DB", db > 0 ? "+" : "", db);
+    ui_show_knob_t(TX("K3 VOLUME"), db <= VOL_OFF ? T("OFF") : v);
 }
 static void knob(int e, int s, int coarse)
 {
@@ -117,7 +116,7 @@ static void knob(int e, int s, int coarse)
         int i = 0;
         for (int k = 0; k < 4; k++) if (V[k] == pb.view) i = k;
         pb.view = V[ui_clamp(i + (s > 0 ? 1 : -1), 0, 3)];
-        ui_show_knob(T("K2 VIEW"), view_word());
+        ui_show_knob_t(TX("K2 VIEW"), view_word());
         return;
     }
     if (loops_now()) return;                            /* (the loops play: K1, K3, K4 and SELECT change nothing) */
@@ -143,7 +142,7 @@ static void knob(int e, int s, int coarse)
         char v[32];
         if (ui_song(w.song, &sg)) {
             ui_fmt(v, sizeof v, T("%02X/%02X PATTERN %02X"), to, w.npos - 1, sg.order[to]);
-            ui_show_knob(T("K1 POSITION"), v);
+            ui_show_knob_t(TX("K1 POSITION"), v);
         }
     }
 }
@@ -179,15 +178,15 @@ static int tap(int b)
         return 1;
     }
     if (b == B_GLO) {
-        const ui_prop_t items[2] = {{TX("SCROLL"), p_scroll, p_scroll_change, 0, 0, 0},
-                                    {TX("UNLOAD SONG"), p_unload, 0, p_unload_edit, 0, 0}};
+        static const ui_prop_t items[2] = {{TX("SCROLL"), p_scroll, p_scroll_change, 0, 0, 0},
+                                           {TX("UNLOAD SONG"), p_unload, 0, p_unload_edit, 0, 0}};
         ui_props(T("PLAYBACK VIEW"), items, 1 + (ui_song_held() && !loops_now()), B_GLO);   /* (UNLOAD SONG while a song is held, not the loops) */
         return 1;
     }
     if (b == B_EDIT) {
         where_t w;
         if (!where(&w)) return 1;
-        if (!ui_screen_named("EDITOR")) { ui_toast(T("EDITOR: NOT IN THIS FIRMWARE YET")); return 1; }
+        if (!ui_screen_named("EDITOR")) { ui_toast_t(TX("EDITOR: NOT IN THIS FIRMWARE YET")); return 1; }
         edit_pat = w.pat;
         if (w.pat == UI_EDITOR_PATTERN) edit_go();     /* (its own playing: nothing replaced) */
         else ed_own_ask(edit_go);

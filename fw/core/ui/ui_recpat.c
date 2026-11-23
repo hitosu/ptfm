@@ -224,7 +224,7 @@ static int rp_tap(ui_overlay_t *ov, int b)
         if (!rs.pv_on) hear(ui_rp.note, 200);
         char nm[8];
         ui_note_name(nm, ui_rp.note);
-        ui_toast(ui_txt_v(T("NOTE #"), nm));
+        ui_toast(ui_txt_t(TX("NOTE #"), nm));
         changed();
     }
     return 1;                            /* (the other buttons do nothing here) */
@@ -233,7 +233,7 @@ static void rp_play(ui_overlay_t *ov) { (void)ov; if (rs.pv_on) pv_stop(); else 
 static void rp_cancel(ui_overlay_t *ov) { pv_stop(); hush(); ui_close(ov); }
 static void rp_rec(ui_overlay_t *ov)
 {
-    if (!(ui_rp.steps & ((1u << ui_rp.size) - 1u))) { ui_refuse(B_REC); ui_toast(T("NO STEPS ON")); return; }
+    if (!(ui_rp.steps & ((1u << ui_rp.size) - 1u))) { ui_refuse_t(B_REC, TX("NO STEPS ON")); return; }
     pv_stop();
     hush();
     if (rs.o.write && rs.o.write()) ui_close(ov);
@@ -287,7 +287,7 @@ static void rp_draw(ui_overlay_t *ov)
     eng = ui_cart_kind((uint8_t)(snd >> 8));
     int col = eng > 0 && eng < ENG_COUNT ? ENG_COL[eng] : C_LGREY;
     ui_panel(8, y, 224, h, 0, C_LGREY);
-    g_text(g_centre(&FONT_T, rs.o.title, 8, 224), y + 6, &FONT_T, rs.o.title, C_WHITE);
+    g_text_c(8, 224, y + 6, &FONT_T, rs.o.title, C_WHITE);
     for (int k = 0; k < 16; k++) {       /* the steps, in fours; the one playing boxed */
         int x = 13 + k * 13 + (k / 4) * 2;
         if (k >= ui_rp.size) { g_box(x, y + 22, 11, 14, C_DEEP + C_DGREY); continue; }

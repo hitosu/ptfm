@@ -28,20 +28,15 @@ static void learn_draw(ui_overlay_t *o)
     int step = midi_learning();
     char c[16];
     ui_panel(8, 78, 224, 88, 0, C_CYAN);
-    const char *t = T("MIDI LEARN");
-    g_text(g_centre(&FONT_T, t, 8, 224), 86, &FONT_T, t, C_WHITE);
+    g_text_c(8, 224, 86, &FONT_T, T("MIDI LEARN"), C_WHITE);
     if (step == 2) {
         midi_ctl_name(c, midi_learn_ctl());
-        g_text(g_centre(&FONT_T, c, 8, 224), 98, &FONT_T, c, C_YELLOW);
-        t = T("MOVE THE MIDI CONTROL");
-        g_text(g_centre(&FONT_T, t, 8, 224), 110, &FONT_T, t, C_LGREY);
-        t = T("A KNOB: TURN IT. A PAD: PRESS IT");
-        g_text(g_centre(&FONT_T, t, 8, 224), 122, &FONT_T, t, C_LGREY);
+        g_text_c(8, 224, 98, &FONT_T, c, C_YELLOW);
+        g_text_c(8, 224, 110, &FONT_T, T("MOVE THE MIDI CONTROL"), C_LGREY);
+        g_text_c(8, 224, 122, &FONT_T, T("A KNOB: TURN IT. A PAD: PRESS IT"), C_LGREY);
     } else {
-        t = T("TOUCH AN FM-1 CONTROL");
-        g_text(g_centre(&FONT_T, t, 8, 224), 110, &FONT_T, t, C_LGREY);
-        t = T("A KNOB, A BUTTON OR A KEY");
-        g_text(g_centre(&FONT_T, t, 8, 224), 122, &FONT_T, t, C_LGREY);
+        g_text_c(8, 224, 110, &FONT_T, T("TOUCH AN FM-1 CONTROL"), C_LGREY);
+        g_text_c(8, 224, 122, &FONT_T, T("A KNOB, A BUTTON OR A KEY"), C_LGREY);
     }
     g_run_t k[2] = {{T("HOME"), C_YELLOW}, {T(": CANCEL"), C_LGREY}};
     g_runs(8 + (224 - g_runs_w(&FONT_T, k, 2)) / 2, 150, &FONT_T, k, 2);
@@ -52,7 +47,7 @@ static int learn_key(ui_overlay_t *o, int n, int down) { (void)o; (void)n; (void
 static void learn_cancel(ui_overlay_t *o) { (void)o; midi_learn_cancel(); set.learn = 0; }
 static void learn_open(void)
 {
-    if (midi_learn_start()) { ui_refuse(B_EDIT); ui_toast(T("64 MAPPINGS: DELETE ONE FIRST")); return; }
+    if (midi_learn_start()) { ui_refuse_t(B_EDIT, TX("64 MAPPINGS: DELETE ONE FIRST")); return; }
     ui_overlay_t o = {.kind = OV_OTHER, .opener = B_EDIT, .knob = learn_knob, .tap = learn_tap, .key = learn_key,
                       .cancel = learn_cancel, .draw = learn_draw};
     set.learn = ui_open(&o);
@@ -74,7 +69,7 @@ static void voices_told(int k)
     plat_cpu_t c;
     if (k != S_VOICES || ui_set[S_VOICES] != 2) return;
     plat_cpu(&c, 0);
-    if (c.c2_state != PLAT_C2_ON) ui_toast(T("16 VOICES: 12 WITHOUT CPU 2"));
+    if (c.c2_state != PLAT_C2_ON) ui_toast_t(TX("16 VOICES: 12 WITHOUT CPU 2"));
 }
 static void change(const ui_setting_t *it, int16_t *v, int s, int k, int midi)
 {
@@ -85,6 +80,8 @@ static void change(const ui_setting_t *it, int16_t *v, int s, int k, int midi)
     ui_settings_changed();
     if (!midi) ui_settings_apply(k);
     if (!midi) voices_told(k);
+    if (!midi && k == S_SUPPLIES && ui_set[S_SUPPLIES]) ui_toast_t(TX("LOWER FROM THE NEXT POWER-ON"));   /* (raised supplies
+                                                         * are never lowered: a power-off does it) */
 }
 static void knob(int e, int s, int coarse)
 {
@@ -134,7 +131,7 @@ static int tap(int b)
 {
     if (b == B_SEQ) { set.page = (set.page + 1) % 2; return 1; }
     if (b == B_SEL) {
-        if (!ui_edit_unsaved(set.page ? REC_MIDIMAP : REC_SETTINGS, 0, 0)) { ui_refuse(B_SEL); ui_toast(T("NOTHING TO REVERT")); return 1; }
+        if (!ui_edit_unsaved(set.page ? REC_MIDIMAP : REC_SETTINGS, 0, 0)) { ui_refuse_t(B_SEL, TX("NOTHING TO REVERT")); return 1; }
         static const ui_mitem_t m[1] = {{TX("REVERT"), 1, 0, 0}};
         ui_menu("settings", set.page ? T("MIDI") : T("SETTINGS"), m, 1, menu_pick, B_SEL);
         return 1;
@@ -150,8 +147,8 @@ static int tap(int b)
             if (midi_map_at(set.msel - M_LEARN - 1, &m)) return 1;
             midi_ctl_name(c, m.ctl);
             midi_src_name(s, &m);
-            if (midi_map_delete(set.msel - M_LEARN - 1)) { ui_toast(T("MEMORY FOR EDITS IS FULL")); return 1; }
-            ui_fmt(t, sizeof t, "%s: %s", c, ui_txt_v(T("# DELETED"), s));
+            if (midi_map_delete(set.msel - M_LEARN - 1)) { ui_toast_t(TX("MEMORY FOR EDITS IS FULL")); return 1; }
+            ui_fmt(t, sizeof t, "%s: %s", c, ui_txt_t(TX("# DELETED"), s));
             ui_toast(t);
             set.msel = ui_clamp(set.msel, 0, m_lines() - 1);
             return 1;
@@ -209,57 +206,72 @@ static const char *footer(uint8_t *col)
     *col = C_DGREY;
     return b;
 }
-static void draw(void)
+/* both pages in FONT_S (settings.md#layout): rows of 16 px from y 19, 12 lines in view, the selected row whole and kept 5
+ * lines down while it can; names at 4, values right-aligned to 236, on the next line when the row passes 29
+ * characters; a mapping two lines, its FM-1 control, then its MIDI control and kind */
+#define SET_LINES 12
+#define SET_LINE 29
+/* an item, its name at 4 and its value right-aligned to 236 (on its row's second line when it has two) */
+static void item_row(const ui_setting_t *it, int16_t val, int y, int k, int whole, int on, int col)
 {
     char v[24];
-    if (set.page) {
-        /* 14 lines show: the items, MIDI CONTROLLER, LEARN, the mappings; the first shown max(0, min(selected - 6,
-         * lines - 14)) */
-        int n = m_lines(), nmap = n - M_LEARN - 1, top = ui_clamp(set.msel - 6, 0, n - 14 > 0 ? n - 14 : 0);
-        for (int k = 0; k < 14 && top + k < n; k++) {
-            int i = top + k, y = BODY_Y + 3 + k * 15, on = i == set.msel;
-            if (on) g_box(0, y - 2, 240, 15, C_WHITE);
-            if (i == M_CTL) {                           /* (EDIT: the switch, after its questions) */
-                g_text(4, y, &FONT_T, T("MIDI CONTROLLER"), on ? C_WHITE : C_CYAN);
-                continue;
-            }
-            if (i == M_LEARN) {
-                g_text(4, y, &FONT_T, T("LEARN"), on ? C_WHITE : C_CYAN);
-                ui_fmt(v, sizeof v, "%s", ui_txt_v(T("# OF 64"), ui_dec(nmap)));
-                g_text(236 - g_tw(&FONT_T, v), y, &FONT_T, v, on ? C_WHITE : C_LGREY);
-                continue;
-            }
-            if (i > M_LEARN) {                          /* a mapping: the FM-1's control, the MIDI one, its kind */
-                midi_map_t m;
-                char c[16], s[16];
-                if (midi_map_at(i - M_LEARN - 1, &m)) continue;
-                midi_ctl_name(c, m.ctl);
-                midi_src_name(s, &m);
-                const char *kd = midi_kind_name(m.kind);
-                g_text(4, y, &FONT_T, c, on ? C_WHITE : C_YELLOW);
-                g_text(94, y, &FONT_T, s, on ? C_WHITE : C_LGREY);
-                g_text(236 - g_tw(&FONT_T, kd), y, &FONT_T, kd, on ? C_WHITE : C_DGREY);
-                continue;
-            }
-            const ui_setting_t *it = &UI_MIDI_SETTINGS[i];
-            g_text(4, y, &FONT_T, T(it->name), on ? C_WHITE : C_CYAN);
-            ui_setting_text(it, ui_midi_set[i], v);
-            g_text(236 - g_tw(&FONT_T, v), y, &FONT_T, v, on ? C_WHITE : ui_midi_set[i] == it->def ? C_LGREY : C_YELLOW);
-        }
-        if (!nmap) g_text(4, BODY_Y + 3 + n * 15, &FONT_T, T("NO MAPPINGS YET: EDIT ON LEARN"), C_DGREY);
+    if (on) g_box(0, y - 1, 240, UI_ROW * k, C_WHITE);
+    g_text(4, y, &FONT_S, T(it->name), on ? C_WHITE : C_CYAN);
+    ui_setting_text(it, val, v);
+    if (whole) g_text_r(236, y + (k - 1) * UI_ROW, &FONT_S, v, on ? C_WHITE : col);
+}
+static int item_nl(const ui_setting_t *it, int16_t val)
+{
+    char v[24];
+    ui_setting_text(it, val, v);
+    return ui_row_lines(T(it->name), v, SET_LINE);
+}
+static void list_row(int i, int y, int k, int whole, int on)
+{
+    const ui_setting_t *it = &UI_SETTINGS[i];
+    item_row(it, ui_set[i], y, k, whole, on, i == S_THEME ? C_LMAGENTA : ui_set[i] == it->def ? C_LGREY : C_YELLOW);
+}
+static void midi_row(int i, int y, int k, int whole, int on)
+{
+    if (i < S_MIDI_COUNT) {
+        const ui_setting_t *it = &UI_MIDI_SETTINGS[i];
+        item_row(it, ui_midi_set[i], y, k, whole, on, ui_midi_set[i] == it->def ? C_LGREY : C_YELLOW);
         return;
     }
-    /* 14 rows show; more scroll, the selected one kept in the middle while it can */
-    int rows = 14, top = ui_clamp(set.sel - 6, 0, S_COUNT - rows > 0 ? S_COUNT - rows : 0);
-    for (int k = 0; k < rows && top + k < S_COUNT; k++) {
-        int i = top + k, y = BODY_Y + 3 + k * 15, on = i == set.sel;
-        const ui_setting_t *it = &UI_SETTINGS[i];
-        if (on) g_box(0, y - 2, 240, 15, C_WHITE);
-        g_text(4, y, &FONT_T, T(it->name), on ? C_WHITE : C_CYAN);
-        ui_setting_text(it, ui_set[i], v);
-        int col = i == S_THEME ? C_LMAGENTA : ui_set[i] == it->def ? C_LGREY : C_YELLOW;
-        g_text(236 - g_tw(&FONT_T, v), y, &FONT_T, v, on ? C_WHITE : col);
+    if (on) g_box(0, y - 1, 240, UI_ROW * k, C_WHITE);
+    if (i == M_CTL) {                                   /* (EDIT: the switch, after its questions) */
+        g_text(4, y, &FONT_S, T("MIDI CONTROLLER"), on ? C_WHITE : C_CYAN);
+        return;
     }
+    if (i == M_LEARN) {
+        g_text(4, y, &FONT_S, T("LEARN"), on ? C_WHITE : C_CYAN);
+        g_text_r(236, y, &FONT_S, ui_txt_d(TX("# OF 64"), midi_map_count()), on ? C_WHITE : C_LGREY);
+        return;
+    }
+    midi_map_t m;                                       /* a mapping: the FM-1's control; under it the MIDI one, its kind */
+    char c[16], s[16];
+    if (midi_map_at(i - M_LEARN - 1, &m)) return;
+    midi_ctl_name(c, m.ctl);
+    midi_src_name(s, &m);
+    g_text(4, y, &FONT_S, c, on ? C_WHITE : C_YELLOW);
+    if (!whole) return;                                 /* (its first line alone at the bottom) */
+    g_run_t r[3] = {{s, on ? C_WHITE : C_LGREY}, {"  ", C_LGREY}, {midi_kind_name(m.kind), on ? C_WHITE : C_DGREY}};
+    g_runs(236 - g_runs_w(&FONT_S, r, 3), y + UI_ROW, &FONT_S, r, 3);
+}
+typedef char settings_nl_fits[S_COUNT <= M_LEARN + 1 + MIDI_MAP_MAX ? 1 : -1];   /* (both pages' rows in draw's nl) */
+static void draw(void)
+{
+    uint8_t nl[M_LEARN + 1 + MIDI_MAP_MAX];             /* (each row's lines, counted once a draw) */
+    if (set.page) {
+        /* the items (measured), MIDI CONTROLLER and LEARN (a line each), the mappings (two lines each) */
+        int n = m_lines(), line;
+        for (int i = 0; i < n; i++) nl[i] = (uint8_t)(i < S_MIDI_COUNT ? item_nl(&UI_MIDI_SETTINGS[i], ui_midi_set[i]) : i > M_LEARN ? 2 : 1);
+        line = ui_rows_draw(n, set.msel, SET_LINES, 5, nl, BODY_Y + 2, midi_row);
+        if (n == M_LEARN + 1) g_text(4, BODY_Y + 2 + line * UI_ROW, &FONT_S, T("NO MAPPINGS: EDIT ON LEARN"), C_DGREY);
+        return;
+    }
+    for (int i = 0; i < S_COUNT; i++) nl[i] = (uint8_t)item_nl(&UI_SETTINGS[i], ui_set[i]);
+    ui_rows_draw(S_COUNT, set.sel, SET_LINES, 5, nl, BODY_Y + 2, list_row);
 }
 
 /* the state's cursor (specs/connections.md#the-state): the page (the list, MIDI), the line, the tool TOOLS picks */

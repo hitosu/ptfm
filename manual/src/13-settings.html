@@ -38,9 +38,18 @@ first</span></dd>
 <dt>VOICES</dt><dd>How many notes are heard at once, everywhere. 16 needs the second processor (SECOND CORE); while it
 does not run, 16 counts as 12 (<samp class="msg">16 VOICES: 12 WITHOUT CPU 2</samp>). When all are busy, a new note
 takes the voice least missed: a ringing tail first, then the quietest held note; the keys' notes go last. A held note
-pushed out comes back when a voice frees. <span class="range">8, 12, 16; 16 at first</span></dd>
-<dt>SECOND CORE</dt><dd>The FM-1's chip has two processors: ON works the effects and voices 11-16 out on the second.
+pushed out (a TB-303's aside) is not lost: it goes on unheard as a ghost note, following everything played on it, and
+fades back in where it would be by then as soon as a voice frees. Up to 24 notes wait this way; one let go while it waits comes back in its
+release. A muted track's or loop's notes take no voice either: they wait the same way and come back when it is heard
+again. Only a TB-303's notes, and those of DUCK's SOURCE track, keep their voices while muted.
+<span class="range">8, 12, 16; 16 at first</span></dd>
+<dt>SECOND CORE</dt><dd>The FM-1's chip has two processors: ON works the effects out on the second, and shares the voices between the two so neither runs late first.
 OFF: one does it all (12 voices at most). <span class="range">ON, OFF; ON at first</span></dd>
+<dt>CORE SUPPLIES</dt><dd>The chip's two core voltages. STOCK raises them at every start to the levels the FM-1's own
+firmware sets, which keep it steady under a heavy load. LOWER leaves them where the FM-1's start leaves them, a little
+lower; it takes effect at the next power-on, as only switching off lowers them (<samp class="msg">LOWER FROM THE NEXT
+POWER-ON</samp>). <span class="range">STOCK, LOWER; STOCK
+at first</span></dd>
 <dt>TUNING</dt><dd>The pitch of A4. <span class="range">430-450 Hz, 440 at first</span></dd>
 </dl>
 </section>
@@ -50,13 +59,19 @@ OFF: one does it all (12 voices at most). <span class="range">ON, OFF; ON at fir
 <dl class="params">
 <dt>THEME</dt><dd>The screen's colours. <span class="range">DEFAULT, EGA, PASTEL, NEON, SUNSET, ICE, CLEAR, GREEN,
 AMBER, WHITE, DAYLIGHT, PAPER, MANUAL, SILVER, LCD, COMMANDER; DEFAULT at first</span></dd>
-<dt>KEYS VOLUME</dt><dd>The volume of the notes the keys play and write (the keys have no velocity).
-<span class="range">01-7F, 60 at first</span></dd>
+<dt>KEYS VELOCITY</dt><dd>How hard a key is pressed is its note's volume, played and written, as a MIDI note's
+velocity is: SOFT, NORMAL and HARD are how hard you must press for the loudest (SOFT the least). The top seven keys
+(C#5-G5) are not read and play at the mean of the last four keys that were. A key held and pressed harder makes its
+own notes louder, up to the loudest, and softer again as you ease it; an EDITOR take and LOOPS' stage write the swell
+as volumes on the rows it changes on, the note keeping the press's velocity. CONSTANT: every key at KEYS VOLUME.
+<span class="range">CONSTANT, SOFT, NORMAL, HARD; NORMAL at first</span></dd>
+<dt>KEYS VOLUME</dt><dd>The volume of the keys' notes with KEYS VELOCITY CONSTANT, and of the top seven keys before
+any key was read. <span class="range">01-7F, 60 at first</span></dd>
 <dt>KEYS GAIN</dt><dd>How loud you hear the keys while playing them (the FM-1's and MIDI's), not how they are
 recorded. <span class="range">-24 to +12 dB, 0 dB at first</span></dd>
 <dt>KEYS</dt><dd>THROUGH FX: the keys go through the effects as everything else. DRY: past every effect, straight
-to the output. Neither this nor KEYS GAIN touches what you play onto LOOPS' stage, which sounds as the loop will
-(<a href="#loops-stage">chapter 14</a>). <span class="range">THROUGH FX, DRY; THROUGH FX at first</span></dd>
+to the output. Neither this nor KEYS GAIN touches the keys on LOOPS, which sound through the selected loop's mix, as
+the loop will (<a href="#loops-overview">chapter 14</a>). <span class="range">THROUGH FX, DRY; THROUGH FX at first</span></dd>
 <dt>KEYS OCTAVE</dt><dd>The keys' octave at power-on. <span class="range">-4 to +4, 0 at first</span></dd>
 <dt>KNOB SPEED</dt><dd>Bigger steps when a knob is turned fast. <span class="range">OFF, LOW, HIGH; LOW at
 first</span></dd>
@@ -85,7 +100,8 @@ TIME (the row it falls in, its exact time kept with a note delay). The keys soun
 RANDOM, AS PLAYED; UP at first</span></dd>
 <dt>ARP LATCH</dt><dd>How many notes go on playing after you let go of their keys. <span class="range">OFF, 1-8 NOTES;
 4 NOTES at first</span></dd>
-<dt>POWER-ON SCREEN</dt><dd>The screen the FM-1 starts on. <span class="range">STATUS, LAST, or any screen; STATUS at first</span></dd>
+<dt>POWER-ON SCREEN</dt><dd>The screen the FM-1 starts on. <span class="range">STATUS, LAST, or any screen but
+AUTOMATIONS; STATUS at first</span></dd>
 </dl>
 </section>
 
@@ -95,7 +111,8 @@ RANDOM, AS PLAYED; UP at first</span></dd>
 <dl class="params">
 <dt>TOOLS</dt><dd>The line of tools below.</dd>
 <dt>CHECK REFERENCES</dt><dd>Lists the references to things that are missing (a note's instrument gone, a song's
-pattern deleted, a sampler instrument whose sample is gone, as <b>SAMPLER 01:05: SAMPLE 23</b>):
+pattern deleted, a sampler instrument whose sample is gone, as <b>SAMPLER 01:05: SAMPLE 23</b>, a loop's instrument gone,
+in LOOPS or in a set, as <b>LOOP 03: 0B:05</b> or <b>SET 02 LOOP 03: 0B:05</b>):
 <samp class="msg" data-t="MISSING REFERENCES: #">MISSING REFERENCES: 3</samp>, or
 <samp class="msg">NO MISSING REFERENCES</samp>. After them, not counted, it lists each sampler cartridge still in the
 older form (made by an older PT/FM, before samples were things of their own), once, as <samp class="msg"
@@ -108,17 +125,17 @@ PROBLEMS: 2</samp>), among them a sample whose entry and audio disagree
 (<samp class="msg" data-t="SAMPLE %02X">SAMPLE 23</samp><samp class="msg">: ENTRY AND AUDIO DIFFER</samp>): it is
 read as missing. It writes nothing.</dd>
 <dt>CLEAN UP</dt><dd>Finds what nothing uses and asks what goes, as a checklist
-(<samp class="msg" data-t="CLEAN UP: FREES #">CLEAN UP: FREES 1.3K</samp>): UNUSED PATTERNS, UNUSED SAMPLES (those no instrument of any sampler plays; ticked at first), UNUSED INSTRUMENTS (not:
-most of a bank is a library, not leftovers). SELECT picks a line, K1 ticks it, OCT+ cleans up
-(<samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>; nothing to do:
+(<samp class="msg" data-t="CLEAN UP: FREES #">CLEAN UP: FREES 1.3K</samp>): UNUSED PATTERNS, UNUSED SAMPLES (those no instrument of any sampler plays; ticked at first), UNUSED INSTRUMENTS (those no note,
+no loop, LOOPS' own or a set's, and no favourite uses; not ticked: most of a bank is a library, not leftovers). SELECT
+picks a line, K1 ticks it, OCT+ cleans up (<samp class="msg" data-t="CLEANED UP: # DELETED">CLEANED UP: 4 DELETED</samp>; nothing to do:
 <samp class="msg">NOTHING TO CLEAN UP</samp>). Built-in things are never listed.
 <figure data-shot="settings-cleanup"><figcaption>CLEAN UP's checklist.</figcaption></figure></dd>
 <dt>AUTO LEVEL ALL</dt><dd>Measures every sound you have and sets its level, after a question; the built-in
 cartridges keep theirs.</dd>
 <dt>REVERT ALL</dt><dd>Drops every unsaved change, after a question, as SAVE + OCT- does.</dd>
-<dt>FACTORY RESET</dt><dd>Erases everything you saved or uploaded: songs, patterns, loops, your cartridges and samples,
-your edits of the built-in instruments, DJ's decks, the settings and the MIDI map. PT/FM itself and its built-in
-instruments stay, so the FM-1 is as it was after its first install, before the demo disk.
+<dt>FACTORY RESET</dt><dd>Erases everything you saved or uploaded: songs, patterns, loops and LOOPS sets, your cartridges
+and samples, your edits of the built-in instruments, DJ's decks, the settings, the MIDI map and AUTOMATIONS. PT/FM
+itself and its built-in instruments stay, so the FM-1 is as it was after its first install, before the demo disk.
 <p>It asks twice. First <samp class="msg">FACTORY RESET?</samp> with <samp class="msg">ERASES ALL YOU SAVED OR
 UPLOADED</samp> and <samp class="msg">ONLY THE BUILT-IN INSTRUMENTS STAY</samp>: <kbd>OCT+</kbd> answers RESET. Then
 <samp class="msg">ERASE IT ALL NOW?</samp> with <samp class="msg">THERE IS NO WAY BACK</samp>, and, if you have changes
@@ -150,12 +167,16 @@ plays: track 0 on channel 1 ... track 15 on channel 16). <span class="range">OFF
 <span class="range">INTERNAL, EXTERNAL; INTERNAL at first</span></dd>
 <dt>CLOCK OUT</dt><dd>Sends the clock, START / STOP / CONTINUE and the song position out, with SYNC INTERNAL.
 <span class="range">OFF, ON; OFF at first</span></dd>
+<dt>CONTROLLER AFTERTOUCH</dt><dd>What MIDI CONTROLLER's GENERAL mode sends when you press a held key (F3-C5) harder:
+CHANNEL, Channel Pressure, the hardest-pressed key's; POLY, each key's on its own note; OFF, none. Nothing with KEYS
+VELOCITY CONSTANT, nothing in MIRROR mode. <span class="range">OFF, CHANNEL, POLY; CHANNEL at first</span></dd>
 <dt>MIDI CONTROLLER</dt><dd><kbd>EDIT</kbd> turns the FM-1 into a MIDI controller for a computer until it is switched
 off and on, after a question (<a href="#midi-controller">chapter 16</a>).</dd>
 <dt>LEARN</dt><dd>How many mappings of 64 (<b>3 OF 64</b>). <kbd>EDIT</kbd> learns one: touch an FM-1 control, then
 move the MIDI control that should drive it (<samp class="msg">TOUCH AN FM-1 CONTROL</samp>,
-<samp class="msg">MOVE THE MIDI CONTROL</samp>). The mappings are listed below; <kbd>LFO</kbd> deletes the one
-picked.</dd>
+<samp class="msg">MOVE THE MIDI CONTROL</samp>). The mappings are listed below, two lines each: the FM-1's control,
+then the MIDI control and its kind; <kbd>LFO</kbd> deletes the one picked. With none learned, the list
+reads <b>NO MAPPINGS: EDIT ON LEARN</b>.</dd>
 </dl>
 </section>
 

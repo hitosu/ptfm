@@ -60,11 +60,14 @@ void *memcpy(void *d, const void *s, unsigned n)
 }
 
 #ifdef PLAT_C2
-/* Core 2's own (plat.h): the same, in its room in RAM, for the code there (out of a call's reach of these above) */
+/* Core 2's own (plat.h): the same, in its room in RAM, for the code there (out of a call's reach of these above); each
+ * first checks its destination lies in the RAM (fm1_cpu1.h's fm1_c2_dest_ok: included before this file) */
 PLAT_C2 void *c2_memset(void *d, int c, uint32_t n)
 {
     unsigned char *p = d;
     uint32_t w = (unsigned char)c;
+    if (!fm1_c2_dest_ok(d, n, FM1_C1_BAD_FILL, (uint32_t)(uintptr_t)__builtin_return_address(0)))
+        return d;                       /* (a destination out of the RAM: written nowhere, fm1_cpu1.h) */
     w |= w << 8;
     w |= w << 16;
     while (n && ((uintptr_t)p & 3u)) {
@@ -90,6 +93,8 @@ PLAT_C2 void *c2_memcpy(void *d, const void *s, uint32_t n)
 {
     unsigned char *p = d;
     const unsigned char *q = s;
+    if (!fm1_c2_dest_ok(d, n, FM1_C1_BAD_COPY, (uint32_t)(uintptr_t)__builtin_return_address(0)))
+        return d;                       /* (a destination out of the RAM: written nowhere, fm1_cpu1.h) */
     if (!(((uintptr_t)p ^ (uintptr_t)q) & 3u)) {   /* (the same alignment: words once aligned) */
         while (n && ((uintptr_t)p & 3u)) {
             *p++ = *q++;

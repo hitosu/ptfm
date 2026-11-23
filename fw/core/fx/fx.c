@@ -1478,7 +1478,7 @@ static PLAT_C2 uint32_t beat_frames(void) { return fx_wclk.beat_frames ? fx_wclk
 void fx_punch(int k, int down) { fx_ev(FX_EV_PUNCH, k, down, 0); }
 void fx_punch_stop(void) { fx_ev(FX_EV_PUNCH_STOP, 0, 0, 0); }
 
-static PLAT_C2 void punch_now(int k, int down, uint32_t b)   /* (b: a beat's frames) */
+static PLAT_C2 PLAT_COLD void punch_now(int k, int down, uint32_t b)   /* (b: a beat's frames; an event's work) */
 {
     if (!down) {                         /* let go (k -1: a command's rows are over: whichever runs) */
         if (pu.k < 0 || (k >= 0 && pu.k != k) || pu.out_on)
@@ -1750,7 +1750,7 @@ static PLAT_C2 void fx_punches(int32_t *l, int32_t *r)
 /* ---- all of it ---- */
 static uint32_t kill_left;               /* all sound off: the tails fading */
 
-static PLAT_C2 void clear_lines(void)
+static PLAT_C2 PLAT_COLD void clear_lines(void)   /* (an event's or a reset's work) */
 {
     c2_memset(cho_l, 0, sizeof cho_l);
     c2_memset(cho_r, 0, sizeof cho_r);
@@ -2216,8 +2216,8 @@ PLAT_C2 void fx_work(const fx_set_t *s, const fx_clock_t *clk)
 }
 
 /* a change to the effects' own state, made now: as a block's events make them (fx_events) and as the commands do
- * when nothing is kept (fx_ev) */
-PLAT_C2 void fx_ev_now(uint32_t kind, int a, int b, int c, uint32_t bf)
+ * when nothing is kept (fx_ev); an event's work, not a block's (cold) */
+PLAT_C2 PLAT_COLD void fx_ev_now(uint32_t kind, int a, int b, int c, uint32_t bf)
 {
     switch (kind) {
     case FX_EV_CLICK:

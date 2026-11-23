@@ -175,7 +175,7 @@ int ui_cart_slots(uint8_t cart)
 }
 /* the cartridge lists' one order (specs/ui/dialogs.md#the-cartridge-list): the built-in FAVORITES first (0), the user's
  * FAVORITES by number (1), then the others by number (2) */
-int ui_cart_rank(uint8_t cart) { return ui_cart_kind(cart) != ENG_FAV ? 2 : cart != 0xFB; }
+int ui_cart_rank(uint8_t cart) { return ui_cart_kind(cart) != ENG_FAV ? 2 : cart != UI_FB; }
 int ui_cart_order(uint8_t *nums, int n)
 {
     uint8_t t[256];
@@ -220,6 +220,7 @@ int ui_fav(uint16_t ref, uint16_t *src)
     if (src) *src = r;
     return ui_inst_name(r, nm) ? UI_FAV_OK : UI_FAV_MISSING;    /* (a FAVORITES cartridge's number: no instrument) */
 }
+int ui_fb(void) { return ui_cart_kind(UI_FB) == ENG_FAV; }
 int ui_slot_has(uint16_t ref, int playable)
 {
     char nm[12];

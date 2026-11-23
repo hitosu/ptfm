@@ -23,7 +23,8 @@ if (process.env.AT_PASS_MS) ex.web_pass_min(+process.env.AT_PASS_MS * 1000);   /
 
 /* the device's time, rendered a quantum at a time; what sleeps wakes when its time comes */
 let now = 0, frames = 0;
-const sleepers = [], asks = [], figuresWin = [];
+const sleepers = [], asks = [], figuresWin = [], feeds = [], notesOut = [];   /* (KEYS FEED's answers waited for; the
+                                                         * FM-1's Note On / Off out, as the page hears them) */
 let measuring = null, figAt = 1000, log = [], figFlags = 0;
 let lastFig = null, figures = 0, joined = 0;            /* (the last 31; the 31s, the 37s joined to them) */
 let figHeard = 0, stNum = 0, stLost = 0, stLate = 0, stSeen = 0;   /* (as the page counts them: io.heard, io.answers) */
@@ -39,8 +40,19 @@ function render() {
         ex.web_sysex_out_clear();
         for (let i = 0, s = 0; i < out.length; i++) if (out[i] === 0xF7) { take(out.subarray(s, i + 1)); s = i + 1; }
     }
+    const mo = ex.web_midi_out_len();                   /* (MIDI OUT: its notes, for KEYS: VELOCITY) */
+    if (mo) {
+        const b = new Uint8Array(mem(), ex.web_midi_out(), mo).slice();
+        for (let i = 0; i < b.length;) {
+            const s = b[i], len = (s & 0xF0) === 0xC0 || (s & 0xF0) === 0xD0 ? 2 : s >= 0xF0 ? 1 : 3;
+            if ((s & 0xE0) === 0x80 && i + 2 < b.length)
+                notesOut.push({ on: (s & 0xF0) === 0x90 && b[i + 2] > 0, ch: s & 15, note: b[i + 1], vel: b[i + 2] });
+            i += s & 0x80 ? len : 1;
+        }
+    }
     ex.web_midi_out_clear();
     while (asks.length && asks[0].until <= now) asks.shift().r(null);
+    while (feeds.length && feeds[0].until <= now) feeds.shift().r(null);
     if (now >= figAt) {                                 /* FIGURES once a second, as the page asks */
         figAt += 1000;
         sendBytes(FG.ask(figFlags));                    /* (FREEZE / UNFREEZE with it, as the page sends them) */
@@ -61,6 +73,8 @@ function take(m) {
         const a = asks.shift(); if (a) a.r(st); else stLate++;
         return;
     }
+    const fd = FG.decodeFed(m);                         /* 33 KEYS FED */
+    if (fd) { const w = feeds.shift(); if (w) w.r(fd); return; }
     const f = FG.decode(m);
     if (f) { lastFig = f; figures++; figHeard = now; if (measuring) measuring.push(f); return; }
     const c = FG.decode2(m);                            /* 37: core 2's window, into its 31's (right before it) */
@@ -80,7 +94,9 @@ const io = {
     ask: () => new Promise((r) => { asks.push({ until: now + 600, r }); sendBytes(AT.ASK); }),
     measure: () => { measuring = []; },
     measured: () => { const w = measuring || []; measuring = null; return w; },
+    peek: () => (measuring ? measuring.length : 0),
     freeze: (on) => { figFlags |= on ? FG.FREEZE : FG.UNFREEZE; },
+    split: (fixed) => { figFlags |= fixed ? FG.FIXED : FG.MOVING; },
     prompt: async (text) => { log.push(`PROMPT: ${text}`); },
     log: (text) => { log.push(text); },
     stopped: () => STOP_AT > 0 && now >= STOP_AT,     /* AT_STOP_AT=s: STOP pressed then (the device's time) */
@@ -89,6 +105,8 @@ const io = {
     now: () => now,                                     /* (the times in the report: the device's) */
     heard: () => now - figHeard,                        /* (the ms since the last FIGURES answer, as the page) */
     answers: () => ({ lost: stLost, late: stLate }),
+    keysFeed: (m) => new Promise((r) => { feeds.push({ until: now + 600, r }); sendBytes(m); }),
+    notesOut: () => notesOut.splice(0),
 };
 const STOP_AT = +(process.env.AT_STOP_AT || 0) * 1000;
 

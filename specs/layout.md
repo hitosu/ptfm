@@ -41,6 +41,8 @@ ptfm/
 - **`editor/`** is the editor's sources ([editor.md](editor.md)): `editor/build.py` makes the one file
   `dist/editor/editor.html`, the firmware's WebAssembly inside; its tests are `tests/editor/` (Node,
   `run_tests.sh`; the page in a headless Chrome, `run_page.sh` with its scenarios in `tests/editor/page/`).
+  `editor/tools/juno60/` makes the Juno-60 conversion's tables (`editor/js/juno60_tables.js`, kept as made) from
+  KR-106's sources given by path, and checks the conversion ([editor.md](editor.md#juno-60-patches-as-juno-106-ones)).
 - **`playground/`** is for trying the UI fast, with sound, and without a build: the files are edited
   and the page reloaded. What it is and fakes: the UI proposal, section 11
   ([proposals/202610072229-ui.md](proposals/202610072229-ui.md)).

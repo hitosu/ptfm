@@ -14,7 +14,7 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 
 **https://hitosu.github.io/ptfm/**: install it, try it in the emulator, read the manual, open the editor.
 
-**Current version: 0.27** (2026-11-08); what changed in each version: [CHANGELOG.md](CHANGELOG.md).
+**Current version: 1.0** (2026-11-23); what changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 **Videos** on YouTube: [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE),
 [PT/FM: UNDER THE HOOD](https://youtu.be/M6I354-Xu5I) and
@@ -50,6 +50,9 @@ GPL-3.0-only (`LICENSE`). Copyright (C) 2026 Vasily Kazantsev.
   (GPL-3.0-only). Files taken from it keep their copyright lines.
 - The second core's start and hold follow work by Charles Vestal, Kerem Kilic and zednaked
   (GPL-3.0-only); the files that follow it carry their copyright lines.
+- The keys' velocity and pressure read from the carbon pills (the driven readings, the log map, the rest the pressure
+  leans from) follow the method and measurements of Charles Vestal's fm1-velocity; PT/FM's code is its own, and the
+  files carry the credit.
 - The Terminus fonts are SIL OFL 1.1 (`assets/fonts/Terminus-LICENSE.txt`).
 - The firmware packages carry three files of JieLi's AC79 SDK (Apache-2.0).
 - The demo disk carries its own licences, all free: [demo-disk/CREDITS.md](demo-disk/CREDITS.md).

@@ -42,6 +42,10 @@ the sound are written again in plain JS ([layout.md](layout.md)). It is how the 
 - the flash: SAVE keeps the changes in the browser tab, and a reload starts from the demo data again; a SAVE is
   whole at once there, so the FM-1's save in two parts when storage is full (deletions first,
   [ui/saving.md](ui/saving.md)) has no twin: its end state is the same;
+- the list of records ([files/store.md](files/store.md#the-list-of-records)): it counts the FM-1's keys from its
+  model and asks the same question, but knowing numbers alone it counts a thing made anew under a number the flash
+  holds (a DELETE, then a NEW or CLONE there) as a change, where the FM-1 takes it as new, so that its kind's
+  deletions do not go first: at the limit the FM-1 can refuse such a save where the playground makes it;
 - the stage's room ([files/ram.md](files/ram.md)): a note that makes the stage longer counts only what it adds, so near a
   full edit memory the FM-1 can refuse a note as full a little earlier;
 - a row's moment: a row is decided about 120 ms before it sounds, on the FM-1 as it sounds, so an edit whose effect falls

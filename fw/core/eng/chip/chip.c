@@ -8,6 +8,9 @@
 #define PLAT_COLD                        /* (a note's or a screen's work: built for size on the FM-1, core/plat.h) */
 #endif
 
+/* (inlined at every call, so that a second caller does not change the render's code) */
+#define CHIP_INL static inline __attribute__((always_inline))
+
 static uint32_t lim(uint32_t v, uint32_t top) { return v > top ? top : v; }
 static int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -105,8 +108,10 @@ static void frame_tick(chip_voice_t *v)
     }
 }
 
-/* the sweep: the register moves by itself shifted right by SHIFT; out of its range the note goes silent */
-static void sweep_tick(chip_voice_t *v)
+/* the sweep: the register moves by itself shifted right by SHIFT; out of its range the note goes silent (one copy,
+ * called by block_control at a tick, once in about 5 blocks at the most but after a PACE turned faster, and by the
+ * forward work) */
+static __attribute__((noinline)) void sweep_tick(chip_voice_t *v)
 {
     const chip_patch_t *p = &v->p;
     int s = p->sw_shift, up = p->sweep == CHIP_SWEEP_UP;
@@ -215,18 +220,27 @@ static void control(chip_voice_t *v)
     v->len_o = lo; v->len_q = lq; v->len_n = ln; v->len_e = le;
 }
 
+/* a frame's length, the step envelope's step and the sweep's (Q16 samples; 0: it does not step), on the
+ * instrument's clock and FPS */
+CHIP_INL uint32_t frame_len(const chip_patch_t *p)
+{
+    return CHIP_FRAME[p->fps50 ? 3 : p->clock == CHIP_BRK ? 0 : p->clock == CHIP_8BIT ? 1 : 2];
+}
+CHIP_INL uint32_t env_iv(const chip_patch_t *p) { return CHIP_ENV_STEP[(p->clock == CHIP_8BIT ? 8u : 0u) + p->env_step]; }
+CHIP_INL uint32_t sweep_iv(const chip_patch_t *p) { return CHIP_SWEEP_PACE[(p->clock == CHIP_8BIT ? 8u : 0u) + p->sw_pace]; }
+
 static void block_control(chip_voice_t *v)
 {
     const chip_patch_t *p = &v->p;
     const uint32_t B = (uint32_t)CHIP_N << 16;
-    uint32_t fl = CHIP_FRAME[p->fps50 ? 3 : p->clock == CHIP_BRK ? 0 : p->clock == CHIP_8BIT ? 1 : 2], iv;
+    uint32_t fl = frame_len(p), iv;
     v->f_acc += B;
     while (v->f_acc >= fl) {
         v->f_acc -= fl;
         frame_tick(v);
     }
     if (p->env == CHIP_ENV_DOWN || p->env == CHIP_ENV_UP) {
-        iv = CHIP_ENV_STEP[(p->clock == CHIP_8BIT ? 8u : 0u) + p->env_step];
+        iv = env_iv(p);
         if (iv) {
             v->e_acc += B;
             while (v->e_acc >= iv) {
@@ -236,7 +250,7 @@ static void block_control(chip_voice_t *v)
             }
         }
     }
-    iv = CHIP_SWEEP_PACE[(p->clock == CHIP_8BIT ? 8u : 0u) + p->sw_pace];
+    iv = sweep_iv(p);
     if (v->sweeping && iv) {
         v->s_acc += B;
         while (v->s_acc >= iv && v->sweeping) {
@@ -644,4 +658,282 @@ void chip_param(chip_voice_t *v, uint32_t code, uint32_t val)
     if ((code >= 0x50 && code <= 0x52) || code == 0x40 || code == 0x4C)   /* (a sweep there, or not, now) */
         v->sweeping = (uint8_t)(p->sweep != CHIP_SWEEP_OFF && p->osc != CHIP_NOISE && (p->clock == CHIP_8BIT || p->sw_pace) &&
                                 !v->sw_off);
+}
+
+/* ------------------------------------------------------------- the forward work --- */
+/* (chip.h) a note's time worked on many blocks at once, to where chip_skip's blocks leave what it keeps. What moves by
+ * the frames (the tables, the vibrato's count, the release), the step envelope and the PSG envelope each move by
+ * their counts in one sum, the sweep a tick at a time until it stands; a stretch's last block is chip_skip's own,
+ * which makes what the next block reads (this frame's table values, the period, the volume, the width) as the steps'
+ * last block makes it */
+#define CHIP_FWD_TICKS 32u               /* the sweep's ticks a step (chip.h) */
+#define FWD_BSH 22                       /* a block (CHIP_N << 16 Q16 samples) as a shift */
+typedef char chip_fwd_bsh[(CHIP_N << 16) == 1 << FWD_BSH ? 1 : -1];
+
+/* x / d (d > 0): the quotient mod 2^32, the remainder in *r; long division a bit at a time (no 64-bit division on
+ * the FM-1) */
+static PLAT_COLD uint32_t fdiv(uint64_t x, uint32_t d, uint32_t *r)
+{
+    uint32_t h = (uint32_t)(x >> 32) % d, l = (uint32_t)x, q = 0, c;
+    for (int i = 0; i < 32; i++) {
+        c = h >> 31;                     /* (the bit shifted out of h: h - d is right mod 2^32) */
+        h = h << 1 | l >> 31;
+        l <<= 1;
+        q <<= 1;
+        if (c || h >= d) {
+            h -= d;
+            q |= 1u;
+        }
+    }
+    *r = h;
+    return q;
+}
+
+/* the times `if (++*c >= per) *c = 0` comes round in m counts (per > 0), *c left as they leave it */
+static PLAT_COLD uint32_t wraps(uint8_t *c, uint32_t per, uint32_t m)
+{
+    uint32_t k = 0, x = *c;
+    if (!m)
+        return 0;
+    if (x >= per) {                      /* (past a period made shorter: the first count comes round) */
+        x = 0;
+        m--;
+        k = 1;
+    }
+    x += m;
+    *c = (uint8_t)(x % per);
+    return k + x / per;
+}
+
+/* table k moved on m frames, as m frames' take() leave its place: on to its end, round its loop, or held past its
+ * end */
+static PLAT_COLD void tab_go(chip_voice_t *v, int k, uint32_t m)
+{
+    uint32_t n = v->p.tab[k], t, len, lp, i;
+    if (!n || n > CHIP_TAB_COUNT[k])
+        return;
+    t = CHIP_TAB_FIRST[k] + n - 1u;
+    len = CHIP_TAB[t].len;
+    lp = (uint32_t)CHIP_TAB[t].loop;
+    i = v->tp[k] + wraps(&v->tc[k], v->p.spd[k], m);
+    if (i >= len)
+        i = CHIP_TAB[t].loop < 0 ? len : lp + (i - len) % (len > lp ? len - lp : 1u);
+    v->tp[k] = (uint8_t)i;
+}
+
+/* the VOL table's length when it ends silent and stays (its last value 0 or under, no loop: frame_tick ends the note
+ * as its place reaches the end); 0 if not */
+static PLAT_COLD uint32_t vol_end(const chip_voice_t *v)
+{
+    uint32_t n = v->p.tab[CHIP_TVOL], t;
+    if (!n || n > CHIP_TAB_COUNT[CHIP_TVOL])
+        return 0;
+    t = CHIP_TAB_FIRST[CHIP_TVOL] + n - 1u;
+    return CHIP_TAB[t].loop < 0 && CHIP_TV[CHIP_TAB[t].at + CHIP_TAB[t].len - 1u] <= 0 ? CHIP_TAB[t].len : 0u;
+}
+
+/* the sweep over m blocks, a tick a block at the most (its PACE's step is over a block), up to a ticks (the budget's):
+ * its ticks stepped until it stands, its clock as those blocks leave it; *ticks the ticks stepped. Returns the blocks
+ * the stretch's sums take: m, or fewer where the budget ends it before the next tick */
+static PLAT_COLD uint32_t sweep_go(chip_voice_t *v, uint32_t m, uint32_t iv, uint32_t a, uint32_t *ticks)
+{
+    const uint32_t B = (uint32_t)CHIP_N << 16;
+    uint32_t s0 = v->s_acc, *reg = v->p.clock == CHIP_EXACT ? &v->len_x : &v->reg, was, cut = 0, j = 0, blocks, rest,
+             most = fdiv(s0 + ((uint64_t)m << FWD_BSH), iv, &rest);   /* (its ticks in the m blocks) */
+    a = a <= most / CHIP_FWD_TICKS ? a * CHIP_FWD_TICKS : most;
+    while (j < most) {
+        if (j == a) {                    /* (the budget: the stretch to the block before the next tick) */
+            cut = 1;
+            break;
+        }
+        was = *reg;
+        sweep_tick(v);
+        j++;
+        if (!v->sweeping || was == *reg)
+            break;                       /* (out of its range: it stops in that tick's block; at its limit: the ticks
+                                          * left move nothing) */
+    }
+    if (cut || !v->sweeping) {           /* (the blocks to the tick j + cut's, less cut) */
+        blocks = (uint32_t)(((uint64_t)(j + cut) * iv - s0 + B - 1u) >> FWD_BSH) - cut;
+        if (cut)
+            m = blocks;
+        rest = (uint32_t)(s0 + ((uint64_t)blocks << FWD_BSH) - (uint64_t)j * iv);
+    }
+    v->s_acc = rest;
+    *ticks = j;
+    return m;
+}
+
+/* the frames of m blocks: all but the last in one sum each (the tables, the vibrato's count, the release: a level
+ * every RELEASE frames; the VOL table's or the release's end), the last by frame_tick */
+static PLAT_COLD void frames_go(chip_voice_t *v, uint32_t m)
+{
+    const chip_patch_t *p = &v->p;
+    uint32_t n = fdiv(v->f_acc + ((uint64_t)m << FWD_BSH), frame_len(p), &v->f_acc), end, levels;
+    int k;
+    if (!n--)
+        return;
+    for (k = 0; k < CHIP_NTK; k++)
+        tab_go(v, k, n);
+    end = vol_end(v);
+    if (end && v->tp[CHIP_TVOL] >= end)
+        v->dead = 1;
+    v->frames += n;
+    if (!v->gate && n) {
+        if (!p->release) {
+            v->dead = 1;
+        } else {
+            levels = wraps(&v->rel_c, p->release, n);
+            if (levels >= v->rel)
+                v->dead = 1;
+            v->rel = (uint8_t)(v->rel - levels);
+        }
+    }
+    frame_tick(v);
+}
+
+/* the PSG envelope over m blocks, running (len_e): to where its first round's last step stops it (a shape that stops:
+ * running, its round is the first), or its steps there (their count mod 2^32: the round is kept mod 2^16 and the place
+ * mod its st steps, both dividing it) */
+static PLAT_COLD void psg_go(chip_voice_t *v, uint32_t m, uint32_t st)
+{
+    const uint32_t B = (uint32_t)CHIP_N << 16, len = v->len_e, s = v->p.psg_shape;
+    uint64_t span = (uint64_t)m << FWD_BSH, last = v->nx_e + (uint64_t)(st - v->e_pos - 1u) * len;
+    uint32_t n, rest;
+    if ((!(s & 8u) || (s & 1u)) && last < span) {
+        v->nx_e = ((uint32_t)last & (B - 1u)) + len;
+        v->e_pos = 0;
+        v->e_r = 1;
+        v->len_e = 0;
+    } else if (v->nx_e >= span) {
+        v->nx_e -= (uint32_t)span;
+    } else {
+        n = fdiv(span - 1u - v->nx_e, len, &rest) + 1u + v->e_pos;
+        v->e_pos = (uint8_t)(n % st);
+        v->e_r = (uint16_t)(v->e_r + n / st);
+        v->nx_e = len - 1u - rest;
+    }
+}
+
+/* the voice moved on n blocks (n > 0): the first m = n - 1 in sums, then the last by chip_skip (the oscillator's, the
+ * gate's and the noise's phases, which the sums leave as they were, move on in it from there: they are not kept, and
+ * stay a step or less from their next steps). Its sweep moves a tick at a time, as far as the budget allows: past it
+ * the stretch ends at the block before the next tick, which the last block takes. One block alone where a sum does
+ * not hold: a register to find (the sweep's, found as the block ends), a count past its period (CURVE, a sweep's PACE
+ * turned). A stretch costs a step, or a step for each CHIP_FWD_TICKS ticks of its sweep where they are more: never more
+ * than *steps, so a call leaves it at 0 at the lowest. Returns the blocks gone */
+static PLAT_COLD uint32_t fwd_run(chip_voice_t *v, uint32_t n, int32_t *steps)
+{
+    const chip_patch_t *p = &v->p;
+    uint32_t m = n - 1u, ticks = 0, iv = sweep_iv(p), k, st = p->curve == 3 ? 32u : 16u;
+    if ((v->sweeping && iv && (v->s_acc >= iv || !(p->clock == CHIP_EXACT ? v->len_x : v->reg))) || v->e_pos >= st)
+        m = 0;
+    if (m) {
+        control(v);                      /* (the first block's: the PSG envelope's step, started if it starts) */
+        if (v->sweeping && iv)
+            m = sweep_go(v, m, iv, (uint32_t)*steps, &ticks);
+        frames_go(v, m);
+        iv = env_iv(p);
+        if ((p->env == CHIP_ENV_DOWN || p->env == CHIP_ENV_UP) && iv) {   /* the step envelope */
+            k = fdiv(v->e_acc + ((uint64_t)m << FWD_BSH), iv, &v->e_acc);
+            if (p->env == CHIP_ENV_DOWN)
+                v->vol = (uint8_t)(k < v->vol ? v->vol - k : 0u);
+            else
+                v->vol = (uint8_t)(k < 15u - v->vol ? v->vol + k : 15u);
+        }
+        if (v->len_e)
+            psg_go(v, m, st);
+    }
+    chip_skip(v);
+    *steps -= ticks > CHIP_FWD_TICKS ? (int32_t)((ticks + CHIP_FWD_TICKS - 1u) / CHIP_FWD_TICKS) : 1;
+    return m + 1u;
+}
+
+/* (chip.h) the held time, the note off, the release */
+PLAT_COLD int chip_forward(chip_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps)
+{
+    for (;;) {
+        if (!*on && *off != FWD_HELD && v->gate)
+            chip_note_off(v);            /* (once, free: its gate tells it was; the release counts with the frames) */
+        if (v->dead) {                   /* (ended by itself: nothing of it sounds again) */
+            *on = 0;
+            if (*off != FWD_HELD)
+                *off = 0;
+        }
+        if (!*on && (*off == FWD_HELD || !*off))
+            return 1;
+        if (*steps <= 0)
+            return 0;
+        if (*on)
+            *on -= fwd_run(v, *on, steps);
+        else
+            *off -= fwd_run(v, *off, steps);
+    }
+}
+
+/* (chip.h) the loudest level still to come: the envelope's highest (the step envelope rising: 15; the PSG envelope's
+ * round rising or coming round again: its top), the VOL table's highest from its place on (its loop's too), the
+ * release's level (it only falls), through the volume's rounding and the curve */
+PLAT_COLD int32_t chip_heard(const chip_voice_t *v)
+{
+    const chip_patch_t *p = &v->p;
+    uint32_t e = v->vol, l = v->lvol, mx = 15, n = p->tab[CHIP_TVOL], s = p->psg_shape;
+    if (v->dead || v->sw_off)
+        return 0;
+    if (p->env == CHIP_ENV_PSG) {        /* (env_level's: stopped, at its end; in its first round falling to its end,
+                                          * where it is; else its top) */
+        mx = p->curve == 3 ? 31u : 15u;
+        if (env_stopped(v))
+            e = (s & 8u) && ((s >> 2 ^ s >> 1) & 1u) ? mx : 0u;
+        else if (!v->e_r && !(s & 4u) && (!(s & 8u) || (s & 3u) == 1u))
+            e = mx - (v->e_pos < mx ? v->e_pos : mx);
+        else
+            e = mx;
+    } else if (p->env == CHIP_ENV_UP && env_iv(p)) {
+        e = 15;
+    }
+    if (n && n <= CHIP_TAB_COUNT[CHIP_TVOL]) {
+        uint32_t t = CHIP_TAB_FIRST[CHIP_TVOL] + n - 1u, len = CHIP_TAB[t].len, i = v->tp[CHIP_TVOL];
+        i = i < len ? i : len - 1u;
+        if (CHIP_TAB[t].loop >= 0 && (uint32_t)CHIP_TAB[t].loop < i)
+            i = (uint32_t)CHIP_TAB[t].loop;
+        for (; i < len; i++)
+            if (CHIP_TV[CHIP_TAB[t].at + i] > (int32_t)l)
+                l = CHIP_TV[CHIP_TAB[t].at + i] > 15 ? 15u : (uint32_t)CHIP_TV[CHIP_TAB[t].at + i];
+    }
+    e = ((e * l * v->rel * 2u + 225u) * 9321u) >> 22;   /* (tone's volume, then its level at its loudest step: BUZZ's
+                                                          * the volume's share of the curve's top, as tone's multiply
+                                                          * makes it for every volume) */
+    e = p->osc == CHIP_BUZZ ? (e << 15) / mx : CHIP_CURVE[p->curve * 64u + (mx == 31u ? 32u : 0u) + e];
+    return (int32_t)((e * (uint32_t)CHIP_OUT * 3u) >> 16);   /* (x 1.5: the edges' ringing and the high-pass, chip.h) */
+}
+
+/* the frame (1: the next) at which a count `if (++c >= per) c = 0` comes round the a-th time (a > 0) */
+static PLAT_COLD uint32_t nth(uint32_t c, uint32_t per, uint32_t a)
+{
+    return (c >= per ? 1u : per - c) + (a - 1u) * per;
+}
+
+/* (chip.h) the frame that ends it (its release's last level, its VOL table's end), as the block counting it */
+PLAT_COLD uint32_t chip_end_blocks(const chip_voice_t *v, int held)
+{
+    const chip_patch_t *p = &v->p;
+    const uint32_t B = (uint32_t)CHIP_N << 16;
+    uint32_t f = CHIP_NEVER, e = vol_end(v), i = v->tp[CHIP_TVOL];
+    uint64_t t;
+    if (v->dead)
+        return 0;
+    if (!held || !v->gate) {
+        if (!p->release && v->gate)
+            return 0;                    /* (let go now with no RELEASE: chip_note_off ends it) */
+        f = p->release ? nth(v->rel_c, p->release, v->rel) : 1u;
+    }
+    if (e) {
+        e = i >= e ? 1u : nth(v->tc[CHIP_TVOL], p->spd[CHIP_TVOL], e - i);
+        f = e < f ? e : f;
+    }
+    if (f == CHIP_NEVER)
+        return CHIP_NEVER;
+    t = (uint64_t)f * frame_len(p);      /* (f_acc past a frame made shorter by FPS or CLOCK: its frames in block 1) */
+    return t > v->f_acc ? (uint32_t)((t - v->f_acc + B - 1u) >> FWD_BSH) : 1u;
 }

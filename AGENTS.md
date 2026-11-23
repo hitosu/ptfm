@@ -28,7 +28,7 @@ FM-1").
   screen, LEDs and sound all from the compiled firmware, the flash kept in the browser; UPLOAD CUSTOM DISK and UPLOAD DEMO DISK
   seed through `fw/web/seed.js`, as the install page does; DOWNLOAD DISK saves the user area as a disk (warning of
   changes not saved); RECORD keeps its USB audio, as a computer records a real FM-1's, for SAVE WAV.
-- **The editor page is built** (EDITOR [beta]: `specs/editor.md`, `editor/README.md`, `dist/editor/editor.html`):
+- **The editor page is built** (EDITOR, out of beta at 1.0: `specs/editor.md`, `editor/README.md`, `dist/editor/editor.html`):
   TABLE and FM-1 side by side, items moved with what they use, READ and WRITE over the seeding protocol, UPLOAD and
   DOWNLOAD DISK, a tab for every item with the FM-1's own pictures (`fw/core/ui`'s drawing, built in under
   `PTFM_EDITOR` only), the preview through the firmware in a worklet. Tested against the virtual FM-1; not yet with
@@ -55,12 +55,14 @@ FM-1").
 - **LOOPS** (a loop station, `specs/proposals/202610240236-loops-station.md`, with a stage since
   `specs/proposals/202611030330-loops-redesign.md`: up to 16 loops of one length, set from the start (4 bars), each
   one instrument, POLY up to 4 lanes or MONO, its notes once plus a repeat count and a SHIFT; the keys overdub the
-  stage, one loop of the length, while the loops go round (LFO's tap switches to OVERWRITE and back), heard exactly as written by
-  QUANTIZE, and REC keeps it as a new loop or into the selected one, EDIT bringing a loop back onto it; the play
+  stage, one loop of the length, while the loops go round (LFO's tap switches to OVERWRITE and back), each key heard at its
+  press and written where QUANTIZE lands it, and REC keeps it as a new loop or into the selected one, EDIT bringing a loop back onto it; the play
   position on ALGORITHM; K1-K4's jobs and VIEW in GLO; CONTROL mode on the keys for mutes, solos, QUANTIZE and MONO /
   POLY; ARP's tap switching the stage off (kept, not heard, the keys heard and written nowhere) and on,
   `specs/proposals/202611041720-loops-stage-switch.md`; a 4-row pattern recorder with ties onto the stage (ARP held +
-  REC, SEL's RECORD PATTERN); RECORD LIVE; SAVE TO / LOAD FROM PATTERN; no BETA mark):
+  REC, SEL's RECORD PATTERN); RECORD LIVE; SAVE TO / LOAD FROM PATTERN; sets, the whole working area with its solos
+  under a number of its own, kind 0x24 (STORE AS A SET, LOAD A SET, `specs/proposals/202611131618-loops-sets.md`); no
+  BETA mark):
   `specs/ui/screens/loops.md` and `specs/files/loops.md` (record version 4, its new fields in spare bits, kept in the
   edit memory as pieces, no RAM of its own; the stage a piece of its own there, never saved, kept through SAVE and
   REVERT ALL: `specs/files/ram.md`); built in the playground (`scr-loops.js`, as the specs say, the stage proposal's
@@ -128,7 +130,8 @@ FM-1").
   goes into the spec (and the playground) and its item leaves the file: no "settled" records there.
 - **Specs:** one subject a file, big subjects as folders (`ui/`, `ui/screens/`, `files/`); unnumbered
   headings, links with anchors between them; written in the same one voice. A screen is specified in
-  text: for each state an ASCII mockup on the T grid (40 × 20 characters of 6 × 12 px), a table of its
+  text: for each state an ASCII mockup on the T grid (40 × 20 characters of 6 × 12 px), or on S's (30
+  characters of 8 × 16 px, a line a 16-px row) where the mockup says so, a table of its
   elements in pixels, its colours in words beside it (the coding itself is `ui/colours.md`'s), every
   text it shows, and its help pages. The playground's code must match them.
 - **The review:** critical issues first, one question at a time, multiple choice with a
@@ -151,7 +154,7 @@ The layout in full, with what is committed: `specs/layout.md`.
 | `fw/` | the firmware, engine only, no data but the built-in instruments (`fw/README.md`): `core/` (`store/`, `play/`, `eng/`, `fx/`, `midi/`, `ui/`, `plat.h`, `app.c`), `device/`, `hal/`, `stub/` (the start check), `loader/` (the update loader), `tools/` (build, packager, install page, generators), `web/` (the install page's template, `seed.js`), `tests/` |
 | `emulator/` | the firmware in a browser (`specs/emulator.md`, `emulator/README.md`): the web platform, the worklet, the page, `build.py` |
 | `panel/` | the virtual FM-1, shared by `playground/` and `emulator/`; `page.css` / `page.js` the two pages' frame (sidebar, header, footer, the drawer on phones) |
-| `editor/` | the editor, a page for the computer: EDITOR [beta] (`specs/editor.md`: TABLE and FM-1 side by side, items moved with what they use, READ / WRITE / UPLOAD DISK / DOWNLOAD DISK, an item's tab to edit it, the FM-1's own pictures from `fw/core/ui` built in under `PTFM_EDITOR`); `editor/build.py` makes `dist/editor/editor.html`; tests `tests/editor/run_tests.sh` (Node) and `tests/editor/run_page.sh` (the page in a headless Chrome) |
+| `editor/` | the editor, a page for the computer: EDITOR (`specs/editor.md`: TABLE and FM-1 side by side, items moved with what they use, READ / WRITE / UPLOAD DISK / DOWNLOAD DISK, an item's tab to edit it, the FM-1's own pictures from `fw/core/ui` built in under `PTFM_EDITOR`); `editor/build.py` makes `dist/editor/editor.html`; tests `tests/editor/run_tests.sh` (Node) and `tests/editor/run_page.sh` (the page in a headless Chrome) |
 | `playground/` | the UI playground: the UI, the transport and the sound in plain JS; no build |
 | `demo-disk/` | the demo disk's sources: patches, samples and songs under free licences (`demo-disk/README.md`, `CREDITS.md`) |
 | `manual/` | the manual, PT/FM OWNER'S MANUAL (`specs/manual.md`): `src/` the chapters (HTML fragments in a fixed vocabulary), `web.css` + `manual.js` the page, `print.css` the PDF; `tools/build_manual.py` makes `dist/manual/manual.html` (`--pdf`: `ptfm-manual.pdf`, a headless Chrome), the screenshots by `fw/tests/manual_shots.c`, the panel by `tools/manual_panel.py`; tests `tests/manual/`, run by `fw/tests/run_manual.sh`. The manual, `CHANGELOG.md`'s released sections, `specs/reports/` (a file a version) and `README.md`'s one line "Current version" are the only documents that name a version |
@@ -173,9 +176,13 @@ This folder is its own git repository; the parent is not one.
   first (`FEATURE:`, `CHANGE:`, `BUG:`, `REMOVED:`), in plain words. A release turns Next version into that
   version's section (its number and date), on top with no empty Next version above it; the first change after the
   release starts a new Next version above it, and `README.md`'s "Current version" line takes the release's number and
-  date. `fw/VERSION` and the release's tag change only when the user says.
+  date. `fw/VERSION` and the release's tag change only when the user says. **A version is the firmware's:** work that
+  leaves the firmware as it is (the pages, the site, the manual, the specs) goes into the current version's section
+  and report while no new firmware is on its way, and into Next version and the next release's report with it once
+  one is.
 - **Every version has a report, `specs/reports/<version>.md`** (one file a version; the one being worked on is the
-  next release's), filled in as its tasks are worked on and changed as they change: for each task why it was done
+  next release's, or the current one's for work that leaves the firmware as it is while no new firmware is on its
+  way), filled in as its tasks are worked on and changed as they change: for each task why it was done
   and how (the reasoning, the choices made and those set aside, what was measured or tested and how, what is left),
   and the commits that hold it (short hashes, added once committed). It is not `CHANGELOG.md`, which lists each change
   in a line for users: the report explains the work. Only the essential part; no code (the code is in the commits),
@@ -257,9 +264,10 @@ This folder is its own git repository; the parent is not one.
   `noinline` (one copy, not one per call), and new control code is counted in lines walked, not
   instructions.
 - **Two cores** (`specs/second-core.md`): core 2 runs each audio block's effects and output stage (the job,
-  `pl_c2_job`), handed over as the block's voices are made, and at VOICES 16 the voices past 10 (the pool's places
-  11-16, `PL_C2_FROM`: the voice job, run from the image, the one job that reads the flash; so every flash operation
-  of core 1's waits for core 2 idle); everything else stays on core 1.
+  `pl_c2_job`), handed over as the block's voices are made, and at any VOICES the pool's top places from each block's
+  split on, 10 at most (`pl_split`, by the engines' weights and a margin the joins trim; the voice job, run from the
+  image, the one job that reads the flash; so every flash operation of core 1's waits for core 2 idle); everything else
+  stays on core 1. The load guard counts its own split by the weights alone (`pl_heavy`), never the block's.
   - Code core 2 may run is marked `PLAT_C2` (a table `PLAT_C2_RO`) and lives in core 2's room in RAM; it calls only
     marked code: its own `c2_memset` / `c2_memcpy`, never a copy the compiler may turn into a `memcpy` call, and an
     inline helper it uses carries the mark too (the device's compiler inlines across sections only `always_inline`).
@@ -322,14 +330,17 @@ the file system in Chrome or Edge.
       parts and `specs/ui/help.md`, kept equal to them), marked up;
     - the screens: `scr-grid.js` (the pattern grid, the pattern list, reference questions),
       `scr-songs.js`, `scr-editor.js`, `scr-instr.js`, `scr-play.js` (PLAYBACK, FX), `scr-loops.js`
-      (LOOPS), `scr-hear.js` (VISUAL, STATUS, SETTINGS);
+      (LOOPS), `scr-hear.js` (VISUAL, STATUS, SETTINGS), `scr-auto.js` (AUTOMATIONS: its recorder and player
+      take each pass of `ui.js`'s input first);
     - `player.js`: the transport and the replay (songs, the EDITOR's loop, the loops), tick by tick,
       scheduled a little ahead on the audio clock;
     - the sound: `audio.js` (the page's side; the CPU figures are the FM-1's, estimated), and the
       worklet's `dsp-core.js` (voices, events, the pool), `dsp-dx7.js` (after MSFA), `dsp-synth.js`
       (Juno-106, TB-303, sampler: the Juno-106 and the TB-303 follow the device's engines step by step,
       in floats), `dsp-fx.js` (mixer, chain, sends, DUCK, punch-ins, METRONOME). `tests/playground/sound.js`
-      checks that each engine's instruments come out as their LEVELs say. An engine's fields on a voice
+      checks that each engine's instruments come out as their LEVELs say; `tests/playground/ghosts.js` runs the
+      firmware's cases of the pool (the ghosts) on the worklet's twin, and `tests/playground/forward.js` each
+      engine's forward work against its own steps. An engine's fields on a voice
       must not reuse the core's names (`rel`, `gain`, `vol`, `midi`, `bend`, ...).
       The worklet is put together from their source when the sound starts (a `data:` URL, else a
       `blob:` one), so they are edited like any other file. Where neither loads (a page inside another
@@ -358,10 +369,14 @@ the file system in Chrome or Edge.
   and S3M through an IBXM port, and global effects; CHIP, our own virtual retro sound chip
   (`specs/chip.md`), has no outside reference: its firmware and playground versions are tested equal sample
   for sample (`fw/tests/run_chip.sh`).
-- **Voices:** one pool of 8, 12 or 16 for every engine and the keys, 16 the default: 10 on core 1 and
-  6 on core 2 (`PL_VOICES_MOST`, `fw/core/play/player.h`), counted as 12 while core 2 does not run
-  (`specs/second-core.md`). 16 on core 1 alone overran on the FM-1; 12 + 4 ran on the FM-1, 10 + 6 is not
-  measured there yet.
+- **Voices:** one pool of 8, 12 or 16 for every instrument and the keys, 16 the default, split between the cores
+  each block, core 2 taking 10 at most (`PL_VOICES_MOST`, `PL_C2_MOST`, `fw/core/play/player.h`), counted as 12 while
+  core 2 does not run (`specs/second-core.md#the-split`). 16 on core 1 alone overran on the FM-1; 12 + 4 and 10 + 6 ran
+  on the FM-1, the moving split is not measured there yet. The pool is 16 engines and 40 voices: a note taken or
+  muted goes on as a ghost (its voice
+  without an engine, every rule acting on it) and comes back worked forward, under a budget a block
+  (`specs/ui/screens/settings.md#voices`, the engines' forward work `fw/core/eng/fwd.h`); the playground's
+  worklet keeps the same pool on its own 128-frame blocks (`playground/dsp-core.js`).
 - **Storage and song data:** the files specs (`specs/files/`).
 
 ## Later, not now

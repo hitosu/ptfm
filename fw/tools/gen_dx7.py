@@ -119,14 +119,43 @@ def finetab():                           # osc_freq: the FINE term, fine 0..99
     return [0] + [int(math.floor(24204406.323123 * math.log(1 + 0.01 * f) + 0.5)) for f in range(1, 100)]
 
 
+LOGFREQ_BASE, LOGFREQ_STEP = 50857777, (1 << 24) // 12   # a note's logfreq: BASE + STEP x note
+DETUNE_SHIFT = 12
+
+
 def logfreq_detuned():                   # osc_freq, mode 0, standard tuning: logfreq after DETUNE
-    base, step = 50857777, (1 << 24) // 12
     t = []
     for mn in range(128):
-        lf = base + step * mn
+        lf = LOGFREQ_BASE + LOGFREQ_STEP * mn
         ratio = 0.0209 * math.exp(-0.396 * (f32(f32(float(lf)) / (1 << 24)))) / 7
         t.append([trunc32(float(lf) + ratio * lf * (d - 7)) for d in range(15)])
     return t
+
+
+def detune_steps(det):
+    """each note's DETUNE as one number R (Q12): det[note][d] == lf + (R x (d - 7) >> 12) for all 15 values of d, the
+    smallest R that gives every value back (floor shifts, as the device's arithmetic right shift), within int32"""
+    out = []
+    for mn, row in enumerate(det):
+        lf = LOGFREQ_BASE + LOGFREQ_STEP * mn
+        if row[7] != lf:
+            raise SystemExit("gen_dx7_tables: DETUNE 7 is not the note's own logfreq")
+        lo, hi = 0, 1 << 31                  # R in [lo, hi): floor(R k / 2^S) == row[k + 7] - lf
+        for d, val in enumerate(row):
+            k, v = d - 7, val - lf
+            if not k:
+                continue
+            a, b = v << DETUNE_SHIFT, (v + 1) << DETUNE_SHIFT
+            if k > 0:
+                lo, hi = max(lo, -(-a // k)), min(hi, -(-b // k))
+            else:
+                lo, hi = max(lo, (-b) // -k + 1), min(hi, (-a) // -k + 1)
+        if lo >= hi or lo * 7 >= 1 << 31:
+            raise SystemExit(f"gen_dx7_tables: note {mn}'s DETUNE has no step of {DETUNE_SHIFT} bits")
+        if any(lf + ((lo * (d - 7)) >> DETUNE_SHIFT) != val for d, val in enumerate(row)):
+            raise SystemExit(f"gen_dx7_tables: note {mn}'s DETUNE step does not give its values back")
+        out.append(lo)
+    return out
 
 
 def ampmod():                            # Dx7Note::compute: (uint32_t)exp(sensamp / 262144 * 0.07 + 12.2)
@@ -179,7 +208,7 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
     unit, deltas = lfo()
-    det = logfreq_detuned()
+    det = detune_steps(logfreq_detuned())
     exp2 = [v - (1 << 32) if v >= 1 << 31 else v for v in exp2tab()]
     tanh, freq, sin = tanhtab(), freqlut(), sintab()
     n = 1024
@@ -208,10 +237,12 @@ def main():
            c_array("uint32_t", "DX7_LFO_DELTA", deltas),
            c_array("int32_t", "DX7_FINE", finetab(), 10),
            c_array("uint32_t", "DX7_AMPMOD", ampmod()),
-           "static const int32_t DX7_LOGFREQ[128][15] = {"]
-    for row in det:
-        out.append("    {" + ", ".join(str(v) for v in row) + "},")
-    out.append("};")
+           "/* osc_freq's logfreq after DETUNE (mode 0): DX7_LOGFREQ_BASE + DX7_LOGFREQ_STEP x note +",
+           f" * (DX7_DETUNE[note] x (DETUNE - 7) >> {DETUNE_SHIFT}), every note's 15 values as MSFA's doubles give them */",
+           f"#define DX7_LOGFREQ_BASE {LOGFREQ_BASE}",
+           f"#define DX7_LOGFREQ_STEP {LOGFREQ_STEP}",
+           f"#define DX7_DETUNE_SHIFT {DETUNE_SHIFT}",
+           c_array("int32_t", "DX7_DETUNE", det)]
     with open(sys.argv[1], "w") as f:
         f.write("\n".join(out) + "\n")
 

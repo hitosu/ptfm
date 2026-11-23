@@ -22,7 +22,7 @@ uint32_t plat_us(void)
     return t += 7;
 }
 uint32_t plat_ms(void) { return 0; }
-void plat_c2_wait(void) {}
+int plat_c2_wait(void) { return 0; }
 
 static int32_t mix[2 * FX_BLOCK];
 static fx_set_t set;

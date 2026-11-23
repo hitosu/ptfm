@@ -67,7 +67,7 @@ VISUAL VOICES                          S, the frame's header: the name, the view
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| a voice's tile, *i* = 0 to VOICES − 1 (the limit in force: [settings.md](settings.md#voices)) | 60 (*i* mod 4), 17 + *th* ⌊*i* / 4⌋ | 59 × (*th* − 1) | | a box; *th* = ⌊210 / (VOICES / 4)⌋: 105, 70 or 52 px (a parked note, unheard, has no tile) |
+| a voice's tile, *i* = 0 to VOICES − 1 (the limit in force: [settings.md](settings.md#voices)) | 60 (*i* mod 4), 17 + *th* ⌊*i* / 4⌋ | 59 × (*th* − 1) | | a box; *th* = ⌊210 / (VOICES / 4)⌋: 105, 70 or 52 px (a ghost, unheard, has no tile: a note taken from its engine, or a muted track's; DUCK's source's and a TB-303's notes keep their engines muted, and their tiles: [settings.md](settings.md#muted-tracks)) |
 | – who plays it | tile + 3, tile + 2 | | T | `T0A` (a song's track), `KEY` (the keys), `L03` (a loops' track); `--` when free |
 | – its note | tile + 38, tile + 2 | | T | `C-4` |
 | – its scope | tile x + 2 to + 57; centred at tile y + 14 + (*th* − 16) / 2 | 56 points, ± (*th* − 18) / 2 | | the voice's latest wave: its last 64 frames (the block the player keeps of each voice, 1.45 ms) across the 56 points |
@@ -169,7 +169,13 @@ VISUAL LEVELS
 | – its number | 15 *t* + 1, 214 | | T | `0A` |
 
 Colours: the ground deep dark grey; the level green, red above 85 % of the height, dark grey while
-the track is muted; the numbers cyan, dark grey while muted.
+the track is muted; the numbers cyan, dark grey while muted. A muted track's notes are ghosts
+([settings.md](settings.md#muted-tracks)), so its meter falls empty after its mute's own block; DUCK's source's and a
+TB-303's notes sound on muted, unheard, and show in dark grey.
+
+The tracks are those of what plays: a song's, the EDITOR's pattern's, DJ's main deck's. While LOOPS plays, the meters
+are the loops, meter *n* loop *n*, the stage's notes and the pattern recorder's preview in the meter of the loop they
+sound as (on `+ NEW LOOP` the next loop's); a loop is dark grey while it is muted or silenced by a solo.
 
 ### FOMA
 
@@ -228,15 +234,15 @@ stars and its eyes dark.
 ### The options (GLO)
 
 ```
- +------------------------------------+
- |VISUAL OPTIONS                      |
- |[VIEW                       STEREO] |
- | FREEZE                        OFF  |
- +------------------------------------+
++----------------------------+
+|VISUAL OPTIONS              |
+|[VIEW               STEREO ]|
+| FREEZE                OFF  |
++----------------------------+
 ```
 
-The dialogs' properties ([../dialogs.md](../dialogs.md)): a panel at 6, 21, 228 × 52; items at y 40
-and 54. K1 switches the selected one.
+The dialogs' properties ([../dialogs.md](../dialogs.md#properties)), in S (a character here one of S's): a panel at
+4, 19, 232 × 56; items at y 40 and 56. K1 switches the selected one.
 
 ## Texts
 

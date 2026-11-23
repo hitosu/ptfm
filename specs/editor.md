@@ -1,14 +1,14 @@
-# The editor page, EDITOR [beta]
+# The editor page, EDITOR
 
-Status: **settled** (2026-10-26). The record: [the editor proposal](proposals/202610260240-editor-beta.md); the
+Status: **settled** (2026-10-26), out of beta since 2026-11-20 (PT/FM 1.0: no `BETA` mark). The record: [the editor proposal](proposals/202610260240-editor-beta.md); the
 first one, [proposals/202610142355-editor.md](proposals/202610142355-editor.md), is set aside. Open points:
 [open-questions.md](open-questions.md#data-and-tools).
 
 **The editor** is a page for the computer that adds content to the FM-1 and backs it up. Two panels side by side
 hold PT/FM's files: **TABLE**, everything dropped on the page, and **FM-1**, an image of what an FM-1 holds. Items
 move between them with everything they use; READ and WRITE move the FM-1 panel to and from the device; every item
-opens in a tab of its own to be edited. Only FILES, the two panels, is finished for the beta; the tabs give every
-edit with plain controls, to be refined later.
+opens in a tab of its own to be edited. FILES, the two panels, is the page's heart; the tabs give every edit with
+plain controls.
 
 ## The page
 
@@ -18,7 +18,7 @@ edit with plain controls, to be refined later.
 - **The pages' look:** black, the FM-1 screen's EGA colours, the system's sans-serif, square boxes, keys' names
   yellow, labels cyan. No sidebar: the two panels take the width.
   - **The header:** `PT/FM EDITOR` (`PT/FM` a letter in each engine's colour, as the FM-1's STATUS draws it:
-    [ui/screens/status.md](ui/screens/status.md)), a `BETA` mark, the tabs (FILES first, always there), UNDO and
+    [ui/screens/status.md](ui/screens/status.md)), the tabs (FILES first, always there), UNDO and
     REDO. A click on `EDITOR` shows FILES too; `PT/FM` links to PT/FM's page, https://hitosu.github.io/ptfm/
     ([site.md](site.md)).
   - **The work area:** the tab shown.
@@ -49,8 +49,8 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   `SMP 0C`). Patterns have no names on the FM-1: such a name lives only on the TABLE.
 - **`+ NEW`** makes an item here, as the FM-1 makes a new one, and opens it in its tab: a SONG (with an empty
   pattern in its one position), a PATTERN (8 tracks of 64 rows, empty), a cartridge of each engine (one plain
-  instrument), a SAMPLER (empty: sounds dropped on it fill it), SETTINGS, MIDI MAP, LOOPS or DJ SETUP (their
-  defaults). Their source is `NEW`.
+  instrument), a SAMPLER (empty: sounds dropped on it fill it), SETTINGS, MIDI MAP, LOOPS, DJ SETUP (their
+  defaults) or AUTOMATIONS (its 16 slots empty). Their source is `NEW`.
 - **Its keys:** `+ ADD FILES`, `+ NEW`, `● RECORD` ([the recorder](#the-recorder)), `DELETE ALL`, the filter and
   the views.
 
@@ -79,15 +79,15 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
 
 ### Both panels
 
-- **Groups by kind:** SONGS, PATTERNS, CARTRIDGES (DX7, Juno-106, TB-303, CHIP, FUSION), SAMPLERS, SAMPLES and
-  SYSTEM (SETTINGS, MIDI MAP, LOOPS, DJ SETUP, EDITOR'S PATTERN, KEYS' SONG). A click on a group's header folds or
+- **Groups by kind:** SONGS, PATTERNS, CARTRIDGES (DX7, Juno-106, TB-303, CHIP, FUSION, FAVORITES), SAMPLERS, SAMPLES, LOOPS SETS
+  and SYSTEM (SETTINGS, MIDI MAP, LOOPS, DJ SETUP, AUTOMATIONS, EDITOR'S PATTERN, KEYS' SONG). A click on a group's header folds or
   opens it; Ctrl or Shift + click adds all its items to those picked. The header shows the count and their size.
   COLLAPSE ALL and EXPAND ALL fold or open every group of the panel; the folded groups are remembered with the views.
 - **Three views,** picked per panel and remembered: DETAILS, LIST, ICONS.
   - **DETAILS:** a row an item: its icon, its number (FM-1) or source (TABLE), its name (a pattern on the FM-1
     panel shows where it plays, `CITY LIGHTS · POS 02`), its kind (`4 TRACKS × 64`, `SAMPLER · 10 INSTR · 7 SMP`: the
     samples its instruments name,
-    `8-BIT · 22.1 KHZ · 0.42 S`), its size, its size with what it uses, and how many items use it. Each column
+    `8-BIT · 22.1 KHZ · 0.42 S`, `SET · 6 LOOPS · 4 BARS · TEMPO 120`), its size, its size with what it uses, and how many items use it. Each column
     sorts.
   - **LIST:** compact names in columns.
   - **ICONS:** tiles: a pattern's notes in its engines' colours, a sample's waveform, a song's positions; the
@@ -129,14 +129,28 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   as the FM-1 reads it: listed dim, `SAMPLE · ENTRY AND AUDIO DIFFER`, kept as it is (never moved, written back as it
   was), its number taken; the instruments naming it name nothing, grey.
 - **References** ([files/references.md](files/references.md)): a song's positions name patterns, a cell its
-  instrument's cartridge, a FUSION slot its pattern, a sample instrument its sample, a loop its instrument, a
-  favourite its source instrument; the EDITOR's pattern names cartridges as any pattern does.
+  instrument's cartridge, a FUSION slot its pattern, a sample instrument its sample, a loop its instrument (LOOPS'
+  and a LOOPS set's alike), a favourite its source instrument; the EDITOR's pattern names cartridges as any pattern
+  does. Nothing refers to a LOOPS set.
+- **A LOOPS set** (kind 0x24, [files/loops.md](files/loops.md#sets)) is an item of its own: its group LOOPS SETS on
+  both panels, not among `+ NEW`'s kinds (a set is made on the FM-1), shown as `SET` in DETAILS with its loops, its
+  length in bars (`4.5` for a part bar, as the FM-1's list writes it) and its tempo, named as the FM-1 names it. Its
+  tab is LOOPS' (below), with each loop's SOLO besides (a set keeps its solos); PLAY plays it as LOOPS plays (below).
+  READ, WRITE, the disks, moves, DOWNLOAD and DELETE take it as any item. None is on the demo disk.
 - **A FAVORITES cartridge** (kind 0x07, [files/instruments.md](files/instruments.md#favorites)) is an item like any
   cartridge: READ, WRITE, UPLOAD and DOWNLOAD DISK and the disks carry it; its kind is among the TABLE's groups and
   `+ NEW`'s kinds (a new one named `MY FAVORITES`), shown as `FAVORITES` in DETAILS, its icon light grey. Moving it
   to the other panel takes every cartridge it names along, as a song takes its cartridges (the built-in ones
-  excepted); renumbering rewrites its references; it is reused by hash as any item. Nothing takes a FAVORITES
+  excepted); renumbering rewrites its references; it is reused by hash as any item (onto the FM-1 panel it becomes
+  `FB`, [below](#moving-items)). Nothing takes a FAVORITES
   cartridge along: nothing refers to it.
+- **AUTOMATIONS** (kind 0x32, number 00, [files/automations.md](files/automations.md)) is a system item: the FM-1 panel
+  holds one, as it holds one SETTINGS and one LOOPS (`DEFAULT` while the FM-1 holds no automation: its records are its
+  slots' parts, and an empty slot has none; one with every slot empty that lands there, by its tab's SAVE or a move, is
+  that default again), the TABLE any number. READ brings the FM-1's, `+ NEW` makes an empty one, WRITE sends the
+  panel's, and a move onto the FM-1 panel replaces the panel's after asking, as any system item's; UPLOAD and DOWNLOAD
+  DISK, DOWNLOAD AS DISK and BACKUP carry it. It names nothing and nothing names it. DETAILS shows how many of its slots
+  hold one as the FM-1 counts them, by their part 0 (`3 OF 16 SLOTS`). It does not sound: no ▶, no preview.
 - **Remembered places are not uses:** the settings' current instrument and the EDITOR's numbered pattern, DJ's decks'
   songs. They never take an item along on a move nor keep it from a DELETE; moved without what they name, they find
   it on the other side when it is there (by its hash), else they are cleared, as the FM-1 empties a deck whose song is
@@ -154,7 +168,8 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
 - **→ copies the TABLE's picked items to the FM-1 panel, ← the FM-1 panel's to the TABLE;** dragging them onto the
   other panel does the same. The side they come from keeps them.
 - **With everything they use:** a song travels with its patterns, their cartridges, the samples a sampler's
-  instruments name, a FUSION's patterns; a sample moves alone as an item of its own. The built-in instruments a moved
+  instruments name, a FUSION's patterns; a LOOPS set (and LOOPS) with the cartridges its loops play and their samples;
+  a sample moves alone as an item of its own. The built-in instruments a moved
   item uses never travel: a reference to one stays a reference to it, as every PT/FM carries them. A changed built-in
   travels as a cartridge that remembers its number; on the FM-1 panel it lands on that number when that number holds
   the firmware's own or the same change, else at a free number.
@@ -181,14 +196,16 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   ([files/references.md](files/references.md#a-reference-to-nothing)), so an instrument naming a missing sample never
   starts playing an unrelated one; the instruments naming it are written anew. A move needing more sample numbers
   than are free (a module's samples) is refused, saying how many it needs (`NOT ENOUGH SAMPLE NUMBERS: 70 NEEDED, 12
-  FREE`).
+  FREE`). A LOOPS set takes the number it had when free, else the lowest free one, `00`-`EF`, numbers of their own
+  (the FM-1 holds up to 240 sets); nothing refers to a set, so its number rewrites nothing.
 - **SET NUMBER… (F4, on the FM-1 panel)** gives one cartridge another number, typed as two hex digits, `00`-`EF`; the
   dialog says what each number would do. A free number moves it; a number another cartridge holds swaps the two,
   whatever their kinds, as all seven kinds share the numbers. **Every reference follows,** as MOVE and SWAP answered
   YES on the FM-1 ([files/references.md](files/references.md#move-and-swap)): the cells, the loops' table, the
   favourites, the settings' current instrument; references naming nothing go to the place left and still name nothing.
   Samples keep their numbers, a space of their own. No question first: it happens at once, one step of UNDO, the
-  status line saying what changed (`DRUM KIT IS NOW 2B · 116 REFERENCES FOLLOW`), and reaches the FM-1 with WRITE, which
+  status line saying what changed (`DRUM KIT IS NOW 2B · 116 REFERENCES FOLLOW · THE FM-1 CHANGES WITH
+  WRITE`), and reaches the FM-1 with WRITE, which
   does not list a cartridge that took another number among what it removes. Refused: a built-in, changed or not, and the
   numbers `F0`-`FF`; a panel holding a version the page cannot read, as what it names could not follow; a tab of the
   panel with changes not saved, which holds the numbers as they are: it is saved or closed first. A tab with no changes
@@ -196,11 +213,23 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
 - **Samples moved alone** stay samples, no sampler made for them; dropped on a sampler cartridge's item, they come
   with an instrument each at its first empty slots, each playing its sample whole, named after it (64 at most).
   Otherwise instruments are made on the FM-1 or in the sampler's tab (CREATE, NEW INSTRUMENT FOR IT).
-- **The system items:** the FM-1 holds one settings record, MIDI map, loops and DJ setup. Moving one to the FM-1
-  panel replaces the panel's, after asking unless the panel's is the default; of several of one kind in one move the
+- **The system items:** the FM-1 holds one settings record, MIDI map, loops, DJ setup and AUTOMATIONS. Moving one
+  to the FM-1 panel replaces the panel's, after asking unless the panel's is the default; of several of one kind in one move the
   first is taken, and the status line says the others stayed. The EDITOR'S PATTERN and the KEYS' SONG moved to the
   TABLE become a plain pattern and song (`EDITOR FE`, `KEYS FE`), as a disk's dropped on it do; moved back, they take
   free numbers. A default (no record) has nothing to move.
+- **FAVORITES: the FM-1 holds `FB` alone** ([files/instruments.md](files/instruments.md#favorites)). The TABLE holds
+  any number of FAVORITES items; the FM-1 panel shows `FB` among them, as a changed built-in once it holds favourites
+  (a user FAVORITES cartridge an earlier PT/FM made is listed as it is read, and can be moved to the TABLE). **A
+  FAVORITES item moved to the FM-1 panel replaces `FB`'s slots,** as a system item replaces the panel's: after asking
+  unless `FB` is empty; the cartridges its favourites name travel along as ever; `FB` keeps its name and number. Of
+  several in one move the last is kept, in the TABLE's order (the bottom-most). The status line names the one `FB` now
+  holds and says the others were not put on (`FB FAVORITES IS NOW MY FAVORITES · 2 OTHER FAVORITES NOT PUT ON`). An
+  `FB` the page cannot read is kept as it is, as everything it cannot read ([above](#fm-1)): the move is refused
+  (`FB IS OF A VERSION THIS PAGE CANNOT READ: NOTHING MOVED`). Only such a move replaces `FB`: a disk's UPLOAD puts the disk back as it is
+  ([below](#the-fm-1-read-write-and-disks)), `FB` as the disk holds it and a FAVORITES cartridge at a user number as one
+  an earlier PT/FM made, listed as it is read. **`FB` moved to the TABLE** becomes a FAVORITES item of its own, named
+  `FAVORITES`, as any built-in copied there. WRITE writes `FB` as a changed built-in; BACK TO BUILT-IN empties it.
 - **What does not fit is refused, and nothing moves:** the space bar shows the missing part red, and the status
   line says how much is missing (`DOESN'T FIT: MYSONG NEEDS 72 KB MORE`). Room comes from deleting on the FM-1
   panel or trimming on the TABLE. So is a move needing a number when none is free.
@@ -259,18 +288,24 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   panel does not fit around what stays** (records kept where they are, blocks a deleted record's header still holds)
   **but fits the FM-1 emptied, the whole user area is written anew,** as the install page's REPLACE ALL does: the
   panel's records from the first block, every other block empty; what the page cannot read is read first and
-  written back as it was. A panel that does not fit even the FM-1 emptied is refused. Before writing it shows:
+  written back as it was. A panel that does not fit even the FM-1 emptied is refused. So is a panel of more records
+  than the FM-1's store lists (the layout's room, 560: [files/store.md](files/store.md#the-list-of-records)), nothing
+  written, the status line saying so (`WRITE REFUSED: IT DOES NOT FIT IN THE FM-1'S LIST OF RECORDS: 561 RECORDS, 560
+  AT MOST`); where only the deleted records the FM-1 still lists make the difference, the user area is written anew,
+  as above. Before writing it shows:
   - that it writes the whole user area anew, when it does, and that this takes longer;
   - fewer free blocks after it than advised, what that costs the FM-1's own saves (as the space bar says it), with
     WRITE ANYWAY and CANCEL;
   - anything saved on the FM-1 after the panel's last READ or WRITE (its save number is newer), at the top, with
     READ FIRST, WRITE ANYWAY and CANCEL;
-  - what it writes, and the FM-1's items it removes, by name, red;
+  - what it writes, and the FM-1's items it removes, by name, red (an item the panel still holds with fewer records, a
+    pattern's part or an AUTOMATIONS slot gone, is written, not removed);
   - that it backs up first, when the write replaces or removes anything;
   - what it converts down: an object of a version the FM-1 does not take, where the FM-1 takes an older version of
     its kind that the page converts to, is written as that version (`LOOPS 00: VERSION 4 WRITTEN AS VERSION 3`,
-    each loop written out as it is heard, its SHIFT included: [files/loops.md](files/loops.md#the-record)), with what
-    the older version cannot hold (`NOT KEPT: SOLO`; `NOT KEPT: VIEW, K1-K4'S JOBS, THE LENGTH`) and then WRITE
+    each loop written out as it is heard, its SHIFT included, a cut loop as its first pass round the cut:
+    [files/loops.md](files/loops.md#the-record)), with what the older version cannot hold (`NOT KEPT: A NEW LOOP'S MIX`;
+    `NOT KEPT: A LOOP'S CUT (PLAYED AS ITS FIRST PASS)`; `NOT KEPT: VIEW, K1-K4'S JOBS, THE LENGTH`) and then WRITE
     ANYWAY and CANCEL. The panel keeps its
     own version; a READ after brings the FM-1's back converted up
     ([files/disk.md](files/disk.md#versions)). To an FM-1 that takes only the old-form sampler, each sampler is
@@ -286,7 +321,9 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
   panel does not have at its place; nothing else is read), leaving out what the last READ or WRITE saw exactly so
   (that CRC at that place): that was on the panel, and what was done with it since was chosen, so a READ, DELETE
   ALL and a WRITE back nothing up, and only what changed on the FM-1 since is backed up (the dialog says when
-  nothing needs it). It puts that on the TABLE with what it uses, as a move to
+  nothing needs it). An object is backed up whole, every record of it the FM-1 holds (a pattern's parts, AUTOMATIONS'
+  slots), those it did not read taken from the panel or from what the last READ or WRITE saw, never old parts beside
+  new ones. It puts that on the TABLE with what it uses, as a move to
   the TABLE does: an item the TABLE already holds (the same content, by its hash) is not copied again, only referred
   to. Their source is `BACKUP` and the time (`BACKUP 26 OCT 11:50`); UNDO takes the backup back as one step. A
   backup that cannot be made stops the WRITE with nothing written. Then it writes one save: BEGIN with the layout's
@@ -298,24 +335,28 @@ Two panels: **TABLE** on the left, **FM-1** on the right, and between them two a
 - **REVERT** puts back what the panel showed after the last READ or WRITE.
 - **UPLOAD DISK** (or a disk file dropped on the FM-1 panel; any other file dropped there is refused, it goes on the
   TABLE) puts a disk's contents in the FM-1 panel in place of what it showed, numbers kept, the EDITOR'S
-  PATTERN, the KEYS' SONG, the settings, the MIDI map, the loops and DJ's setup included: once written, a backup is
+  PATTERN, the KEYS' SONG, the settings, the MIDI map, the loops, DJ's setup and the automations included: once written, a backup is
   back exactly. A file of a version the page cannot read stays in the panel as it is, shown dim, and is not
   written ([files/disk.md](files/disk.md#versions)); a file whose CRC does not match its bytes is left out, and said
-  (a drop on the TABLE does the same).
+  (a drop on the TABLE does the same). A disk of more records than the FM-1 lists goes into the panel all the same;
+  WRITE refuses it (above).
 - **DOWNLOAD DISK** saves the FM-1 panel as a disk (`ptfm-2026-10-26.ptfmdsk`): everything but the unchanged
   built-ins. It is the backup: READ, then DOWNLOAD DISK.
 - **DOWNLOAD AS DISK** (the TABLE's selection bar) saves the TABLE's picked items as a disk with everything they use,
   numbered as a move to an empty FM-1 panel numbers them: each at the number it remembers when free, else the lowest
   free one, every reference written anew; the built-in instruments left out (references to them stay, as every PT/FM
   carries them), a changed one they use going along at its number; of several system items of one kind the first
-  (the status line names the others). What that move refuses it refuses with the same words, `NO DISK SAVED` in place
-  of `NOTHING MOVED` (a version the page cannot read, a sample too long, too many sample numbers), and so what does not
-  fit an empty FM-1 (`DOESN'T FIT: MYSONG NEEDS 72 KB MORE ON THE FM-1. NO DISK SAVED.`): a disk is meant for an FM-1.
+  (the status line names the others); a FAVORITES item as that move puts it on, as `FB`'s change (of several, the
+  bottom-most in the TABLE's order, the status line naming the others). What that move refuses it refuses with the
+  same words, `NO DISK SAVED` in place of `NOTHING MOVED` (a version the page cannot read, a sample too long, too many
+  sample numbers), and so what does not fit an empty FM-1 (`DOESN'T FIT: MYSONG NEEDS 72 KB MORE ON THE FM-1. NO DISK
+  SAVED.`): a disk is meant for an FM-1.
   The file is named after the item when one is picked (lowercase, spaces and signs a dash: `punch-in.ptfmdsk`), else
   `ptfm-selection-2026-11-04.ptfmdsk`; the status line says it as DOWNLOAD DISK's does, counting what the items took
   along (`DOWNLOAD AS DISK: punch-in.ptfmdsk, 14 ITEMS, 25 KB`). Neither panel changes, and it is no step of UNDO. Put
   in an FM-1 panel by UPLOAD DISK, the disk gives the items, numbers and hashes that move gives; dropped on the TABLE,
-  items equal by hash to those picked and what they use.
+  items equal by hash to those picked and what they use, but a FAVORITES item, which comes back as `FB`'s change, an
+  item named `FAVORITES`.
 - **The EDITOR's own pattern and the keys' song (`FE`)** are items like the others here: a backup keeps them and a
   backup put back restores them. A WRITE makes the FM-1 hold exactly the panel, so a panel without them removes
   the FM-1's, listed as removed before anything is written.
@@ -344,11 +385,14 @@ done afterwards, in the item's tab ([the tabs](#the-tabs)).
 - **MIDI files** ([below](#midi-files)): a song and its patterns.
 - **DX7 cartridges** (`.syx`, the 32-voice bulk dump): a DX7 cartridge, exactly
   ([files/instruments.md](files/instruments.md#dx7)); a single voice's dump: a cartridge of one.
+- **Juno-106 banks** ([below](#juno-106-banks)): `.syx` of the Juno-106's patch messages, the Juno-106 Librarian's
+  `.106` libraries, the `.pat` patch lists; Juno-106 cartridges, exactly.
 - **Sounds** (WAV read by the page itself; FLAC, MP3, OGG and the rest as the browser decodes them): a sample, at
   the lowest rate that loses nothing heard (the highest frequency the sound holds, measured, under half the rate),
   8 bits, coded in PTR as the packer codes it ([files/ptr.md](files/ptr.md)). The TABLE keeps the file's own audio
   beside it, so a later cut, rate or depth starts from the original. A sound longer than a sample can be is kept as
-  a loose sample `TOO LONG` ([below](#too-long-for-the-fm-1)), not refused.
+  a loose sample `TOO LONG` ([below](#too-long-for-the-fm-1)), not refused. Every sound is first tried as a recording
+  of a Juno-106's or a Juno-60's tape ([below](#juno-tape-recordings)), which can become a Juno-106 cartridge.
 
 ### MIDI files
 
@@ -366,6 +410,128 @@ Formats 0 and 1, a first version:
   ...); channel 10's drums onto FM DRUM KIT, a sound for each drum note, played at C-4.
 - **Left out and counted:** pitch bend, modulation and the other controllers.
 
+### Juno-106 banks
+
+The record is [the proposal](proposals/202611111954-juno-import.md) (its sections 1 and 2 hold every byte); in
+brief:
+
+- **A Juno-106 patch** is its 16 sliders in the panel's order (LFO RATE, LFO DELAY, DCO LFO, DCO PWM, DCO NOISE,
+  VCF FREQ, VCF RES, VCF ENV, VCF LFO, VCF KYBD, VCA LEVEL, ENV A, D, S, R, DCO SUB: the cartridge's own order) and
+  two switch bytes: `sw1` bits 0-2 RANGE 16', 8', 4' (none or several read as 8'), bit 3 PULSE, bit 4 SAW, bit 5
+  CHORUS off, bit 6 CHORUS I (else II); `sw2` bit 0 PWM SOURCE MAN, bit 1 ENV POLARITY inverted, bit 2 VCA MODE
+  GATE, bits 3-4 the HPF inverted (`11` HPF 0 ... `00` HPF 3). A patch converts into a slot and back exactly
+  ([files/instruments.md](files/instruments.md#juno-106-and-tb-303)).
+- **`.syx`:** the patch messages `F0 41 30 0n pp` + 16 sliders + `sw1` `sw2` + `F7`, and `F0 41 31 ...` (the
+  panel's sound, MANUAL), in file order; every other byte or message (`F0 41 32`, other makers', bytes outside
+  messages) is skipped and counted. A file with a DX7 dump in it too makes a cartridge of each.
+- **`.106`:** the Juno-106 Librarian's library (magic `!j106\`, big-endian, strings as a u32 length and UTF-8; a
+  head with the library's name and the patch count, then each patch's name, id, time, 20 u16 values and a check
+  value). Value `i` (0-17) of patch `n` is stored multiplied by `K[(i + 9n) mod 16]` (K = 71 124 6 50 46 50 32 104
+  34 68 40 103 61 43 49 45); one that does not divide, or divides past 127, refuses the file (`NOT A JUNO-106
+  LIBRARY THIS PAGE READS`). The check values are not read.
+- **`.pat`:** text, a line a patch: 18 two-digit hex numbers (the 16 sliders, `sw1`, `sw2`), a comma, the name.
+  Read only when every line that is not empty has that form (other instrument files share the extension: they stay
+  `NOT A FILE THIS PAGE READS`).
+- **Recognised by content,** whatever the extension: Juno-106 messages (`F0 41 30`, `F0 41 31`), the `.106` magic,
+  the `.pat` lines.
+- **A file is one Juno-106 cartridge,** its patches in file order from slot `00`; past 128 a second fills, and so
+  on. The messages' patch numbers are not used: gaps close up. **A panel message that copies a patch of the same
+  file** is left out and counted (a capture's first message usually is one); one that copies none is a patch in
+  its place.
+- **Names:** a `.106` or `.pat` patch's name with a slot label at its start dropped (an `A` or `B`, an optional
+  `-`, two digits 1-8 and a space: `A31 CLOCK CHIMES`, `A-21 ...`), converted as DX7 names are (capitals, any other
+  character a space, 10 characters). A patch with no name (`.syx`, tapes), or one that comes out empty, is `PATCH`
+  and its slot's number in hex: `PATCH00`-`PATCH7F`. **The cartridge:** a `.106`'s library name, else the file's name
+  without its extension (12 characters); several from one file are numbered as the DX7 import numbers them (`NAME 1`,
+  `NAME 2`, the name cut to 9 characters first). **LEVEL 0** for every patch.
+- **The status line** says it as every drop's, the notes in brackets: `ADDED BASSES.SYX: 1 CARTRIDGE (1 PANEL COPY
+  LEFT OUT)`; skipped messages and bytes are counted there too.
+
+### Juno tape recordings
+
+The Juno-106 and the Juno-60 save their patches to cassette; Roland and patch makers ship whole banks so. A **dump**
+is what one save writes: on a Juno-106 one bank group, 64 patches; on a Juno-60 its 56 patches (numbered by bank 1-7
+and patch 1-8).
+
+- **The Juno-106's tape:** a square wave whose level flips at every bit, a 0 short (about 0.16 ms), a 1 long (about
+  0.65 ms), told apart by their ratio (4:1), not by set times; a leader of 1s, then bytes of a start bit, 8 data bits
+  (least significant first) and a stop bit, no gaps. A dump: `4A 55`, 64 patches of 16 bytes (the low 7 bits the
+  sliders, the top bits the switches: `sw1` bits 0-6 on bytes 0-6, `sw2` bits 0-4 on bytes 8-12; byte 7's top bit
+  dropped), a checksum (the sum of every byte before it), `AA AA`.
+- **The Juno-60's tape:** two tones, a 1 about 3.0 ms of about 2.35 kHz, a 0 the same time of about 1.3 kHz; bytes of
+  a start bit, 8 data bits and 2 stop bits after a leader of 1s. A dump: `80`, then 64 records of 18 bytes, each its
+  number (0-63), 16 bytes and a checksum (the 18 sum to 0): records 0-55 the patches' sliders, 56-62 their switches,
+  2 bytes a patch, 63 filler. The values' meanings are the proposal's section 1.6.
+- **Every sound dropped is tried** on the audio the page decodes (any format and rate, mixed to one channel): its
+  first 20 seconds are searched for a leader and a dump's first bytes (a Juno-106's `4A 55`; a Juno-60's `80` and
+  record `00`); one found is read to its end, every dump in it.
+- **A sound that looks like a tape asks,** whether or not the rest reads right, while the drop goes on, each file's
+  in turn: `JUNO-106 TAPE? READ IT AS A CARTRIDGE` (`JUNO-60 TAPE? READ IT AS A CARTRIDGE, CONVERTED TO JUNO-106`),
+  `CARTRIDGE` or `SAMPLE`; with several sounds dropped, `FOR ALL` beside them answers the rest the same way. Any
+  other sound never sees it. A dialog already open (the recorder, a drop's before) is waited out first, and drops made
+  meanwhile follow in turn. **SAMPLE** makes a sample, as any sound.
+- **CARTRIDGE on a dump that does not read** imports nothing of that file and says so in a dialog with `OK`, once
+  the others are in, one dialog listing every such tape: `JUNO106.WAV: NOT READ: THE TAPE'S CHECKSUM IS WRONG`. A
+  Juno-106 dump does not read when its checksum is wrong (it cannot say which patch is wrong, so none is taken) or
+  it ends early; a Juno-60 dump when no patch reads whole.
+- **A Juno-60 dump of which some patches read whole** is imported: a patch whose records fail (its sliders' record,
+  or the switches' record holding it) leaves its slot empty, so every other patch keeps its place, and the status
+  line names them in the Juno-60's numbering: `(3-4, 5-7 DAMAGED: LEFT EMPTY)`; in a recording of two,
+  `(DUMP 2: 3-4 DAMAGED: LEFT EMPTY)`; three or more in a row as a span (`2-1 TO 2-8`). A recording that ends before
+  its dump does names the patches it never held apart: `(5-1 TO 7-8 NOT ON THE TAPE: LEFT EMPTY)`; with no patch whole,
+  it does not read: `THE TAPE ENDS BEFORE ITS DUMP DOES`.
+- **Slots:** a Juno-60 dump is 56 slots in its order (slot `00` its 1-1, `37` its 7-8), a recording of two dumps one
+  cartridge of 112 (the second from `38`); a Juno-106 recording of both bank groups one of 128. Names `PATCH00` ...,
+  the cartridge named after the file, LEVEL 0.
+- **Takes from the recorder** are read the same way, before anything is asked ([the recorder](#the-recorder)).
+
+### Juno-60 patches as Juno-106 ones
+
+The two share one voice design, but the same slider is a different sound on each. **The conversion keeps the sound,
+not the slider:** each Juno-60 value is taken to its quantity by KR-106's Juno-60 model (its sound code: what its
+Juno-60 mode plays, not its value displays), and the Juno-106 value is the one whose quantity on PT/FM's own engine
+comes closest. KR-106's Juno-60 model is its Juno-6 one for most sliders; the conversion is as close to a Juno-60 as
+that model is.
+
+The Juno-60's sliders are read unrounded (a tape value over 255; ENV A from its 28, LFO DELAY backwards).
+
+| Slider | Quantity compared | Kind |
+|---|---|---|
+| ENV A | VCA MODE ENV: the times for the sound (the envelope through each machine's VCA curve) to come within 12 dB and within 3 dB of its peak; GATE: the envelope's times to half its peak and to its peak; closest in both on a logarithmic scale | two tables |
+| ENV D | the time to go 90 % of the way from the peak to the sustain | table |
+| ENV R | from the level the Juno-60's envelope has a second into a note (its release heads below zero, so its times depend on where it starts): VCA MODE ENV, the time for the sound to fall 20 dB through each VCA; GATE, the envelope's time to a tenth of its level | per patch |
+| ENV S | VCA MODE ENV: the sustain's loudness through each VCA's curve; GATE: the envelope's level | two tables |
+| VCF FREQ | the cutoff in Hz, on a logarithmic scale | table |
+| VCF ENV, LFO, KYBD | the cutoff's movement in octaves from the patch's own cutoff, held between 20 Hz and the engine's top: ENV at the envelope's peak, at its polarity's scale; LFO from its peak to its trough; KYBD at C2 and C6 against C4 | per patch |
+| VCF RES | the filter's feedback (the Juno-60's top past the Juno-106's: 127) | table |
+| LFO RATE | Hz | table |
+| LFO DELAY | the time to half depth | table |
+| DCO LFO | semitones | table |
+| DCO PWM | the pulse's width | table |
+| DCO SUB, DCO NOISE | the level against the saw's | table |
+| VCA LEVEL | decibels | table |
+
+- **The HPF:** FLAT to HPF 1 (FLAT), 269 Hz to HPF 2 (236 Hz), 571 Hz to HPF 3 (754 Hz), and 122 Hz to HPF 2, which
+  the check finds closer than FLAT; HPF 0 (BASS BOOST) is never chosen.
+- **Without a Juno-106 counterpart:** PWM SOURCE ENV becomes MAN at the width the envelope gives on average over a
+  note's first second (it matters only with PULSE on and DCO PWM above 0; the status line counts those: `(9 WITH PWM
+  BY ENV: THE CLOSEST KEPT)`; the check found it closer than MAN at the sustain's width or the peak's, or LFO, on
+  every measure); RANGE 8'; LFO TRIGGER dropped (the LFO runs as with AUTO); SUB off is DCO SUB 0; CHORUS I and II
+  both set is II, neither off.
+- **LEVEL 0,** as every import's: the Juno-60's loudness is not made up for (LEVEL and AUTO LEVEL are there for it).
+- **The tables and rules** are made by a generator kept in the tree with what it makes (`editor/tools/juno60/`), which
+  reads KR-106's sources from a path given to it; KR-106 (GPL-3.0) is credited in the made file's header.
+- **The check, on the PC:** each Juno-60 factory patch through KR-106's Juno-60 mode and its conversion through PT/FM's
+  engine, one voice at C2, C4 and C6, 2 s held and its release, the chorus off on both sides, compared measure by
+  measure, a patch's figure its worst note's, against the yardstick measured in the same run (the Juno-106 factory
+  patches through KR-106's Juno-106 mode and PT/FM's engine: a measure passes within the 95th percentile of their
+  figures); KR-106 given each byte as PT/FM's engine reads it, its per-voice variations, drift and noise floor off.
+  The measures, on the sound high-passed at 20 Hz (the engines' steps of DC are not heard): the attack (the time to
+  within 3 dB of the held peak), the level while held, the release (the times to fall 10, 20 and 30 dB from the note's
+  end), the brightness (the power-weighted spectral centroid while held), the pitch and the vibrato's depth and rate
+  (tracked near the note while the sound is within 40 dB of its peak); the overall level is reported, not counted. Its
+  figures are in the version's report.
+
 ## The preview
 
 - **The firmware's own sound code:** the firmware compiled for the browser, as the emulator's, in an AudioWorklet
@@ -375,17 +541,19 @@ Formats 0 and 1, a first version:
   LEVEL) takes the whole flash from the firmware slot's start as its user area, about 1 MB against the FM-1's
   412 KB, so a TABLE item bigger than an FM-1 holds still plays; one bigger than that the preview refuses, saying
   so. Only the editor's build has this room; the virtual FM-1 and the device have the FM-1's.
-- **▶ on every item that sounds,** Space on the picked one, and the footer's play key.
+- **▶ on every item that sounds,** Space on the picked one, and the footer's play key; AUTOMATIONS has none (it plays
+  the FM-1's controls, no sound of its own).
 - **What plays,** then a second of silence, then again, until STOP:
   - a song from its start to its end;
   - a pattern once through, at the tempo of a song that plays it;
   - a sample once, at its own rate;
   - an instrument a melodic arpeggio: C-4 E-4 G-4 C-5 G-4 E-4 C-4 in eighths at 120 BPM, the last held a second;
   - a cartridge its instruments one after another, an arpeggio each;
-  - a FUSION slot its pattern;
-  - LOOPS all its loops together.
+  - a FUSION slot its pattern.
 
-  A song whose AT THE END is LOOP is played once through too.
+  A song whose AT THE END is LOOP is played once through too. **LOOPS** plays all its loops together, and a LOOPS
+  set the same (its loops as LOOPS would play them once it is loaded), on round their length as LOOPS does, with no
+  rest between passes, until STOP.
 - **The mini player** in the footer: PLAY and STOP, what plays and from which panel, a progress bar (a click jumps
   there; a song's positions marked on it), the time, the voices sounding, VOL (the preview's level, −24 dB to +24 dB
   in steps of 1 dB, 0 dB the plain level in the middle; a limiter after it keeps it from clipping; kept in this
@@ -505,20 +673,63 @@ Formats 0 and 1, a first version:
   channel, message, number, FM-1 control and kind), **LOOPS** (the length, with loops or none; each loop's
   instrument, POLY or MONO, lanes, repeats and SHIFT, 0 to the length − 1, shown signed the nearer way round (`+3`,
   `-3`; the half way round is `+`, as the FM-1 shows it; the entry takes the shown form or the stored one, 0 to the
-  length − 1, either sign, and shows it signed after); its notes in the pattern grid as stored, the hint saying how
+  length − 1, either sign, and shows it signed after); its notes as stored, across (THE NOTES: the rows left to right,
+  each lane three lines, its notes, their volumes and their first commands, a beat every 4 rows), the hint saying how
   SHIFT plays them (`SHIFT +3: PLAYS 3 ROWS LATER`, `SHIFT -3: PLAYS 3 ROWS EARLIER`, `SHIFT 0: PLAYS AS STORED`); the
   length is shown, not edited (it is changed on the FM-1, where LENGTH keeps the notes as they are heard); the preview
-  plays through the firmware, so it hears SHIFT; VIEW and K1-K4's jobs are the FM-1's own and not shown), **DJ SETUP**
+  plays through the firmware, so it hears SHIFT, and a set's solos; while it plays, every change on the tab is heard at
+  once with the loops playing on, as an edit on the FM-1's LOOPS (MUTE and SOLO, the mixer, the setup, the FX setup, an
+  instrument, SHIFT, a loop moved or deleted), only a change past the preview's edit memory starting them again; a cut loop shows `CUT 6` in place of its repeats, the grid's hint
+  `CUT AT ROW 6: IT WRAPS THERE`, the cut kept as read (set on the FM-1). THE LOOPS' MIXER: each loop's MUTE (a LOOPS
+  set's SOLO too), its LEVEL, PAN, DUCK and three SENDS in hex as the FM-1 shows them, ▲ ▼ its place in the list (the
+  selection and a set's solo going with it) and ✕ DELETE (the loops after it moving up, as DELETE LOOP on the FM-1);
+  then NEW, a new loop's defaults: LEVEL and the sends set (written with the record's bit that stores them), PAN and
+  DUCK shown, centre and off as LOOPS' properties keep them. The setup: TEMPO, TICKS A ROW, SWING, QUANTIZE, MONO
+  LEGATO, COUNT-IN, THE KEYS (POLY or MONO), VIEW, K1-K4 TURNS, then the loops' FX setup. The notes, the length and a
+  cut are the FM-1's: shown, not edited), **DJ SETUP**
   (the crossfader, the filter, the FX LFO, the decks, DJ's own FX setup).
+- **AUTOMATIONS** ([files/automations.md](files/automations.md)): **the 16 slots** in a list beside the slot shown, each
+  its number, the screen it was recorded on, its length as the FM-1's grid shows it (`0:42`, to its last event) and its
+  events' count, `EMPTY` for none. A click picks a slot and marks it alone; Shift-click marks the range to it,
+  Ctrl-click adds or takes one away (on a touch screen each tap); ↑ ↓ move the pick. **The slot shown:** its SCREEN,
+  picked from HOME's round (STATUS, SONGS, EDITOR, INSTRUMENTS, PLAYBACK, VISUAL, FX, LOOPS, DJ, SETTINGS) or `WHERE IT
+  IS` (a number past them: it plays on the screen AUTOMATIONS was opened from; a number read is kept until another is
+  picked); then **its events as a table**, a row an event: the time from the start (`0:12.345`), the ms since the event
+  before (`+250`) and the event in words: a key by its note (`KEY C-4 DOWN`, `KEY C-4 UP`), a button by its name
+  (`SEL DOWN`, `SEL UP`; OCT-, OCT+, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC), a knob with its
+  clicks (`K1 +2`, `SELECT -3`; SELECT, ALGORITHM, K1-K4, PRESETS). A row the FM-1 skips is grey and says why: a
+  release of what is not down, a press of what is down already, a knob of no clicks, a number kept for later (`KEPT FOR
+  LATER 41 DOWN`), and what one pass of the FM-1's cancels: a row and those after it at +0 come in one pass, which
+  passes on only where each control ends up, so a press and its release there (or a release and a press), and turns of a
+  knob adding up to nothing, are never seen (`CANCELLED IN ONE PASS (+0): THE FM-1 NEVER SEES IT`);
+  under the table, what is still down at the end (the FM-1 lets it go there). A click picks a row, Shift-click the range
+  to it, ↑ ↓ move the pick, Ctrl+A picks every row. **The picked row's edits:** its TIME from the start (typed
+  `0:12.345`, or in seconds; the row takes its place in time among the others, rows of the same time keeping their
+  order), its MS SINCE THE LAST (the rows after it moving with it), its control (the 27 keys F-3 to G-5, the 14 buttons,
+  the 7 knobs) and what it does (DOWN or UP; a knob's clicks, −8 to +7, never 0); a gap between two events is at most
+  280:47.135, the format's most. INSERT puts a copy of the picked row right after it, at its time (on an empty slot the
+  slot's first event, `KEY F-3 DOWN` at 0:00.000, recorded on STATUS); DELETE (Delete) takes the picked rows away, the
+  others keeping their times. Presses and releases stay explicit, so the slot stays a stream the FM-1 plays. Each change
+  writes the slot's parts anew as the FM-1 writes them (whole events in a part, at most 4,080 bytes a part, at most 16
+  parts: a change needing more is refused, `THE SLOT IS FULL: 16 PARTS OF 4 KB AT MOST`); a slot that does not read
+  whole (a part cut short, a part missing before others) shows the events that read and says so, and its first change
+  writes it anew from them. **COPY** (Ctrl+C) puts the marked slots holding automations in the page's clipboard, their
+  parts as they are, while the page is open; **PASTE** (Ctrl+V), in any AUTOMATIONS tab, puts them in order from the
+  slot picked on, each with its screen; past slot `0F` nothing is pasted (`3 COPIED, 2 SLOTS FROM HERE: NOTHING
+  PASTED`), and slots holding automations it would replace are asked about first (`REPLACE 2 AUTOMATIONS?`, REPLACE or
+  KEEP). Every change is a step of the tab's UNDO. No preview: an automation plays the FM-1's controls.
 - **Ranges and words** are the specs': [files/instruments.md](files/instruments.md),
   [files/commands.md](files/commands.md), [files/settings.md](files/settings.md),
-  [files/midi.md](files/midi.md), [files/loops.md](files/loops.md), [files/dj.md](files/dj.md).
+  [files/midi.md](files/midi.md), [files/loops.md](files/loops.md), [files/dj.md](files/dj.md),
+  [files/automations.md](files/automations.md).
 
 ## What it is built from
 
 - **A new page.** From the first editor's code it takes what fits and nothing of its layout:
   - every record both ways (`editor/js/records.js`, kept equal to `tools/ptfm_records.py` by the tests);
-  - the converters (`conv_mod.js` with `ibxm_load.js`, `conv_midi.js`, `conv_syx.js`, `conv_sound.js`);
+  - the converters (`conv_mod.js` with `ibxm_load.js`, `conv_midi.js`, `conv_syx.js`, `conv_sound.js`; the Juno
+    banks' `conv_juno.js` with the tapes' `juno_tape.js` and the Juno-60 conversion's `juno60.js` and its made
+    tables, `juno60_tables.js`);
   - the seeding client and the uploader's planner (`fw/web/seed.js`, shared with the install page);
   - the page's part of the firmware's WebAssembly (`editor/wasm/`: the flash image, the edit memory, playing,
     AUTO LEVEL, the built-in instruments), with the pictures and the repeating preview added.
@@ -585,6 +796,34 @@ is made one channel at the next load, as its sample had it (the mix, or the left
   original.
 - Nothing is heard through the page while recording; the meter shows the level. A take lives in the page's memory
   until SAVE.
+
+#### Takes that are Juno tapes
+
+A Juno's tape output recorded here is read as a dropped tape is ([Juno tape recordings](#juno-tape-recordings)), but
+the take is read before anything is asked:
+
+- **While a take runs,** all of it is read as a tape as it comes (no 20-second window). Once a leader and a dump's
+  first bytes are found, a line under the waveform counts what came in right: a Juno-60 dump's sliders' records with
+  their checksum right, damaged ones as they come (`JUNO-60 TAPE: READING… 23 OF 56, 1 DAMAGED`); a Juno-106 dump's
+  patches whose 16 bytes came with every start and stop bit right (`JUNO-106 TAPE: READING… 23 OF 64`), the first
+  byte that did not saying so (`JUNO-106 TAPE: BYTES COMING IN WRONG: CHECK THE LEVEL`). A level too low to find a
+  tape shows no line; the meter shows why.
+- **At STOP, a take that is a tape** says what it holds on that line, and SAVE becomes **`SAVE AS SAMPLE`** and
+  **`SAVE AS CARTRIDGE`**: `JUNO-106 TAPE: 64 PATCHES, CHECKSUM RIGHT`; `JUNO-60 TAPE: 55 OF 56 PATCHES (3-4
+  DAMAGED), CONVERTED TO JUNO-106`; `JUNO-106 TAPE: 2 DUMPS, 128 PATCHES, CHECKSUMS RIGHT`. A take that is no tape
+  keeps SAVE.
+- **A tape that did not read** says why and how to go on, `SAVE AS CARTRIDGE` greyed: `JUNO-106 TAPE? THE CHECKSUM
+  IS WRONG: RECORD IT AGAIN (TRY ANOTHER LEVEL)`; `JUNO-60 TAPE? NO PATCH READ WHOLE: RECORD IT AGAIN (TRY ANOTHER
+  LEVEL)`.
+- **A part selected** is read on its own, whatever the whole take was: the line and the keys follow it (so one dump
+  is taken out of a longer take); WHOLE TAKE reads all of it again.
+- **`SAVE AS CARTRIDGE`** puts a Juno-106 cartridge on the TABLE (as a dropped tape's: names `PATCH00` ..., LEVEL 0,
+  damaged Juno-60 slots empty), its source `RECORDING` and the time, named by the naming rule from `TAKE` counted
+  among the cartridges (the first `TAKE00`, `TAKE01` ... no cartridge has, within 12 characters; a take of more than
+  128 patches a cartridge each 128, each named so), and closes the recorder; the status line names it. One step of FILES' UNDO. It keeps no audio (no original is written), and the
+  take is gone once the recorder closes. `SAVE AS SAMPLE` is SAVE.
+- **Closing with a tape take not saved** asks as ever, its SAVE the two keys (`SAVE AS CARTRIDGE` greyed as above),
+  DISCARD or STAY.
 
 ### Cutting a sample: the selection
 
@@ -693,16 +932,23 @@ preview cannot hold (a long one at 16 bits passes its room near 20 s) plays thro
   and back beside it, a changed one a song takes along keeping its number; DOWNLOAD AS DISK's disk, its refusals, its
   file's name, put back by UPLOAD DISK and dropped on the TABLE; DELETE with what uses it, to
   the end, ALSO WHAT ONLY IT USES; DELETE ALL; the space counted as the planner places; SET NUMBER, moved, swapped and
-  refused, every hash and every use the same after it; UNDO), the records against
+  refused, every hash and every use the same after it; a LOOPS set's DETAILS, its move with its cartridge at a number
+  of its own, on a disk and back, its cartridge renumbered, its DELETE; AUTOMATIONS one of each on the FM-1 panel, any
+  number on the TABLE, on a disk and back; UNDO), AUTOMATIONS' coding byte for byte the firmware's (the slots the
+  firmware's own test records, `fw/tests/auto_vectors.json`, decoded and coded back; every time class, a knob's
+  clicks either way, the parts split at 4,080 bytes, a slot of 16 parts, a change past them refused, input that does
+  not read whole), the records against
   `tools/ptfm_records.py`, disks both ways, the converters against upstream IBXM's loading, OPTIMIZE's levels and
   OPTIMIZE SAMPLES on the demo disk's samplers (each sample as its tab makes it).
 - **READ and WRITE against the virtual FM-1:** the firmware's WebAssembly seeded through function calls instead of
   MIDI: READ back, only the changed records read again, the plan, CHANGED, `SAVE OR REVERT FIRST`, a version the
   FM-1 does not take, a panel that fits only the FM-1 emptied written as the whole user area anew (what the page
   cannot read written back as it was), a backup put back exactly (`FE` included), SET NUMBER's swap of two kinds written
-  and read back, nothing named as removed. The page itself takes the virtual FM-1 for the FM-1
+  and read back, nothing named as removed, a LOOPS set of several parts written and read back, an AUTOMATIONS file of
+  several slots and parts written and read back. The page itself takes the virtual FM-1 for the FM-1
   when opened with `?virtual` after its file's name.
-- **The previews:** the flash image of each kind played by the firmware; the repeat with its second of silence.
+- **The previews:** the flash image of each kind played by the firmware; the repeat with its second of silence;
+  LOOPS played on past its length with no rest, heard in every pass.
 - **The pictures:** each equals the firmware's own screen pixels for the same bytes.
 - **Recording and cutting** ([above](#recording-and-cutting-sounds)): in Node, the naming rule (digits read off, past
   10 characters and 99, no name), TRIM SILENCE's level, DETECT SLICES on a sample of known hits (silent slices,
@@ -710,9 +956,21 @@ preview cannot hold (a long one at 16 bits passes its room near 20 s) plays thro
   a drop and new samples kept so, refused by moves and kits, OPTIMIZE and TRIM making it fit, a lost original); in the
   headless Chrome with a fake input, a take saved, replaced, discarded, the input gone, SAVE AS A NEW SAMPLE (a full
   sampler, a sampler's open tab), SAVE AS SAMPLES, MAKE A KIT played by the preview, `TOO LONG` refused until it fits.
+- **Juno banks and tapes** ([above](#juno-106-banks)): the repository holds no factory patches, libraries or
+  recordings found elsewhere, so the tests make their own from patches of their own (every field at its ends and
+  between): `.syx` (panel copies, `32` messages, gaps, other bytes, a DX7 dump in the same file), `.106` (written with
+  the scrambling; more than 128 patches), `.pat` (and one of another kind, refused), and tapes of both machines
+  synthesised at several rates, levels and amounts of noise, one damaged, each read back exactly; the names, the
+  cartridges' names and the notes; the Juno-60 conversion against the generator's tables and rules, field by field.
+  In the headless Chrome: a tape dropped, the question answered both ways and with `FOR ALL`, a tape that does not
+  read and its dialog, a sound that is no tape never asked; the recorder with a fake input playing synthesised tapes
+  (the count while it runs, the line at STOP, `SAVE AS CARTRIDGE` whole and from a selected part, greyed for a tape
+  that does not read, closing with a tape take not saved). The checks against real files and the conversion's check
+  run on the PC, their figures in the version's report.
 - **The page:** scenarios in a headless Chrome, a command of their own (`tests/editor/run_page.sh`, the Node tests
   needing no browser): drops, moves (a built-in's copy, by the key and dragged), DOWNLOAD AS DISK (the file the page
-  offers caught), DELETE and its dialogs, every tab edited and saved, the pictures beside their
+  offers caught), DELETE and its dialogs, every tab edited and saved (AUTOMATIONS' events edited, inserted and deleted,
+  its slots copied into another file's tab after the question), the pictures beside their
   sliders, the keyboard's input, + NEW, OPTIMIZE and OPTIMIZE SAMPLES, READ and WRITE on the virtual FM-1 with BACKUP, a version converted down and the whole user area written anew,
   a phone's width; each passes or fails, an exception on the page fails it; screenshots looked at. Run before a build
   is handed over.

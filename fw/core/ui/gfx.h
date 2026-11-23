@@ -53,6 +53,8 @@ int g_textn(int x, int y, const ui_font_t *f, const char *s, int n, int c);     
 int g_text_crop(int x, int y, const ui_font_t *f, const char *s, int c, int r0, int r1);
 int g_tw(const ui_font_t *f, const char *s);
 int g_centre(const ui_font_t *f, const char *s, int x0, int w);
+int g_text_r(int xr, int y, const ui_font_t *f, const char *s, int c);          /* ending at xr */
+int g_text_c(int x0, int w, int y, const ui_font_t *f, const char *s, int c);   /* centred in x0 .. x0 + w (g_centre) */
 
 /* runs: texts in colours one after another */
 typedef struct { const char *s; uint32_t c; } g_run_t;

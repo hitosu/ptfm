@@ -18,15 +18,25 @@
  * one note. A tick lasts 2.5 s / TEMPO, SWING stretching the even rows' ticks and shrinking the odd
  * rows'.
  *
- * Every note takes a voice of the pool among the first pl_nv (SETTINGS' VOICES: 8, 12 or 16; 16 is 12 core 1's
- * and 4 core 2's, rendered there: the voice job, pl_v2), a free one, the first first, else one is taken from a note (pl_alloc: release tails first, the quietest first; then held song notes, the
- * quietest first; the keys' last). A held note taken is parked: it moves to a slot past the count, fades out
- * over a block and waits there unheard, its envelopes going on, until a voice is free again: then it comes back
- * fading in (let go meanwhile, it is gone). A track's next note lets the previous one go: it rings on in its
- * own voice. Everything is rendered in blocks of 64 frames,
- * four to a half. The main loop only asks (a queue of requests); the audio context acts at the start of
- * its next half, and leaves what the screens read in a snapshot. */
+ * Every note is a voice of the pool (pl_v: its control part) and sounds in one of its engines (pl_eng_t: an engine's
+ * state and its scope row) among the first pl_nv (SETTINGS' VOICES: 8, 12 or 16; 16 needs core 2, which renders the
+ * top places from each block's split on, at any count while it runs: the voice job, pl_v2, pl_split). A free engine,
+ * the first first, else one is taken from a note (pl_alloc:
+ * release tails first, the quietest first; then held song notes, the quietest first; the keys' last). The note taken
+ * fades out in its engine over the block (a fade note: pl_fd), and the new note starts there once that block is
+ * rendered; a held one goes on as a ghost (specs/proposals/202611121830-ghost-notes.md): its voice without an engine,
+ * every rule of the player still acting on it, its times on the block clock, until an engine is free (a held one may
+ * take a release tail's); then it comes back started afresh and worked forward to where its note would be by now (each
+ * engine's forward work: eng/fwd.h, in pieces under a budget a block), fading in. A muted track's notes are ghosts too,
+ * its new ones from their start (but DUCK's source's and a TB-303's), until it is heard again. A track's next note lets
+ * the previous one go: it rings on in its own engine. Everything is rendered in blocks of 64 frames, four to a half.
+ * The main loop only asks (a queue of requests); the audio context acts at the start of its next half, and leaves what
+ * the screens read in a snapshot. */
 #include <string.h>
+#ifdef POOL_CHECK
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 #include "player.h"
 #include "rec.h"
 #include "../plat.h"
@@ -42,23 +52,91 @@
 #include "sound_tables.h"                /* LEVEL_Q16 (fw/tools/gen_tables.py) */
 
 #define PL_BLOCK 64u                     /* = DX7_N = JUNO_N = SAMP_N = TB_N = FX_BLOCK */
-#define PL_NV PL_VOICES
+#define PL_NV PL_VOICES                  /* the voices: the notes the pool holds, sounding and ghosts */
+#define PL_NE PL_ENGINES                 /* the engines (no engine past VOICES 16) */
+#define PL_GHOSTS (PL_NV - PL_NE)        /* the ghosts the pool keeps at most (24) */
+#define PL_FADES 8u                      /* the fade notes: the most takes a block fades out in their engines */
+#define PL_GH_KEEP 6891u                 /* blocks a ghost let go is kept (10 s) */
+#define PL_RETURNS 4u                    /* ghosts coming back a block at most */
+#define PL_BUDGET 44                     /* the returns' work a block (pl_returns): 3 % of a block (1,451 us), in units of
+                                          * about 1 us of the FM-1's time, each weight its cost measured there (PL_COST) */
+#ifdef POOL_CHECK                        /* (the host tests: a smaller one may be set, every return in pieces) */
+static int32_t pl_budget = PL_BUDGET;
+#define PL_BUD pl_budget
+#else
+#define PL_BUD PL_BUDGET
+#endif
+#define PL_READY 15                      /* a ghost's checks before its return (pl_gh_ready: records read, a FUSION row) */
+#define PL_READY_S 109                   /* ... a sampler's (its record read twice, its place walked to now) */
+#define PL_READY_W(g) ((g)->engine == EN_SAMP ? PL_READY_S : PL_READY)
+#define PL_LOAD_CAP 4200                 /* the load guard (pl_heavy): no return while the half's work on the busier core as
+                                          * counted, in the budget's units, is over this */
+#define PL_LOAD_NOTE 115                 /* ... a note started in the half (its cell, its record, its engine's start) */
+#define PL_LOAD_FADE 64                  /* ... a fade begun in it (its engine's block made once more) */
+#define PL_LOAD_DJ 400                   /* ... DJ's own work on core 1 while it plays (its second replay, the decks' mix) */
+#define PL_LOAD_C2 128                   /* ... its own split's fixed allowance for core 2's effects, units a block (the
+                                          * block's split has its margin there, pl_c2m, which follows the FM-1's timing) */
+#ifdef POOL_CHECK                        /* (the host tests: another may be set; and the guard's split counted as with core 2
+                                          * taking the voices' share or without, whatever it does: 1, 0; -1 as it does) */
+static int32_t pl_load_cap = PL_LOAD_CAP;
+static int8_t pl_guard_c2 = -1;
+#define PL_CAP pl_load_cap
+#define PL_GUARD_C2(c2) (pl_guard_c2 >= 0 ? pl_guard_c2 : (c2))
+#else
+#define PL_CAP PL_LOAD_CAP
+#define PL_GUARD_C2(c2) (c2)
+#endif
+static uint16_t pl_h_load;               /* the half's notes started and fades begun so far, weighed (pl_heavy) */
+/* each kind of engine's work a block, its block and its mixing in, in the budget's units (their means measured on the
+ * FM-1), by EN_* (DX7, JUNO-106, sampler, TB-303, CHIP; a kind past them 0: an engine fresh, kind 255 & 7): the load
+ * guard's and the block's split's */
+static const uint8_t pl_loadw[8] = {78, 64, 52, 76, 40, 0, 0, 0};
+/* the block's split (pl_split, specs/second-core.md#the-split): its margin for core 2's effects less core 1's work before
+ * the hand-over, units a block: at power-on the load guard's allowance (DJ HEAVY: the effects ~215 us a block on core
+ * 2, core 1's control ~90 before it hands the voices over); its step each block that hands voices over, down when core
+ * 2 was done first at the join, up when core 1 waited for it there (a voice moves the split's threshold by twice its
+ * weight, 80-156: some 10-20 blocks of steps, ~20 ms, so one block's row of notes does not throw it, and the effects
+ * switched or a deck coming in are followed within a few tens of ms); kept within its bounds (the effects' most less
+ * core 1's least, and DJ's control with the effects at rest) */
+#define PL_C2M_START PL_LOAD_C2
+#define PL_C2M_STEP 8
+#define PL_C2M_LOW (-256)
+#define PL_C2M_HIGH 512
+static int16_t pl_c2m = PL_C2M_START;
+static uint8_t pl_c2t;                   /* core 2 takes this half's voices' share (plat_c2_half; 0 from a fallback on) */
+#if defined(PTFM_DEBUG) || defined(POOL_CHECK)
+/* (the debug build's switch, player_split_fixed: SPLIT_FIXED the split as it stood before it moved, places 11-16 core
+ * 2's at VOICES 16 and none at 8 and 12, the load guard counting as then; the host tests' too, with SPLIT_CORE1 every
+ * voice core 1's, SPLIT_CORE2 the top 10, SPLIT_RANDOM a place at random each block: the sound the same whatever) */
+enum { SPLIT_MOVES, SPLIT_FIXED, SPLIT_CORE1, SPLIT_CORE2, SPLIT_RANDOM };
+static uint8_t pl_split_how;
+#define PL_SPLIT_FIXED (pl_split_how == SPLIT_FIXED)
+#else
+#define PL_SPLIT_FIXED 0
+#endif
+#define PL_FIXED_FROM 10u                /* (the fixed split's: core 2's places from the 11th, at VOICES 16 alone) */
+#define PL_LC_WHO 256u                   /* (a track's note for pl_alloc, pl_layer_on: + this, on LOOPS' stage's column,
+                                          * which no mute silences) */
 #define PL_NV_START 12u                  /* the voices notes take at first */
 #define PL_NCH PL_TRACKS
 #define PL_STOP_FADE 128u                /* a cut fades out over 2.9 ms: no click */
-#define PL_SCOPE 64u                     /* frames of each voice kept for the scopes: its last block */
+#define PL_SCOPE 64u                     /* frames of each engine kept for the scopes: its last block */
 #define PL_NPAR 8u                       /* a track's parameter commands kept (codes 0x40-0x7F; the oldest goes) */
 #define PL_NLAYER 8u                     /* a FUSION note's layers at most */
 #define PL_QUIET 33                      /* a released note under -60 dB (16-bit scale) for PL_QUIET_N */
 #define PL_QUIET_N 4u                    /* blocks (5.8 ms) has ended: its voice is free */
-#define PL_BACK_N 4u                     /* a parked note comes back fading in over 4 blocks (5.8 ms) */
-#define PL_VEL 100                       /* every DX7 note's velocity (a cell's volume is a gain) */
+#define PL_BACK_N 4u                     /* a ghost comes back fading in over 4 blocks (5.8 ms) */
+#define PL_VEL 100                       /* every DX7 note's carriers' velocity (a cell's volume is a gain); its
+                                          * modulators' is its volume at its start (p.par.vel): harder, brighter */
 #define PL_CHASE_ROWS 64u                /* rows a half may run through to reach where a song starts */
 #define PL_CHASE_ARRIVE 16u              /* ... and still start the song in it: its first notes and their voices begin
                                           * there too (more: it starts in the next half, 5.8 ms on) */
 #define PL_RQ 32u                        /* the requests' queue (a half takes them all) */
 #ifndef PL_NOISE_ALWAYS
 #define PL_NOISE_ALWAYS 0                /* 1: the Juno-106's noise made every block, a Juno-106 there or not */
+#endif
+#ifndef PL_ONE_CORE_16
+#define PL_ONE_CORE_16 0                 /* 1: a test's reference, every voice on core 1 (the voice job's) */
 #endif
 #ifdef PTFM_DEBUG
 static uint8_t pl_dbg_rp;                /* (the debug build: REPLAY runs, so CELLS and NOTES are its parts) */
@@ -76,9 +154,11 @@ static uint8_t pl_dbg_rp;                /* (the debug build: REPLAY runs, so CE
 
 enum { EN_DX7, EN_JUNO, EN_SAMP, EN_TB, EN_CHIP, EN_FUS, EN_NONE };
 enum { PV_FREE, PV_SONG, PV_KEY };      /* a voice: unused, a track's, a key's */
-/* a voice taken from its note: none; fading out of the slot it moved to (held at the block's end: parked, else
- * gone); parked (silent, its time going on, waiting for a free voice) */
-enum { PK_NO, PK_OUT, PK_PARKED };
+/* a voice in use without an engine: none of these (it has one); a ghost (in the ghosts' list, pl_gl); its start waiting
+ * for the fade of the note taken from its engine (that engine's wait: started in the block's voices pass, pl_fades); a
+ * ghost (in the list too) whose return is under way, its engine held for it (that engine's wait: pl_forward). A ghost:
+ * gh & 1 */
+enum { GH_NO, GH_GHOST, GH_WAIT, GH_BACK };
 /* idle (nothing plays, paused or stopped), chasing (running the rows before where it starts), playing,
  * stopped at its end (its notes ring out) */
 enum { PS_IDLE, PS_CHASE, PS_PLAY, PS_END, PS_STEP,   /* PS_STEP: stepped, the row held (PLAYBACK's SELECT) */
@@ -87,40 +167,108 @@ enum { PS_IDLE, PS_CHASE, PS_PLAY, PS_END, PS_STEP,   /* PS_STEP: stepped, the r
        PS_BUILD };                       /* DJ: a paused deck's start made ready, a step a half (pl_build_step) */
 enum { PF_ACCENT = 16, PF_SLIDE = 32 };
 
+/* A voice: a note's control part (whose note it is, its instrument and note, its level, gain, pan and pitch as last set,
+ * a Juno-106's patch copy or the other engines' parameter commands, its times on the block clock); it sounds in its
+ * engine (pl_eng_t), reached through its link, place (PL_E), or it has none (place PL_NO_ENG): a ghost, or a note whose
+ * start waits for the fade of the note taken from its engine (gh). A voice in use with an engine: v->engine ==
+ * PL_E(v)->kind and pl_e[v->place].voice == v - pl_v. Whatever acts on a note acts on its voice (its level, pitch, key,
+ * tune, parameters kept there), and on its engine when it has one */
 typedef struct {
-    uint8_t use, engine;                 /* PV_*, EN_* */
+    uint8_t use, engine;                 /* PV_*, EN_* (what its note plays) */
     uint8_t held;                        /* its note is held (a track's current note, a key down) */
-    uint8_t who;                         /* its track (0-15), or its key's MIDI note */
+    uint8_t who;                         /* its track (0-31), or its key's MIDI note */
     uint8_t note, pan;
-    uint8_t live;                        /* it was rendered in the last block */
     uint8_t gen;                         /* its track's note it belongs to (it follows the track while that is the latest) */
-    uint8_t cut;                         /* NOTE CUT: it fades out over its next block, then goes */
+    uint8_t cut;                         /* NOTE CUT: it fades out over its next block, then goes (without an engine: at
+                                          * once) */
     uint8_t lcut;                        /* a FUSION layer's ECx: the ticks left to its cut (0: none) */
     uint8_t quiet;                       /* released, the blocks it has been under PL_QUIET */
-    uint8_t park;                        /* PK_* */
-    uint8_t back;                        /* back from parking: the blocks of its fade in still to come */
+    uint8_t back;                        /* come back into an engine: the blocks of its fade in still to come */
     uint8_t lc;                          /* LOOPS' stage's column (PL_LC_*, 0 none): the mute check passes it by */
-    int16_t peak;                        /* its last block's peak, 16-bit scale */
-    uint32_t parked;                     /* when it was parked (pl_parks): the last parked comes back first */
+    uint8_t place;                       /* its engine: its index in pl_e (PL_NO_ENG none) */
+    uint8_t gh;                          /* GH_*: without an engine, why */
+    uint8_t key;                         /* a Juno-106's key, its filter's (its note; a legato's, juno_key) */
+    uint8_t acc;                         /* a TB-303's accent at its start; the others': a song's FUSION layer's place
+                                          * in its row + 1 (its cell, read again at its return), 0 none */
     pl_inst_t inst;
+    int16_t peak;                        /* its last block's peak, 16-bit scale */
+    int16_t arp64;                       /* a song's FUSION layer's 0xy: its arpeggio's step now (1/64 semitones) */
+    int16_t bend;                        /* its pitch as last set (pl_v_pitch), its TUNE apart: 1/64 semitones */
+    int16_t tune;                        /* a sample's TUNE command (1/64 semitones) */
+    union {
+        samp_place_t sp;                 /* a sampler's: its place in its sample (a ghost's; where it starts) */
+        uint16_t rel;                    /* a CHIP ghost's: the blocks its release lasts once let go (0xFFFF: more) */
+    } x;
     uint32_t age;                        /* when it started: the oldest goes first */
+    uint32_t t_on, t_off;                /* the block clock at its start, at its let-go (FWD_HELD: held) */
+    uint32_t t_end;                      /* a ghost's end by itself (PL_NEVER: none), on the block clock */
+    uint32_t t_pl;                       /* a sampler ghost's: the block its place stands at */
     int32_t lvl;                         /* Q12: LEVEL x its (FUSION layer's) level x the cell's volume
                                           * (a Juno-106's without its LEVEL: that is in trim) */
     int32_t trim;                        /* a Juno-106's LEVEL, applied to what its engine renders (Q12) */
-    int32_t gain;                        /* DX7, samples, TB-303: Q12 (the mix's x lvl x the track's volumes) */
-    int32_t g_last;                      /* what its last block ended at (x the track's level), Q12 */
+    int32_t gain;                        /* DX7, samples, TB-303: Q12 (the mix's x lvl x the track's volumes); a
+                                          * Juno-106's: its level now, its engine's (juno_level) */
+    int32_t g_last;                      /* what its last block ended at (x the track's level), Q12; a return under way
+                                          * (GH_BACK): the forward work's units done (pl_forward) */
     int32_t m_last;                      /* its mute's gain at its last block's end (0 muted, 4096) */
-    int32_t tune;                        /* a sample's TUNE command (1/64 semitones) */
-    int16_t arp64;                       /* a song's FUSION layer's 0xy: its arpeggio's step now (1/64 semitones) */
-    uint8_t jp[JUNO_PATCH_BYTES];        /* a Juno-106 voice's own patch (parameter commands turn it) */
+    union {
+        uint8_t jp[JUNO_PATCH_BYTES];    /* a Juno-106 voice's own patch (parameter commands turn it) */
+        struct {                         /* the others': the parameter commands on it, in order (the oldest goes);
+                                          * its volume at its start (1-127): a DX7's modulators' velocity (in the
+                                          * byte the Juno-106's patch leaves) */
+            uint8_t n, pc[PL_NPAR], pv[PL_NPAR], vel;
+        } par;
+    } p;
+    int16_t pb;                          /* a sampler ghost's: the pitch its place is walked at from t_pl (its bend
+                                          * then: a change of its pitch walks it once a block, pl_gh_ends; in the 2
+                                          * bytes the struct's alignment leaves) */
+} pl_voice_t;
+#define PL_NEVER 0xFFFFFFFFu             /* (t_end: none) */
+
+/* An engine: the state a voice's note is rendered from (a DX7's, Juno-106's, sampler's, TB-303's or CHIP's), and its
+ * scope row (pl_scope). A note taken from it fades out in it over a block (a fade note, pl_fd: fade its index), a
+ * Juno-106's from a patch copy of the engine's own (u.jx.jp) */
+typedef struct {
+    uint8_t kind;                        /* EN_*: whose state it holds (a note of another engine starts it from zero) */
+    uint8_t voice;                       /* its voice: its index in pl_v (PL_NO_VOICE, 0xFF: none; unsigned, unlike the
+                                          * tracks' and lanes' voice, -1 none) */
+    uint8_t fade;                        /* the fade note of the note taken from it (PL_NO_FADE, 0xFF: none) */
+    uint8_t wait;                        /* ... and the voice whose start waits for that fade, or a ghost whose return
+                                          * here is under way (GH_BACK: no voice, no fade; PL_NO_VOICE none) */
     union {
         dx7_voice_t dx;
         juno_voice_t ju;
+        struct {
+            juno_voice_t ju;             /* (u.ju) */
+            uint8_t jp[JUNO_PATCH_BYTES];   /* the patch a fading Juno-106 plays from */
+        } jx;
         samp_voice_t sm;
         tb_voice_t tb;
         chip_voice_t ch;
     } u;
-} pl_voice_t;
+} pl_eng_t;
+#define PL_NO_ENG 0xFFu
+#define PL_NO_VOICE 0xFFu
+#define PL_NO_FADE 0xFFu
+#ifdef POOL_CHECK                        /* (the host tests: a voice without an engine never reached through it) */
+static pl_eng_t *pl_e_of(const pl_voice_t *v);
+#define PL_E(v) pl_e_of(v)
+#else
+#define PL_E(v) (&pl_e[(v)->place])      /* voice v's engine */
+#endif
+/* a fade note (pl_fd): what the mixing of the note taken from engine eng needs for its last block, its gain going down
+ * to 0 over it (the engine keeps its state; the note's voice is another note's, or a ghost, at once) */
+typedef struct {
+    uint8_t eng;
+    uint8_t who;                         /* its track (0-31), or the keys (its key) */
+    uint8_t fl;                          /* FD_* */
+    uint8_t pan;
+    int32_t g0;                          /* its gain at its last block's end (its g_last), Q12 */
+} pl_fade_t;
+typedef char pl_jx_fits[sizeof(((pl_eng_t *)0)->u.jx) <= sizeof(dx7_voice_t) ? 1 : -1];   /* (the union grows not) */
+typedef char pl_par_fits[sizeof(((pl_voice_t *)0)->p.par) <= JUNO_PATCH_BYTES ? 1 : -1];
+typedef char pl_pb_fits[sizeof(pl_voice_t) == 92u ? 1 : -1];   /* (pb in the alignment's bytes: the voice grows not) */
+enum { FD_KEY = 1, FD_LC = 2 };          /* a fade note's: the keys'; on LOOPS' stage's column (no mute) */
 
 typedef struct {                         /* a track */
     pl_inst_t ins;                       /* its instrument (the last cell's) */
@@ -143,11 +291,121 @@ typedef struct {                         /* a track */
 
 /* ---- state ---- */
 static pl_voice_t pl_v[PL_NV] PLAT_POOL;
+static pl_eng_t pl_e[PL_NE] PLAT_POOL;
 static pl_chan_t pl_chs[PL_NCH];         /* the tracks: the song's (DJ's main deck), the loops' while nothing else
                                           * plays; DJ's second deck has its own (pl_d2) */
-static int16_t pl_scope[PL_NV][PL_SCOPE] PLAT_POOL;
+static uint32_t pl_tk_skip[PL_NCH][2];   /* the EDITOR's take: each track's note [0] and end [1] heard at its key, ahead
+                                          * of its row: that row's count << 8 | the row, where the replay leaves it out
+                                          * (pl_take_cell); 0 none */
+static int16_t pl_scope[PL_NE][PL_SCOPE] PLAT_POOL;   /* each engine's */
+static uint8_t pl_gl[PL_GHOSTS], pl_gn;  /* the ghosts (their voices), in the order they were made: the last made last */
+static pl_fade_t pl_fd[PL_FADES];        /* the fade notes of the block being made (rendered in its voices pass) */
+static uint8_t pl_nfd;
+static uint32_t pl_blk;                  /* the block clock: the blocks made (the one being made: its number) */
+static uint32_t pl_gh_soon;              /* the soonest end of a ghost's (t_end; PL_NEVER none: player_init) */
+#ifdef PTFM_DEBUG
+/* ---- the debug build's ghost figures (specs/debug.md, FIGURES 2's ghosts): counted by the audio context over the
+ * window, read and cleared by the main loop (player_gh_figures). Why the ghosts made now are (pl_gf_mk) and why the next
+ * ghost freed goes (pl_gf_go, pl_v_free's: back to GO_CUT after each) are set around the paths that make or free them.
+ * The kinds below, and GR_* (pl_gh_rank) and PL_GF_E's slots, are mirrored in this order by the page, fw/web/figures.js:
+ * GM_* by GH_MADE and GH_MADE_AT, GO_* by GH_GONE and GH_GONE_AT, GG_* by GH_GAVE and GH_GAVE_AT, GK_* by GH_CHECKS,
+ * GR_* by GH_RANKS and GH_RANK_AT, the engines by GH_ENGINES and GH_ENGINE_AT: a change here is a change there
+ * (player_gh_fill sets each kind by its name, and figures_test's round trip reads it by the page's place) */
+enum { GM_TAKEN, GM_BORN, GM_BORN_MUTED, GM_MUTED, GM_COUNT, GM_C2_BEGUN, GM_C2_NEVER, GM_N };   /* made: taken for a new
+                                          * note; started as a ghost (the keys holding the engines, a muted track); its
+                                          * track muted; past a smaller count; core 2's fallback, its job begun, never */
+enum { GO_CUT, GO_KEEP, GO_SELF, GO_SELF_BACK, GO_INST, GO_FULL_LET, GO_FULL_MUTED, GO_FULL_SONG, GO_FULL_KEY, GO_QUIET,
+       GO_JREL, GO_OFF_INST, GO_FUS_CELL, GO_FUS_OLD, GO_SAMP_END, GO_N };   /* gone: cut (and every other end), let go 10 s
+                                          * ago, ended by itself, found ended at its return, its instrument gone; the
+                                          * list full (by the rank of the one dropped, GR_*), under hearing at its
+                                          * return, the Juno-106's RELEASE over, its track off its instrument, a FUSION
+                                          * layer's cell or track changed, an older note's FUSION layer, a sampler ended
+                                          * by the commands it comes back with */
+enum { GG_NOTE, GG_COUNT, GG_CMD, GG_MUTE, GG_N };     /* a return under way given up: a new note, a smaller count, a
+                                          * parameter command, a mute */
+enum { GK_PLAIN, GK_SAMP, GK_FUS, GK_N };              /* a ghost's checks before its return: the others', a
+                                          * sampler's, a FUSION layer's */
+/* the engines' figures: DX7 0, Juno-106 1, sampler 2, CHIP 3 (EN_CHIP's 4). The TB-303 (EN_TB, 3) would land in the
+ * CHIP's: it never makes a ghost, so it never starts or works forward at a return; pl_gf_first passes it by */
+#define PL_GF_E(k) ((k) == EN_CHIP ? 3u : (uint32_t)(k))
+typedef struct {
+    uint16_t made[GM_N];                 /* ghosts made, by why (GM_*) */
+    uint16_t made_tb;                    /* a TB-303's made (never) */
+    uint16_t back_free;                  /* come back into a free engine */
+    uint16_t back_tail;                  /* come back into a release tail's engine */
+    uint16_t tail_lost;                  /* tails cut for returns that never came back (dropped, or given up but to a
+                                          * new note, which plays there) */
+    uint16_t back_mute;                  /* come back after a mute (muted while a ghost: made by the mute, or seen
+                                          * muted since) */
+    uint16_t back_muted;                 /* come back while muted (never) */
+    uint16_t gone[GO_N][2];              /* ghosts gone, by why (GO_*): [0] held, [1] let go */
+    uint16_t full_new[4];                /* the list full: a note not kept, by its rank (GR_*: it never was a ghost) */
+    uint16_t deferred;                   /* of the gone, at a return's start deferred to the block after a tail's fade */
+    uint16_t back_quiet;                 /* come back let go, freed by the quiet rule within PL_QUIET_N blocks */
+    uint16_t gave[GG_N];                 /* returns under way given up, by why (GG_*) */
+    uint16_t fwd_n[4];                   /* by engine (PL_GF_E): the forward work's calls */
+    uint32_t fwd_steps[4];               /* ... its steps (the engine's own) */
+    uint32_t fwd_us[4];                  /* ... its time, us */
+    uint16_t start_n[4];                 /* by engine: the note starts at a return */
+    uint32_t start_us[4];                /* ... their time, us */
+    uint16_t first_n[4];                 /* by engine: the first blocks back rendered (a sampler's seek in them) */
+    uint32_t first_us[4];                /* ... their time, us */
+    uint16_t ready_n[GK_N];              /* by kind (GK_*): the checks before a return */
+    uint32_t ready_us[GK_N];             /* ... their time, us */
+    uint16_t search_n;                   /* the free engine's or a tail's searches */
+    uint32_t search_us;                  /* ... their time, us */
+    uint16_t idle_n;                     /* the returns' walks that spent nothing */
+    uint32_t idle_us;                    /* ... their time, us */
+    uint16_t idle_in;                    /* ... the timed pieces inside them (searches that found nothing; a forward
+                                          * work's call that stepped nothing) */
+    uint16_t ends_n;                     /* the ends' walks (pl_gh_ends) */
+    uint32_t ends_us;                    /* ... their time, us */
+    uint16_t look_n;                     /* the waits' own look after each walk (pl_gf_could: the debug build's, in no
+                                          * stage) */
+    uint32_t look_us;                    /* ... its time, us */
+    uint16_t probe32;                    /* 32 back-to-back timer reads' time, at the window's first look, us (a probe
+                                          * pair's own cost, 1/32 of it: in every time above) */
+    uint8_t probe_n;                     /* (1: measured this window) */
+    uint16_t blocks;                     /* the blocks whose walk spent units */
+    uint32_t units;                      /* ... the units spent */
+    uint16_t units_most;                 /* the most spent in a block */
+    uint16_t stop4;                      /* walks stopped by PL_RETURNS */
+    uint16_t stopb;                      /* walks stopped by the budget */
+    uint16_t held;                       /* walks the load guard held (pl_heavy; among those that spent nothing) */
+    uint16_t wait_most;                  /* the longest wait: blocks from the first block the ghost could have begun (an
+                                          * engine it may take there: a free one of the count, a held one's a tail's)
+                                          * to its fade in */
+    uint16_t way_long;                   /* the longest under way: blocks from its return's begin to its fade in (0: in
+                                          * the same block), or, under way at a block's end, the least it will be */
+    uint8_t n_most;                      /* the most come back in a block */
+    uint8_t gn_most;                     /* the most ghosts at once */
+    uint8_t way_most;                    /* the most returns under way at a block's end */
+    uint8_t oldest_fl;                   /* the oldest note brought back: 1 held, 2 a key's, 4 into a tail's */
+    uint32_t oldest;                     /* ... its age, blocks */
+} pl_gf_t;
+static pl_gf_t pl_gf;
+static uint8_t pl_gf_mk, pl_gf_go;
+static int32_t pl_gf_spent;              /* the units the block's walk spent (pl_returns, at its end) */
+static uint8_t pl_gf_ins;                /* the timed pieces inside the block's walk so far (pl_gf_walk takes them) */
+static uint16_t pl_gf_vt[PL_NV];         /* each voice's: a ghost's first block it could have begun (pl_gf_vcan's bit
+                                          * set); once back, the block it came back in let go (held: 2^15 blocks ago),
+                                          * the quiet rule's check (the low 16 bits of the block clock: 95 s) */
+static uint64_t pl_gf_vcan;              /* the ghosts whose first block they could have begun is stamped */
+static uint16_t pl_gf_begin[PL_NE];      /* each engine's return under way: its claim's block */
+static uint16_t pl_gf_tail;              /* the engines whose return under way took a release tail's */
+static uint64_t pl_gf_vmute;             /* the ghosts muted while ghosts: made by a mute, or seen muted since */
+#define PL_GF(...) do { __VA_ARGS__; } while (0)
+/* (the figures' functions, pl_gf_*, are the debug part's (PLAT_DBG: out of the slot, specs/debug.md#the-debug-part):
+ * a call into them only while the part is in, plat.h's plat_dbg_in; without it nothing asks for the figures) */
+#define PL_GFC(...) do { if (plat_dbg_in) { __VA_ARGS__; } } while (0)
+#define PL_GF_T(t) uint32_t t = plat_us()
+#else
+#define PL_GF(...) ((void)0)
+#define PL_GFC(...) ((void)0)
+#define PL_GF_T(t)
+#endif
 static uint32_t pl_scope_w;
-static int32_t pl_vbuf[PL_BLOCK];        /* a voice's block */
+static int32_t pl_vbuf[PL_BLOCK];        /* an engine's block */
 static juno_chorus_t pl_chorus0[2] PLAT_POOL;    /* Juno-106 chorus I, II (every voice of the mode: it is linear) */
 static uint16_t pl_chorus_tail[2][2];    /* each bus's: frames each runs on after its last input */
 static int32_t pl_jbus0[2][PL_BLOCK];    /* the Juno-106 buses: chorus I, II (the dry ones go into the mix) */
@@ -211,7 +469,6 @@ static uint32_t pl_pulse_left;           /* frames of the click under way still 
 void player_sync_pulse(int side) { pl_pulse_side = (uint8_t)(side == 1 || side == 2 ? side : 0); }
 static uint32_t pl_age, pl_steals;
 static uint32_t pl_age_seen;             /* pl_age at the last block's voices: a note started since has no peak yet */
-static uint32_t pl_parks;                /* notes parked, counted */
 /* CUT (player_hush): the main loop's wish (a byte: never lost, unlike a request), its state here (set at a half's
  * start, so the same through the half), the blocks since it began (PL_HUSH_N: faded out, the rest emptied), the
  * output's gain (Q15, the job's), faded over PL_HUSH_N blocks. CUT's halves run their effects on core 1 alone (their
@@ -295,6 +552,7 @@ typedef struct {
                                           * as they would have till the start (a deck just loaded has none: still) */
     uint32_t build_at;                   /* ... the half its last step was taken in (pl_halves) */
     uint8_t ext_lock;                    /* SYNC EXTERNAL: it keeps its place on the clock (pl_ext_follow) */
+    uint8_t duck;                        /* DUCK's source this block (pl_levels): its track + 1 (0 none; 17 the keys) */
     uint32_t ext_own;                    /* ... its place in the clock's clocks, Q8 (the ticks played) */
     int32_t ext_corr;                    /* ... its ticks shorter by this share, Q16 (longer: negative) */
 } pl_ctx_t;
@@ -384,7 +642,7 @@ static player_dj_t pl_djm_in;            /* the main loop's latest; its sequence
 static volatile uint32_t pl_djm_seq;
 static uint32_t pl_djm_seen;
 static uint8_t pl_dj_gen;                /* the stand's count of SWAPs as last made here (player_dj_swap) */
-static void pl_swap_bytes(void *a, void *b, uint32_t n)   /* (in place: nothing of their size on the stack) */
+static PLAT_COLD void pl_swap_bytes(void *a, void *b, uint32_t n)   /* (in place: nothing of their size on the stack) */
 {
     uint8_t *p = (uint8_t *)a, *q = (uint8_t *)b, t;
     while (n--) {
@@ -516,13 +774,13 @@ static PLAT_COLD void pl_dj_landing(uint32_t how);
 
 /* requests (main loop -> audio) and the snapshot (audio -> main loop) */
 enum { RQ_SONG, RQ_PATTERN, RQ_PAUSE, RQ_CONTINUE, RQ_TO_START, RQ_STOP, RQ_SKIP, RQ_CUT, RQ_MUTES, RQ_VOICES,
-       RQ_SONG_CHANGED, RQ_STORE, RQ_KEY_ON, RQ_KEY_OFF, RQ_KEYS_OFF, RQ_PUNCH, RQ_FX_CMD, RQ_FX_RELOAD, RQ_BYPASS,
+       RQ_SONG_CHANGED, RQ_STORE, RQ_KEY_ON, RQ_KEY_OFF, RQ_KEYS_OFF, RQ_KEY_PRESS, RQ_PUNCH, RQ_FX_CMD, RQ_FX_RELOAD, RQ_BYPASS,
        RQ_SOURCE, RQ_SRC_CHANGED, RQ_CLICK, RQ_STEP, RQ_ARP, RQ_ARP_CLEAR, RQ_ARP_START,
        RQ_ARP_INST /* the arpeggio's instrument */, RQ_KEY_BEND /* MIDI's pitch bend */,
        RQ_TEMPO_SHARE /* PLAYBACK's speed */, RQ_SONG_VOLUME /* ... and its volume */, RQ_END_MODE /* SONGS' play mode */,
        RQ_FX_MINE /* the FX page's effect under the cursor */, RQ_EDITING /* what the screen edits */,
        RQ_CUE /* nothing played yet: the keys' song held */, RQ_CUE_LOOPS /* LOOPS shown, nothing playing: the loops */,
-       RQ_UNLOAD /* SONGS' UNLOAD SONG */, RQ_TAKE_CELL /* the EDITOR's take: a cell heard as written */,
+       RQ_UNLOAD /* SONGS' UNLOAD SONG */, RQ_TAKE_CELL /* the EDITOR's take: a cell heard at its key */,
        RQ_LP_NOTE, RQ_LP_MUTES, RQ_LP_PREVIEW, RQ_LP_ALONE, RQ_LP_KEEP, RQ_LP_REST /* LOOPS' lanes */,
        RQ_LP_STAGE, RQ_LP_HOLD, RQ_LP_JUMP, RQ_LP_SEND /* LOOPS' stage, its lanes held, a jump, REC's hand-over */,
        RQ_HEAR /* LOOPS' pattern recorder's note heard */,
@@ -540,8 +798,8 @@ static uint32_t pl_halves;
 static int16_t pl_master[2u * PL_MASTER] PLAT_POOL;
 uint32_t player_ram(void)
 {
-    return (uint32_t)(sizeof pl_v + sizeof pl_scope + sizeof pl_chorus0 + sizeof pl_hmix + sizeof pl_hsend +
-                      sizeof pl_hkmix + sizeof pl_kchorus + sizeof pl_master);
+    return (uint32_t)(sizeof pl_v + sizeof pl_e + sizeof pl_scope + sizeof pl_gl + sizeof pl_fd + sizeof pl_chorus0 +
+                      sizeof pl_hmix + sizeof pl_hsend + sizeof pl_hkmix + sizeof pl_kchorus + sizeof pl_master);
 }
 static volatile uint32_t pl_master_w;
 static volatile uint16_t pl_tpeak[2u * PL_TRACKS];
@@ -575,7 +833,7 @@ static volatile uint32_t pl_bend_seq;
 static uint32_t pl_bend_seen;
 static player_state_t pl_snap;
 static volatile uint32_t pl_snap_seq;
-static pl_voice_info_t pl_vsnap[PL_NV];
+static pl_voice_info_t pl_vsnap[PL_NE];  /* (an entry an engine) */
 
 /* ---- instruments: a cartridge's record, cached by number ---- */
 #define PL_NCART 8u
@@ -586,7 +844,7 @@ static struct {
 } pl_carts[PL_NCART];
 static uint32_t pl_cart_age;
 
-static const rec_cart_t *pl_cart(uint8_t num)
+static PLAT_COLD const rec_cart_t *pl_cart(uint8_t num)
 {
     uint32_t i, old = 0;
     for (i = 0; i < PL_NCART; i++)
@@ -609,7 +867,7 @@ static const rec_cart_t *pl_cart(uint8_t num)
 
 static void pl_fpat_forget(void);
 
-static void pl_carts_forget(void)
+static PLAT_COLD void pl_carts_forget(void)
 {
     uint32_t i;
     for (i = 0; i < PL_NCART; i++)
@@ -625,7 +883,7 @@ static const uint8_t *volatile pl_ksamp_at;
 #define PL_IS_KSAMP(in) ((in).cart == PL_KEYS_SAMPLE_CART && (in).slot == PL_KEYS_SAMPLE_SLOT)
 
 /* an instrument's engine and its slot's bytes (EN_NONE: none there) */
-static uint32_t pl_engine(pl_inst_t in, const uint8_t **slot)
+static PLAT_COLD uint32_t pl_engine(pl_inst_t in, const uint8_t **slot)
 {
     if (PL_RARE(PL_IS_KSAMP(in))) {
         const uint8_t *k = pl_ksamp_at;
@@ -728,91 +986,355 @@ static int32_t pl_samp_pos(const samp_t *s, uint32_t v)
     return v >= 255u ? s->length : (int32_t)(((uint32_t)s->length >> 8) * v + (((uint32_t)s->length & 255u) * v >> 8));
 }
 
-/* a parameter turned on a sounding voice, as turning the knob would (a sample's START: from the next note) */
+/* a TUNE command's value (1/128 semitones, 0x80 none) as the voice's pitch offset (1/64): the TUNE it sets in place of
+ * the instrument's (inst, 1/128 from none; commands.md: a command sets its value), which the engine's pitch carries
+ * already (samp_step: its half), so the two halves apart, as each is taken */
+static PLAT_COLD int16_t pl_tune_cmd(uint32_t val, int32_t inst) { return (int16_t)(((int32_t)val - 128) / 2 - inst / 2); }
+/* the instrument's TUNE (1/128 from none) of sampler note v's instrument as it stands */
+static PLAT_COLD int32_t pl_tune_inst(const pl_voice_t *v)
+{
+    const uint8_t *slot;
+    return pl_engine(v->inst, &slot) == EN_SAMP && slot ? rec_sampler_tune(slot) : 0;
+}
+/* a sampler's parameter on an instrument's copy (END, LOOP, the loop's points, the envelope; TUNE and START are the
+ * note's), as a sounding voice's copy takes it */
+static PLAT_COLD void pl_samp_par(samp_t *s, uint32_t code, uint32_t val)
+{
+    if (code == 0x41u) {                 /* END */
+        int32_t e = pl_samp_pos(s, val);
+        s->end = e < 1 ? 1 : e;
+    } else if (code == 0x42u) {          /* LOOP */
+        s->loop = (uint8_t)(val > 2u ? 2u : val);
+    } else if (code == 0x43u) {
+        s->loop_start = pl_samp_pos(s, val);
+    } else if (code == 0x44u) {
+        s->loop_end = pl_samp_pos(s, val);
+    } else if (code >= 0x48u && code < 0x50u) {   /* the envelope */
+        s->env[code - 0x48u] = (uint8_t)(val > 99u ? 99u : val);
+    }
+}
+/* 1: a sampler's copy s has room for its loop (LOOP END, or END when it comes first, past LOOP START + 1: as a note's
+ * start asks; else its place would run away) */
+static int pl_samp_room(const samp_t *s)
+{
+    int32_t le = s->loop_end > s->end ? s->end : s->loop_end;
+    return le > s->loop_start + 1 && s->loop_start >= 0;
+}
+/* 1: a sampler note loops no more after parameter `code` turned its copy s: LOOP OFF, or the loop's points with no room
+ * left */
+static int pl_samp_unloop(const samp_t *s, uint32_t code)
+{
+    if (code == 0x42u)
+        return s->loop == SAMP_LOOP_OFF;
+    if (code == 0x41u || code == 0x43u || code == 0x44u)
+        return !pl_samp_room(s);
+    return 0;
+}
+
+/* a parameter command kept in a voice's list (all but a Juno-106's, whose patch copy holds them): turned again, its
+ * value; else added, the oldest going when the list is full (as a track's) */
+static PLAT_COLD void pl_par_put(pl_voice_t *v, uint32_t code, uint32_t val)
+{
+    uint32_t i, n = v->p.par.n;
+    for (i = 0; i < n && v->p.par.pc[i] != code; i++)
+        ;
+    if (i == n) {
+        if (n < PL_NPAR) {
+            v->p.par.n = (uint8_t)(n + 1u);
+        } else {
+            for (i = 1; i < PL_NPAR; i++) {
+                v->p.par.pc[i - 1u] = v->p.par.pc[i];
+                v->p.par.pv[i - 1u] = v->p.par.pv[i];
+            }
+            i = PL_NPAR - 1u;
+        }
+        v->p.par.pc[i] = (uint8_t)code;
+    }
+    v->p.par.pv[i] = (uint8_t)val;
+}
+
+static PLAT_COLD void pl_gh_samp_par(pl_voice_t *v, uint32_t code, uint32_t val);
+static PLAT_COLD uint32_t pl_back_stop(pl_voice_t *v);
+/* a parameter turned on a note, as turning the knob would (a sample's START: from the next note): on its engine while it
+ * has one, and in its voice (a Juno-106's patch copy, the others' list), which a start from the voice takes (a ghost's
+ * return, a start waiting for a fade); a sampler's without an engine moves its place and its end (pl_gh_samp_par). A
+ * ghost's return under way starts again (its note started with the commands it had) */
 static PLAT_COLD void pl_param_live(pl_voice_t *v, uint32_t code, uint32_t val)
 {
+    pl_eng_t *eng;
     uint32_t top;
     int32_t at;
+    if (PL_RARE(v->gh == GH_BACK)) {
+        PL_GF(pl_gf.gave[GG_CMD]++);
+        pl_back_stop(v);
+    }
+    if (v->engine == EN_JUNO) {
+        pl_juno_par(v->p.jp, code, val);
+        if (v->place != PL_NO_ENG)
+            juno_patch(&PL_E(v)->u.ju, v->p.jp);
+        return;
+    }
+    if (PL_RARE(v->place == PL_NO_ENG)) {
+        if (v->engine == EN_SAMP)
+            pl_gh_samp_par(v, code, val);
+        else
+            pl_par_put(v, code, val);
+        return;
+    }
+    pl_par_put(v, code, val);
+    eng = PL_E(v);
     if (v->engine == EN_TB) {
         if (code < 0x40u + TB_NK)
-            tb_knob(&v->u.tb, (int)(code - 0x40u), (int)val);
+            tb_knob(&eng->u.tb, (int)(code - 0x40u), (int)val);
     } else if (v->engine == EN_CHIP) {
-        chip_param(&v->u.ch, code, val);
-    } else if (v->engine == EN_JUNO) {
-        pl_juno_par(v->jp, code, val);
-        juno_patch(&v->u.ju, v->jp);
+        chip_param(&eng->u.ch, code, val);
     } else if (v->engine == EN_DX7) {
         at = pl_dx7_at(code, &top);
         if (at >= 0)
-            dx7_live(&v->u.dx, at, (int)(val > top ? top : val));
+            dx7_live(&eng->u.dx, at, (int)(val > top ? top : val));
     } else if (v->engine == EN_SAMP) {
-        samp_t *s = &v->u.sm.s;
-        if (code == 0x41u) {             /* END */
-            int32_t e = pl_samp_pos(s, val);
-            s->end = e < 1 ? 1 : e;
-        } else if (code == 0x42u) {      /* LOOP */
-            s->loop = (uint8_t)(val > 2u ? 2u : val);
-            v->u.sm.looping = (uint8_t)(v->u.sm.looping && s->loop != SAMP_LOOP_OFF);
-        } else if (code == 0x43u) {
-            s->loop_start = pl_samp_pos(s, val);
-        } else if (code == 0x44u) {
-            s->loop_end = pl_samp_pos(s, val);
-        } else if (code == 0x45u) {      /* TUNE: 1/128 semitones */
-            v->tune = ((int32_t)val - 128) / 2;
-        } else if (code >= 0x48u && code < 0x50u) {   /* the envelope */
-            s->env[code - 0x48u] = (uint8_t)(val > 99u ? 99u : val);
-        }
+        samp_t *s = &eng->u.sm.s;
+        if (code == 0x45u)               /* TUNE: 1/128 semitones, in place of the instrument's (its copy's) */
+            v->tune = pl_tune_cmd(val, s->tune);
+        else
+            pl_samp_par(s, code, val);
+        if (pl_samp_unloop(s, code))
+            eng->u.sm.looping = 0;
     }
 }
 
-/* ---- voices ---- */
-static int pl_v_sounds(pl_voice_t *v)
+/* ---- voices and their engines ---- */
+#ifdef POOL_CHECK
+static pl_eng_t *pl_e_of(const pl_voice_t *v)   /* (the host tests' PL_E: a voice without an engine never reaches one) */
 {
-    if (v->use == PV_FREE)
-        return 0;
-    return v->engine == EN_DX7 ? dx7_active(&v->u.dx) : v->engine == EN_JUNO ? juno_busy(&v->u.ju)
-         : v->engine == EN_TB ? tb_active(&v->u.tb) : v->engine == EN_CHIP ? chip_active(&v->u.ch) : samp_active(&v->u.sm);
+    if (v->place >= PL_NE) {
+        fprintf(stderr, "the pool: voice %u (use %u, engine %u) reached through its engine, which it has not (%u)\n",
+                (unsigned)(v - pl_v), v->use, v->engine, v->place);
+        exit(1);
+    }
+    return &pl_e[v->place];
+}
+#endif
+static int pl_e_sounds(const pl_eng_t *eng)   /* the engine's note sounds (held or releasing) */
+{
+    uint32_t k = eng->kind;
+    return k == EN_DX7 ? dx7_active(&eng->u.dx) : k == EN_JUNO ? juno_busy(&eng->u.ju)
+         : k == EN_TB ? tb_active(&eng->u.tb) : k == EN_CHIP ? chip_active(&eng->u.ch) : samp_active(&eng->u.sm);
 }
 
-static void pl_v_off(pl_voice_t *v)      /* note off: it releases */
+/* voice v into engine c, and off it: the only writers of the links (v->place, the engine's voice). The engine keeps its
+ * state with no voice (the next note there starts from it, or from zero if another engine's) */
+static void pl_bind(pl_voice_t *v, uint32_t c)
 {
-    if (v->engine == EN_DX7)
-        dx7_note_off(&v->u.dx);
-    else if (v->engine == EN_JUNO)
-        juno_note_off(&v->u.ju);
-    else if (v->engine == EN_TB)
-        tb_note_off(&v->u.tb);
-    else if (v->engine == EN_CHIP)
-        chip_note_off(&v->u.ch);
+    pl_eng_t *eng = &pl_e[c];
+    v->place = (uint8_t)c;
+    v->gh = GH_NO;
+    eng->voice = (uint8_t)(v - pl_v);
+    if (eng->kind == EN_JUNO)
+        eng->u.ju.p = v->p.jp;           /* (a Juno-106 plays from its voice's patch copy) */
+}
+static void pl_unbind(pl_voice_t *v)
+{
+    pl_e[v->place].voice = PL_NO_VOICE;
+    v->place = PL_NO_ENG;
+}
+
+/* the block clock's times (pl_blk, a block's number; PL_NEVER none): t now or past; the sooner of two */
+static int pl_t_due(uint32_t t)
+{
+    return t != PL_NEVER && (int32_t)(pl_blk - t) >= 0;
+}
+static uint32_t pl_t_min(uint32_t a, uint32_t b)
+{
+    return a == PL_NEVER ? b : b == PL_NEVER ? a : (int32_t)(a - pl_blk) < (int32_t)(b - pl_blk) ? a : b;
+}
+
+#ifdef PTFM_DEBUG
+static PLAT_DBG void pl_gf_made(const pl_voice_t *v)   /* (the figures: ghost v made, why pl_gf_mk says) */
+{
+    uint32_t k = (uint32_t)(v - pl_v);
+    pl_gf.made[pl_gf_mk]++;
+    pl_gf.made_tb = (uint16_t)(pl_gf.made_tb + (v->engine == EN_TB));
+    if (pl_gn > pl_gf.gn_most)
+        pl_gf.gn_most = pl_gn;
+    if (pl_gf_mk == GM_MUTED || pl_gf_mk == GM_BORN_MUTED)
+        pl_gf_vmute |= (uint64_t)1 << k;
     else
-        samp_note_off(&v->u.sm);
+        pl_gf_vmute &= ~((uint64_t)1 << k);
+    pl_gf_vcan &= ~((uint64_t)1 << k);   /* (not yet able to begin) */
+}
+static PLAT_DBG void pl_gf_gone(const pl_voice_t *v, uint32_t why)   /* (ghost v gone: why, held or let go) */
+{
+    pl_gf.gone[why][!v->held]++;
+}
+static PLAT_DBG void pl_gf_unway(uint32_t c)   /* (engine c's return under way ends, never come back) */
+{
+    if (pl_gf_tail >> c & 1u) {
+        pl_gf.tail_lost++;
+        pl_gf_tail = (uint16_t)(pl_gf_tail & ~(1u << c));
+    }
+}
+#endif
+
+/* the ghosts' list: v a ghost, made last (it has no engine); v one no more (the list closes the gap) */
+#ifdef POOL_CHECK                        /* (the host tests: each ghost stamped as made, the list's order checked) */
+static uint32_t pl_gh_made[PL_NV], pl_gh_stamp;
+#endif
+static PLAT_COLD void pl_gh_add(pl_voice_t *v)
+{
+    v->gh = GH_GHOST;
+#ifdef POOL_CHECK
+    pl_gh_made[v - pl_v] = ++pl_gh_stamp;
+#endif
+    pl_gl[pl_gn++] = (uint8_t)(v - pl_v);
+    pl_gh_soon = pl_t_min(pl_gh_soon, v->t_end);
+    PL_GFC(pl_gf_made(v));
+}
+static PLAT_COLD void pl_gh_del(pl_voice_t *v)
+{
+    uint32_t i, k = (uint32_t)(v - pl_v);
+    for (i = 0; i < pl_gn; i++)
+        if (pl_gl[i] == k) {
+            for (; i + 1u < pl_gn; i++)
+                pl_gl[i] = pl_gl[i + 1u];
+            pl_gn--;
+            break;
+        }
+    v->gh = GH_NO;
+}
+static PLAT_COLD uint32_t pl_wait_eng(const pl_voice_t *v)   /* the engine whose fade v's start waits for (GH_WAIT),
+                                          * or that holds v's return under way (GH_BACK) */
+{
+    uint32_t c;
+    for (c = 0; c < PL_NE && pl_e[c].wait != (uint8_t)(v - pl_v); c++)
+        ;
+#ifdef POOL_CHECK                        /* (the host tests: a waiting voice that no engine names ends the test) */
+    if (c == PL_NE) {
+        fprintf(stderr, "the pool: voice %u waits for no engine's fade\n", (unsigned)(v - pl_v));
+        exit(1);
+    }
+#endif
+    return c;
+}
+
+static void pl_e_off(pl_eng_t *eng)      /* the engine's note let go: it releases */
+{
+    if (eng->kind == EN_DX7)
+        dx7_note_off(&eng->u.dx);
+    else if (eng->kind == EN_JUNO)
+        juno_note_off(&eng->u.ju);
+    else if (eng->kind == EN_TB)
+        tb_note_off(&eng->u.tb);
+    else if (eng->kind == EN_CHIP)
+        chip_note_off(&eng->u.ch);
+    else
+        samp_note_off(&eng->u.sm);
+}
+static PLAT_COLD void pl_gh_off(pl_voice_t *v);
+static PLAT_COLD void pl_v_off(pl_voice_t *v)      /* note off: it releases (its let-go's time kept); without an engine: pl_gh_off */
+{
+    if (PL_RARE(v->place == PL_NO_ENG)) {
+        pl_gh_off(v);
+        return;
+    }
+    pl_e_off(PL_E(v));
+    if (v->held)
+        v->t_off = pl_blk;
     v->held = 0;
 }
 
+/* ghost v's return under way given up (a new note takes its engine, its list's place, a command on it, a mute, a smaller
+ * count: VOICES' or core 2's fallback's, pl_nv_apply): the engine free, its state from zero for the next note; v a ghost
+ * as before, in its place in the list (a CHIP's figures those its return's note started with, pl_forward). Its engine */
+static PLAT_COLD uint32_t pl_back_stop(pl_voice_t *v)
+{
+    uint32_t c = pl_wait_eng(v);
+    pl_e[c].wait = PL_NO_VOICE;
+    pl_e[c].kind = 255;
+    v->gh = GH_GHOST;
+    PL_GFC(pl_gf_unway(c));
+    return c;
+}
+
+/* the voice free: off its engine, out of the ghosts' list (its return under way given up), its start waiting no more */
 static void pl_v_free(pl_voice_t *v)
 {
+#ifdef PTFM_DEBUG
+    PL_GFC(if (PL_RARE(v->gh & 1u)) pl_gf_gone(v, pl_gf_go));   /* (the figures: a ghost gone, why pl_gf_go says) */
+    pl_gf_go = GO_CUT;
+#endif
     if (v->use == PV_SONG && v->who < 2u * PL_NCH && PL_CH(v->who).voice >= 0 && &pl_v[PL_CH(v->who).voice] == v)
         PL_CH(v->who).voice = -1;
+    if (v->place != PL_NO_ENG)
+        pl_unbind(v);
+    else if (PL_RARE(v->gh == GH_WAIT)) {
+        pl_e[pl_wait_eng(v)].wait = PL_NO_VOICE;
+        v->gh = GH_NO;
+    } else if (PL_RARE(v->gh)) {
+        if (v->gh == GH_BACK)
+            pl_back_stop(v);
+        pl_gh_del(v);
+    }
     v->use = PV_FREE;
     v->held = 0;
     v->cut = 0;
-    v->park = PK_NO;
     v->back = 0;
 }
 
-static void pl_v_cut(pl_voice_t *v)      /* silence now */
+static void pl_e_cut(pl_eng_t *eng)      /* the engine's note silenced now */
 {
-    if (v->engine == EN_DX7)
-        dx7_cut(&v->u.dx);
-    else if (v->engine == EN_JUNO)
-        juno_cut(&v->u.ju);
-    else if (v->engine == EN_TB)
-        tb_cut(&v->u.tb);
-    else if (v->engine == EN_CHIP)
-        chip_cut(&v->u.ch);
+    if (eng->kind == EN_DX7)
+        dx7_cut(&eng->u.dx);
+    else if (eng->kind == EN_JUNO)
+        juno_cut(&eng->u.ju);
+    else if (eng->kind == EN_TB)
+        tb_cut(&eng->u.tb);
+    else if (eng->kind == EN_CHIP)
+        chip_cut(&eng->u.ch);
     else
-        samp_cut(&v->u.sm);
+        samp_cut(&eng->u.sm);
+}
+static PLAT_COLD void pl_v_cut(pl_voice_t *v)      /* silence now (a note without an engine: it goes) */
+{
+    if (v->place != PL_NO_ENG)
+        pl_e_cut(PL_E(v));
     pl_v_free(v);
+}
+/* NOTE CUT and every cut of its kind: a note with an engine fades out over its next block and goes (pl_voices); one
+ * without goes at once */
+static PLAT_COLD void pl_v_cut_soon(pl_voice_t *v)
+{
+    if (PL_RARE(v->place == PL_NO_ENG))
+        pl_v_free(v);
+    else
+        v->cut = 1;
+}
+/* voice v has an engine of the count, or its start waits for one's fade: the note is heard (RECORD LIVE's tap) */
+static int pl_v_voiced(const pl_voice_t *v)
+{
+    return v->use != PV_FREE && (v->place != PL_NO_ENG || v->gh == GH_WAIT);
+}
+
+/* track who (0-31) is DUCK's source this block (its replay's; the first replay's while the second plays on its tracks):
+ * its muted notes keep their engines, so DUCK follows it muted or not, and they rank as unmuted */
+static int pl_duck_src(uint32_t who)
+{
+    const pl_ctx_t *c = PL_MCTX(who >> 4);
+    if (c->ch == pl_chs)
+        c = PL_MCTX(0);
+    return c->duck == (who & 15u) + 1u;
+}
+/* track who (0-31) muted, by its own mute or another's solo (its replay's mask; LOOPS' mutes and solos the second's),
+ * and not DUCK's source: its notes are ghosts (specs/proposals/202611121830-ghost-notes.md, section 3) */
+static PLAT_COLD int pl_who_muted(uint32_t who)
+{
+    return (PL_MCTX(who >> 4)->mute >> (who & 15u) & 1u) && !pl_duck_src(who);
+}
+/* a muted note: a song's or a loop's on a muted track (pl_who_muted), but the stage's column's. Silent for a take; a
+ * ghost, but a TB-303's (it keeps its engine, muted: the callers that make ghosts pass it by; a ghost is never one) */
+static PLAT_COLD int pl_v_muted(const pl_voice_t *v)
+{
+    return v->use == PV_SONG && !v->lc && pl_who_muted(v->who);
 }
 
 /* ---- RECORD LIVE's tap (player.h): an event per note that sounds or ends, written here, read by the main loop; pl_tap_q
@@ -866,84 +1388,398 @@ void player_tap_next(void) { pl_tap_r = pl_tap_r + 1u; }
 uint32_t player_tap_lost(void) { return pl_tap_over; }
 uint32_t player_tap_held(void) { return pl_tap_w - pl_tap_r; }
 
-/* ---- the pool: notes sound in the first pl_nv voices; the slots past them hold the notes taken from their voices,
- * fading out (a block) and, if held, parked until a voice is free (specs/ui/screens/settings.md#voices) ---- */
-static void pl_kf_moved(int from, int to);
+/* ---- the pool (specs/ui/screens/settings.md#voices; specs/proposals/202611121830-ghost-notes.md): 16 engines, the
+ * first pl_nv taking notes, and 40 voices: the notes sounding in an engine, those whose start waits for the fade of the
+ * note taken from their engine, and the ghosts (24 at most). A note taken from its engine fades out in it over the
+ * block (a fade note, rendered in the block's voices pass, then the new note started there); a held one goes on as a
+ * ghost, followed by every rule of the player, and comes back when an engine is free (held, into a release tail's too),
+ * worked forward to where its note would be by now, in pieces under a budget a block (a return under way holds its
+ * engine across blocks, still a ghost: a new note may take that engine first). A mute makes ghosts of its track's notes
+ * (pl_v_muted: they fade out with its ramp, their engines free from the next block), and its new notes start as
+ * ghosts; they come back once it is heard again. Ghosts made at once are made in their engines' order ---- */
 static PLAT_COLD void pl_tap_voice(const pl_voice_t *v);
 
-/* voice `from`'s note into slot `to`, as it is (its patch copy, its scope, the keys' FUSION layer that names it) */
-static PLAT_COLD void pl_move(pl_voice_t *from, pl_voice_t *to)
+/* the first voice free (none in use, no engine, not a ghost); there is one whenever a note may take a voice: the
+ * engines hold 16 at most, the ghosts 24 */
+static pl_voice_t *pl_v_spare(void)
 {
-    int a = (int)(from - pl_v), b = (int)(to - pl_v);
-    *to = *from;
-    if (to->engine == EN_JUNO && to->u.ju.p == from->jp)
-        to->u.ju.p = to->jp;
-    memcpy(pl_scope[b], pl_scope[a], sizeof pl_scope[0]);
-    if (from->use == PV_SONG && from->who < 2u * PL_NCH && PL_CH(from->who).voice == (int8_t)a)
-        PL_CH(from->who).voice = -1;     /* (a track's 303 no longer: its next note takes a voice of its own) */
-    pl_kf_moved(a, b);
+    pl_voice_t *v;
+    for (v = pl_v; v < pl_v + PL_NV; v++)
+        if (v->use == PV_FREE)
+            return v;
+    return 0;
 }
 
-/* the notes the pool holds at most, parked and fading ones included: the count and the 4 past VOICES 16, 16 at
- * least (VOICES 16: 20; 12 and 8: 16) */
-static uint32_t pl_places(void)
+/* the note in engine c: its voice, or the one whose start waits for its fade, or a ghost whose return there is under
+ * way (GH_BACK, the engine's wait naming it too); 0 none (the engine free). pl_alloc, pl_victim and the search for a
+ * free engine in pl_returns rely on it naming that ghost */
+static pl_voice_t *pl_e_note(uint32_t c)
 {
-    uint32_t n = pl_nv + (PL_NV - PL_VOICES_MOST);
-    return n > PL_VOICES_MOST ? n : PL_VOICES_MOST;
+    const pl_eng_t *eng = &pl_e[c];
+    uint32_t k = eng->voice != PL_NO_VOICE ? eng->voice : eng->wait;
+    return k != PL_NO_VOICE ? &pl_v[k] : 0;
 }
 
-/* a slot past the count for a note taken: a free one while the pool holds fewer notes than pl_places(), else the
- * note parked longest goes (unheard: nothing to hear of it), a song's before the keys'; 0 if every one is still
- * fading out */
-static pl_voice_t *pl_spare(void)
+/* a sampler voice's instrument as its note started with it made as its engine plays it: samp_prep's, with its list's
+ * END, LOOP, the loop's points and the envelope on it (what its place walks by) */
+static PLAT_COLD void pl_v_samp_full(const pl_voice_t *v, samp_t *s)
 {
-    pl_voice_t *v, *free = 0, *old = 0;
-    uint32_t used = 0;
-    for (v = pl_v; v < pl_v + PL_NV; v++) {
-        if (v->use == PV_FREE) {
-            if (!free && v >= pl_v + pl_nv)
-                free = v;
-            continue;
+    uint32_t i;
+    samp_prep(s);
+    for (i = 0; i < v->p.par.n; i++)
+        pl_samp_par(s, v->p.par.pc[i], v->p.par.pv[i]);
+}
+/* a sampler voice's instrument (its sample, START from its list), as its note started with it (full 0: what samp_note_on
+ * and samp_place_start take), or as its engine plays it (full 1: pl_v_samp_full's); 0 if its sample is not there */
+static PLAT_COLD int pl_v_samp(const pl_voice_t *v, samp_t *s, int full)
+{
+    uint32_t i, n = v->p.par.n;
+    if (!pl_sample_of(v->inst, s, 0))
+        return 0;
+    for (i = 0; i < n; i++)
+        if (v->p.par.pc[i] == 0x40u)     /* START */
+            s->start = pl_samp_pos(s, v->p.par.pv[i]);
+    if (s->start >= s->length)
+        s->start = 0;
+    if (full)
+        pl_v_samp_full(v, s);
+    return 1;
+}
+/* a sampler ghost's place walked to now (the block clock) at its pitch (pb) and its key as they stood since it last
+ * was; on from now at its pitch now. Its instrument as it is now (s: the record, its list on it) with no loop to play
+ * (LOOP OFF, or a loop with no room: edited while it waited) takes it out of its loop first; a loop turned on
+ * meanwhile never puts it into one (it plays on to END, as a note started with LOOP OFF does) */
+static PLAT_COLD void pl_gh_walk(pl_voice_t *v, const samp_t *s)
+{
+    uint32_t n = pl_blk - v->t_pl;
+#ifdef POOL_CHECK                        /* (the host tests: a place never ahead of the block clock, pl_mute_ghost) */
+    if ((int32_t)n < 0) {
+        fprintf(stderr, "the pool: voice %u's sampler place a block ahead of the clock\n", (unsigned)(v - pl_v));
+        exit(1);
+    }
+#endif
+    if (s->loop == SAMP_LOOP_OFF || !pl_samp_room(s))
+        v->x.sp.hi = (uint16_t)(v->x.sp.hi & ~SAMP_PL_LOOP);
+    if (n)
+        samp_place_go(s, &v->x.sp, samp_step(s, v->note, v->pb + v->tune), n > 0x3FFFFFFu ? 0xFFFFFFC0u : n * PL_BLOCK,
+                      v->held);
+    v->t_pl = pl_blk;
+    v->pb = v->bend;
+}
+/* a sampler ghost's end by itself, from its place (at now) at its pitch now, held or not; a ghost let go goes 10 s on at
+ * the latest */
+static PLAT_COLD void pl_gh_samp_end(pl_voice_t *v, const samp_t *s)
+{
+    uint32_t k = samp_end_blocks(s, &v->x.sp, samp_step(s, v->note, v->bend + v->tune), v->held);
+    v->t_end = k == SAMP_NEVER ? PL_NEVER : pl_blk + k;
+    if (!v->held)
+        v->t_end = pl_t_min(v->t_end, v->t_off + PL_GH_KEEP);
+    pl_gh_soon = pl_t_min(pl_gh_soon, v->t_end);
+}
+/* a CHIP ghost's two figures from its engine's state (ch) at the start of block `at`: its end while held (its VOL table
+ * running out; the block clock's) and its release's length once let go (as if let go then). Worked out as it becomes
+ * one (its state now), and again as its return's note starts (from that note's start, by the commands it came back
+ * with: pl_forward); its commands meanwhile (RELEASE, the VOL table, FPS) act from its return */
+static PLAT_COLD void pl_gh_chip(pl_voice_t *v, const chip_voice_t *ch, uint32_t at)
+{
+    uint32_t k = chip_end_blocks(ch, 0);
+    v->x.rel = (uint16_t)(k > 0xFFFEu ? 0xFFFFu : k);
+    k = chip_end_blocks(ch, 1);
+    v->t_end = k == CHIP_NEVER ? PL_NEVER : at + k;
+}
+/* note v, about to lose its engine (its state at the block's start: pl_blk's), as a ghost: its end by itself (a
+ * sampler's by its place, kept now; a CHIP's figures) */
+static PLAT_COLD void pl_gh_figures(pl_voice_t *v, const pl_eng_t *eng)
+{
+    v->t_end = PL_NEVER;
+    if (v->engine == EN_SAMP) {
+        uint32_t k;
+        samp_place_of(&eng->u.sm, &v->x.sp);
+        v->t_pl = pl_blk;
+        v->pb = v->bend;
+        k = samp_end_blocks(&eng->u.sm.s, &v->x.sp, eng->u.sm.step, v->held);
+        v->t_end = k == SAMP_NEVER ? PL_NEVER : pl_blk + k;
+    } else if (v->engine == EN_CHIP) {
+        pl_gh_chip(v, &eng->u.ch, pl_blk);
+    }
+}
+/* note v (no engine, its parameters and level set) as a ghost from its start: a sampler's place where it starts (at
+ * SAMPLE OFFSET offset; placed: kept already, its start waited for a fade), out of its loop if its list takes it out as
+ * a sounding note's start does (its commands one by one: LOOP OFF, or a loop left with no room), and its end; a CHIP's
+ * figures from a note started on a scratch voice. 0 if it cannot sound (its sample not there) */
+static PLAT_COLD int pl_gh_born(pl_voice_t *v, const uint8_t *slot, int32_t offset, int placed)
+{
+    v->t_end = PL_NEVER;
+    if (v->engine == EN_SAMP) {
+        samp_t s;
+        uint32_t i;
+        if (!pl_v_samp(v, &s, 0))
+            return 0;
+        if (!placed) {
+            samp_place_start(&s, offset, &v->x.sp);
+            v->t_pl = pl_blk;
         }
-        used++;
-        if (v >= pl_v + pl_nv && v->park == PK_PARKED &&
-            (!old || (v->use == PV_KEY) < (old->use == PV_KEY) ||
-             ((v->use == PV_KEY) == (old->use == PV_KEY) && v->parked < old->parked)))
-            old = v;
+        samp_prep(&s);                   /* (pl_v_samp_full's, each command's loop looked at as it comes) */
+        for (i = 0; i < v->p.par.n; i++) {
+            pl_samp_par(&s, v->p.par.pc[i], v->p.par.pv[i]);
+            if (pl_samp_unloop(&s, v->p.par.pc[i]))
+                v->x.sp.hi = (uint16_t)(v->x.sp.hi & ~SAMP_PL_LOOP);
+        }
+        pl_gh_walk(v, &s);
+        pl_gh_samp_end(v, &s);
+    } else if (v->engine == EN_CHIP) {
+        chip_voice_t ch;
+        chip_patch_t cp;
+        uint32_t i;
+        chip_unpack(slot, &cp);
+        for (i = 0; i < v->p.par.n; i++)
+            chip_set(&cp, v->p.par.pc[i], v->p.par.pv[i]);
+        memset(&ch, 0, sizeof ch);
+        chip_note_on(&ch, &cp, v->note);
+        pl_gh_chip(v, &ch, pl_blk);
     }
-    if (free && used < pl_places())
-        return free;
-    if (old)
-        pl_v_cut(old);
-    return old;
+    return 1;
 }
 
-/* voice v's slot for a new note: its note moves past the count and fades out over a block, a held one (but a
- * TB-303's) to be parked, the rest to go; with no slot there it is cut at once */
-static void pl_take(pl_voice_t *v)
+/* ghost v's return under way, its note started (its engine's kind its): that engine, which its pitch, level and key
+ * turn too, as the note never taken's would turn (the forward work goes on from there); PL_NO_ENG else. Told by the
+ * kind alone: from pl_returns' claim of a tail's engine to the end of that tail's fade (pl_fades, in the same pass) the
+ * engine still plays the tail, perhaps of the same kind, so this must not be called in between. Nothing does: pl_voices
+ * runs the one after the other with only the Juno-106's noise between; the pitch, level and key changes come from the
+ * replays and the keys, outside it. (A return under way given up, pl_back_stop, asks no kind: by a new note, a command,
+ * a mute, VOICES, or core 2's fallback, pl_v2_lost, the one inside the voices pass, after pl_fades) */
+static PLAT_COLD uint32_t pl_back_eng(const pl_voice_t *v)
 {
-    pl_voice_t *s = pl_spare();
-    if (PL_RARE(pl_tap_q != 0))
-        pl_tap_voice(v);
-    if (s) {
-        pl_move(v, s);
-        if (s->held && !s->cut && s->engine != EN_TB)
-            s->parked = ++pl_parks;
-        else
-            s->cut = 1;
-        s->park = PK_OUT;
-        s->back = 0;
+    uint32_t c;
+    if (v->gh != GH_BACK)
+        return PL_NO_ENG;
+    c = pl_wait_eng(v);
+    return pl_e[c].kind == v->engine ? c : PL_NO_ENG;
+}
+static PLAT_COLD void pl_back_level(const pl_voice_t *v)   /* (a Juno-106's level on its return's engine) */
+{
+    uint32_t c = pl_back_eng(v);
+    if (c != PL_NO_ENG)
+        juno_level(&pl_e[c].u.ju, v->gain);
+}
+/* the pitch of a note without an engine (pl_v_pitch): kept. A sampler ghost's place goes on at the pitch it had (pb) up
+ * to this block, at the new one from it: its end is due now, so the block's voices pass walks it and works its end out
+ * again (pl_gh_ends), once a block however often its pitch moves. Its return's engine, which the pitch turns too
+ * (pl_back_eng), or PL_NO_ENG */
+static PLAT_COLD uint32_t pl_gh_pitch(pl_voice_t *v, int32_t bend64)
+{
+    if (v->engine == EN_SAMP && (v->gh & 1u) && (int16_t)bend64 != v->bend) {
+        v->t_end = pl_blk;
+        pl_gh_soon = pl_t_min(pl_gh_soon, pl_blk);
     }
-    pl_v_cut(v);
+    v->bend = (int16_t)bend64;
+    return pl_back_eng(v);
+}
+/* a parameter command on a sampler note without an engine (pl_param_live): kept in its list (TUNE in its voice); a
+ * ghost's place walked to now as things stood first, its end worked out again after END, LOOP, the loop's points or
+ * TUNE (LOOP off, or a loop with no room left: its place loops no more) */
+static PLAT_COLD void pl_gh_samp_par(pl_voice_t *v, uint32_t code, uint32_t val)
+{
+    samp_t s;
+    int moves = code >= 0x41u && code <= 0x45u && v->gh == GH_GHOST && pl_v_samp(v, &s, 1);
+    if (moves)
+        pl_gh_walk(v, &s);
+    pl_par_put(v, code, val);
+    if (code == 0x45u)                   /* TUNE: 1/128 semitones, in place of the instrument's */
+        v->tune = pl_tune_cmd(val, pl_tune_inst(v));
+    if (!moves)
+        return;
+    pl_samp_par(&s, code, val);
+    if (pl_samp_unloop(&s, code))
+        v->x.sp.hi = (uint16_t)(v->x.sp.hi & ~SAMP_PL_LOOP);
+    pl_gh_samp_end(v, &s);
+}
+/* a note without an engine let go (pl_v_off): its let-go's time; a ghost's end then (a sampler's by its place, walked
+ * held up to now; a CHIP's by its release, the length its return's note started with once that has started; 10 s on at
+ * the latest). A start waiting for a fade is let go once it starts; a return under way goes on to its note off at this
+ * time (pl_forward) */
+static PLAT_COLD void pl_gh_off(pl_voice_t *v)
+{
+    samp_t s;
+    int samp = v->held && (v->gh & 1u) && v->engine == EN_SAMP && pl_v_samp(v, &s, 1);
+    if (!v->held)
+        return;
+    if (samp)
+        pl_gh_walk(v, &s);
+    v->held = 0;
+    v->t_off = pl_blk;
+    if (!(v->gh & 1u))
+        return;
+    if (samp) {
+        pl_gh_samp_end(v, &s);
+        return;
+    }
+    if (v->engine == EN_CHIP && v->x.rel != 0xFFFFu)
+        v->t_end = pl_t_min(v->t_end, v->t_off + v->x.rel);
+    v->t_end = pl_t_min(v->t_end, v->t_off + PL_GH_KEEP);
+    pl_gh_soon = pl_t_min(pl_gh_soon, v->t_end);
+}
+
+/* the ghosts that have ended by themselves (a one-shot sample past its END, a CHIP note's VOL table or release run out) or
+ * were let go 10 s ago: gone (pl_voices, as the block clock reaches the soonest end). A sampler ghost due is walked to
+ * now first (at the pitch it had: its pitch moved this block, or its end is due), gone if that ends it, else its end
+ * worked out again from there. A return under way goes as well (its engine freed): a CHIP's by the figures its note
+ * started with (pl_forward) */
+static PLAT_COLD __attribute__((noinline)) void pl_gh_ends(void)
+{
+    uint32_t i = 0, soon = PL_NEVER;
+    while (i < pl_gn) {
+        pl_voice_t *g = &pl_v[pl_gl[i]];
+        samp_t s;
+        if (pl_t_due(g->t_end)) {
+            if (g->engine == EN_SAMP && pl_v_samp(g, &s, 1)) {
+                pl_gh_walk(g, &s);
+                pl_gh_samp_end(g, &s);
+            }
+            if (pl_t_due(g->t_end)) {
+                PL_GF(pl_gf_go = !g->held && pl_blk - g->t_off >= PL_GH_KEEP ? GO_KEEP : GO_SELF);
+                pl_v_free(g);            /* (out of the list: the next one is at i now) */
+                continue;
+            }
+        }
+        soon = pl_t_min(soon, g->t_end);
+        i++;
+    }
+    pl_gh_soon = soon;
+}
+
+/* a ghost's rank in the list's drop (specs/proposals/202611121830-ghost-notes.md, section 6; the first goes first): let
+ * go; muted (pl_v_muted); a song's or a loop's held; a key's held (the debug build's page mirrors them in this order:
+ * fw/web/figures.js' GH_RANKS and GH_RANK_AT) */
+enum { GR_LET, GR_MUTED, GR_SONG, GR_KEY };
+static PLAT_COLD uint32_t pl_gh_rank(const pl_voice_t *g)
+{
+    return !g->held ? GR_LET : g->use == PV_KEY ? GR_KEY : pl_v_muted(g) ? GR_MUTED : GR_SONG;
+}
+/* room in the ghosts' list for a new ghost (its rank, GR_*; off: its let-go, FWD_HELD held). Full, the one to go for it
+ * is dropped now: the ghosts let go first, let go longest ago first; then the muted, the songs' and loops' held, the
+ * keys' held, each a ghost longest first; 0: the new one ranks below every ghost (none of its rank or before it listed;
+ * one let go before every ghost let go): it is not kept */
+static PLAT_COLD int pl_gh_room(uint32_t rank, uint32_t off)
+{
+    pl_voice_t *g = 0;
+    uint32_t i, gr = GR_KEY + 1u, ago = 0;
+    if (pl_gn < PL_GHOSTS)
+        return 1;
+    for (i = 0; i < pl_gn; i++) {        /* (the list in the order made: the first is a ghost longest) */
+        pl_voice_t *o = &pl_v[pl_gl[i]];
+        uint32_t r = pl_gh_rank(o);
+        if (r < gr || (r == GR_LET && pl_blk - o->t_off > ago)) {
+            g = o;
+            gr = r;
+            ago = pl_blk - o->t_off;
+        }
+    }
+    if (rank < gr || (rank == GR_LET && pl_blk - off >= ago)) {
+        PL_GF(pl_gf.full_new[rank]++);   /* (the figures: the new one not kept) */
+        return 0;
+    }
+    PL_GF(pl_gf_go = (uint8_t)(GO_FULL_LET + gr));
+    pl_v_free(g);
+    return 1;
+}
+
+/* the fades a block may begin by takes and by returns into tails' engines (pl_returns), each an engine's block rendered
+ * more on core 1: the engines the count leaves unused under 16 (VOICES 8: 8, PL_FADES), 4 at the least (VOICES 12 and
+ * 16: 4); past them a taken note is cut at once, and a ghost waits for the next block */
+static uint32_t pl_fade_most(void)
+{
+    uint32_t n = PL_VOICES_MOST - pl_nv;
+    return n < 4u ? 4u : n > PL_FADES ? PL_FADES : n;
+}
+/* note v, taken from engine c, fades out there over the block: its fade note (what its mixing needs), the engine's own
+ * patch copy for a Juno-106 (nothing of the voice is read again) */
+static PLAT_COLD void pl_fade_begin(pl_voice_t *v, uint32_t c)
+{
+    pl_eng_t *eng = &pl_e[c];
+    pl_fade_t *f = &pl_fd[pl_nfd];
+    f->eng = (uint8_t)c;
+    f->who = v->who;
+    f->pan = v->pan;
+    f->g0 = v->g_last;
+    f->fl = (uint8_t)((v->use == PV_KEY ? FD_KEY : 0) | (v->lc ? FD_LC : 0));
+    eng->fade = pl_nfd++;
+    pl_h_load = (uint16_t)(pl_h_load + PL_LOAD_FADE);
+    eng->wait = PL_NO_VOICE;
+    if (eng->kind == EN_JUNO) {
+        memcpy(eng->u.jx.jp, v->p.jp, JUNO_PATCH_BYTES);
+        eng->u.ju.p = eng->u.jx.jp;
+    }
+}
+
+/* note v gives up its engine c (off it): its last block fades out there (a fade note, the engine cut once that block is
+ * rendered: pl_fades) when it can be heard and the block has a fade left of `most`; else the engine is cut at once (a
+ * note started in this block, never heard; one whose gain is 0, or muted at its last block's end (DUCK's source's, a
+ * TB-303's), its fade silent; past the block's fades). 1: it fades */
+static PLAT_COLD int pl_give(pl_voice_t *v, uint32_t c, uint32_t most)
+{
+    int fade = v->age <= pl_age_seen && v->g_last && v->m_last && pl_nfd < most;
+    if (fade)
+        pl_fade_begin(v, c);
+    else
+        pl_e_cut(&pl_e[c]);
+    pl_unbind(v);
+    return fade;
+}
+/* note v gives up its engine for a new note (pl_alloc): pl_give's, so the new note starts there as in an engine its note
+ * has left; held (but a TB-303's) it goes on as a ghost if the list keeps it, else it goes, and so does one ended by
+ * then (its end due: a CHIP's VOL table run out, a one-shot sample past its END, its engine not yet freed; so a list
+ * full drops no ghost for it, and none listed is due once the voices pass has freed those due). A ghost's return
+ * under way (GH_BACK) gives its engine up instead (pl_back_stop): the ghost stays a ghost in the list, the engine
+ * silent. The new note's voice back (v's own when it goes), its engine in pl_al_c. Also another count's (pl_nv_apply)
+ * for the notes above it */
+static uint8_t pl_al_c, pl_al_born;      /* (pl_alloc for pl_voice_on: the engine the note takes; it starts a ghost) */
+static PLAT_COLD pl_voice_t *pl_take(pl_voice_t *v, uint32_t most)
+{
+    uint32_t c;
+    int keep = v->held && !v->cut && v->engine != EN_TB;
+    if (PL_RARE(v->gh == GH_BACK)) {     /* (a return under way: its engine silent, the ghost staying a ghost) */
+#ifdef PTFM_DEBUG
+        pl_gf.gave[pl_gf_mk == GM_TAKEN ? GG_NOTE : GG_COUNT]++;   /* (the figures; a new note plays in its engine:
+                                          * the tail it took not cut for nothing) */
+        if (pl_gf_mk == GM_TAKEN)
+            pl_gf_tail = (uint16_t)(pl_gf_tail & ~(1u << pl_wait_eng(v)));
+#endif
+        pl_al_c = (uint8_t)pl_back_stop(v);
+        return pl_v_spare();
+    }
+    pl_tap_voice(v);
+    if (v->place == PL_NO_ENG) {         /* (its start waited for a fade: the new note waits instead) */
+        const uint8_t *slot;
+        c = pl_wait_eng(v);
+        pl_e[c].wait = PL_NO_VOICE;
+        v->gh = GH_NO;
+        keep = keep && pl_engine(v->inst, &slot) == v->engine && pl_gh_born(v, slot, 0, 1);
+    } else {
+        c = v->place;
+        if (keep)
+            pl_gh_figures(v, &pl_e[c]);
+        pl_give(v, c, most);
+    }
+    pl_al_c = (uint8_t)c;
+    if (keep && !pl_t_due(v->t_end) && pl_gh_room(pl_gh_rank(v), FWD_HELD)) {
+        pl_gh_add(v);
+        return pl_v_spare();
+    }
+    pl_v_free(v);
+    return v;
 }
 
 /* how much a voice would be missed (the least goes first): release tails, the new note's own track's first, then
- * the quietest; then held song notes, the quietest first (a muted track's count as silent); the keys' held notes
- * last, the oldest first, however quiet (pl_alloc gives them up only to the keys' own). A note started since the
- * last block has no peak yet: the last of its kind */
-static uint32_t pl_worth(const pl_voice_t *v, int who)
+ * the quietest; then held song notes, the quietest first; the keys' held notes last, the oldest first, however quiet
+ * (pl_alloc gives them up only to the keys' own). A song's note on a track muted now (mm: the tracks muted, who 0-31)
+ * counts as silent, even in the block its mute came in (its last block heard); but DUCK's source's, and the stage's
+ * column's, never muted. A note started since the last block has no peak yet, and a note fading back in its own is
+ * not one yet: the last of its kind */
+static uint32_t pl_worth(const pl_voice_t *v, int who, uint32_t mm)
 {
-    uint32_t loud = v->m_last && v->peak > 0 ? (uint32_t)v->peak : 0u, rank;
+    int heard = !(mm >> (v->who & 31u) & 1u) || !pl_v_muted(v);   /* (a key's who, its note, no track: heard) */
+    uint32_t loud = heard && v->peak > 0 ? (uint32_t)v->peak : 0u, rank;
     if (!v->held || v->cut) {
         rank = v->use == PV_SONG && (int)v->who == who ? 0u : 1u;
     } else if (v->use == PV_SONG) {
@@ -952,19 +1788,31 @@ static uint32_t pl_worth(const pl_voice_t *v, int who)
         rank = 3u;
         loud = 0;
     }
-    if (v->age > pl_age_seen)
+    if (v->age > pl_age_seen || v->back)
         loud = 0xFFFFu;
     return rank << 16 | loud;
 }
-static pl_voice_t *pl_victim(int deck, int who)   /* the voice to take (of a deck's: deck >= 0); ties: the oldest */
+/* the note to take, in the count's engines (of a deck's: deck >= 0; tails: a release tail's alone, sounding in its
+ * engine: not one fading, nor one a return holds); ties: the oldest. A song's note (who >= 0) never takes a key's note
+ * coming back */
+static PLAT_COLD pl_voice_t *pl_victim(int deck, int who, int tails)
 {
-    pl_voice_t *best = 0, *v, *end = pl_v + pl_nv;
-    uint32_t bw = 0;
-    for (v = pl_v; v < end; v++) {
+    pl_voice_t *best = 0, *v;
+    uint32_t bw = 0, c, mm = pl_ctxs[0].mute | pl_ctxs[1].mute << 16;   /* (the tracks muted now, by a voice's who:
+                                          * memory m's replay its half, PL_MCTX) */
+    if (pl_swapped)
+        mm = mm >> 16 | mm << 16;
+    for (c = 0; c < pl_nv; c++) {
         uint32_t w;
+        if (!(v = pl_e_note(c)) || (tails && pl_e[c].voice == PL_NO_VOICE))
+            continue;
         if (deck >= 0 && (v->use != PV_SONG || (v->who >> 4 & 1u) != (uint32_t)deck))
             continue;
-        w = pl_worth(v, who);
+        if (who >= 0 && v->use == PV_KEY && v->back)
+            continue;
+        w = pl_worth(v, who, mm);
+        if (tails && w >> 16 > 1u)       /* (a held note's) */
+            continue;
         if (!best || w < bw || (w == bw && v->age < best->age)) {
             best = v;
             bw = w;
@@ -976,238 +1824,782 @@ static int pl_dj_heard(int d)            /* DJ: a deck heard (the crossfader and
 {
     return pl_dj.g_last[d] > 0;
 }
-/* a voice for a new note of track `who` (-1: the keys) among the first pl_nv: a free one, else one taken. The keys'
- * held notes are never taken for a song's note (specs/ui/screens/settings.md#voices): with every voice a key's, or
- * a key's note parked and waiting for one, the song's note gets a slot past the count and starts parked
- * (pl_born_parked), to come back as a voice comes free, after the keys' */
-static uint8_t pl_born_parked;           /* pl_voice_on's next note starts parked */
-static pl_voice_t *pl_park_new(void)
+/* the note to take (pl_victim's) for a note of track who of replay me (both -1: the keys'), any or a release tail's alone
+ * (tails); 0 none. DJ: the deck lower in the mix gives way (the right at the middle); a deck faded out takes only its
+ * own, never the heard deck's (none of its own: PL_DEAF, one past the voices, never a voice) */
+#define PL_DEAF (pl_v + PL_NV)
+static PLAT_COLD pl_voice_t *pl_choose(int me, int who, int tails)
 {
-    pl_voice_t *s = pl_spare();
-    pl_born_parked = s != 0;
-    return s;
+    pl_voice_t *best = 0;
+    if (PL_DJ_ON && me >= 0) {
+        int lower = pl_dj.xf8 < (16 << 8) ? 1 : pl_dj.xf8 > (16 << 8) ? 0 : 1;
+        int heard = pl_dj_heard(me ^ pl_swapped), from = heard ? lower ^ pl_swapped : me;   /* (me a memory, lower a
+                                                                                    * side: pl_swapped maps them) */
+        best = pl_victim(from, who, tails);
+        if (!best && from != me)
+            best = pl_victim(me, who, tails);
+        if (!best && !heard)
+            return PL_DEAF;
+    }
+    return best ? best : pl_victim(-1, who, tails);
 }
-static PLAT_COLD pl_voice_t *pl_alloc(int who)
+/* a song's note that may take no engine starts as a ghost (pl_al_born; rank: GR_SONG, or GR_MUTED a muted track's): a
+ * TB-303's is not played (it slides from note to note in its engine); nor one ranking below every ghost of a full list
+ * (pl_gh_room) */
+static PLAT_COLD pl_voice_t *pl_born(uint32_t e, uint32_t rank)
 {
-    pl_voice_t *best = 0, *v, *end = pl_v + pl_nv;
+    if (e == EN_TB || !pl_gh_room(rank, FWD_HELD))
+        return 0;
+    PL_GF(pl_gf_mk = rank == GR_MUTED ? GM_BORN_MUTED : GM_BORN);
+    pl_al_born = 1;
+    return pl_v_spare();
+}
+/* a voice for a new note of track `who` (-1: the keys; + PL_LC_WHO: on LOOPS' stage's column) on engine kind e, and its
+ * engine among the first pl_nv (pl_al_c, for pl_voice_on): a free one (the first first), else one a ghost's return
+ * under way holds (silent: the ghost stays a ghost; of several, the highest-numbered engine's, whatever their order of
+ * return), else one taken (pl_take). A muted track's note starts as a ghost,
+ * taking no engine (but a TB-303's, and DUCK's source's: pl_who_muted). The keys' held notes are never taken for a
+ * song's note (specs/ui/screens/settings.md#voices): with every engine a key's, or a key's held ghost waiting for one,
+ * the song's note starts as a ghost, to come back as an engine comes free, after the keys' */
+static PLAT_COLD pl_voice_t *pl_alloc(int who, uint32_t e)
+{
+    pl_voice_t *best, *r = 0;
+    uint32_t c;
+    pl_al_c = PL_NO_ENG;
+    pl_al_born = 0;
+    PL_GF(pl_gf_mk = GM_TAKEN);
     if (pl_hush)                         /* (CUT held: no note starts) */
         return 0;
-    if (who >= 0)                        /* (a key's note waiting for a voice: the song's waits behind it) */
-        for (v = end; v < pl_v + PL_NV; v++)
-            if (v->use == PV_KEY && v->park == PK_PARKED && v->held && !v->cut)
-                return pl_park_new();
-    for (v = pl_v; v < end; v++)
-        if (v->use == PV_FREE)
-            return v;
-    if (PL_DJ_ON && pl_alloc_k >= 0) {   /* DJ: the deck lower in the mix gives way (the right at the middle); a
-                                          * deck faded out takes only its own, never the heard deck's */
-        int me = pl_alloc_k, lower = pl_dj.xf8 < (16 << 8) ? 1 : pl_dj.xf8 > (16 << 8) ? 0 : 1;
-        int heard = pl_dj_heard(me ^ pl_swapped), from = heard ? lower ^ pl_swapped : me;   /* (me a memory, lower a
-                                                                                        * side: pl_swapped maps them) */
-        best = pl_victim(from, who);
-        if (!best && from != me)
-            best = pl_victim(me, who);
-        if (!best && !heard)
-            return 0;
+    if (who >= (int)PL_LC_WHO)           /* (the stage's column: no mute) */
+        who -= (int)PL_LC_WHO;
+    else if (who >= 0 && e != EN_TB && pl_who_muted((uint32_t)who))
+        return pl_born(e, GR_MUTED);
+    if (who >= 0 && PL_RARE(pl_gn))      /* (a key's held ghost waiting for an engine: the song's note waits behind it) */
+        for (c = 0; c < pl_gn; c++)
+            if (pl_v[pl_gl[c]].use == PV_KEY && pl_v[pl_gl[c]].held)
+                return pl_born(e, GR_SONG);
+    for (c = 0; c < pl_nv; c++) {
+        if (!(best = pl_e_note(c))) {
+            pl_al_c = (uint8_t)c;
+            return pl_v_spare();
+        }
+        if (PL_RARE(best->gh == GH_BACK))
+            r = best;
     }
-    if (!best)
-        best = pl_victim(-1, who);
-    if (who >= 0 && best && best->use == PV_KEY && best->held && !best->cut)
-        return pl_park_new();            /* (the keys hold every voice: the song's note starts parked) */
+    if (PL_RARE(r != 0))                 /* (a return under way: pl_take gives its engine up) */
+        return pl_take(r, 0);
+    best = pl_choose(pl_alloc_k, who, 0);
+    if (best == PL_DEAF)                 /* (DJ: a deck faded out, none of its own to take: not played) */
+        return 0;
+    if (!best)                           /* (a song's note, every engine a key's note coming back: it starts as a ghost) */
+        return who >= 0 ? pl_born(e, GR_SONG) : 0;
+    if (who >= 0 && best->use == PV_KEY && best->held && !best->cut)
+        return pl_born(e, GR_SONG);      /* (the keys hold every engine: the song's note starts as a ghost) */
     pl_steals++;
-    pl_take(best);
-    return best;
+    return pl_take(best, pl_fade_most());
 }
 
-/* before a block's voices: a voice free among the first pl_nv takes back the note parked last, fading in, the keys'
- * before a song's; a note parked in a slot the count now reaches comes back where it is */
-static void pl_unpark(void)
-{
-    pl_voice_t *v, *s, *b;
-    int none = 0;
-    for (v = pl_v; v < pl_v + pl_nv; v++) {
-        if (v->use != PV_FREE) {
-            if (v->park == PK_PARKED) {
-                v->park = PK_NO;
-                v->back = PL_BACK_N;
-            }
-            continue;
-        }
-        for (b = 0, s = pl_v + pl_nv; !none && s < pl_v + PL_NV; s++)
-            if (s->use != PV_FREE && s->park == PK_PARKED && s->held && !s->cut &&
-                (!b || (s->use == PV_KEY) > (b->use == PV_KEY) ||
-                 ((s->use == PV_KEY) == (b->use == PV_KEY) && s->parked > b->parked)))
-                b = s;
-        if (!b) {
-            none = 1;
-            continue;
-        }
-        pl_move(b, v);
-        v->park = PK_NO;
-        v->back = PL_BACK_N;
-        b->use = PV_FREE;                /* (its slot: what is left there is written over when it is used) */
-        b->held = b->cut = 0;
-        b->park = PK_NO;
-    }
-}
-
-/* another count: the notes held above it are parked (a TB-303's let go), their tails ring on; notes parked where
- * the count now reaches come back */
+/* another count: the held notes in the engines above it fade out there and go on as ghosts, made in their engines'
+ * order (a TB-303's let go; a start waiting there: a ghost at once, never heard), their release tails ring on where they
+ * are; a larger count's free engines take ghosts back as any engine does (pl_returns, 4 a block). Each goes as a take
+ * does (pl_take), every fade note the block has free (never heard, silent, or past them: cut at once) */
 static void pl_nv_apply(uint32_t n)
 {
-    uint32_t i;
+    uint32_t c;
+#ifdef PTFM_DEBUG
+    uint8_t mk0 = pl_gf_mk;              /* (the figures: its ghosts past a smaller count, or core 2's fallback's) */
+    if (mk0 < GM_C2_BEGUN)
+        pl_gf_mk = GM_COUNT;
+#endif
     pl_nv = (uint8_t)(n < 1u ? 1u : n > PL_VOICES_MOST ? PL_VOICES_MOST : n);
-    for (i = 0; i < PL_NV; i++) {
-        pl_voice_t *v = &pl_v[i];
-        if (v->use == PV_FREE)
+    for (c = pl_nv; c < PL_NE; c++) {
+        pl_eng_t *eng = &pl_e[c];
+        pl_voice_t *v;
+        if (PL_RARE(eng->wait != PL_NO_VOICE))
+            pl_take(&pl_v[eng->wait], PL_FADES);
+        if (eng->voice == PL_NO_VOICE)
             continue;
-        if (i < pl_nv) {
-            if (v->park == PK_PARKED) {
-                v->park = PK_NO;
-                v->back = PL_BACK_N;
-            }
-        } else if (v->held && !v->cut && v->park == PK_NO) {
-            if (PL_RARE(pl_tap_q != 0))
-                pl_tap_voice(v);
-            if (v->engine == EN_TB) {
-                if (v->use == PV_SONG && PL_CH(v->who).voice == (int8_t)i)
-                    PL_CH(v->who).voice = -1;
-                pl_v_off(v);
-            } else {
-                v->park = PK_OUT;
-                v->parked = ++pl_parks;
-                v->back = 0;
-            }
+        v = &pl_v[eng->voice];
+        if (!v->held || v->cut)
+            continue;
+        if (v->engine == EN_TB) {
+            pl_tap_voice(v);
+            if (v->use == PV_SONG && PL_CH(v->who).voice == (int8_t)(v - pl_v))
+                PL_CH(v->who).voice = -1;
+            pl_v_off(v);
+            continue;
         }
+        pl_take(v, PL_FADES);
     }
+    pl_al_c = PL_NO_ENG;                 /* (no note's start here) */
+    PL_GF(pl_gf_mk = mk0);
 }
 
-/* a voice's level now: its lvl x dyn (Q12: the track's volume x the global volume; the keys 4096) */
+/* a voice's level now: its lvl x dyn (Q12: the track's volume x the global volume; the keys 4096), kept in the voice
+ * (a Juno-106's in its engine too, when it has one) */
 static void pl_v_level(pl_voice_t *v, int32_t dyn)
 {
     int32_t l = (v->lvl * dyn) >> 12;
-    if (v->engine == EN_JUNO)
-        juno_level(&v->u.ju, l);
-    else
+    if (v->engine == EN_JUNO) {
+        v->gain = l;
+        if (v->place != PL_NO_ENG)
+            juno_level(&PL_E(v)->u.ju, l);
+        else if (PL_RARE(v->gh == GH_BACK))
+            pl_back_level(v);            /* (a return under way's engine: its level turns there too) */
+    } else
         v->gain = (PL_ENG_Q12 * l) >> 12;
 }
 
-/* a voice's pitch: its note bent by bend64 / 64 semitones */
+/* a voice's pitch: its note bent by bend64 / 64 semitones, kept in the voice (without an engine: pl_gh_pitch) */
 static void pl_v_pitch(pl_voice_t *v, int32_t bend64)
 {
     int32_t q24 = bend64 * 21845 + bend64 / 3;   /* (an octave is 2^24) */
+    pl_eng_t *eng;
+    if (PL_RARE(v->place == PL_NO_ENG)) {
+        uint32_t c = pl_gh_pitch(v, bend64);   /* (a return under way's engine turns too) */
+        if (c == PL_NO_ENG)
+            return;
+        eng = &pl_e[c];
+    } else {
+        v->bend = (int16_t)bend64;
+        eng = PL_E(v);
+    }
     if (v->engine == EN_DX7)
-        v->u.dx.bend = q24;
+        eng->u.dx.bend = q24;
     else if (v->engine == EN_JUNO)
-        v->u.ju.bend = q24;
+        eng->u.ju.bend = q24;
     else if (v->engine == EN_TB)
-        tb_pitch(&v->u.tb, v->note, bend64);
+        tb_pitch(&eng->u.tb, v->note, bend64);
     else if (v->engine == EN_CHIP)
-        chip_pitch(&v->u.ch, bend64);
+        chip_pitch(&eng->u.ch, bend64);
     else
-        samp_pitch(&v->u.sm, v->note, bend64 + v->tune);
+        samp_pitch(&eng->u.sm, v->note, bend64 + v->tune);
 }
 
-/* voice v plays instrument in's note (use, who: whose; vol 1-127; pan 0-255) at its LEVEL x lvl_q12 (a
- * FUSION layer's level, else 4096), with the parameter commands pc / pv (np of them) on top of its slot;
- * offset: a sample's SAMPLE OFFSET. 0 if the instrument cannot sound (the voice is then left free) */
-static PLAT_COLD int pl_voice_on(pl_voice_t *v, uint32_t use, uint32_t who, pl_inst_t in, int note, uint32_t vol,
-                       uint32_t pan, uint32_t acc, int32_t lvl_q12, const uint8_t *pc, const uint8_t *pv,
-                       uint32_t np, int32_t offset)
+/* a Juno-106 note's key moved (a legato: its filter follows the new key), kept in its voice (a start from it takes it) */
+static PLAT_COLD void pl_v_jkey(pl_voice_t *v, uint32_t note)
 {
-    const uint8_t *slot;
-    uint32_t e = pl_engine(in, &slot), i, born = pl_born_parked;
-    int32_t trim;
-    pl_born_parked = 0;
-    if (!v || e == EN_NONE || e == EN_FUS)   /* (no voice: DJ's deck faded out finds none it may take) */
-        return 0;
-    if (born && e == EN_TB)              /* (a TB-303 slides from note to note in its voice: no voice, no note) */
-        return 0;
-    DBG_NOTE();                          /* (the debug build: notes started in the half) */
-    if (v->engine != e) {                /* another engine's state was here: start from zero */
-        memset(&v->u, 0, sizeof v->u);
-        v->engine = (uint8_t)e;
+    uint32_t c = v->place != PL_NO_ENG ? v->place : pl_back_eng(v);   /* (a return under way's engine too) */
+    v->key = (uint8_t)note;
+    if (c != PL_NO_ENG)
+        juno_key(&pl_e[c].u.ju, (int)note);
+}
+
+/* voice v's note started in its engine (it has one): its instrument's slot with its voice's parameter commands on top
+ * (its list: the note's own as it starts), a Juno-106 from its voice's patch copy, at its note, its level and a
+ * TB-303's accent as its voice has them; a sampler at SAMPLE OFFSET offset, or (at) at its place v->x.sp. Started from
+ * its voice (a ghost's return, a start that waited for a fade) its pitch and a Juno-106's key as they stand too. 0 if
+ * its sample is not there */
+static PLAT_COLD int pl_eng_start(pl_voice_t *v, const uint8_t *slot, int32_t offset, int at)
+{
+    pl_eng_t *eng = PL_E(v);
+    uint32_t e = v->engine, i, np = e == EN_JUNO ? 0u : v->p.par.n;
+    const uint8_t *pc = v->p.par.pc, *pv = v->p.par.pv;
+    int note = v->note;
+    if (eng->kind != e) {                /* another engine's state was here: start from zero */
+        memset(&eng->u, 0, sizeof eng->u);
+        eng->kind = (uint8_t)e;
     }
-    v->use = (uint8_t)use;
-    v->who = (uint8_t)who;
-    v->held = 1;
-    v->cut = v->quiet = v->lcut = 0;
-    v->park = PK_NO;
-    v->back = 0;
-    v->lc = 0;                           /* (LOOPS' stage's voices: marked by their lanes after this, pl_v_lc) */
-    v->inst = in;
-    v->note = (uint8_t)note;
-    v->pan = (uint8_t)pan;
-    v->age = ++pl_age;
-    v->peak = 0;
-    v->tune = 0;
-    v->arp64 = 0;
-    v->g_last = 0;
-    v->m_last = use == PV_SONG && (PL_MCTX(who >> 4)->mute >> (who & 15u) & 1u) ? 0 : 4096;   /* (a muted
-                                                                     * track's: silent from its start) */
-    trim = pl_level_q12(in);
-    /* a Juno-106 plays at its engine's own level and its LEVEL scales what it renders (the engine is not
-     * linear in its level: its filter's seed noise, its saturation); the others' LEVEL scales their output */
-    v->trim = e == EN_JUNO ? trim : 4096;
-    v->lvl = e == EN_JUNO ? lvl_q12 : (int32_t)(((int64_t)trim * lvl_q12) >> 12);
-    v->lvl = (v->lvl > 65535 ? 65535 : v->lvl) * (int32_t)vol / 127;   /* (+24 dB at most) */
-    memset(pl_scope[v - pl_v], 0, sizeof pl_scope[0]);
+    memset(pl_scope[v->place], 0, sizeof pl_scope[0]);
     if (e == EN_DX7) {
         uint8_t vc[156];
         uint32_t top;
         rec_dx7_vced(slot, vc);
-        for (i = 0; i < np; i++) {       /* the track's parameters on its copy */
-            int32_t at = pl_dx7_at(pc[i], &top);
-            if (at >= 0)
-                vc[at] = (uint8_t)(pv[i] > top ? top : pv[i]);
+        for (i = 0; i < np; i++) {       /* the parameters on its copy */
+            int32_t a = pl_dx7_at(pc[i], &top);
+            if (a >= 0)
+                vc[a] = (uint8_t)(pv[i] > top ? top : pv[i]);
         }
-        dx7_note_on(&v->u.dx, vc, note, PL_VEL);
+        dx7_note_on(&eng->u.dx, vc, note, PL_VEL, v->p.par.vel);
     } else if (e == EN_JUNO) {
-        rec_juno_patch(slot, v->jp);
-        for (i = 0; i < np; i++)
-            pl_juno_par(v->jp, pc[i], pv[i]);
-        juno_note_on(&v->u.ju, v->jp, note, v->lvl);
+        juno_note_on(&eng->u.ju, v->p.jp, note, v->lvl);
+        juno_level(&eng->u.ju, v->gain);
     } else if (e == EN_TB) {
         uint8_t k[TB_NK];
         rec_tb_knobs(slot, k);
         for (i = 0; i < np; i++)
             if (pc[i] >= 0x40u && pc[i] < 0x40u + TB_NK)
                 k[pc[i] - 0x40u] = (uint8_t)(pv[i] > 127u ? 127u : pv[i]);
-        tb_note_on(&v->u.tb, k, note, (int)acc);
+        tb_note_on(&eng->u.tb, k, note, (int)v->acc);
     } else if (e == EN_CHIP) {
         chip_patch_t cp;
         chip_unpack(slot, &cp);
-        for (i = 0; i < np; i++)         /* the track's parameters on its copy */
+        for (i = 0; i < np; i++)         /* the parameters on its copy */
             chip_set(&cp, pc[i], pv[i]);
-        chip_note_on(&v->u.ch, &cp, note);
+        chip_note_on(&eng->u.ch, &cp, note);
     } else {
         samp_t s;
-        if (!pl_sample_of(in, &s, 0)) {
-            v->use = PV_FREE;
-            v->held = 0;
+        if (!pl_v_samp(v, &s, 0))        /* (its sample, START from its list; TUNE: the voice's) */
             return 0;
-        }
-        for (i = 0; i < np; i++) {
-            if (pc[i] == 0x40u)          /* START */
-                s.start = pl_samp_pos(&s, pv[i]);
-            else if (pc[i] == 0x45u)
-                v->tune = ((int32_t)pv[i] - 128) / 2;
-        }
-        if (s.start >= s.length)
-            s.start = 0;
-        samp_note_on(&v->u.sm, &s, note, offset);
+        if (at)
+            samp_note_at(&eng->u.sm, &s, note, &v->x.sp);
+        else
+            samp_note_on(&eng->u.sm, &s, note, offset);
         for (i = 0; i < np; i++)         /* END, the loop, the envelope */
             if (pc[i] != 0x40u && pc[i] != 0x45u)
                 pl_param_live(v, pc[i], pv[i]);
         if (v->tune)
-            samp_pitch(&v->u.sm, note, v->tune);
+            samp_pitch(&eng->u.sm, note, v->tune);
     }
-    pl_v_level(v, 4096);
-    if (born) {                          /* (past the count, the keys holding every voice: unheard until one is free) */
-        v->park = PK_PARKED;
-        v->parked = ++pl_parks;
+    if (PL_RARE(v->bend))                /* (from its voice: its pitch, its key as they stand) */
+        pl_v_pitch(v, v->bend);
+    if (PL_RARE(v->key != v->note) && e == EN_JUNO)
+        juno_key(&eng->u.ju, v->key);
+    return 1;
+}
+/* note v (without an engine: out of the ghosts' list, waiting no more) started in free engine c from its voice: its
+ * instrument, its parameters (its list; a Juno-106's patch copy), its note, then its level, pitch, key and tune as they
+ * stand; a sampler at its place. 0 if its instrument is gone, or another engine's now (the note dropped) */
+static PLAT_COLD int pl_start_from(pl_voice_t *v, uint32_t c)
+{
+    const uint8_t *slot;
+    if (pl_engine(v->inst, &slot) != v->engine) {
+        pl_v_free(v);
+        return 0;
+    }
+    pl_bind(v, c);
+    if (!pl_eng_start(v, slot, 0, 1)) {
+        pl_v_free(v);
+        return 0;
     }
     return 1;
+}
+
+/* voice v (pl_alloc's, with its engine pl_al_c, or none: it starts as a ghost, pl_al_born) plays instrument in's note
+ * (use, who: whose; vol 1-127; pan 0-255) at its LEVEL x lvl_q12 (a FUSION layer's level, else 4096), with the
+ * parameter commands pc / pv (np of them) on top of its slot (kept in its voice too); offset: a sample's SAMPLE OFFSET;
+ * acc: a TB-303's ACC. Its engine fading out the note taken from it, its start waits for that fade (the block's voices
+ * pass: pl_fades). 0 if the instrument cannot sound (the voice is then left free) */
+static int32_t pl_key_dyn(uint32_t note);
+static uint8_t pl_vel_at;                /* the next pl_voice_on's velocity + 1 (0: its vol): a song's or a lane's note
+                                          * starts at vol 127, its volume in its track's (a DX7's modulators take it) */
+static PLAT_COLD int pl_voice_on(pl_voice_t *v, uint32_t use, uint32_t who, pl_inst_t in, int note, uint32_t vol,
+                       uint32_t pan, uint32_t acc, int32_t lvl_q12, const uint8_t *pc, const uint8_t *pv,
+                       uint32_t np, int32_t offset)
+{
+    const uint8_t *slot;
+    uint32_t e = pl_engine(in, &slot), i, c = pl_al_c, born = pl_al_born, vel = pl_vel_at ? pl_vel_at - 1u : vol;
+    int32_t trim;
+    pl_vel_at = 0;
+    pl_al_c = PL_NO_ENG;
+    pl_al_born = 0;
+    if (!v || e == EN_NONE || e == EN_FUS || (c == PL_NO_ENG && !born))   /* (no voice: DJ's deck faded out finds none
+                                          * it may take; a note not kept) */
+        return 0;
+    DBG_NOTE();                          /* (the debug build: notes started in the half) */
+    pl_h_load = (uint16_t)(pl_h_load + PL_LOAD_NOTE);
+    PL_GF(pl_gf_vt[v - pl_v] = (uint16_t)(pl_blk - 0x8000u));   /* (the figures: not come back; 16 bits, 95 s of blocks) */
+    v->engine = (uint8_t)e;
+    v->use = (uint8_t)use;
+    v->who = (uint8_t)who;
+    v->held = 1;
+    v->cut = v->quiet = v->lcut = 0;
+    v->back = 0;
+    v->lc = 0;                           /* (LOOPS' stage's voices: marked by their lanes after this, pl_v_lc) */
+    v->inst = in;
+    v->note = v->key = (uint8_t)note;
+    v->acc = (uint8_t)acc;
+    v->pan = (uint8_t)pan;
+    v->age = ++pl_age;
+    v->peak = 0;
+    v->tune = 0;
+    v->arp64 = 0;
+    v->bend = 0;
+    v->g_last = 0;
+    v->m_last = use == PV_SONG && (PL_MCTX(who >> 4)->mute >> (who & 15u) & 1u) ? 0 : 4096;   /* (a muted
+                                          * track's: silent from its start; a ghost, but a TB-303's, DUCK's source's) */
+    v->t_on = pl_blk;
+    v->t_off = FWD_HELD;
+    v->t_end = PL_NEVER;
+    trim = pl_level_q12(in);
+    /* a Juno-106 plays at its engine's own level and its LEVEL scales what it renders (the engine is not
+     * linear in its level: its filter's seed noise, its saturation); the others' LEVEL scales their output */
+    v->trim = e == EN_JUNO ? trim : 4096;
+    v->lvl = e == EN_JUNO ? lvl_q12 : (int32_t)(((int64_t)trim * lvl_q12) >> 12);
+    v->lvl = (v->lvl > 65535 ? 65535 : v->lvl) * (int32_t)vol / 127;   /* (+24 dB at most) */
+    if (e == EN_JUNO) {                  /* (its parameters: in its patch copy; the others' in its list) */
+        rec_juno_patch(slot, v->p.jp);
+        for (i = 0; i < np; i++)
+            pl_juno_par(v->p.jp, pc[i], pv[i]);
+    } else {
+        v->p.par.vel = (uint8_t)vel;
+        v->p.par.n = (uint8_t)(np < PL_NPAR ? np : PL_NPAR);
+        for (i = 0; i < v->p.par.n; i++) {
+            v->p.par.pc[i] = pc[i];
+            v->p.par.pv[i] = pv[i];
+            if (e == EN_SAMP && pc[i] == 0x45u)   /* (a sample's TUNE, in place of the instrument's) */
+                v->tune = pl_tune_cmd(pv[i], slot ? rec_sampler_tune(slot) : 0);
+        }
+    }
+    pl_v_level(v, use == PV_KEY ? pl_key_dyn(who) : 4096);   /* (no engine yet: kept; a key's: its pressure) */
+    if (PL_RARE(born)) {                 /* (the keys holding every engine, or its track muted: unheard until one is
+                                          * free and it is heard) */
+        if (!pl_gh_born(v, slot, offset, 0)) {
+            pl_v_free(v);
+            return 0;
+        }
+        pl_gh_add(v);
+        return 1;
+    }
+    if (PL_RARE(pl_e[c].fade != PL_NO_FADE)) {   /* (its engine fading: its start in the block's voices pass) */
+        if (e == EN_SAMP) {
+            samp_t s;
+            if (!pl_v_samp(v, &s, 0)) {
+                pl_v_free(v);
+                return 0;
+            }
+            samp_place_start(&s, offset, &v->x.sp);
+            v->t_pl = pl_blk;
+        }
+        v->gh = GH_WAIT;
+        pl_e[c].wait = (uint8_t)(v - pl_v);
+        return 1;
+    }
+    pl_bind(v, c);
+    if (!pl_eng_start(v, slot, offset, 0)) {
+        pl_v_free(v);
+        return 0;
+    }
+    return 1;
+}
+
+/* ---- the ghosts coming back (specs/proposals/202611121830-ghost-notes.md, section 5) ---- */
+/* the Juno-106's firmware ticks in blocks [a, b) of the block clock, as pl_tick_acc counts them (juno_tick_q16 a block,
+ * a tick at each overflow, both from block 0) */
+static uint32_t pl_ticks_in(uint32_t a, uint32_t b)
+{
+    return (uint32_t)(((a * juno_tick_q16 & 0xFFFFu) + (uint64_t)(b - a) * juno_tick_q16) >> 16);   /* (the count's
+                                          * phase at a, mod 65536, plus b - a blocks: right across the clock's wrap) */
+}
+static PLAT_COLD int pl_gh_pars(pl_voice_t *g);
+static PLAT_COLD int pl_gh_quiet(const pl_voice_t *v, const pl_eng_t *eng);
+/* ghost g about to come back: 1 if it can, else it is gone (pl_v_free). Its instrument there and still its engine's; a
+ * Juno-106 let go whose RELEASE has made it silent by now (at any level: juno_release_ticks) gone with no work; a
+ * sampler's place walked to now (by the commands it had); a song's note's parameter commands as they are now
+ * (pl_gh_pars: LOOPS' lanes, the stage's column and the keys keep their own); a sampler's place then out of its loop if
+ * its instrument as it comes back (the record now, the commands it comes back with on it) has none to play (LOOP OFF,
+ * or a loop with no room: edited while it waited, or by those commands), and not past its end, that end kept. Made
+ * when its return begins, and again at its note's start when that comes later (a tail's engine: pl_returns) */
+static PLAT_COLD int pl_gh_ready(pl_voice_t *g)
+{
+    samp_t s;
+    const pl_ctx_t *x = PL_MCTX(g->who >> 4);
+    PL_GF(pl_gf_go = GO_CUT);
+    if (pl_engine(g->inst, 0) != g->engine ||
+        (g->engine == EN_JUNO && !g->held && pl_ticks_in(g->t_off, pl_blk) >= juno_release_ticks(g->p.jp))) {
+        PL_GF(pl_gf_go = pl_engine(g->inst, 0) != g->engine ? GO_INST : GO_JREL);   /* (the figures' why) */
+        goto gone;
+    }
+    if (g->engine == EN_SAMP) {
+        if (!pl_v_samp(g, &s, 1)) {
+            PL_GF(pl_gf_go = GO_INST);
+            goto gone;
+        }
+        pl_gh_walk(g, &s);
+    }
+    if (g->use == PV_SONG && !g->lc && !(x->src && x->src->lanes) &&
+        (!pl_gh_pars(g) || (g->engine == EN_SAMP && !pl_v_samp(g, &s, 1)))) {
+        PL_GF(if (pl_gf_go == GO_CUT) pl_gf_go = GO_INST);   /* (pl_gh_pars's why, else its sample gone) */
+        goto gone;
+    }
+    if (g->engine == EN_SAMP) {
+        if (s.loop == SAMP_LOOP_OFF || !pl_samp_room(&s))
+            g->x.sp.hi = (uint16_t)(g->x.sp.hi & ~SAMP_PL_LOOP);
+        pl_gh_samp_end(g, &s);           /* (its end now by them: ended, or ending in the block it would come back in,
+                                          * it goes) */
+        if (g->t_end != PL_NEVER && (int32_t)(g->t_end - pl_blk) <= 1) {
+            PL_GF(pl_gf_go = GO_SAMP_END);
+            goto gone;
+        }
+    }
+    return 1;
+gone:
+    pl_v_free(g);
+    return 0;
+}
+#ifdef PTFM_DEBUG
+/* (the figures: pl_gh_ready timed, by the ghost's kind) */
+static PLAT_DBG int pl_gf_ready(pl_voice_t *g)
+{
+    uint32_t k = g->acc && g->engine != EN_TB ? GK_FUS : g->engine == EN_SAMP ? GK_SAMP : GK_PLAIN;
+    uint32_t t = plat_us();
+    int ok = pl_gh_ready(g);
+    pl_gf.ready_n[k]++;
+    pl_gf.ready_us[k] += plat_us() - t;
+    pl_gf_ins++;
+    return ok;
+}
+#define PL_GH_READY(g) (plat_dbg_in ? pl_gf_ready(g) : pl_gh_ready(g))
+/* (the figures: ghost g come back in engine c: into a free engine or a tail's, after a mute, its wait since the first
+ * block it could have begun, its return's blocks under way, its age; a let-go one's return stamped for the quiet rule's
+ * check) */
+static PLAT_DBG void pl_gf_back(const pl_voice_t *g, uint32_t c)
+{
+    uint32_t k = (uint32_t)(g - pl_v), tail = pl_gf_tail >> c & 1u, age = pl_blk - g->t_on;
+    uint32_t wait = pl_gf_vcan >> k & 1u ? (uint16_t)(pl_blk - pl_gf_vt[k]) : 0u;
+    uint32_t way = (uint16_t)((uint16_t)pl_blk - pl_gf_begin[c]);   /* (0: back in its begin's block) */
+    if (way > pl_gf.way_long)
+        pl_gf.way_long = (uint16_t)way;
+    pl_gf_vcan &= ~((uint64_t)1 << k);
+    if (tail) {
+        pl_gf.back_tail++;
+        pl_gf_tail = (uint16_t)(pl_gf_tail & ~(1u << c));
+    } else {
+        pl_gf.back_free++;
+    }
+    pl_gf.back_mute = (uint16_t)(pl_gf.back_mute + (pl_gf_vmute >> k & 1u));
+    pl_gf.back_muted = (uint16_t)(pl_gf.back_muted + (g->use == PV_SONG && pl_v_muted(g)));
+    if (wait > pl_gf.wait_most)
+        pl_gf.wait_most = (uint16_t)(wait > 0xFFFFu ? 0xFFFFu : wait);
+    if (age >= pl_gf.oldest) {
+        pl_gf.oldest = age;
+        pl_gf.oldest_fl = (uint8_t)((g->held ? 1u : 0u) | (g->use == PV_KEY ? 2u : 0u) | tail << 2);
+    }
+    pl_gf_vt[k] = (uint16_t)(g->held ? pl_blk - 0x8000u : pl_blk);
+}
+/* (ghost k's (its voice's index) first block it could have begun, now, if not yet stamped) */
+static PLAT_DBG void pl_gf_can(uint32_t k)
+{
+    if (!(pl_gf_vcan >> k & 1u)) {
+        pl_gf_vt[k] = (uint16_t)pl_blk;
+        pl_gf_vcan |= (uint64_t)1 << k;
+    }
+}
+static PLAT_DBG void pl_gf_claim(const pl_voice_t *g, uint32_t c, int tail)   /* (g's return begun in engine c, a
+                                          * tail's or free) */
+{
+    pl_gf_can((uint32_t)(g - pl_v));
+    pl_gf_begin[c] = (uint16_t)pl_blk;
+    pl_gf_tail = (uint16_t)(tail ? pl_gf_tail | 1u << c : pl_gf_tail & ~(1u << c));
+}
+/* (after the block's returns' walk, the debug build's own look, timed out of every stage (VOICES', which holds it, less
+ * its time; its own figure): each ghost that could have begun (an engine it may take left there: a free one of the
+ * count, or, held, a release tail's: on DJ a faded-out deck's ghost only its own deck's) stamped now if not yet,
+ * whatever stopped the walk (PL_RETURNS, the budget, no fade left); one that may not begin by rule (muted; a faded-out
+ * deck's with nothing of its own) unstamped, its wait starting again once it may; each muted ghost marked so (its
+ * return after an unmute counted "after a mute"). A return under way stamped (at its claim already). And the returns
+ * under way at the block's end: how many, how long. Its first look of a window measures a probe pair's own cost (32
+ * timer reads back to back), out of every stage too: once a window, so no half holds more than one) */
+static PLAT_DBG void pl_gf_could(void)
+{
+    uint32_t t0, c, i, way = 0, room = 0, tail = 0, mm = pl_ctxs[0].mute | pl_ctxs[1].mute << 16, tp = 0;
+    uint32_t deck = 0;                   /* (the songs' tails by memory: bit 0 the first replay's, 1 the second's) */
+    if (!pl_gf.probe_n) {                /* (once a window: a page keeps the least of its windows') */
+        uint32_t a = plat_us(), b = a;
+        for (i = 0; i < 32u; i++)
+            b = plat_us();
+        tp = plat_us() - a;              /* (all of it, for VOICES; the 32 pairs' alone for the figure) */
+        pl_gf.probe_n = 1;
+        pl_gf.probe32 = (uint16_t)(b - a > 0xFFFEu ? 0xFFFEu : b - a);
+    }
+    t0 = plat_us();
+    if (pl_swapped)
+        mm = mm >> 16 | mm << 16;
+    for (c = 0; c < pl_nv; c++) {
+        const pl_voice_t *v = pl_e_note(c);
+        if (!v && pl_e[c].fade == PL_NO_FADE) {
+            room = 1;
+        } else if (v && pl_e[c].voice != PL_NO_VOICE && (!v->held || v->cut)) {
+            tail = 1;
+            if (v->use == PV_SONG)
+                deck |= 1u << (v->who >> 4 & 1u);
+        }
+    }
+    for (i = 0; i < pl_gn; i++) {
+        const pl_voice_t *g = &pl_v[pl_gl[i]];
+        uint32_t k = pl_gl[i], me = g->who >> 4 & 1u;
+        int deaf = g->use == PV_SONG && PL_DJ_ON && !pl_dj_heard((int)(me ^ pl_swapped));   /* (a faded-out deck's) */
+        if (g->gh == GH_BACK)
+            pl_gf_can(k);
+        else if (g->use == PV_SONG && (mm >> (g->who & 31u) & 1u) && pl_v_muted(g)) {
+            pl_gf_vmute |= (uint64_t)1 << k;
+            pl_gf_vcan &= ~((uint64_t)1 << k);
+        } else if (room || (g->held && (deaf ? deck >> me & 1u : tail)))
+            pl_gf_can(k);
+        else if (deaf)
+            pl_gf_vcan &= ~((uint64_t)1 << k);
+    }
+    for (c = 0; c < PL_NE; c++)
+        if (pl_e[c].wait != PL_NO_VOICE && pl_v[pl_e[c].wait].gh == GH_BACK) {
+            uint32_t b = (uint16_t)((uint16_t)pl_blk - pl_gf_begin[c]) + 1u;   /* (the least it will be at its fade
+                                          * in, a block on at the earliest) */
+            way++;
+            if (b > pl_gf.way_long)
+                pl_gf.way_long = (uint16_t)b;
+        }
+    if (way > pl_gf.way_most)
+        pl_gf.way_most = (uint8_t)way;
+    t0 = plat_us() - t0;
+    dbg_half[DS_VOICES] -= t0 + tp;      /* (VOICES adds the whole pass at its end: this left out of it) */
+    pl_gf.look_n++;
+    pl_gf.look_us += t0;
+}
+static PLAT_DBG void pl_gf_search(uint32_t t)   /* (a free engine's or a tail's search, from t) */
+{
+    pl_gf.search_n++;
+    pl_gf.search_us += plat_us() - t;
+    pl_gf_ins++;
+}
+/* (pl_returns' end, the block's: n come back, the budget left bud, stopped by the count or the budget) */
+static PLAT_DBG void pl_gf_exit(uint32_t n, int32_t bud, int stopped)
+{
+    int32_t used = PL_BUD - bud;
+    pl_gf_spent = used;
+    if (used > 0) {
+        pl_gf.blocks++;
+        pl_gf.units += (uint32_t)used;
+        if (used > pl_gf.units_most)
+            pl_gf.units_most = (uint16_t)used;
+    }
+    if (n > pl_gf.n_most)
+        pl_gf.n_most = (uint8_t)n;
+    if (stopped && n >= PL_RETURNS)
+        pl_gf.stop4++;
+    else if (stopped)
+        pl_gf.stopb++;
+}
+static PLAT_DBG void pl_gf_start(uint32_t e, uint32_t t)   /* (a return's note started in engine kind e, from t) */
+{
+    pl_gf.start_n[PL_GF_E(e)]++;
+    pl_gf.start_us[PL_GF_E(e)] += plat_us() - t;
+    pl_gf_ins++;
+}
+static PLAT_DBG void pl_gf_fwd(uint32_t e, uint32_t steps, uint32_t t)   /* (its engine's forward work: steps, from t) */
+{
+    pl_gf.fwd_n[PL_GF_E(e)]++;
+    pl_gf.fwd_steps[PL_GF_E(e)] += steps;
+    pl_gf.fwd_us[PL_GF_E(e)] += plat_us() - t;
+    pl_gf_ins++;
+}
+#else
+#define PL_GH_READY(g) pl_gh_ready(g)
+#endif
+/* the work a block of ghost g's return under way in engine c (GH_BACK: still a ghost, in its place in the list, the
+ * engine's wait naming it), spending from the block's budget *bud (PL_BUDGET, each engine's start and steps weighed by
+ * PL_COST). First its note started there from zero, from its voice (pl_eng_start: its instrument, parameters, note,
+ * level, pitch, key, a sampler at its place); then the engine's forward work (../fwd.h) over its time on the block
+ * clock (held since its start, or held to its let-go and released since; the Juno-106's in ticks) in pieces, the budget
+ * spent. What it has done is kept in g_last (the units worked: g_last means nothing while a voice has no engine), and
+ * what is left is worked out again each block from its times, a let-go meanwhile included; its pitch, level and key
+ * turn its engine as they change (pl_back_eng), a parameter command starts it again (pl_param_live). Done, it comes
+ * back (1): its engine bound (a sampler's place, walked to now, put there if it began in an earlier block), fading
+ * in over PL_BACK_N blocks (its loudness unknown to the takes meanwhile, pl_worth); unless it has ended by now, or (let
+ * go) it is under hearing (pl_gh_quiet): gone, its engine cut (0, not counted among the block's returns). A call's
+ * overshoot (each engine's last unit: the DX7's 8 steps at most, the Juno-106's 1; a start's weight; a sampler's seek)
+ * is not carried on: each block's budget is whole, and pl_returns stops once it is spent, so a block's work is at most
+ * PL_BUDGET and one ghost's overdraw: its checks (PL_READY_W), its start, its engine's last unit and a sampler's seek. A
+ * CHIP's figures are worked out again as its note starts, from its engine (gone if its end has come by then) */
+#define PL_COSTS {{63, 2}, {32, 6}, {116, 3}, {0, 1}, {56, 48}}   /* (PL_COST's, below: the debug build's figures too) */
+#define PL_SEEK 95
+static PLAT_COLD int pl_forward(pl_voice_t *g, uint32_t c, int32_t *bud)
+{
+    /* each engine's start (the record read, the state zeroed, its note on, its parameters) and forward step, in units
+     * of about 1 us of the FM-1's time (each its mean measured there; the TB-303 never returns). The sampler's first
+     * render seeks its decoder (up to 255 samples decoded, PL_SEEK units): charged in the block it comes back in, where
+     * that render is */
+    static const uint8_t PL_COST[5][2] = PL_COSTS;
+    pl_eng_t *eng = &pl_e[c];
+    uint32_t e = g->engine, w = PL_COST[e][1], t = g->held ? pl_blk : g->t_off, a, o, p, on, off;
+    int fresh = eng->kind != e, done;
+    int32_t s, s0;
+    if (fresh) {                         /* (a fresh engine, kind 255: its note's start) */
+        const uint8_t *slot;
+        *bud -= PL_COST[e][0];
+        pl_engine(g->inst, &slot);
+        pl_bind(g, c);
+        PL_GF_T(ts);
+        done = pl_eng_start(g, slot, 0, 1);
+        PL_GFC(pl_gf_start(e, ts));      /* (the figures) */
+        pl_unbind(g);
+        g->gh = GH_BACK;
+        if (!done) {
+            PL_GF(pl_gf_go = GO_INST);
+            pl_v_free(g);
+            return 0;
+        }
+        g->g_last = 0;
+        if (e == EN_CHIP) {              /* (its figures again, by the commands it came back with: from its note's
+                                          * start, its engine's state; let go, its release's length from its let-go) */
+            pl_gh_chip(g, &eng->u.ch, g->t_on);
+            if (!g->held)
+                g->t_end = pl_t_min(pl_t_min(g->t_end, g->x.rel == 0xFFFFu ? PL_NEVER : g->t_off + g->x.rel),
+                                    g->t_off + PL_GH_KEEP);
+            if (pl_t_due(g->t_end)) {    /* (ended by now) */
+                PL_GF(pl_gf_go = GO_SELF);
+                pl_v_free(g);
+                return 0;
+            }
+            pl_gh_soon = pl_t_min(pl_gh_soon, g->t_end);
+        }
+    }
+    if (*bud <= 0)
+        return 0;
+    a = e == EN_JUNO ? pl_ticks_in(g->t_on, t) : t - g->t_on;
+    o = g->held ? FWD_HELD : e == EN_JUNO ? pl_ticks_in(t, pl_blk) : pl_blk - t;
+    p = (uint32_t)g->g_last;
+    on = p < a ? a - p : 0u;
+    off = g->held ? FWD_HELD : o - (p > a ? p - a : 0u);
+    s = s0 = (*bud + (int32_t)w - 1) / (int32_t)w;
+    PL_GF_T(tf);
+    if (e == EN_DX7)
+        done = dx7_forward(&eng->u.dx, &on, &off, &s);
+    else if (e == EN_JUNO)
+        done = juno_forward(&eng->u.ju, &on, &off, &s);
+    else if (e == EN_SAMP)
+        done = samp_forward(&eng->u.sm, &on, &off, &s);
+    else
+        done = chip_forward(&eng->u.ch, &on, &off, &s);
+    PL_GFC(pl_gf_fwd(e, (uint32_t)(s0 - s), tf));   /* (the figures) */
+    *bud -= (s0 - s) * (int32_t)w;
+    g->g_last = (int32_t)(a - on + (g->held ? 0u : o - off));
+    if (!done)
+        return 0;
+    if (e == EN_SAMP)                    /* (its decoder's seek at its first render, in this block) */
+        *bud -= PL_SEEK;
+    pl_gh_del(g);                        /* (back: out of the list, into its engine) */
+    eng->wait = PL_NO_VOICE;
+    pl_bind(g, c);
+    if (!fresh && e == EN_SAMP) {        /* (begun in an earlier block: a sampler's place, walked to now, there) */
+        samp_t sm;
+        if (pl_v_samp(g, &sm, 1)) {
+            pl_gh_walk(g, &sm);
+            samp_place_set(&eng->u.sm, &g->x.sp);
+        }
+    }
+    if (!pl_e_sounds(eng) || (!g->held && pl_gh_quiet(g, eng))) {   /* (ended by now; let go, under hearing: its
+                                          * engine cut, as the quiet rule leaves one, so the next note there starts as
+                                          * in an engine its note has left) */
+        PL_GFC(pl_gf_gone(g, pl_e_sounds(eng) ? GO_QUIET : GO_SELF_BACK), pl_gf_unway(c));   /* (the figures) */
+        pl_v_cut(g);
+        return 0;
+    }
+    PL_GFC(pl_gf_back(g, c));
+    g->back = PL_BACK_N;
+    g->g_last = 0;
+    g->peak = 0;
+    g->quiet = 0;
+    g->m_last = !g->lc && g->use == PV_SONG && (PL_MCTX(g->who >> 4)->mute >> (g->who & 15u) & 1u) ? 0 : 4096;
+    return 1;
+}
+/* the load guard (specs/ui/screens/settings.md#coming-back): 1 while the half's work on the busier core, as it stands
+ * and counted, is over PL_LOAD_CAP. Each engine of the count with a note in it (sounding, or held for a note's start or a
+ * return) for the half's blocks at its kind's weight (pl_loadw: its block and its mixing in, means measured on the FM-1);
+ * while core 2 takes the half's voices, the engines from the top down on its side while its share and a fixed allowance
+ * for its effects (PL_LOAD_C2) stay under core 1's, 10 at most, as the block's split starts (the guard never reads that
+ * split: its margin follows the FM-1's timing, and what the guard decides is heard, so it decides alike everywhere);
+ * core 1's side also the half's notes started and fades begun so far (pl_h_load) and DJ's own work while it plays. The
+ * count in force decides, core 2 or not (PL_ONE_CORE_16's reference counts as core 2's runs). The debug switch's fixed
+ * split counts as before it moved: core 1's places alone, the first 10 at VOICES 16 */
+static PLAT_COLD int pl_heavy(void)
+{
+    uint32_t c, k, n = 0;
+    int32_t w1 = 0, w2 = 0, w[PL_NE];
+    for (c = 0; c < pl_nv; c++) {
+        k = pl_e[c].voice != PL_NO_VOICE ? pl_e[c].voice : pl_e[c].wait;
+        w[c] = k != PL_NO_VOICE ? pl_loadw[pl_v[k].engine & 7u] : 0;
+        w1 += w[c];
+    }
+    if (PL_SPLIT_FIXED) {                /* (before the split moved) */
+        for (c = PL_FIXED_FROM; pl_nv > PL_VOICES_C1 && c < pl_nv; c++)
+            w1 -= w[c];
+    } else if (PL_GUARD_C2(pl_c2t || PL_ONE_CORE_16)) {
+        for (c = pl_nv; c-- > 0 && n < PL_C2_MOST;) {
+            if (!w[c])
+                continue;
+            if (2 * (w2 + w[c]) + PL_LOAD_C2 >= w1 + w2)   /* (core 2's share with it and the allowance not under the
+                                          * rest's) */
+                break;
+            w2 += w[c];
+            w1 -= w[c];
+            n++;
+        }
+        w2 = (int32_t)PL_HALF * (w2 + PL_LOAD_C2);
+    }
+    w1 = (int32_t)PL_HALF * w1 + pl_h_load + (PL_DJ_ON ? PL_LOAD_DJ : 0);
+    return (w1 > w2 ? w1 : w2) > PL_CAP;
+}
+/* at a block's start, after its new notes took theirs: the ghosts come back in their order, the keys' held first, then
+ * the songs' and loops' held, the keys' let go, the songs' and loops' let go, within each the one made a ghost last
+ * first, spending the block's budget (PL_BUDGET) on their work in that order, the returns under way among them
+ * (pl_forward), and on each ghost's checks before its return (PL_READY_W); 4 come back a block at most (one dropped
+ * counts not), a return finished past them in the next block. A
+ * return begins while the budget lasts: a free engine of the count, the first first; with none, a held ghost takes a
+ * release tail's engine (never a held note's), the tail its new note would take (pl_choose: the quietest; on DJ the
+ * deck lower in the mix first, a deck faded out only its own: one with none passed by, those after it go on) while the
+ * block has a fade left: the tail fades out there over the block, a fade among the block's (pl_fades), and the return
+ * begins in it in the next block. A ghost let go takes only a free engine. The ghost keeps its place in the list till
+ * it comes back. A muted track's ghost (pl_v_muted) never comes back while muted: passed by, as a faded-out deck's, its
+ * return under way given up. (A ghost out of the list closes the gap above where the walk down it is) */
+static PLAT_COLD __attribute__((noinline)) void pl_returns(void)
+{
+    int32_t bud = PL_BUD;
+    uint32_t c, n = 0, k, i, deck = 0, more = 1;   /* (deck: DJ's decks whose held ghosts find no tail they may take;
+                                          * more: a return may begin) */
+    for (k = 0; k < 4u; k++)
+        for (i = pl_gn; i-- > 0;) {
+            pl_voice_t *g = &pl_v[pl_gl[i]], *t = 0;
+            int me = g->use == PV_SONG ? (int)(g->who >> 4 & 1u) : -1, fade = 0;
+            if ((g->held ? 0u : 2u) + (g->use == PV_KEY ? 0u : 1u) != k)
+                continue;
+            if (n >= PL_RETURNS || bud <= 0) {
+                PL_GFC(pl_gf_exit(n, bud, 1));   /* (the figures) */
+                return;
+            }
+            if (g->gh != GH_BACK && (!more || (me >= 0 && (deck >> me & 1u))))   /* (none may begin; its deck passed
+                                          * by) */
+                continue;
+            if (me >= 0 && pl_v_muted(g)) {   /* (muted) */
+                if (g->gh == GH_BACK) {
+                    PL_GF(pl_gf.gave[GG_MUTE]++);
+                    pl_back_stop(g);
+                }
+                continue;
+            }
+            if (g->gh == GH_BACK) {      /* (a return under way: on with the budget. One whose note's start is still to
+                                          * come, in a tail's engine since its fade, pl_fades: checked again now, its
+                                          * instrument, commands, a sampler's place walked to now and its end) */
+                c = pl_wait_eng(g);
+                if (pl_e[c].kind == 255 && (bud -= PL_READY_W(g), !PL_GH_READY(g))) {
+                    PL_GF(pl_gf.deferred++);
+                    continue;
+                }
+                n += (uint32_t)pl_forward(g, c, &bud);
+                continue;
+            }
+            PL_GF_T(ts);
+            for (c = 0; c < pl_nv && (pl_e_note(c) || pl_e[c].fade != PL_NO_FADE); c++)
+                ;
+            if (c == pl_nv) {            /* (none free) */
+                if (k > 1u || pl_nfd >= pl_fade_most() || !(t = pl_choose(me, me >= 0 ? (int)g->who : -1, 1))) {
+                    PL_GFC(pl_gf_search(ts));
+                    more = 0;            /* (none for a ghost let go, no fade left, no tail at all) */
+                    continue;
+                }
+                if (t == PL_DEAF) {
+                    PL_GFC(pl_gf_search(ts));
+                    deck |= 1u << me;
+                    continue;
+                }
+            }
+            PL_GFC(pl_gf_search(ts));
+            bud -= PL_READY_W(g);
+            if (!PL_GH_READY(g))
+                continue;
+            if (t) {                     /* (the tail's engine: cut at once if it was never heard or silent; else it
+                                          * fades out there, pl_fades, the return beginning in the next block) */
+                c = t->place;
+                fade = pl_give(t, c, PL_FADES);
+                pl_v_free(t);
+            }
+            pl_e[c].wait = (uint8_t)(g - pl_v);
+            g->gh = GH_BACK;
+            PL_GFC(pl_gf_claim(g, c, t != 0));
+            if (!fade) {
+                pl_e[c].kind = 255;      /* (its note's start zeroes the state: a fresh engine) */
+                n += (uint32_t)pl_forward(g, c, &bud);
+            }
+        }
+    PL_GFC(pl_gf_exit(n, bud, 0));
 }
 /* LOOPS' stage's column (specs/ui/screens/loops.md#the-stage): the voices of the preview, the stage, the keys on it and
  * the pattern recorder's single notes are their track's (its mix, DUCK, FILTER's envelope) but no mute or solo silences
@@ -1309,15 +2701,15 @@ static uint32_t pl_layer_delay(const rec_cell_t *c)
     return 0;
 }
 
-/* layer c of FUSION instrument f's note on a new voice: its note, instrument, volume and parameters, at the
- * FUSION slot's LEVEL; 0 if it has none. at: the ticks since the note's start (its EDx); a song's layer with
- * ECx is cut x ticks after the note's start (at or before at: it never sounds). No nesting: a layer naming
- * a FUSION instrument is silent */
+/* layer c of FUSION instrument f's note on a new voice (who: a song's track, + PL_LC_WHO on LOOPS' stage's column; a
+ * key's note): its note, instrument, volume and parameters, at the FUSION slot's LEVEL; 0 if it has none. at: the
+ * ticks since the note's start (its EDx); a song's layer with ECx is cut x ticks after the note's start (at or before
+ * at: it never sounds). No nesting: a layer naming a FUSION instrument is silent */
 static PLAT_COLD pl_voice_t *pl_layer_on(uint32_t use, uint32_t who, pl_inst_t f, const rec_cell_t *c, uint32_t pan,
                                uint32_t at)
 {
     uint8_t pc[4], pv[4];
-    uint32_t k, np = 0;
+    uint32_t k, np = 0, e;
     int32_t cut = -1;
     pl_voice_t *v;
     pl_inst_t in;
@@ -1325,8 +2717,8 @@ static PLAT_COLD pl_voice_t *pl_layer_on(uint32_t use, uint32_t who, pl_inst_t f
         return 0;
     in.cart = c->cart;
     in.slot = c->slot;
-    k = pl_engine(in, 0);
-    if (k == EN_NONE || k == EN_FUS)
+    e = pl_engine(in, 0);
+    if (e == EN_NONE || e == EN_FUS)
         return 0;
     for (k = 0; k < c->n; k++)
         if (c->cmd[k][0] >= 0x40u && c->cmd[k][0] < 0x80u) {
@@ -1339,13 +2731,16 @@ static PLAT_COLD pl_voice_t *pl_layer_on(uint32_t use, uint32_t who, pl_inst_t f
         return 0;
 #ifdef PL_TEST_TRIGGER
     if (use == PV_SONG)
-        PL_TEST_TRIGGER(who, c->note, in);
+        PL_TEST_TRIGGER(who & ~PL_LC_WHO, c->note, in);
 #endif
-    v = pl_alloc(use == PV_SONG ? (int)who : -1);
-    if (!pl_voice_on(v, use, who, in, c->note, c->has & RC_VOL ? c->vol : 127u, pan, 0, pl_level_q12(f), pc, pv, np, 0))
+    v = pl_alloc(use == PV_SONG ? (int)who : -1, e);   /* (who + PL_LC_WHO: the stage's column's) */
+    if (!pl_voice_on(v, use, who & ~PL_LC_WHO, in, c->note, c->has & RC_VOL ? c->vol : 127u, pan, 0, pl_level_q12(f),
+                     pc, pv, np, 0))
         return 0;
     if (use == PV_SONG && cut >= 0)
         v->lcut = (uint8_t)((uint32_t)cut - at);
+    if (use == PV_SONG && e != EN_TB)    /* (a song's layer: its place in its row, its cell read again at its return) */
+        v->acc = (uint8_t)(c - pl_fcells + 1);
     return v;
 }
 
@@ -1354,11 +2749,38 @@ static void pl_layer_cuts(void)          /* a tick on for the layers' ECx */
     uint32_t i;
     for (i = 0; i < PL_NV; i++)          /* (the current replay's: each counts its own ticks) */
         if (pl_v[i].lcut && (pl_v[i].use != PV_SONG || (pl_v[i].who >> 4 & 1u) == pl_cur->k) && !--pl_v[i].lcut)
-            pl_v[i].cut = 1;
+            pl_v_cut_soon(&pl_v[i]);
 }
 
 /* ---- the keys ---- */
 static uint8_t pl_keys[8], pl_nkeys;     /* the keys down, oldest first (a 303 slides back to the last) */
+static uint16_t pl_kgain[8];             /* ... each one's pressure (player_key_press): its notes' level x it / 256 */
+static PLAT_COLD void pl_keys_add(uint32_t note)
+{
+    if (pl_nkeys < sizeof pl_keys) {
+        pl_kgain[pl_nkeys] = 256;
+        pl_keys[pl_nkeys++] = (uint8_t)note;
+    }
+}
+static PLAT_COLD void pl_keys_drop(uint32_t note)
+{
+    uint32_t i, k;
+    for (i = k = 0; i < pl_nkeys; i++)
+        if (pl_keys[i] != note) {
+            pl_kgain[k] = pl_kgain[i];
+            pl_keys[k++] = pl_keys[i];
+        }
+    pl_nkeys = (uint8_t)k;
+}
+/* a key note's voices' dyn (pl_v_level): its pressure's gain, Q12 (4096: none, or not a key down) */
+static int32_t pl_key_dyn(uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < pl_nkeys; i++)
+        if (pl_keys[i] == note)
+            return (int32_t)pl_kgain[i] << 4;
+    return 4096;
+}
 static uint8_t pl_kfire;                 /* the keys started a note since the last block (FILTER's envelope) */
 static int32_t pl_key_bend;              /* MIDI's pitch bend on the keys, 1/64 semitones */
 
@@ -1391,17 +2813,6 @@ typedef struct {
 } pl_fn_t;
 static pl_fn_t pl_kf[PL_KF], pl_sf[PL_SF];
 
-static void pl_kf_moved(int from, int to)   /* a voice's note moved to another slot (pl_move): its layer follows */
-{
-    uint32_t f, k;
-    for (f = 0; f < PL_KF + PL_SF; f++)
-        for (k = 0; k < PL_NLAYER; k++) {
-            pl_kl_t *l = f < PL_KF ? &pl_kf[f].l[k] : &pl_sf[f - PL_KF].l[k];
-            if (l->v == (int8_t)from)
-                l->v = (int8_t)to;
-        }
-}
-
 static pl_voice_t *pl_kl_voice(const pl_kl_t *l, const pl_fn_t *fn)   /* the layer's voice, while it is still its */
 {
     pl_voice_t *v = l->v >= 0 ? &pl_v[l->v] : 0;
@@ -1409,15 +2820,17 @@ static pl_voice_t *pl_kl_voice(const pl_kl_t *l, const pl_fn_t *fn)   /* the lay
 }
 
 static PLAT_COLD uint32_t pl_ln_lc(uint32_t i);
+static PLAT_COLD int32_t pl_fn_dyn(const pl_fn_t *fn);
 static void pl_kl_start(pl_fn_t *fn, uint32_t k, const rec_cell_t *c)   /* layer k of FUSION note fn starts (again) */
 {
     pl_kl_t *l = &fn->l[k];
     pl_voice_t *v = pl_kl_voice(l, fn);
     int key = fn->use == PV_KEY;
     if (v)
-        v->cut = 1;                      /* (E9x: its last start fades out over a block) */
+        pl_v_cut_soon(v);                /* (E9x: its last start fades out over a block) */
     pl_alloc_k = key ? -1 : (int8_t)(fn->who >> 4 & 1u);   /* (the keys ask, or the track's replay) */
-    v = pl_layer_on(fn->use, fn->who, fn->in, c, key ? 128u : (uint32_t)PL_CH(fn->who).pan, 0);
+    v = pl_layer_on(fn->use, fn->who | (PL_RARE(fn->lane != 0xFFu) && pl_ln_lc(fn->lane) ? PL_LC_WHO : 0u), fn->in, c,
+                    key ? 128u : (uint32_t)PL_CH(fn->who).pan, 0);
     l->v = v ? (int8_t)(v - pl_v) : -1;
     if (!v) {
         l->done = 1;
@@ -1431,7 +2844,7 @@ static void pl_kl_start(pl_fn_t *fn, uint32_t k, const rec_cell_t *c)   /* layer
         v->lcut = 0;
         if (PL_RARE(fn->lane != 0xFFu))  /* (a loop's lane's: the stage's column, the stage's and the preview's) */
             pl_v_lc(v, pl_ln_lc(fn->lane));
-        pl_v_level(v, PL_CH(fn->who).vol * PL_MCTX(fn->who >> 4)->gvol);
+        pl_v_level(v, pl_fn_dyn(fn));
         pl_v_pitch(v, PL_CH(fn->who).bend + PL_MCTX(fn->who >> 4)->key64 + v->arp64);
     } else if (pl_key_bend) {
         pl_v_pitch(v, pl_key_bend);
@@ -1444,7 +2857,7 @@ static void pl_kl_vol(pl_voice_t *v, const pl_fn_t *fn, uint32_t vol)
     int32_t lq = pl_level_q12(fn->in), trim = pl_level_q12(v->inst);
     int32_t lvl = v->engine == EN_JUNO ? lq : (int32_t)(((int64_t)trim * lq) >> 12);
     v->lvl = (lvl > 65535 ? 65535 : lvl) * (int32_t)vol / 127;
-    pl_v_level(v, fn->use == PV_KEY ? 4096 : PL_CH(fn->who).vol * PL_MCTX(fn->who >> 4)->gvol);
+    pl_v_level(v, fn->use == PV_KEY ? pl_key_dyn(fn->who) : pl_fn_dyn(fn));
 }
 
 static PLAT_COLD void pl_kf_tick(pl_fn_t *fn)   /* FUSION note fn's tick (fn->tick): its layers' commands */
@@ -1462,7 +2875,7 @@ static PLAT_COLD void pl_kf_tick(pl_fn_t *fn)   /* FUSION note fn's tick (fn->ti
         }
         if (l->cut != PL_KL_NONE && n >= l->cut) {      /* ECx, before any start (at or before its EDx: silent) */
             if ((v = pl_kl_voice(l, fn)) != 0)
-                v->cut = 1;
+                pl_v_cut_soon(v);
             l->done = 1;
             continue;
         }
@@ -1567,14 +2980,15 @@ static PLAT_COLD void pl_kf_off(int who)   /* key who let go (-1: all): its tick
 }
 /* a song's: track who's FUSION note ends (its next note, a note off, a cut: its ticks stop); -1 every one of replay
  * k's (k 2: both) */
-static void pl_sf_off(int who, uint32_t k)
+static PLAT_COLD void pl_sf_off(int who, uint32_t k)   /* (per note: one copy, called; its loop unrolled at 8 sites
+                                                        * was 300 B) */
 {
     uint32_t f;
     for (f = 0; f < PL_SF; f++)
         if (who >= 0 ? pl_sf[f].who == (uint32_t)who : k > 1u || (pl_sf[f].who >> 4 & 1u) == k)
             pl_sf[f].on = 0;
 }
-static void pl_sf_lane_off(uint32_t lane) /* a loop's lane's FUSION note ends (LOOPS' lanes) */
+static PLAT_COLD void pl_sf_lane_off(uint32_t lane) /* a loop's lane's FUSION note ends (LOOPS' lanes) */
 {
     uint32_t f;
     for (f = 0; f < PL_SF; f++)
@@ -1606,8 +3020,17 @@ static void pl_kf_block(void)            /* a block on: the key notes' ticks due
         }
 }
 
-/* the tap: a key's note (who: its key, or the arpeggiator), told only given a voice of the count; its end */
-static PLAT_COLD int pl_tap_on(const pl_voice_t *v) { return v != 0 && v < pl_v + pl_nv && v->use != PV_FREE; }
+/* the tap: a key's note (who: its key, or the arpeggiator), told only given an engine of the count; its end */
+static PLAT_COLD int pl_tap_on(const pl_voice_t *v) { return v != 0 && pl_v_voiced(v); }
+/* a TB-303 voice's note on to `note` (its slide there; a start still waiting for a fade starts there: its voice's note) */
+static void pl_tb_slide(pl_voice_t *v, uint32_t note, uint32_t acc)
+{
+    v->note = v->key = (uint8_t)note;
+    if (v->place != PL_NO_ENG)
+        tb_slide_to(&PL_E(v)->u.tb, (int)note, (int)acc);
+    else
+        v->acc = (uint8_t)acc;
+}
 static PLAT_COLD void pl_tap_key(uint32_t who, uint32_t note, uint32_t vel, pl_inst_t in, int voiced)
 {
     if (voiced)
@@ -1617,13 +3040,11 @@ static PLAT_COLD void pl_tap_keyup(uint32_t who)
 {
     pl_tap_put(PT_KEY, PT_OFF, 0, 0, who, PT_KEYCH, 0);
 }
-static void pl_key_off(uint8_t note)
+static PLAT_COLD void pl_key_off(uint8_t note)   /* (the keys' note on and off, the arpeggio's: requests, per note:
+                                                 * one copy each, called) */
 {
-    uint32_t i, k;
-    for (i = k = 0; i < pl_nkeys; i++)
-        if (pl_keys[i] != note)
-            pl_keys[k++] = pl_keys[i];
-    pl_nkeys = (uint8_t)k;
+    uint32_t i;
+    pl_keys_drop(note);
     pl_kf_off(note);                     /* (a FUSION note's ticks stop with it) */
     if (PL_RARE(pl_tap_q != 0))
         pl_tap_keyup(note);
@@ -1633,20 +3054,19 @@ static void pl_key_off(uint8_t note)
             continue;
         if (v->engine == EN_TB && pl_nkeys) {   /* a 303 with keys still down: back to the last of them */
             v->who = pl_keys[pl_nkeys - 1u];
-            v->note = v->who;
-            tb_slide_to(&v->u.tb, v->note, 0);
+            pl_tb_slide(v, v->who, 0);
+            pl_v_level(v, pl_key_dyn(v->who));   /* (that key's pressure now) */
         } else {
             pl_v_off(v);
         }
     }
 }
 
-static void pl_key_on(uint8_t note, pl_inst_t in, uint8_t vel)
+static PLAT_COLD void pl_key_on(uint8_t note, pl_inst_t in, uint8_t vel)
 {
     pl_alloc_k = -1;                     /* (the keys ask) */
     uint32_t i, e = pl_engine(in, 0);
-    if (pl_nkeys < sizeof pl_keys)
-        pl_keys[pl_nkeys++] = note;
+    pl_keys_add(note);
     if (e != EN_NONE)
         pl_kfire = 1;                    /* (FILTER's envelope, SOURCE KEYS) */
     if (e == EN_FUS) {                   /* its layers, their ticks from the press */
@@ -1662,13 +3082,13 @@ static void pl_key_on(uint8_t note, pl_inst_t in, uint8_t vel)
             pl_voice_t *v = &pl_v[i];
             if (v->use == PV_KEY && v->engine == EN_TB && v->held && v->inst.cart == in.cart && v->inst.slot == in.slot) {
                 v->who = note;
-                v->note = note;
-                tb_slide_to(&v->u.tb, note, 0);
+                pl_tb_slide(v, note, 0);
+                pl_v_level(v, 4096);     /* (the new key's pressure: none yet) */
                 return;
             }
         }
     {
-        pl_voice_t *v = pl_alloc(-1);
+        pl_voice_t *v = pl_alloc(-1, e);
         if (pl_voice_on(v, PV_KEY, note, in, note, vel ? vel : 127u, 128, 0, 4096, 0, 0, 0, 0) && pl_key_bend)
             pl_v_pitch(v, pl_key_bend);  /* (MIDI's pitch bend, as it stands) */
         if (PL_RARE(pl_tap_q != 0))
@@ -1709,7 +3129,7 @@ static struct {
     uint32_t seed;
 } pl_arp;
 
-static void pl_arp_silence(void)
+static PLAT_COLD void pl_arp_silence(void)
 {
     uint32_t i;
     pl_kf_off(PL_ARP_WHO);
@@ -1782,7 +3202,7 @@ static uint8_t pl_arp_next(void)         /* the next note in the pattern */
     return seq[pl_arp.k % m];
 }
 
-static void pl_arp_sound(uint8_t note)   /* a note of the arpeggio, the last key's instrument */
+static PLAT_COLD void pl_arp_sound(uint8_t note)   /* a note of the arpeggio, the last key's instrument */
 {
     pl_inst_t in = pl_arp.inst;
     uint32_t e = pl_engine(in, 0);
@@ -1792,7 +3212,7 @@ static void pl_arp_sound(uint8_t note)   /* a note of the arpeggio, the last key
     if (e == EN_FUS) {
         pl_kf_on(PL_ARP_WHO, in, note);
     } else if (e != EN_NONE) {
-        pl_voice_t *v = pl_alloc(-1);
+        pl_voice_t *v = pl_alloc(-1, e);
         pl_voice_on(v, PV_KEY, PL_ARP_WHO, in, note, pl_arp.vel ? pl_arp.vel : 127u, 128, 0, 4096, 0, 0, 0, 0);
         if (PL_RARE(pl_tap_q != 0))
             pl_tap_key(PL_ARP_WHO, note, pl_arp.vel, in, pl_tap_on(v));
@@ -1871,7 +3291,7 @@ static void pl_arp_set(uint8_t on, uint8_t rhythm, uint8_t pattern, uint8_t latc
  * the time alone; loop i is its track i, read from a view of the store's loops (pl_lp: instrument, base, repeats, SHIFT,
  * its stream's cursor), taken at the loops' start and again at every edit of them (player_store_watch). Each loop has 4
  * lanes, each holding a note as a key does, its voices the track's with a gen of their own (the lane in bits 0-1, 4 the
- * preview's and the stage's, the lane's notes counted above), so the track's mix, mute, DUCK and parking treat them as
+ * preview's and the stage's, the lane's notes counted above), so the track's mix, mute, DUCK and the pool treat them as
  * any track's and only the lane ends them. The pattern recorder's preview is a loop more (PL_LPV, its lanes after the
  * loops'), its notes from its grid; the stage 4 more (PL_LPS), its notes the store's stage's, and its keys 4 more
  * (PL_LPT), their notes asked for; the keys while the stage is off 16 more (PL_LPO: PL_LP_STAGE_KEYS' lanes 4-19), their
@@ -1893,6 +3313,7 @@ typedef struct {
     uint8_t base, repeats;               /* its base's rows, its repeat count */
     uint8_t look;                        /* its colour and MONO (with its instrument: another loop in its place) */
     uint8_t shift;                       /* its SHIFT: it plays its row (row - shift) round the length */
+    uint8_t cut;                         /* its cut (0 none): the loops' rows from their start go round it */
     rec_cur_t cur;                       /* its stream's cursor */
 } pl_lp_t;
 typedef struct {
@@ -1913,6 +3334,10 @@ static pl_ln_t pl_ln[PL_NLN];
 static uint8_t pl_lpn;                   /* the loops in the view */
 static uint32_t pl_lpb[3], pl_lpg[3];    /* the lanes with something due each tick (a wait, a key off, a glide), with a
                                           * TB-303's gate open (counted a block) */
+static uint32_t pl_lpvg[3];              /* the lanes gliding to a volume alone over its row (pl_lp_ramps, a block at a time;
+                                          * to wnote from wvol, no note waiting meanwhile) */
+#define PL_LPG_GLIDES (1u << 31)          /* pl_lpg's bit past the lanes' (95): some lane glides (pl_lp_gates' block) */
+static uint8_t pl_lp_tk;                 /* the lanes source's ticks into its row (0 at the row's first) */
 static uint16_t pl_lp_pass;              /* the loops' passes since they started */
 static int16_t pl_lp_last;               /* the loops' row started last (-1: none since their start) */
 static struct { uint8_t ln, note, vol, row, delay, glide; } pl_lpq[PL_LPQ];
@@ -1945,7 +3370,7 @@ static struct { uint8_t on, kr, kr0, zero, nat, n, row, pend; uint32_t rows; } p
                                          /* (pend: the next pl_start's on: a silent start's 3, its first row silent) */
 
 /* ---- the song through IBXM's replay ---- */
-static uint32_t pl_key_of(uint32_t note) { return note < 12u ? 1u : note > 107u ? 96u : note - 11u; }
+static PLAT_COLD uint32_t pl_key_of(uint32_t note) { return note < 12u ? 1u : note > 107u ? 96u : note - 11u; }
 
 /* the replay's hook: pattern pat's cell (row, chan) as IBXM's note: the key (MIDI - 11; === key off), an
  * instrument (the replay's one: its default volume as the volume when the cell has none, as IBXM sets an
@@ -1961,9 +3386,11 @@ static void pl_gp_load(int pat)          /* the pattern the replay reads: its tr
         rec_cur_set(&pl_gp_cur[t], t < pl_gp.ntrk ? pl_gp.trk[t] : 0);
     pl_gp_num = got ? pat : -1;          /* (not there: asked again at the next row; a pattern in ROM may come) */
 }
-/* LEG on cell c's note (commands.md#legato): legato only onto track chan's latest note, held and sounding, of the
- * row's instrument (the track's until this row: the cell names the same or none) on DX7, JUNO-106, CHIP or a
- * sampler; else a plain note. Not while chasing: the first note heard has its attack */
+/* LEG on cell c's note (commands.md#legato): legato only onto track chan's latest note, held and sounding (a ghost whose
+ * end is not due, or in an engine that still sounds it: not a one-shot ended by itself, its engine kept till the next
+ * voices pass, nor a ghost of one whose end has come, listed till then), of the row's instrument (the track's until
+ * this row: the cell names the same or none) on DX7, JUNO-106, CHIP or a sampler; else a plain note. Not while
+ * chasing: the first note heard has its attack */
 static __attribute__((noinline)) PLAT_COLD int pl_leg_ok(int chan, const rec_cell_t *c)
 {
     const pl_chan_t *ch = &pl_ch[chan];
@@ -1977,7 +3404,8 @@ static __attribute__((noinline)) PLAT_COLD int pl_leg_ok(int chan, const rec_cel
     for (i = 0; i < PL_NV; i++) {
         const pl_voice_t *v = &pl_v[i];
         if (v->use == PV_SONG && v->who == (uint32_t)chan + pl_tbase && v->gen == ch->gen && v->held && !v->cut &&
-            v->inst.cart == ch->ins.cart && v->inst.slot == ch->ins.slot)
+            v->inst.cart == ch->ins.cart && v->inst.slot == ch->ins.slot &&
+            (v->place == PL_NO_ENG ? !pl_t_due(v->t_end) : pl_e_sounds(&pl_e[v->place])))
             return 1;
     }
     return 0;
@@ -2057,7 +3485,7 @@ static PLAT_COLD void pl_get_note(struct module *m, int pat, int row, int chan, 
 /* the order played as an IBXM module in IBXM's arena (no samples: one instrument for the replay's rules)
  * (pl_ib_module), and its replay, which starts at its first row, its notes waiting (pl_ib_replay): both at once
  * (pl_ib_build), or a half apart for a DJ deck's start made ready (pl_build_step) */
-static uint32_t pl_ib_arena(void) { return pl_cur->k && pl_d2 ? 1u : 0u; }
+static PLAT_COLD uint32_t pl_ib_arena(void) { return pl_cur->k && pl_d2 ? 1u : 0u; }
 static PLAT_COLD int pl_ib_module(void)
 {
     struct module *m;
@@ -2178,7 +3606,7 @@ static int pl_inst_edited(const pl_chan_t *ch)   /* the track's instrument is be
 {
     return pl_ed_what == PL_ED_INST && ch->has_ins && ((uint32_t)ch->ins.cart << 8 | ch->ins.slot) == pl_ed_key;
 }
-static uint8_t pl_np(const pl_chan_t *ch) { return pl_inst_edited(ch) ? 0u : ch->np; }   /* (its notes as edited) */
+static PLAT_COLD uint8_t pl_np(const pl_chan_t *ch) { return pl_inst_edited(ch) ? 0u : ch->np; }   /* (its notes as edited) */
 static int pl_mix_edited(uint32_t t) { return pl_ed_what == PL_ED_MIX && (pl_ed_key >> (t + pl_tbase) & 1u); }
 static int pl_time_edited(void)          /* it plays at its setup's TICKS A ROW and TEMPO as they change, no Fxx: the loops
                                           * always (a change heard at once, K4's too, not at the length's end: they have no
@@ -2230,6 +3658,22 @@ void player_keys_mix(const uint8_t *mix)
     uint32_t i;
     for (i = RM_PAN; i < RM_N; i++)
         pl_kstrip[i] = mix[i];
+}
+/* LOOPS shown (player_keys_loop): the keys' voices through a loop's mix (pl_klp, its LEVEL too), no KEYS GAIN, no DRY;
+ * PL_KMX: the strip the keys go through now */
+static uint8_t pl_klp[RM_N];
+static volatile uint8_t pl_klp_on;
+#define PL_KMX (pl_klp_on ? pl_klp : pl_kstrip)
+PLAT_COLD void player_keys_loop(const uint8_t *mix)
+{
+    uint32_t i;
+    if (!mix) {
+        pl_klp_on = 0;
+        return;
+    }
+    for (i = 0; i < RM_N; i++)
+        pl_klp[i] = mix[i];
+    pl_klp_on = 1;
 }
 
 /* MIDI's SYNC EXTERNAL (specs/connections.md#clock): the outside clock's tempo, BPM x 10, in place of what
@@ -2301,15 +3745,24 @@ static uint16_t pl_bpm10(void)           /* the current replay's tempo now, BPM 
     return (uint16_t)(((uint64_t)b * pl_tscale + 32768u) >> 16);
 }
 
-static void pl_track_release(uint32_t t) /* track t's sounding notes let go: they ring on in their voices */
+/* track t's sounding notes let go: they ring on in their voices. A ghost of the track let go with the gen its next note
+ * takes (256 notes ago, kept 10 s at the most) goes, never taken for that note (pl_track_follow, its commands, NOTE CUT;
+ * a TB-303's note takes its gen first: there, the note after it) */
+static void pl_track_release(uint32_t t)
 {
-    uint32_t i;
-    for (i = 0; i < PL_NV; i++)
-        if (pl_v[i].use == PV_SONG && pl_v[i].who == t + pl_tbase && pl_v[i].held)
-            pl_v_off(&pl_v[i]);
+    uint32_t i, gen = (uint8_t)(pl_ch[t].gen + 1u);
+    for (i = 0; i < PL_NV; i++) {
+        pl_voice_t *v = &pl_v[i];
+        if (v->use != PV_SONG || v->who != t + pl_tbase)
+            continue;
+        if (v->held)
+            pl_v_off(v);
+        else if (PL_RARE((v->gh & 1u) && v->gen == gen))
+            pl_v_free(v);
+    }
 }
 
-static void pl_track_follow(uint32_t t)  /* the voices of track t's latest note follow it */
+static PLAT_COLD void pl_track_follow(uint32_t t)  /* the voices of track t's latest note follow it */
 {
     pl_chan_t *ch = &pl_ch[t];
     int32_t dyn = ch->vol * pl_gvol;     /* Q12 */
@@ -2327,7 +3780,8 @@ static void pl_track_follow(uint32_t t)  /* the voices of track t's latest note 
 
 /* a TB-303 note on track t: one voice a track, as the one 303 it is: a note after a slide glides there
  * (nothing starts again), else it starts again in that voice; its gate closes half a row on, unless it
- * slides into the next note */
+ * slides into the next note. Its voice only while its engine is within the count in force (VOICES): one left above a
+ * smaller count rings out there, let go, and the note takes an engine within it, as any new note */
 static void pl_tb_note(uint32_t t, uint32_t note)
 {
     pl_chan_t *ch = &pl_ch[t];
@@ -2337,9 +3791,11 @@ static void pl_tb_note(uint32_t t, uint32_t note)
     ch->gate = ch->slide ? -1 : (int32_t)((pl_speed * (pl_tick_q16 >> 8)) >> 9);   /* half a row */
     ch->gen++;
     if (v && v->engine == EN_TB && v->use == PV_SONG && v->who == t + pl_tbase && v->inst.cart == ch->ins.cart &&
-        v->inst.slot == ch->ins.slot && tb_active(&v->u.tb)) {
+        v->inst.slot == ch->ins.slot && v->place < pl_nv && !v->cut && tb_active(&PL_E(v)->u.tb)) {
+                                         /* (not one being cut: a NOTE CUT's fade gives it 0 and the voices pass cuts
+                                          * it, so a note within that fade takes a voice of its own) */
         if (slide && v->held) {
-            tb_slide_to(&v->u.tb, (int)note, ch->row_acc);
+            tb_slide_to(&PL_E(v)->u.tb, (int)note, ch->row_acc);
         } else {
             const uint8_t *slot;
             uint8_t k[TB_NK];
@@ -2348,7 +3804,7 @@ static void pl_tb_note(uint32_t t, uint32_t note)
             for (i = 0; i < pl_np(ch); i++)
                 if (ch->pc[i] >= 0x40u && ch->pc[i] < 0x40u + TB_NK)
                     k[ch->pc[i] - 0x40u] = (uint8_t)(ch->pv[i] > 127u ? 127u : ch->pv[i]);
-            tb_note_on(&v->u.tb, k, (int)note, ch->row_acc);
+            tb_note_on(&PL_E(v)->u.tb, k, (int)note, ch->row_acc);
         }
         for (i = 0; i < PL_NV; i++)      /* (the track's other notes let go) */
             if (&pl_v[i] != v && pl_v[i].use == PV_SONG && pl_v[i].who == t + pl_tbase && pl_v[i].held)
@@ -2360,7 +3816,7 @@ static void pl_tb_note(uint32_t t, uint32_t note)
         return;
     }
     pl_track_release(t);
-    v = pl_alloc((int)(t + pl_tbase));
+    v = pl_alloc((int)(t + pl_tbase), EN_TB);
     if (!pl_voice_on(v, PV_SONG, t + pl_tbase, ch->ins, (int)note, 127, (uint32_t)ch->pan, ch->row_acc, 4096, ch->pc,
                      ch->pv, pl_np(ch), 0))
         return;
@@ -2424,7 +3880,9 @@ static inline __attribute__((always_inline)) void pl_trigger(uint32_t t, const s
     if (e == EN_NONE)
         return;
     {
-        pl_voice_t *v = pl_alloc((int)(t + pl_tbase));
+        pl_voice_t *v = pl_alloc((int)(t + pl_tbase), e);
+        pl_vel_at = (uint8_t)(1 + (ch->vol >= 64 ? 127 : ch->vol < 0 ? 0 : 2 * ch->vol));   /* (its velocity: the cell's
+                                          * volume, 0-64 in the replay) */
         if (pl_voice_on(v, PV_SONG, t + pl_tbase, ch->ins, (int)note, 127, (uint32_t)ch->pan, 0, 4096, ch->pc, ch->pv,
                         pl_np(ch), c->offset))
             v->gen = ch->gen;
@@ -2445,7 +3903,7 @@ static __attribute__((noinline)) PLAT_COLD void pl_legato(uint32_t t, const stru
     for (i = 0; i < PL_NV; i++)
         if (pl_v[i].use == PV_SONG && pl_v[i].who == t + pl_tbase && pl_v[i].gen == ch->gen &&
             pl_v[i].engine == EN_JUNO)
-            juno_key(&pl_v[i].u.ju, (int)note);
+            pl_v_jkey(&pl_v[i], note);
 }
 
 static void pl_pending(uint32_t t)       /* FUSION layers waiting for their EDx: a tick on */
@@ -2497,6 +3955,53 @@ static void pl_param(uint32_t t, uint32_t code, uint32_t val)
         if (v->use == PV_SONG && v->who == t + pl_tbase && v->gen == ch->gen && v->engine != EN_FUS)
             pl_param_live(v, code, val);
     }
+}
+
+/* a song's ghost about to come back (pl_gh_ready): its parameter commands as they are now
+ * (specs/proposals/202611121830-ghost-notes.md, section 2). A note's: its track's while the track is still on its
+ * instrument, none once it took another (and a ghost let go then goes). A FUSION layer's (acc: its place in its row):
+ * its own, its cell's as it started and its track's that turned it since (pl_param, as a sounding layer's), while its
+ * FUSION note is its track's latest and its cell, read again, still holds its note and instrument (else it goes); one
+ * of an older note (let go, its row not kept) goes, and so does one let go with its track off FUSION. A Juno-106's are
+ * in its patch copy: kept. 0: the ghost goes */
+static PLAT_COLD int pl_gh_pars(pl_voice_t *g)
+{
+    const pl_chan_t *ch = &PL_CH(g->who);
+    const rec_cell_t *c;
+    uint32_t i, n;
+    if (g->acc) {
+        if (g->gen != ch->gen) {
+            PL_GF(pl_gf_go = GO_FUS_OLD);   /* (the figures' why, as each one goes) */
+            return 0;
+        }
+        if (!ch->has_ins || pl_engine(ch->ins, 0) != EN_FUS) {
+            PL_GF(if (!g->held) pl_gf_go = GO_FUS_CELL);
+            return g->held;
+        }
+        n = pl_fusion_row(ch->ins, ch->fus_note, pl_fcells);
+        c = &pl_fcells[g->acc - 1u];
+        i = g->acc <= n && (c->has & (RC_NOTE | RC_INS)) == (RC_NOTE | RC_INS) && c->note == g->note &&
+            c->cart == g->inst.cart && c->slot == g->inst.slot;
+        PL_GF(if (!i) pl_gf_go = GO_FUS_CELL);
+        return (int)i;
+    }
+    n = 0;
+    if (ch->has_ins && ch->ins.cart == g->inst.cart && ch->ins.slot == g->inst.slot)
+        n = pl_np(ch);
+    else if (!g->held) {
+        PL_GF(pl_gf_go = GO_OFF_INST);
+        return 0;
+    }
+    if (g->engine == EN_JUNO)
+        return 1;
+    g->p.par.n = 0;
+    for (i = 0; i < n; i++)              /* (the track's) */
+        pl_par_put(g, ch->pc[i], ch->pv[i]);
+    if (g->engine == EN_SAMP)            /* (TUNE: the voice's) */
+        for (i = 0, g->tune = 0; i < g->p.par.n; i++)
+            if (g->p.par.pc[i] == 0x45u)
+                g->tune = (int16_t)(((int32_t)g->p.par.pv[i] - 128) / 2);
+    return 1;
 }
 
 /* the row the replay started: each track's instrument (another one drops its parameters), its parameters,
@@ -2581,7 +4086,7 @@ static void pl_clk_pace(void)            /* a beat's frames now, a frame's step,
 }
 
 /* FILTER's envelope's sources (fx_clock_t.fire, held): the notes held now, each replay's tracks' into its clock (a
- * parked note and a muted track's too), the keys' (keys down, or a key's note held) into what plays'; the notes started
+ * ghost and a muted track's too), the keys' (keys down, or a key's note held) into what plays'; the notes started
  * are marked as they start (pl_trigger; pl_kfire) */
 static void pl_env_held(uint32_t prim)
 {
@@ -2620,7 +4125,7 @@ static __attribute__((noinline)) void pl_clk_advance(void)
 
 /* ---- LOOPS' lanes: their work (their state above). Only the second replay plays them, the audio context with it
  * (pl_cur), or the store's watch with the audio held off ---- */
-static void pl_lbit(uint32_t *m, uint32_t i, int on)   /* lane i's bit in pl_lpb / pl_lpg */
+static PLAT_COLD void pl_lbit(uint32_t *m, uint32_t i, int on)   /* lane i's bit in pl_lpb / pl_lpg */
 {
     if (on)
         m[i >> 5] |= 1u << (i & 31u);
@@ -2643,11 +4148,47 @@ static PLAT_COLD uint32_t pl_ln_lc(uint32_t i)    /* lane i's voices' mark: the 
     return i < 4u * PL_LPV ? PL_LC_NONE : i < PL_LPS ? PL_LC_PREVIEW
            : i < PL_LPT ? PL_LC_STAGE : i < PL_LPO ? PL_LC_SKEYS : PL_LC_OKEYS + (i - PL_LPO);
 }
-static PLAT_COLD int pl_ln_mine(const pl_voice_t *v, uint32_t i, uint32_t gen)   /* a voice of lane i's note gen */
+/* a voice of lane i's note gen, a ghost let go too (MOVE takes it with its lane, as it takes its tail in an engine) */
+static PLAT_COLD int pl_ln_of(const pl_voice_t *v, uint32_t i, uint32_t gen)
 {
     return v->use == PV_SONG && v->who == pl_ln_who(i) && v->gen == gen && v->lc == pl_ln_lc(i);
 }
-/* the tap (player.h): lane i's note fired, written if heard (a loop muted or silenced is not) and given a voice of the
+/* a voice of lane i's note gen; never a ghost let go (a lane's gen comes round again every 32 notes: such a ghost is no
+ * lane's current note) */
+static PLAT_COLD int pl_ln_mine(const pl_voice_t *v, uint32_t i, uint32_t gen)
+{
+    return pl_ln_of(v, i, gen) && (v->held || !(v->gh & 1u));
+}
+/* a song's FUSION note's level: its track's volume, a lane's its own (wvol: the lanes of a loop share its track; a note
+ * waiting there has it meanwhile, EDx), with the global volume (Q12) */
+static PLAT_COLD int32_t pl_fn_dyn(const pl_fn_t *fn)
+{
+    int32_t v = PL_CH(fn->who).vol;
+    if (fn->lane != 0xFFu && !pl_ln[fn->lane].wait)
+        v = (int32_t)((pl_ln[fn->lane].wvol * 64u + 63u) / 127u);
+    return v * PL_MCTX(fn->who >> 4)->gvol;
+}
+/* lane i's sounding note's voices at level dyn (Q12: the volume x the global volume) */
+static __attribute__((noinline)) PLAT_COLD void pl_ln_dyn(uint32_t i, int32_t dyn)
+{
+    uint32_t k;
+    for (k = 0; k < PL_NV; k++)
+        if (pl_v[k].held && pl_ln_mine(&pl_v[k], i, pl_ln[i].gen))
+            pl_v_level(&pl_v[k], dyn);
+}
+/* lane i's sounding note's volume now, vol 0-127 (a stage key's pressure, RQ_LP_NOTE's note 0; a volume alone's glide
+ * there): its track's volume as a note's sets it, its voices' levels with it, the lane's own (wvol) */
+static __attribute__((noinline)) PLAT_COLD void pl_ln_vol(uint32_t i, uint32_t vol)
+{
+    pl_ctx_t *c = &pl_ctxs[1];
+    pl_chan_t *ch = &c->ch[pl_ln_who(i) & 15u];
+    vol = vol > 127u ? 127u : vol;
+    ch->vol = (int32_t)((vol * 64u + 63u) / 127u);
+    pl_ln[i].wvol = (uint8_t)vol;
+    pl_lbit(pl_lpvg, i, 0);
+    pl_ln_dyn(i, ch->vol * c->gvol);
+}
+/* the tap (player.h): lane i's note fired, written if heard (a loop muted or silenced is not) and given an engine of the
  * count (a FUSION note's layers yet to start count), told as it sounds */
 static PLAT_COLD void pl_tap_note(uint32_t i, uint32_t note, uint32_t vol, uint32_t fl, uint32_t glide)
 {
@@ -2656,8 +4197,8 @@ static PLAT_COLD void pl_tap_note(uint32_t i, uint32_t note, uint32_t vol, uint3
     uint32_t k, on = 0;
     if (i < 4u * PL_LPV && (pl_lpm.eff >> (i >> 2) & 1u))
         return;
-    for (k = 0; k < pl_nv && !on; k++)
-        on = pl_v[k].held && !pl_v[k].cut && pl_ln_mine(&pl_v[k], i, ln->gen);
+    for (k = 0; k < PL_NV && !on; k++)
+        on = pl_v[k].held && !pl_v[k].cut && pl_v_voiced(&pl_v[k]) && pl_ln_mine(&pl_v[k], i, ln->gen);
     for (k = 0; k < PL_SF && !on; k++)
         on = pl_sf[k].on && pl_sf[k].lane == i;
     if (!on)
@@ -2668,16 +4209,17 @@ static PLAT_COLD void pl_tap_note(uint32_t i, uint32_t note, uint32_t vol, uint3
     }
     pl_tap_put(i, note, vol, fl, glide, pl_ln_who(i) & 15u, PL_TAP_IN(in));
 }
-/* voice v's note losing its voice (taken, or parked past the count): told when none of its layers sounds on, a lane's by
- * the lane, a key's by its key */
+/* voice v's note losing its engine (taken, past a smaller count, in a voice job core 2 lost: a ghost, or gone), while
+ * the tap is on: told when none of its layers sounds on in one, a lane's by the lane, a key's by its key */
 static PLAT_COLD void pl_tap_voice(const pl_voice_t *v)
 {
     uint32_t k, lane;
-    if (!v->held || v->cut)
+    if (!pl_tap_q || !v->held || v->cut)
         return;
-    for (k = 0; k < pl_nv; k++) {
+    for (k = 0; k < PL_NV; k++) {
         const pl_voice_t *o = &pl_v[k];
-        if (o != v && o->use == v->use && o->held && !o->cut && o->who == v->who && o->gen == v->gen && o->lc == v->lc)
+        if (o != v && o->use == v->use && o->held && !o->cut && o->who == v->who && o->gen == v->gen && o->lc == v->lc &&
+            pl_v_voiced(o))
             return;
     }
     if (v->use == PV_KEY) {
@@ -2755,6 +4297,7 @@ static PLAT_COLD void pl_lp_rest(void)   /* every lane at rest, nothing due (the
     }
     memset(pl_lpb, 0, sizeof pl_lpb);
     memset(pl_lpg, 0, sizeof pl_lpg);
+    memset(pl_lpvg, 0, sizeof pl_lpvg);
     pl_lpq_n = 0;
 }
 
@@ -2789,14 +4332,14 @@ static PLAT_COLD void pl_ln_tb(uint32_t i, pl_inst_t in, const uint8_t *slot, ui
     ln->bend = ln->bend_to = 0;
     ln->glide = 0;
     if (v && v->engine == EN_TB && pl_ln_mine(v, i, old) && v->inst.cart == in.cart && v->inst.slot == in.slot &&
-        tb_active(&v->u.tb)) {
+        v->place != PL_NO_ENG && tb_active(&PL_E(v)->u.tb)) {
         ln->gen = (uint8_t)(old + 8u);
         if (slide && v->held) {
-            tb_slide_to(&v->u.tb, (int)note, (int)acc);
+            tb_slide_to(&PL_E(v)->u.tb, (int)note, (int)acc);
         } else {
             uint8_t kn[TB_NK];
             rec_tb_knobs(slot, kn);
-            tb_note_on(&v->u.tb, kn, (int)note, (int)acc);
+            tb_note_on(&PL_E(v)->u.tb, kn, (int)note, (int)acc);
         }
         for (k = 0; k < PL_NV; k++)      /* (the lane's other notes let go) */
             if (&pl_v[k] != v && pl_v[k].held && pl_ln_mine(&pl_v[k], i, old))
@@ -2808,7 +4351,7 @@ static PLAT_COLD void pl_ln_tb(uint32_t i, pl_inst_t in, const uint8_t *slot, ui
     } else {
         pl_ln_release(i);
         ln->gen = (uint8_t)(old + 8u);
-        v = pl_alloc((int)who);
+        v = pl_alloc((int)who, EN_TB);
         if (!pl_voice_on(v, PV_SONG, who, in, (int)note, 127u, (uint32_t)c->ch[who & 15u].pan, acc, 4096, 0, 0, 0, 0)) {
             ln->voice = -1;
             return;
@@ -2842,7 +4385,7 @@ static __attribute__((noinline)) PLAT_COLD int pl_ln_leg(uint32_t i, pl_inst_t i
                 pl_v_level(&pl_v[k], dyn);
             pl_v_pitch(&pl_v[k], ln->bend + pl_v[k].arp64);
             if (pl_v[k].engine == EN_JUNO)
-                juno_key(&pl_v[k].u.ju, (int)note);
+                pl_v_jkey(&pl_v[k], note);
         }
     return 1;
 }
@@ -2865,6 +4408,7 @@ static PLAT_COLD void pl_ln_note(uint32_t i, uint32_t note, uint32_t vol, uint32
                                           * takes a cell's volume, or an instrument's own) */
     ch->vol = (int32_t)(k > 64u ? 64u : k);   /* (the track's volume: its last note's, as a song track's; a FUSION
                                                * note's tick layers take it) */
+    ln->wvol = (uint8_t)(vol <= 127u ? vol : 127u);   /* (the lane's volume: a glide's start) */
     ch->note = (uint8_t)note;
     dyn = ch->vol * c->gvol;
     fx_clk.fire |= 2u << t;              /* (FILTER's envelope, SOURCE this track) */
@@ -2913,7 +4457,7 @@ static PLAT_COLD void pl_ln_note(uint32_t i, uint32_t note, uint32_t vol, uint32
             return;
         }
         for (k = 0; k < n; k++)
-            if ((v = pl_layer_on(PV_SONG, who, in, &cells[k], (uint32_t)ch->pan, 0)) != 0) {
+            if ((v = pl_layer_on(PV_SONG, lc ? who + PL_LC_WHO : who, in, &cells[k], (uint32_t)ch->pan, 0)) != 0) {
                 v->gen = ln->gen;
                 pl_v_lc(v, lc);
                 pl_v_level(v, dyn);
@@ -2921,7 +4465,9 @@ static PLAT_COLD void pl_ln_note(uint32_t i, uint32_t note, uint32_t vol, uint32
             }
         return;
     }
-    v = pl_alloc((int)who);
+    v = pl_alloc((int)(lc ? who + PL_LC_WHO : who), e);   /* (the stage's column: no mute makes it a ghost) */
+    pl_vel_at = (uint8_t)(1 + (vol <= 127u ? (int32_t)vol : ch->vol >= 64 ? 127 : 2 * ch->vol));   /* (its velocity:
+                                          * its volume, or its instrument's own) */
     if (pl_voice_on(v, PV_SONG, who, in, (int)note, 127, (uint32_t)ch->pan, 0, 4096, 0, 0, 0, 0)) {
         v->gen = ln->gen;
         pl_v_lc(v, lc);
@@ -2933,13 +4479,13 @@ static PLAT_COLD void pl_ln_note(uint32_t i, uint32_t note, uint32_t vol, uint32
  * its mix as the preview's notes are (the loops' held song's mix while their replay does not play), at vol 00-7F; the
  * one heard before let go first; note 0 only that. DJ's decks held (the right one on those tracks): a key's note */
 #define PL_HEAR_GEN 0xFFu                /* (its voices' gen: never a lane's, a multiple of 8) */
-static PLAT_COLD uint32_t pl_hear_v(pl_voice_t *v, int32_t dyn)   /* a voice of it set: 1 within the count */
+static PLAT_COLD uint32_t pl_hear_v(pl_voice_t *v, int32_t dyn)   /* a voice of it set: 1 given an engine of the count */
 {
     v->gen = PL_HEAR_GEN;
     pl_v_lc(v, PL_LC_HEAR);              /* (on the stage's column: no mute or solo silences it) */
     pl_v_level(v, dyn);
     pl_v_pitch(v, 0);
-    return v < pl_v + pl_nv;
+    return pl_v_voiced(v);
 }
 static PLAT_COLD void pl_hear(uint32_t note, pl_inst_t in, uint32_t vol, uint32_t t)
 {
@@ -2978,10 +4524,11 @@ static PLAT_COLD void pl_hear(uint32_t note, pl_inst_t in, uint32_t vol, uint32_
         rec_cell_t *cells = pl_fcells;
         n = pl_fusion_row(in, note, cells);
         for (k = 0; k < n; k++)
-            if ((v = pl_layer_on(PV_SONG, who, in, &cells[k], (uint32_t)ch->pan, 0)) != 0)
+            if ((v = pl_layer_on(PV_SONG, who + PL_LC_WHO, in, &cells[k], (uint32_t)ch->pan, 0)) != 0)
                 heard |= pl_hear_v(v, dyn);
     } else {
-        v = pl_alloc((int)who);
+        v = pl_alloc((int)(who + PL_LC_WHO), pl_engine(in, 0));   /* (the stage's column: no mute) */
+        pl_vel_at = (uint8_t)(1u + (vol > 127u ? 127u : vol));
         if (pl_voice_on(v, PV_SONG, who, in, (int)note, 127, (uint32_t)ch->pan, 0, 4096, 0, 0, 0, 0))
             heard = pl_hear_v(v, dyn);
     }
@@ -3005,6 +4552,7 @@ static void pl_ln_event(uint32_t i, uint32_t note, uint32_t vol, uint32_t fl, ui
     pl_ln_t *ln = &pl_ln[i];
     ln->wait = ln->koff = 0;
     if (delay) {
+        pl_lbit(pl_lpvg, i, 0);          /* (wnote the note's now: a volume's glide there ends where it stood) */
         ln->wait = (uint8_t)delay;
         ln->wnote = (uint8_t)note;
         ln->wvol = (uint8_t)vol;
@@ -3035,6 +4583,16 @@ static PLAT_COLD void pl_ln_cell(uint32_t i, const rec_cell_t *c)
     }
     if ((c->has & RC_NOTE) && delay < sp)
         pl_ln_event(i, c->note, c->has & RC_VOL ? c->vol : 0xFFu, fl, glide, delay);
+    else if ((c->has & (RC_NOTE | RC_VOL)) == RC_VOL) {
+        if (pl_ln[i].wait) {             /* (a volume alone: the lane's note glides there over the row, pl_lp_ramps; a
+                                          * note waiting there, at once) */
+            pl_ln_vol(i, c->vol);
+        } else {
+            pl_ln[i].wnote = c->vol;
+            pl_lbit(pl_lpvg, i, 1);
+            pl_lpg[2] |= PL_LPG_GLIDES;
+        }
+    }
     if (koff < sp) {
         if (!koff) {
             pl_ln_off(i);
@@ -3065,17 +4623,43 @@ static void pl_lp_tick(void)             /* a tick on: the lanes' glides, waitin
                 pl_lbit(pl_lpb, i, 0);
         }
 }
+/* the lanes gliding to a volume alone over its row (wnote; from wvol, where it stood), a block at a time: their voices
+ * at its share of the row played so far; there at the row's end (land: the next row's start; a row held past its
+ * ticks), as a volume set */
+static __attribute__((noinline)) PLAT_COLD void pl_lp_ramps(int land)
+{
+    const pl_ctx_t *c = pl_cur;
+    uint32_t w, j, i, sp = c->speed ? c->speed : 1u, q = c->tick_q16 >> 6, f;
+    f = (pl_lp_tk * q + (c->clock >> 6)) / ((sp * q >> 8) + 1u);   /* (the row's share played, Q8) */
+    for (w = 0; w < 3u; w++)
+        for (j = 0; j < 32u && pl_lpvg[w] >> j; j++) {
+            const pl_ln_t *ln = &pl_ln[i = 32u * w + j];
+            int32_t s, e;
+            if (!(pl_lpvg[w] >> j & 1u))
+                continue;
+            if (land || pl_lp_tk >= sp || f > 255u) {
+                pl_ln_vol(i, ln->wnote);
+                continue;
+            }
+            s = (int32_t)((ln->wvol * 64u + 63u) / 127u);   /* (in the replay's 0-64, as a note's and pl_ln_vol's) */
+            e = (int32_t)((ln->wnote * 64u + 63u) / 127u);
+            pl_ln_dyn(i, ((s << 8) + (e - s) * (int32_t)f) * c->gvol >> 8);
+        }
+    if (!(pl_lpvg[0] | pl_lpvg[1] | pl_lpvg[2]))
+        pl_lpg[2] &= ~PL_LPG_GLIDES;
+}
 static __attribute__((noinline)) void pl_lp_gates(void)   /* a block on: the TB-303 lanes' gates (closed half a row
                                                            * on) */
 {
     uint32_t w, j, i;
+    if (pl_lpg[2] & PL_LPG_GLIDES)
+        pl_lp_ramps(0);
     for (w = 0; w < 3u; w++)
         for (j = 0; j < 32u && pl_lpg[w] >> j; j++) {
             pl_ln_t *ln;
             pl_voice_t *v;
-            if (!(pl_lpg[w] >> j & 1u))
+            if (!(pl_lpg[w] >> j & 1u) || (i = 32u * w + j) >= PL_NLN)
                 continue;
-            i = 32u * w + j;
             ln = &pl_ln[i];
             if (--ln->gate > 0)
                 continue;
@@ -3114,6 +4698,12 @@ static void pl_lpv_row(uint32_t r, uint32_t len)
             pl_ln_event(4u * PL_LPV + j, REC_NOTE_OFF, 0, 0, 0, 0);   /* (NOTE LENGTH and its ties on from its note) */
     }
 }
+/* the row of a cut loop's window at the loops' row r of this pass (len rows): their rows counted from their start across
+ * the length's end, round its cut (the loop plays there what it plays at that row with none, its SHIFT included) */
+static uint32_t pl_lp_cut_row(const pl_lp_t *p, uint32_t r, uint32_t len)
+{
+    return ((uint32_t)pl_lp_pass * len + r) % p->cut;
+}
 /* ---- LOOPS' stage (player.h): its lanes PL_LPS, read at the loops' rows from the store's stage (pl_lps.cur) ---- */
 static int pl_lps_held(uint32_t l, uint32_t r)   /* its lane l held at the loops' row r (player_lp_hold) */
 {
@@ -3140,18 +4730,21 @@ static PLAT_COLD void pl_lps_from(uint32_t r)
         rec_stage_merge(rec_stage_cells(&cu, (int)((uint32_t)cu.row >> 2), c4), c4, &from);
     pl_lps.from = from;
 }
-/* the stage's row r of the loops: the lanes held at rest from their row; its cells on the other lanes, but those a note
- * asked for stands in for (MONO: merged onto lane 0, its other lanes at rest) */
-static PLAT_COLD void pl_lps_row(uint32_t r)
+/* the stage at row r of the loops (len rows): the lanes held at rest from their row; its cells on the other lanes, but
+ * those a note asked for stands in for (MONO: merged onto lane 0, its other lanes at rest). Its row the loops', or over a
+ * cut loop (its track's) that loop's window's: round its cut, what sounds over the wrap ending there */
+static PLAT_COLD void pl_lps_row(uint32_t r, uint32_t len)
 {
     rec_cell_t c4[4];
-    uint32_t l, has, held = 0;
+    uint32_t l, has, held = 0, t = pl_lps.track, lr = r;
     for (l = 0; l < 4u; l++)
-        if (pl_lps_held(l, r)) {
+        if (pl_lps_held(l, lr)) {
             held |= 1u << l;
             if (pl_ln_busy(PL_LPS + l))
                 pl_ln_end(PL_LPS + l);
         }
+    if (t < pl_lpn && pl_lp[t].cut && !(r = pl_lp_cut_row(&pl_lp[t], r, len)))
+        pl_lp_stop(PL_LPS / 4u);
     if (!pl_lps.cur.s)
         return;
     if (pl_lps.mono) {
@@ -3159,20 +4752,18 @@ static PLAT_COLD void pl_lps_row(uint32_t r)
         for (l = 1; l < 4u; l++)
             if (pl_ln_busy(PL_LPS + l))
                 pl_ln_end(PL_LPS + l);
-        if (!r)
-            pl_lps.from = -1;
-        else if (pl_lps.at != r)
+        if (r && pl_lps.at != r)         /* (row 0: the lane sounding over the line goes on, its end there played) */
             pl_lps_from(r);
         has = (uint32_t)rec_stage_cells(&pl_lps.cur, (int)r, c4);
         w = rec_stage_merge((int)has, c4, &pl_lps.from);
         pl_lps.at = (uint8_t)(r + 1u);
-        if (w >= 0 && !(held & 1u) && !pl_lps_stood((uint32_t)w, r))
+        if (w >= 0 && !(held & 1u) && !pl_lps_stood((uint32_t)w, lr))
             pl_ln_cell(PL_LPS, &c4[w]);
         return;
     }
     has = (uint32_t)rec_stage_cells(&pl_lps.cur, (int)r, c4);
     for (l = 0; l < 4u; l++)
-        if ((has >> l & 1u) && !(held >> l & 1u) && !pl_lps_stood(l, r))
+        if ((has >> l & 1u) && !(held >> l & 1u) && !pl_lps_stood(l, lr))
             pl_ln_cell(PL_LPS + l, &c4[l]);
 }
 /* RECORD LIVE's switch at row r of the replay (pl_lpr.on 3: the loops silent from here, their voices let go; 2: a
@@ -3199,8 +4790,9 @@ static __attribute__((noinline)) PLAT_COLD void pl_lpr_row(uint32_t r)
     pl_lpr.n++;
 }
 /* a jump landed on row r (len rows; the loops' place before it: row last0 of pass0): counted; the notes asked for at the
- * rows a jump forward passed over dropped; the stage's lanes held then go on from here (OVERWRITE); a switch of the
- * rest's (the loops' row from here) */
+ * rows a jump forward passed over dropped, the offs among them played here (the note an off ends is never left
+ * sounding: a key's end on a row the jump passed over); the stage's lanes held then go on from here (OVERWRITE); a switch
+ * of the rest's (the loops' row from here). Once a landing, never per sample */
 static PLAT_COLD void pl_lp_landed(uint32_t r, uint32_t len, uint16_t pass0, int32_t last0)
 {
     uint32_t f = pl_lpj.from, skip = (r + len - f) % len, k, j, l;
@@ -3208,8 +4800,11 @@ static PLAT_COLD void pl_lp_landed(uint32_t r, uint32_t len, uint16_t pass0, int
     pl_lpj.n++;
     pl_lpj.lrow = (uint8_t)r;
     for (k = j = 0; k < pl_lpq_n; k++) {
-        if (!pl_lpj.back && (pl_lpq[k].row + len - f) % len < skip)
+        if (!pl_lpj.back && (pl_lpq[k].row + len - f) % len < skip) {
+            if (pl_lpq[k].note == REC_NOTE_OFF)
+                pl_ln_event(pl_lpq[k].ln, REC_NOTE_OFF, 0, 0, 0, 0);
             continue;
+        }
         pl_lpq[j++] = pl_lpq[k];
     }
     pl_lpq_n = (uint8_t)j;
@@ -3255,6 +4850,13 @@ static PLAT_COLD void pl_lp_row(uint32_t r)
         uint32_t base = p->base ? p->base : 1u, end = base * p->repeats, rr = p->shift ? (r + len - p->shift % len) % len : r;
         if (i == sil)                    /* (the stage stands for it) */
             continue;
+        if (p->cut) {                    /* (cut: round its cut, a note sounding over its wrap ending there; its base the
+                                          * length, once) */
+            if (!(rr = pl_lp_cut_row(p, r, len)))
+                pl_lp_stop(i);
+            pl_lp_read(i, (rr + len - p->shift % len) % len);
+            continue;
+        }
         if (rr == 0u && end > len && len % base)   /* (its last repeat cut: at its own row 0, its first's again) */
             pl_lp_stop(i);
         if (rr >= end) {
@@ -3267,11 +4869,13 @@ static PLAT_COLD void pl_lp_row(uint32_t r)
     if (PL_RARE(pl_lpv.on) && !pl_lpv.g.mute)
         pl_lpv_row(r, len);
     if (!pl_lpv.alone && pl_lpr.on != 1u && !pl_lps.rest)
-        pl_lps_row(r);
-    for (k = j = 0; k < pl_lpq_n; k++) { /* (the notes asked for at this row, in their order) */
+        pl_lps_row(r, len);
+    for (k = j = 0; k < pl_lpq_n; k++) { /* (the notes asked for at this row, in their order; one heard already, at once,
+                                          * only stood in for its cell) */
         if (pl_lpq[k].row == r) {
-            pl_ln_event(pl_lpq[k].ln, pl_lpq[k].note, pl_lpq[k].vol, pl_lpq[k].delay & 16u ? (uint32_t)LF_LEG : 0u,
-                        pl_lpq[k].glide, pl_lpq[k].delay & 15u);   /* (delay's 16: a legato) */
+            if (!(pl_lpq[k].delay & 32u))
+                pl_ln_event(pl_lpq[k].ln, pl_lpq[k].note, pl_lpq[k].vol, pl_lpq[k].delay & 16u ? (uint32_t)LF_LEG : 0u,
+                            pl_lpq[k].glide, pl_lpq[k].delay & 15u);   /* (delay's 16: a legato) */
         } else {
             pl_lpq[j++] = pl_lpq[k];
         }
@@ -3284,10 +4888,13 @@ static __attribute__((noinline)) PLAT_COLD void pl_lp_after(int row, uint32_t r)
     if (pl_chasing)                      /* (a chase: no notes; the cursors find their rows when asked) */
         return;
     pl_lpt++;
+    pl_lp_tk = (uint8_t)(row ? 0u : pl_lp_tk + 1u);
     if (pl_lpb[0] | pl_lpb[1] | pl_lpb[2])
         pl_lp_tick();
-    if (row)
+    if (row) {
+        pl_lp_ramps(1);                  /* (the last row's glides there) */
         pl_lp_row(r);
+    }
 }
 
 /* the view of the loops read again from the store (rec_loops: their table, each one's stream); keep: each cursor stays
@@ -3317,6 +4924,7 @@ static PLAT_COLD void pl_lp_load(int keep)
         p->base = e.base;
         p->repeats = e.repeats;
         p->shift = e.shift;
+        p->cut = e.cut;
         p->look = look;
         if (keep && i < pl_lpn)
             rec_cur_reseat(&p->cur, l.trk[i], l.trk_end[i]);
@@ -3398,6 +5006,7 @@ static void pl_lp_watch(uint32_t id)
         p->base = e.base;
         p->repeats = e.repeats;
         p->shift = e.shift;
+        p->cut = e.cut;
         p->look = look;
         if (i >= pl_lpn) {               /* (a loop new to the view: its stream, a piece) */
             if (!(s = store_piece(REC_LOOPS, 0, (uint16_t)i, &len))) {
@@ -3452,6 +5061,7 @@ static void pl_tracks_reset(void)        /* the tracks as at a song's start (no 
         ch->level = (int32_t)ch->mix[RM_LEVEL] * 4096 / 127;
         ch->peak = 0;
     }
+    memset(pl_tk_skip, 0, sizeof pl_tk_skip);   /* (a take's notes left out ahead: none, the rows counted afresh) */
     pl_sf_off(-1, pl_cur->k);            /* (its FUSION notes' ticks) */
 }
 
@@ -3493,7 +5103,7 @@ static PLAT_COLD void pl_after_tick(int row)
 {
     struct ibxm_fm1_state st;
     struct ibxm_fm1_chan c;
-    uint32_t t;
+    uint32_t t, tk;
     pl_alloc_k = (int8_t)pl_cur->k;      /* (its notes ask for voices) */
     pl_layer_cuts();
     if (pl_rp)                           /* (its properties open: at its TICKS A ROW and TEMPO as they change, no Fxx) */
@@ -3554,11 +5164,16 @@ static PLAT_COLD void pl_after_tick(int row)
         pl_lp_after(row, (uint32_t)st.row);
         return;
     }
+    tk = pl_rows_seen << 8 | (uint32_t)st.row;   /* (this row, as a take's notes left out ahead name it) */
     for (t = 0; t < PL_NCH && !pl_chasing; t++) {   /* (a chase's channels: untouched, they start over at its end) */
         pl_chan_t *ch = &pl_ch[t];
         if (t >= (uint32_t)pl_mod->num_channels)
             break;
         replay_fm1_chan(pl_rp, (int)t, &c);
+        if (PL_RARE(pl_tk_skip[t][0] == tk))   /* (the EDITOR's take: its note heard at its key, not started again) */
+            c.trig = c.leg = 0;
+        if (PL_RARE(pl_tk_skip[t][1] == tk))   /* (its end heard at the key's release: not again, a later note going on) */
+            c.off = 0;
         ch->bend = c.bend64;
         ch->vol = c.volume;
         ch->pan = c.panning;
@@ -3583,7 +5198,7 @@ static PLAT_COLD void pl_after_tick(int row)
             uint32_t i;
             for (i = 0; i < PL_NV; i++)
                 if (pl_v[i].use == PV_SONG && pl_v[i].who == t + pl_tbase && pl_v[i].gen == ch->gen)
-                    pl_v[i].cut = 1;
+                    pl_v_cut_soon(&pl_v[i]);
             ch->npend = 0;
         }
         if (PL_RARE(c.off || c.cut))      /* (a FUSION note's ticks stop with it) */
@@ -3592,11 +5207,12 @@ static PLAT_COLD void pl_after_tick(int row)
     }
 }
 
-/* the EDITOR's take (player_take_cell): track t's cell at row `row` of the pattern loop, just written, heard as
- * written. at 0: its row started already: its note now, as the replay would start it there (its EDx and Kxx not
- * waited for: it is played now; its instrument the track's from then, the row's own cell going on), or (off) the
- * track's note let go now. Else the row's count: still to come, the replay reads it there; started before the cell
- * was written (its cells read without it), now */
+/* the EDITOR's take (player_take_cell): track t's cell at row `row` of the pattern loop, just written, heard at its
+ * key: its note now, as the replay would start it there (its EDx and Kxx not waited for: it is played now; its
+ * instrument the track's from then, the row's own cell going on), or (off) the track's note let go now. at: 0, its row
+ * started already; else the row's count: still to come, the cell stands in for itself there once (the replay's start
+ * of its note, or its let-go, left out: pl_tk_skip); that row started already, read with it, heard there; read
+ * without it (written after), now */
 static __attribute__((noinline)) PLAT_COLD void pl_take_cell(uint32_t t, uint32_t row, uint32_t at, uint32_t off)
 {
     pl_chan_t *ch = &pl_ch[t];
@@ -3607,8 +5223,10 @@ static __attribute__((noinline)) PLAT_COLD void pl_take_cell(uint32_t t, uint32_
     struct ibxm_fm1_chan o;
     uint32_t k, rn, ra, rs;
     if (pl_what != PL_LOOP || pl_state != PS_PLAY || !pl_rp || pl_gp_num != (int32_t)pl_loop_pat ||
-        t >= (uint32_t)pl_gp.ntrk || t >= (uint32_t)pl_mod->num_channels || (at && pl_rows_seen < at))
+        t >= (uint32_t)pl_gp.ntrk || t >= (uint32_t)pl_mod->num_channels)
         return;
+    if (at > pl_rows_seen)               /* (its row ahead: left out there, this pass) */
+        pl_tk_skip[t][off] = at << 8 | row;
     if (off) {
         for (k = 0; k < read->n && read->cmd[k][0] != 0x14u; k++)
             ;
@@ -3743,7 +5361,7 @@ ticks:
         pl_cur->restart = 0;
         for (i = 0; i < PL_NV; i++)
             if (pl_v[i].use == PV_SONG && (pl_v[i].who >> 4 & 1u) == pl_cur->k)
-                pl_v[i].cut = 1;
+                pl_v_cut_soon(&pl_v[i]);
         for (i = 0; i < PL_NCH; i++)
             pl_ch[i].npend = 0;
         pl_sf_off(-1, pl_cur->k);
@@ -4051,7 +5669,7 @@ static void pl_cut_all(void)             /* all sound off: every voice fades out
     uint32_t i;
     for (i = 0; i < PL_NV; i++)
         if (pl_v[i].use != PV_FREE)
-            pl_v[i].cut = 1;
+            pl_v_cut_soon(&pl_v[i]);
     for (i = 0; i < 2u * PL_NCH; i++)
         PL_CH(i).npend = 0;
     pl_sf_off(-1, 2u);
@@ -4079,6 +5697,23 @@ static const int16_t PL_COS_Q12[33] = {4096, 4091, 4076, 4052, 4017, 3973, 3920,
                                        3290, 3166, 3035, 2896, 2751, 2598, 2440, 2276, 2106, 1931, 1751, 1567, 1380,
                                        1189, 995, 799, 601, 401, 201, 0};
 
+/* a ghost let go, back in its engine after its forward work (pl_forward), under hearing
+ * (specs/proposals/202611121830-ghost-notes.md, section 5): the most its note still reaches (xx_heard, ../eng/fwd.h) at
+ * the most gain its render takes, under PL_QUIET. The gain: its own (its level; a Juno-106's LEVEL, its level being in
+ * its engine's), with PLAYBACK's VOLUME or KEYS GAIN where over 0 dB; its track's LEVEL and DUCK, never over 0 dB, left
+ * out (a note that would be heard is never dropped) */
+static PLAT_COLD int pl_gh_quiet(const pl_voice_t *v, const pl_eng_t *eng)
+{
+    uint32_t e = v->engine;
+    int32_t h = e == EN_DX7 ? dx7_heard(&eng->u.dx) : e == EN_JUNO ? juno_heard(&eng->u.ju)
+              : e == EN_SAMP ? samp_heard(&eng->u.sm) : chip_heard(&eng->u.ch);
+    int32_t g = e == EN_JUNO ? (int32_t)(((int64_t)PL_ENG_Q12 * v->trim) >> 12) : v->gain;
+    int db = v->use == PV_KEY ? pl_kg_db : pl_sv_db;
+    if (db > 0)
+        g = (int32_t)(((int64_t)g * PL_VOL_Q12[db + 24]) >> 12);
+    return (((int64_t)h * g) >> 12) < PL_QUIET;
+}
+
 static int32_t pl_log2_q16(uint32_t x)   /* log2(x / 65536), Q16 (x > 0); within 0.01 */
 {
     int32_t e = 0, m;
@@ -4099,7 +5734,7 @@ static uint32_t pl_bar_rows(void)        /* the current replay's bar: BEATS A BA
     return rpb * (beats < 1u ? 4u : beats > 16u ? 16u : beats);
 }
 static uint32_t pl_row_frames(void) { return (uint32_t)(((uint64_t)(pl_speed ? pl_speed : 6u) * pl_tick_q16) >> 16); }
-static uint32_t pl_rows_of(uint32_t pos) { return pl_mod && pos < pl_len ? (uint32_t)pl_mod->patterns[pl_order[pos]].num_rows : 64u; }
+static PLAT_COLD uint32_t pl_rows_of(uint32_t pos) { return pl_mod && pos < pl_len ? (uint32_t)pl_mod->patterns[pl_order[pos]].num_rows : 64u; }
 static int pl_deck_runs(uint32_t k)      /* a deck plays (a stop's or a ROLL's counting included) */
 {
     uint8_t s = pl_ctxs[k].state;        /* (a start being made ready does not run yet: it leads nothing; HOLD's hand
@@ -4264,7 +5899,7 @@ static void pl_dj_cut(uint32_t k)        /* a deck's voices fade out over a bloc
     uint32_t i, m = pl_ctxs[k].k;
     for (i = 0; i < PL_NV; i++)
         if (pl_v[i].use == PV_SONG && (pl_v[i].who >> 4 & 1u) == m)
-            pl_v[i].cut = 1;
+            pl_v_cut_soon(&pl_v[i]);
 }
 
 static void pl_dj_back(void)             /* BACKSPIN: the current deck a row back (round a loop), its notes */
@@ -4924,6 +6559,7 @@ void player_keys_sample(const uint8_t *slot)    /* (into the place not read, the
     pl_ksamp_at = d;
 }
 void player_key_off(uint8_t note) { pl_post(RQ_KEY_OFF, note, 0, 0, 0); }
+void player_key_press(uint8_t note, uint32_t g8) { pl_post(RQ_KEY_PRESS, note, (uint8_t)g8, (uint8_t)(g8 >> 8), 0); }
 void player_keys_off(void) { pl_post(RQ_KEYS_OFF, 0, 0, 0, 0); }
 void player_keys_bend(int16_t bend64) { pl_bend_req = bend64; PL_BARRIER(); pl_bend_seq++; }   /* (the latest wins) */
 void (*volatile player_note_hook)(uint8_t track, uint8_t note, uint8_t vel);
@@ -4952,7 +6588,7 @@ static PLAT_COLD void pl_source_post(uint8_t what, const pl_source_t *src, uint8
 }
 void player_play_source(uint8_t what, const pl_source_t *src, uint8_t pos, uint8_t row) { pl_source_post(what, src, pos, row, 0); }
 void player_play_source_silent(const pl_source_t *src, uint8_t place) { pl_source_post(PL_LOOPS, src, 0, 0, (uint8_t)(place + 1u)); }
-void player_source_end(uint8_t what) { player_play_source(what, 0, 0, 0); }
+PLAT_COLD void player_source_end(uint8_t what) { player_play_source(what, 0, 0, 0); }
 /* LOOPS' lanes (player.h) */
 void player_lp_mutes(uint32_t muted, uint32_t soloed)
 {
@@ -4970,9 +6606,9 @@ void player_lp_note(int loop, int lane, uint8_t note, uint8_t vol, int row, int 
         return;
     pl_post_p(RQ_LP_NOTE, (uint8_t)(4 * loop + lane), note, vol, (uint8_t)(row < 0 || row > 254 ? 0xFF : row),
               (const void *)(uintptr_t)((uint32_t)(delay < 0 ? 0 : delay > 15 ? 15 : delay) | (glide & 255u) << 8 |
-                                        (glide & PL_LP_LEG ? 16u : 0u)));
+                                        (glide & PL_LP_LEG ? 16u : 0u) | (glide & PL_LP_NOW ? 32u : 0u)));
 }
-void player_lp_off(int loop, int lane, int row) { player_lp_note(loop, lane, REC_NOTE_OFF, 0, row, 0, 0); }
+PLAT_COLD void player_lp_off(int loop, int lane, int row) { player_lp_note(loop, lane, REC_NOTE_OFF, 0, row, 0, 0); }
 void player_hear(uint8_t note, pl_inst_t inst, uint8_t vol, int track)
 {
     pl_post_p(RQ_HEAR, note, inst.cart, inst.slot, vol, (const void *)(uintptr_t)(uint32_t)(track & 15));
@@ -5059,7 +6695,7 @@ static PLAT_COLD void pl_d2_set(void *mem)   /* the second deck's memory, or non
         pl_song = 0xFF;
     for (i = 0; i < PL_NV; i++)          /* (its voices go: they belong to the tracks that move) */
         if (pl_v[i].use == PV_SONG && (pl_v[i].who >> 4 & 1u))
-            pl_v[i].cut = 1;
+            pl_v_cut_soon(&pl_v[i]);
     pl_chorus_tail[1][0] = pl_chorus_tail[1][1] = 0;
     pl_d2 = (pl_d2_t *)mem;
     if (pl_d2) {
@@ -5545,7 +7181,9 @@ int player_master(int16_t *lr, int n)
 
 PLAT_COLD void player_levels(uint16_t *lv)
 {
-    uint32_t t, b = PL_TRACKS * pl_ctxs[0].k;   /* (the main's tracks: DJ's SWAP moves it to the second memory's) */
+    uint32_t t, b = pl_what == PL_LOOPS ? PL_TRACKS : PL_TRACKS * pl_ctxs[0].k;   /* (LOOPS: the loops', a loop a track: its
+                                          * voices 16 + its number, the stage's and the preview's the loop they sound as;
+                                          * else the main's tracks: DJ's SWAP moves it to the second memory's) */
     for (t = 0; t < PL_TRACKS; t++) {
         lv[t] = pl_tpeak[b + t];
         pl_tpeak[b + t] = 0;             /* (a race with the audio context costs one block's peak) */
@@ -5577,11 +7215,15 @@ static void pl_src_rebuild(void)
 
 /* ---- LOOPS' lanes: the main loop's requests (player.h), on the second replay (pl_cur) ---- */
 /* a note (REC_NOTE_OFF: an off) for lane i: at row `row` of the loops (0xFF: at once), its delay counted from then
- * (delay's 16: a legato, LEG) */
+ * (delay's 16: a legato, LEG; 32: heard now all the same, the queue's entry standing in for its cell alone) */
 static PLAT_COLD void pl_lp_rq_note(uint32_t i, uint32_t note, uint32_t vol, uint32_t row, uint32_t delay, uint32_t glide)
 {
     if (!PL_LANES_SRC(pl_cur) || i >= PL_NLN || (i < 4u * PL_LPV && (i >> 2) >= pl_lpn))
         return;
+    if (!note) {                         /* (a volume alone, now: a stage key's pressure) */
+        pl_ln_vol(i, vol);
+        return;
+    }
     if (row != 0xFFu && pl_rp && pl_state == PS_PLAY && !pl_lpv.alone) {
         struct ibxm_fm1_state st;
         uint32_t len = (uint32_t)pl_mod->patterns[pl_order[0]].num_rows, d;
@@ -5595,7 +7237,8 @@ static PLAT_COLD void pl_lp_rq_note(uint32_t i, uint32_t note, uint32_t vol, uin
             pl_lpq[pl_lpq_n].row = (uint8_t)row;
             pl_lpq[pl_lpq_n].delay = (uint8_t)delay;
             pl_lpq[pl_lpq_n++].glide = (uint8_t)glide;
-            return;
+            if (!(delay & 32u))
+                return;
         }
     }
     pl_ln_event(i, note, vol, delay & 16u ? (uint32_t)LF_LEG : 0u, glide, delay & 15u);
@@ -5612,7 +7255,7 @@ static PLAT_COLD void pl_ln_move(uint32_t a0, uint32_t b0)
         if (PL_RARE(pl_tap_q != 0) && pl_ln[a].note)
             pl_tap_put(a, PT_MOVE, b, 0, 0, wb & 15u, 0);
         for (k = 0; k < PL_NV; k++)
-            if (pl_ln_mine(&pl_v[k], a, pl_ln[a].gen)) {
+            if (pl_ln_of(&pl_v[k], a, pl_ln[a].gen)) {
                 pl_v[k].who = (uint8_t)wb;
                 pl_v[k].gen = gb;
                 pl_v_lc(&pl_v[k], lb);   /* (a loop's again: its mute heard from the next block) */
@@ -6068,7 +7711,7 @@ static PLAT_COLD void pl_handle(pl_rq_t q)   /* a request, in the audio context 
         case RQ_CUT:
             pl_cut_all();
             break;
-        case RQ_TAKE_CELL:               /* (a: the track, b: the row, c: off; ptr: the row's count, 0 at once) */
+        case RQ_TAKE_CELL:               /* (a: the track, b: the row, c: off; ptr: the row's count, 0 started) */
             pl_take_cell(q.a, q.b, (uint32_t)(uintptr_t)q.ptr, q.c);
             break;
         case RQ_MUTES:                   /* (what plays: the song's tracks or a source's; on DJ, the main deck's; LOOPS'
@@ -6095,10 +7738,10 @@ static PLAT_COLD void pl_handle(pl_rq_t q)   /* a request, in the audio context 
             break;
         }
         case RQ_LP_NOTE: {               /* (a: the lane, b: the note, c: its volume, d: its row (0xFF at once); ptr: its
-                                          * delay, 16 a legato, its glide << 8) */
+                                          * delay, 16 a legato, 32 heard now, its glide << 8) */
             uint32_t p = (uint32_t)(uintptr_t)q.ptr;
             pl_use(1);
-            pl_lp_rq_note(q.a, q.b, q.c, q.d, p & 31u, p >> 8 & 255u);
+            pl_lp_rq_note(q.a, q.b, q.c, q.d, p & 63u, p >> 8 & 255u);
             break;
         }
         case RQ_LP_STAGE: {              /* (a, b: the instrument; c: the track, MONO << 5, the rest << 6; d: the loop
@@ -6273,8 +7916,7 @@ static PLAT_COLD void pl_handle(pl_rq_t q)   /* a request, in the audio context 
             in.slot = q.c;
             if (pl_arp.on) {             /* the arpeggiator takes the key: a note of its set */
                 int alone = pl_nkeys == 0;
-                if (pl_nkeys < sizeof pl_keys)
-                    pl_keys[pl_nkeys++] = q.a;
+                pl_keys_add(q.a);
                 pl_arp_add(q.a, alone);
                 pl_arp.inst = in;
                 pl_arp.vel = q.d;
@@ -6285,11 +7927,7 @@ static PLAT_COLD void pl_handle(pl_rq_t q)   /* a request, in the audio context 
         }
         case RQ_KEY_OFF:
             if (pl_arp.on) {
-                uint32_t i, k;
-                for (i = k = 0; i < pl_nkeys; i++)
-                    if (pl_keys[i] != q.a)
-                        pl_keys[k++] = pl_keys[i];
-                pl_nkeys = (uint8_t)k;
+                pl_keys_drop(q.a);
                 pl_arp_lift(q.a);
             } else {
                 pl_key_off(q.a);
@@ -6298,6 +7936,16 @@ static PLAT_COLD void pl_handle(pl_rq_t q)   /* a request, in the audio context 
         case RQ_KEYS_OFF:
             pl_keys_release();
             break;
+        case RQ_KEY_PRESS: {             /* (a: the note; b, c: its gain x 256) the key's pressure: its own notes louder */
+            uint32_t i, g = q.b | (uint32_t)q.c << 8;
+            for (i = 0; i < pl_nkeys; i++)
+                if (pl_keys[i] == q.a)
+                    pl_kgain[i] = (uint16_t)g;
+            for (i = 0; i < PL_NV; i++)
+                if (pl_v[i].use == PV_KEY && pl_v[i].who == q.a && pl_v[i].held)
+                    pl_v_level(&pl_v[i], pl_key_dyn(q.a));
+            break;
+        }
         case RQ_KEY_BEND:
             pl_keys_bend((int16_t)(q.a | q.b << 8));
             break;
@@ -6419,9 +8067,9 @@ static void pl_pan_out(uint32_t pan, int32_t *mix)   /* pl_vbuf into the mix, pa
     }
 }
 
-static void pl_v_scope(pl_voice_t *v)    /* the voice's block (as it goes into the mix) into its scope, its peak */
+static int32_t pl_scope_peak(uint32_t c)   /* engine c's block (as it goes into the mix) into its scope: its peak */
 {
-    int16_t *o = &pl_scope[v - pl_v][pl_scope_w];
+    int16_t *o = &pl_scope[c][pl_scope_w];
     int32_t pk = 0, s, a;
     uint32_t i;
     for (i = 0; i < PL_BLOCK; i++) {
@@ -6431,8 +8079,9 @@ static void pl_v_scope(pl_voice_t *v)    /* the voice's block (as it goes into t
         a = s < 0 ? -s : s;
         pk = a > pk ? a : pk;
     }
-    v->peak = (int16_t)pk;
+    return pk;
 }
+#define pl_v_scope(v) ((v)->peak = (int16_t)pl_scope_peak((v)->place))   /* (the voice's: its peak) */
 
 /* A voice's block into the mix in one pass: bit for bit what pl_ramp (its gain), pl_v_scope, its pan
  * (pl_pan_out) or its Juno-106 chorus bus, then its track's sends do one after another (a ramp with g0 == g1
@@ -6503,6 +8152,7 @@ static void pl_levels(void)
     else
         fx_duck(&d);
     src = d.on && d.src < PL_NCH ? d.src + 1u : d.on && d.src == FX_DUCK_KEYS ? PL_NCH + 1u : 0u;
+    pl_cur->duck = (uint8_t)src;         /* (its muted notes keep their engines: pl_duck_src) */
     if (PL_RARE(src)) {                  /* (PL_NCH + 1: the keys, the song's replay's; no track is the source then) */
         int32_t pk = src > PL_NCH ? (PL_SIDE ? 0 : pl_kpeak) : pl_ch[src - 1u].peak, to = pk >= 8192 ? 32768 : pk * 4;
         int32_t step = d.release_frames ? (int32_t)(32768u * PL_BLOCK / d.release_frames) : 32768;
@@ -6511,10 +8161,10 @@ static void pl_levels(void)
         env = 0;
     }
     pl_duck_env = env;
-    if (!PL_SIDE) {                      /* (the keys duck as a track of the song's replay: their DUCK amount; never
-                                          * as the source) */
-        pl_kdk = env && pl_kstrip[RM_DUCK] && src <= PL_NCH ?
-                 32768 - ((env * d.depth_q15) >> 15) * pl_kstrip[RM_DUCK] / 127 : 32768;
+    if (!PL_SIDE) {                      /* (the keys duck as a track of the song's replay: their DUCK amount, on LOOPS
+                                          * the loop's; never as the source) */
+        uint32_t kd = PL_KMX[RM_DUCK];
+        pl_kdk = env && kd && src <= PL_NCH ? 32768 - ((env * d.depth_q15) >> 15) * (int32_t)kd / 127 : 32768;
         pl_kpeak = 0;
     }
     for (t = 0; t < PL_NCH; t++) {
@@ -6572,24 +8222,22 @@ static void pl_ticks(void)               /* the current replay's ticks due in th
                 pl_v_off(&pl_v[pl_ch[c].voice]);
     }
     if (PL_RARE(pl_cur->k && (pl_lpg[0] | pl_lpg[1] | pl_lpg[2])))
-        pl_lp_gates();                   /* (LOOPS' TB-303 lanes: theirs, playing or not) */
+        pl_lp_gates();                   /* (LOOPS' TB-303 lanes: theirs, playing or not; the lanes' volume glides) */
     if (!pl_cur->k || pl_ch != pl_chs)   /* (the second replay on the first's tracks: their levels are the first's
                                           * pass's, DUCK's included; a second pass would read the peaks it zeroed) */
         pl_levels();
 }
 
-/* ---- the voice job (specs/second-core.md#the-voices-on-core-2): the voices in core 2's places (PL_C2_FROM up to
- * the count) rendered on core 2, one after another into its one buffer, while core 1 renders its own, and mixed there
- * into mixes of core 2's own (a replay's mix, sends and Juno-106 chorus buses, or the DRY keys'), which core 1 adds
- * into its own after the job: whole-number sums, so the sound is one core's mixing them all. A voice whose mute fades
- * this block is not handed over: core 1 renders and mixes it in its place, as its own. Core 1 makes every change to
- * them before the hand-over (their gains, pans and sends too); the job runs from the image (the engines' code, the
- * voices' data read in place), so every flash operation waits for core 2 idle. PL_ONE_CORE_16: a test's reference, 16
- * voices on one core rendered in place (no job), whether core 2 takes the halves or not ---- */
-#ifndef PL_ONE_CORE_16
-#define PL_ONE_CORE_16 0
-#endif
-#define PL_V2 (PL_VOICES_MOST - PL_C2_FROM)
+/* ---- the voice job (specs/second-core.md#the-voices-on-core-2): the voices in the places from the block's split on
+ * (pl_split: the top places, 10 at most) rendered on core 2, one after another into its one buffer, while core 1
+ * renders those before it, and mixed there into mixes of core 2's own (a replay's mix, sends and Juno-106 chorus buses,
+ * or the DRY keys'), which core 1 adds into its own after the job: whole-number sums, so the sound is one core's mixing
+ * them all, wherever the split stands. A voice whose mute fades this block is not handed over: core 1 renders and
+ * mixes it in its place, as its own. Core 1 makes every change to them before the hand-over (their gains, pans and
+ * sends too); the job runs from the image (the engines' code, their state read in place), so every flash operation
+ * waits for core 2 idle. PL_ONE_CORE_16: a test's reference, 16 voices on one core rendered in place (no job), whether
+ * core 2 takes the halves or not, the load guard counting as core 2's runs ---- */
+#define PL_V2 PL_C2_MOST
 #define PL_V2_MIXES 3                    /* core 2's mixes: the first replay's, the second's, the DRY keys' */
 enum { V2_MIX = 1u, V2_SEND = 2u, V2_JBUS = 16u };   /* what of a mix the job wrote (V2_SEND << send, V2_JBUS << bus) */
 typedef struct {
@@ -6604,7 +8252,7 @@ typedef struct {                         /* a mix of core 2's, as core 1's: ster
 } pl_v2out_t;
 static struct {
     uint8_t n, tick;                     /* the voices handed over; the Juno-106's firmware tick this block */
-    uint8_t place[PL_V2];                /* their places, in order */
+    uint8_t place[PL_V2];                /* their places (their engines), in order */
     volatile uint8_t started, done;      /* the job's own marks: a fallback's job never ran, or ran part way */
     uint32_t us[PL_V2], mus[PL_V2];      /* each one's rendering time (player_costs, the engines' figures), mixing */
     pl_v2mix_t mx[PL_V2];
@@ -6614,8 +8262,65 @@ static int32_t pl_v2buf[PL_BLOCK] PLAT_POOL;   /* (each voice in turn: mixed bef
 static pl_v2out_t pl_v2out[PL_V2_MIXES] PLAT_POOL;
 #ifdef PTFM_DEBUG
 static uint32_t pl_v2_jobs, pl_v2_us, pl_v2_wait_sum, pl_v2_wait_max;   /* the debug build's (player_v2_figures) */
-static uint8_t pl_v2_most;
+static uint32_t pl_v2_ksum, pl_v2_kn, pl_v2_vsum, pl_v2_waited;
+static uint8_t pl_v2_most, pl_v2_klow = PL_NE;
 #endif
+#if defined(PTFM_DEBUG) || defined(POOL_CHECK)
+/* (the switch's and the tests' splits, pl_split_how: SPLIT_FIXED places 11-16 at VOICES 16, none at 8 and 12;
+ * SPLIT_CORE1 none; SPLIT_CORE2 the top 10 with a voice; SPLIT_RANDOM a place at random each block, raised till 10 at
+ * most from it on) */
+static PLAT_COLD __attribute__((noinline)) uint32_t pl_split_test(void)
+{
+    static uint32_t r = 2463534242u;
+    uint32_t c, k = pl_nv, n = 0, lo = 0;
+    if (pl_split_how == SPLIT_FIXED)
+        return pl_nv > PL_VOICES_C1 ? PL_FIXED_FROM : pl_nv;
+    if (pl_split_how == SPLIT_CORE1)
+        return pl_nv;
+    if (pl_split_how == SPLIT_RANDOM) {
+        r ^= r << 13;
+        r ^= r >> 17;
+        r ^= r << 5;
+        lo = r % (pl_nv + 1u);
+    }
+    for (c = pl_nv; c-- > lo && n < PL_V2;)
+        if (pl_e[c].voice != PL_NO_VOICE) {
+            n++;
+            k = c;
+        }
+    return k;
+}
+#endif
+
+/* the block's split (specs/second-core.md#the-split): the place core 2's voices start from, pl_nv for none (core 2 not
+ * taking the half's voices). Each place with a voice weighs its kind's work a block (pl_loadw); from the top place down
+ * they go to core 2 while its share and the margin (pl_c2m: its effects, less core 1's work before the hand-over, as
+ * the joins found them) stay under the rest's, core 1's, PL_V2 at most. A run of the top places, so every decision
+ * drawn from a voice keeps the places' order */
+static uint32_t pl_split(void)
+{
+    uint32_t c, k = pl_nv, n = 0;
+    int32_t w = -pl_c2m, s = 0;
+    if (!pl_c2t || PL_ONE_CORE_16)
+        return pl_nv;
+#if defined(PTFM_DEBUG) || defined(POOL_CHECK)
+    if (PL_RARE(pl_split_how))
+        return pl_split_test();
+#endif
+    for (c = 0; c < pl_nv; c++)
+        if (pl_e[c].voice != PL_NO_VOICE)
+            w += pl_loadw[pl_e[c].kind & 7u];
+    for (c = pl_nv; c-- > 0 && n < PL_V2;) {
+        if (pl_e[c].voice == PL_NO_VOICE)
+            continue;
+        s += 2 * pl_loadw[pl_e[c].kind & 7u];
+        if (s >= w)
+            break;
+        n++;
+        k = c;
+    }
+    return k;
+}
 
 /* a part of a mix of core 2's, the first time the job writes it this block: zeroed */
 static int32_t *pl_v2_part(uint32_t to, uint32_t bit, int32_t *p, uint32_t bytes)
@@ -6633,25 +8338,25 @@ static __attribute__((noinline)) void pl_v2_job(uint32_t j)
     (void)j;
     pl_v2.started = 1;
     for (i = 0; i < pl_v2.n; i++) {
-        pl_voice_t *v = &pl_v[pl_v2.place[i]];
+        pl_eng_t *eng = &pl_e[pl_v2.place[i]];
         pl_v2mix_t *x = &pl_v2.mx[i];
         pl_v2out_t *o = &pl_v2out[x->to];
         int32_t *buf = pl_v2buf, *sb[3], *jb = 0, *mix = 0;
         uint32_t t0 = PLAT_FAR(plat_c2_us)();
         memset(buf, 0, sizeof pl_v2buf);
-        if (v->engine == EN_DX7)
-            dx7_render(&v->u.dx, buf);
-        else if (v->engine == EN_JUNO)
-            juno_render(&v->u.ju, buf, pl_v2.tick);
-        else if (v->engine == EN_TB)
-            tb_render(&v->u.tb, buf);
-        else if (v->engine == EN_CHIP)
-            chip_render(&v->u.ch, buf);
+        if (eng->kind == EN_DX7)
+            dx7_render(&eng->u.dx, buf);
+        else if (eng->kind == EN_JUNO)
+            juno_render(&eng->u.ju, buf, pl_v2.tick);
+        else if (eng->kind == EN_TB)
+            tb_render(&eng->u.tb, buf);
+        else if (eng->kind == EN_CHIP)
+            chip_render(&eng->u.ch, buf);
         else
-            samp_render(&v->u.sm, buf);
+            samp_render(&eng->u.sm, buf);
         t0 = PLAT_FAR(plat_c2_us)() - t0;
         pl_v2.us[i] = t0;
-        DBG2_ADD_US(v->engine == EN_DX7 ? DS_DX7 : v->engine == EN_JUNO ? DS_JUNO : v->engine == EN_TB ? DS_TB303 :
+        DBG2_ADD_US(eng->kind == EN_DX7 ? DS_DX7 : eng->kind == EN_JUNO ? DS_JUNO : eng->kind == EN_TB ? DS_TB303 :
                     DS_SAMPLE, t0);
         DBG2_ADD_US(DS_VOICES, t0);
         t0 = PLAT_FAR(plat_c2_us)();     /* (into its mix of core 2's, as core 1 mixes its own) */
@@ -6700,20 +8405,53 @@ static void pl_v2_add(void)
     }
 }
 
-/* the voice job not done (a fallback held core 2): that block's voices of core 2's unheard; then held notes parked
- * (a job that never ran: their state as it was) or every one let go (a job that ran part way: their state may be half
- * done); the count 12 from here */
-static void pl_v2_lost(void)
+/* the voice job not done (a fallback held core 2): that block's voices of core 2's unheard, the count 12 from here and
+ * no split (core 1 renders them all, from this block's on). A job core 2 never started left its engines' state as it
+ * was: its places up to 12 sound on (from silence), the held notes in 13-16 go on as ghosts as at any smaller count
+ * (pl_nv_apply), their tails ring out where they are. A job it started may
+ * have left its engines' state half done: every note of it leaves its engine (the next note there starts it from zero)
+ * and goes on as a ghost, held or let go (its voice holds what a return needs; a sampler's place and a CHIP's ends taken
+ * from its engine as it stands, within the block), made after the count's ghosts, so the first back within their kind;
+ * a TB-303's, and a note being cut, goes. RECORD LIVE's tap is told of each held note that loses its engine */
+static PLAT_COLD __attribute__((noinline)) void pl_v2_lost(void)
 {
-    uint32_t i;
+    uint32_t i, n = 0;
+    uint8_t gone[PL_V2];
+    PL_GF(pl_gf_mk = pl_v2.started ? GM_C2_BEGUN : GM_C2_NEVER);   /* (the figures' why) */
     for (i = 0; i < pl_v2.n; i++) {
-        pl_voice_t *v = &pl_v[pl_v2.place[i]];
-        if (pl_v2.started)
-            pl_v_cut(v);
-        else
+        pl_eng_t *eng = &pl_e[pl_v2.place[i]];
+        pl_voice_t *v;
+        if (eng->voice == PL_NO_VOICE)
+            continue;
+        v = &pl_v[eng->voice];
+        if (!pl_v2.started) {
             v->g_last = 0;               /* (unheard this block: what follows fades from silence) */
+            continue;
+        }
+        pl_tap_voice(v);
+        eng->kind = 255;
+        if (v->engine != EN_TB && !v->cut) {
+            pl_gh_figures(v, eng);
+            if (!v->held)                /* (a ghost let go: 10 s after its let-go at the latest) */
+                v->t_end = pl_t_min(v->t_end, v->t_off + PL_GH_KEEP);
+            if (!pl_t_due(v->t_end)) {
+                gone[n++] = (uint8_t)(v - pl_v);
+                pl_unbind(v);
+                continue;
+            }
+        }
+        pl_v_free(v);
     }
+    pl_c2t = 0;
     pl_nv_apply(PL_VOICES_C1);
+    for (i = 0; i < n; i++) {            /* (their engines' order, the lowest first) */
+        pl_voice_t *v = &pl_v[gone[i]];
+        if (pl_gh_room(pl_gh_rank(v), v->t_off))
+            pl_gh_add(v);
+        else
+            pl_v_free(v);
+    }
+    PL_GF(pl_gf_mk = GM_TAKEN);
 }
 
 /* the limit in force this half: SETTINGS' VOICES, 16 counted as 12 while core 2 does not take the halves (c2) */
@@ -6725,8 +8463,9 @@ static void pl_nv_half(int c2)
 }
 
 /* a voice's gain into the mix this block (Q12): its gain (a Juno-106's is in its engine: its LEVEL here) x its
- * track's level, DJ's stop, PLAYBACK's song volume; the keys' KEYS GAIN and DUCK; 0 while cut or fading out of its
- * place, back from parking a quarter more each block. The keys': their PAN set (FX MIXER's KEYS column) */
+ * track's level, DJ's stop, PLAYBACK's song volume; the keys' KEYS GAIN (on LOOPS the loop's LEVEL instead) and DUCK; 0
+ * while cut, come back from a ghost a quarter more each block. The keys': their PAN set (FX MIXER's KEYS column; on
+ * LOOPS the loop's) */
 static int32_t pl_v_gain(pl_voice_t *v, uint32_t key, uint32_t k, uint32_t dry, int32_t sv, int32_t kg)
 {
     int32_t g = v->engine == EN_JUNO ? (int32_t)(((int64_t)PL_ENG_Q12 * v->trim) >> 12) : v->gain;
@@ -6737,27 +8476,29 @@ static int32_t pl_v_gain(pl_voice_t *v, uint32_t key, uint32_t k, uint32_t dry, 
     if (!key && !k && sv != 4096)        /* (PLAYBACK's song volume: not the keys') */
         g = (g * sv) >> 12;
     else if (key) {                      /* (SETTINGS' KEYS GAIN: the keys' alone; their PAN and, through the effects,
-                                          * their DUCK: FX MIXER's KEYS column) */
-        if (kg != 4096)
+                                          * their DUCK: FX MIXER's KEYS column; on LOOPS a loop's LEVEL, PAN, DUCK) */
+        if (PL_RARE(pl_klp_on))
+            g = (g * (((int32_t)pl_klp[RM_LEVEL] * 2113666) >> 16)) >> 12;   /* (its LEVEL, as a track's: pl_levels) */
+        else if (kg != 4096)
             g = (g * kg) >> 12;
         if (!dry && pl_kdk != 32768)
             g = (int32_t)(((int64_t)g * pl_kdk) >> 15);
-        v->pan = pl_kstrip[RM_PAN];
+        v->pan = PL_KMX[RM_PAN];
     }
-    if (v->cut || v->park == PK_OUT)
+    if (v->cut)
         g = 0;
     else if (v->back)
         g = (int32_t)((int64_t)g * (int32_t)(PL_BACK_N + 1u - v->back) / (int32_t)PL_BACK_N);
     return g;
 }
 
-/* a voice's sends: its track's, or the keys' (FX MIXER's KEYS column); none DRY. Their buses (0-2) and amounts, how
- * many */
-static uint32_t pl_v_sends(const pl_voice_t *v, uint32_t key, uint32_t sends, uint32_t dry, uint8_t *sidx, int32_t *sa)
+/* a note's sends: its track's (who), or the keys' (FX MIXER's KEYS column; on LOOPS the loop's); none DRY. Their buses
+ * (0-2) and amounts, how many */
+static uint32_t pl_w_sends(uint32_t who, uint32_t key, uint32_t sends, uint32_t dry, uint8_t *sidx, int32_t *sa)
 {
     uint32_t s, ns = 0;
     if (sends && !dry) {
-        const uint8_t *mx = key ? pl_kstrip : PL_CH(v->who).mix;
+        const uint8_t *mx = key ? PL_KMX : PL_CH(who).mix;
         for (s = 0; s < 3u; s++)
             if (mx[RM_CHORUS + s]) {
                 sidx[ns] = (uint8_t)s;
@@ -6766,14 +8507,16 @@ static uint32_t pl_v_sends(const pl_voice_t *v, uint32_t key, uint32_t sends, ui
     }
     return ns;
 }
+#define pl_v_sends(v, key, sends, dry, sidx, sa) pl_w_sends((v)->who, key, sends, dry, sidx, sa)
 
 /* core 2's voice i, place v: its mixing as core 1 would do it this block (pl_voices). 0 while its mute fades: not
  * handed over (core 1 renders and mixes it in its place) */
 static int pl_v2_prep(uint32_t i, pl_voice_t *v, int32_t sv, int32_t kg)
 {
     pl_v2mix_t *x = &pl_v2.mx[i];
+    const pl_eng_t *eng = PL_E(v);
     uint32_t key = v->use == PV_KEY, k = key ? 0u : v->who >> 4 & 1u, kb = pl_d2 ? k : 0u;
-    uint32_t sends = PL_DJ_ON ? pl_dj.strip[k].route : (uint32_t)fx_sends(), dry = key && pl_keys_dry;
+    uint32_t sends = PL_DJ_ON ? pl_dj.strip[k].route : (uint32_t)fx_sends(), dry = key && pl_keys_dry && !pl_klp_on;
     int32_t m = !key && !v->lc && (PL_MCTX(k)->mute >> (v->who & 15u) & 1u) ? 0 : 4096;
     if (m != 4096 || v->m_last != 4096)
         return 0;
@@ -6781,16 +8524,183 @@ static int pl_v2_prep(uint32_t i, pl_voice_t *v, int32_t sv, int32_t kg)
     x->g1 = pl_v_gain(v, key, k, dry, sv, kg);
     x->to = (uint8_t)(dry ? 2u : kb);
     x->pan = v->pan;
-    x->jb = v->engine == EN_JUNO ? (uint8_t)juno_chorus_mode(v->u.ju.p) : 0u;
+    x->jb = eng->kind == EN_JUNO ? (uint8_t)juno_chorus_mode(eng->u.ju.p) : 0u;
     x->ns = (uint8_t)pl_v_sends(v, key, sends, dry, x->sidx, x->sa);
     return 1;
 }
 
-/* every voice that sounds, into its replay's mix and sends (the keys' into the song's); core 2's places through the
- * voice job when it runs */
+/* a fade note's engine has a Juno-106 in it, or a new Juno-106 note's start waits for its fade (the block's noise is
+ * made; a ghost's return waiting there starts in the next block) */
+static PLAT_COLD int pl_fades_juno(void)
+{
+    uint32_t i;
+    for (i = 0; i < pl_nfd; i++) {
+        const pl_eng_t *eng = &pl_e[pl_fd[i].eng];
+        if (eng->kind == EN_JUNO ||
+            (eng->wait != PL_NO_VOICE && pl_v[eng->wait].engine == EN_JUNO && pl_v[eng->wait].gh == GH_WAIT))
+            return 1;
+    }
+    return 0;
+}
+/* the block's fade notes, before core 2 is handed its voices: each taken note's last block in its engine, its gain going
+ * down to 0 over it, into its mix by its fade note (its sends, its Juno-106 chorus bus; its mute as it fades; its peak
+ * into its track's and the meters); the engine then cut (as a note taken from it leaves it), and the note whose start
+ * waited for that fade started there from its voice (let go meanwhile: let go once started); or, for the held ghost
+ * whose return took a release tail's engine, that engine left fresh (kind 255): its return begins there in the next
+ * block (pl_returns, its checks made again then) */
+static PLAT_COLD __attribute__((noinline)) void pl_fades(int tick)
+{
+    uint32_t n = pl_nfd, i, s2, c2;
+    pl_nfd = 0;                          /* (a fade begun from here on is the next block's) */
+    for (i = 0; i < n; i++) {
+        const pl_fade_t *f = &pl_fd[i];
+        uint32_t c = f->eng, who = f->who, key = f->fl & FD_KEY, k = key ? 0u : who >> 4 & 1u, kb = pl_d2 ? k : 0u;
+        uint32_t sends = PL_DJ_ON ? pl_dj.strip[k].route : (uint32_t)fx_sends(), dry = key && pl_keys_dry && !pl_klp_on;
+        int32_t *mix = dry ? pl_kmix : kb ? pl_mix1 : pl_mix, *send = kb ? pl_send1 : pl_send;
+        int32_t m = !key && !(f->fl & FD_LC) && (PL_MCTX(k)->mute >> (who & 15u) & 1u) ? 0 : 4096;   /* (a note muted at
+                                          * its last block's end has no fade: pl_give) */
+        int32_t pk, *sb[3], sa[3];
+        pl_eng_t *eng = &pl_e[c];
+        uint32_t jm = eng->kind == EN_JUNO ? (uint32_t)juno_chorus_mode(eng->u.ju.p) : 0u;
+        int32_t *bus = jm ? dry ? pl_kjbus[jm - 1u] : PL_JBUS(kb)[jm - 1u] : 0;
+        uint8_t sidx[3];
+        uint32_t ns = pl_w_sends(who, key, sends, dry, sidx, sa), en;
+        uint32_t t0;
+        for (s2 = 0; s2 < ns; s2++)
+            sb[s2] = send + sidx[s2] * PL_BLOCK;
+        memset(pl_vbuf, 0, sizeof pl_vbuf);
+        plat_sound_at = (uint8_t)(PLAT_AT_VOICE + eng->kind);
+        t0 = plat_us();
+        en = eng->kind == EN_DX7 ? 0u : eng->kind == EN_JUNO ? 1u : eng->kind == EN_TB ? 2u : 3u;
+        if (eng->kind == EN_DX7)
+            dx7_render(&eng->u.dx, pl_vbuf);
+        else if (eng->kind == EN_JUNO)
+            juno_render(&eng->u.ju, pl_vbuf, tick);
+        else if (eng->kind == EN_TB)
+            tb_render(&eng->u.tb, pl_vbuf);
+        else if (eng->kind == EN_CHIP)
+            chip_render(&eng->u.ch, pl_vbuf);
+        else
+            samp_render(&eng->u.sm, pl_vbuf);
+        t0 = plat_us() - t0;
+        pl_eng_us[en] += t0;
+        pl_eng_blocks[en]++;
+        DBG_ADD_US(DS_DX7 + en, t0);
+        DBG_BLOCK(en);
+        plat_sound_at = PLAT_AT_VOICES;
+        if (dry)                         /* (as pl_voices mixes a voice) */
+            pl_hb[pl_slot].keys = 1;
+        else
+            pl_silent = 0;
+        if (jm && dry) {
+            pl_kchorus_tail[jm - 1u] = 512;
+            pl_kjbus_used = 1;
+        } else if (jm) {
+            pl_chorus_tail[kb][jm - 1u] = 512;
+            pl_jbus_used[kb] = 1;
+        }
+        if (m == 4096) {
+            pk = pl_mix_voice(pl_vbuf, f->g0, 0, &pl_scope[c][pl_scope_w], mix, f->pan, bus, sb, sa, (int)ns);
+        } else {                         /* (muted since its last block: the mute's ramp too) */
+            pl_ramp(f->g0, 0);
+            pk = pl_scope_peak(c);
+            pl_ramp(4096, 0);
+            if (jm)
+                for (c2 = 0; c2 < PL_BLOCK; c2++)
+                    bus[c2] += pl_vbuf[c2];
+            else
+                pl_pan_out(f->pan, mix);
+            for (s2 = 0; s2 < ns; s2++)
+                for (c2 = 0; c2 < PL_BLOCK; c2++)
+                    sb[s2][c2] += (pl_vbuf[c2] * sa[s2]) >> 7;
+        }
+        if (!key && pk > PL_CH(who).peak)
+            PL_CH(who).peak = pk;
+        else if (key && pk > pl_kpeak)
+            pl_kpeak = pk;
+        if (!key && who < 2u * PL_TRACKS && (uint32_t)pk > pl_tpeak[who])
+            pl_tpeak[who] = (uint16_t)pk;
+        pl_e_cut(eng);                   /* (faded out: the engine as its note leaves it, for the next) */
+        eng->fade = PL_NO_FADE;
+        if (eng->wait != PL_NO_VOICE) {  /* (the note that waited for it, from its voice: a new note's start; or a ghost
+                                          * whose return begins there in the next block, pl_returns, from zero) */
+            pl_voice_t *v = &pl_v[eng->wait];
+            if (v->gh == GH_BACK) {
+                eng->kind = 255;
+            } else {
+                eng->wait = PL_NO_VOICE;
+                v->gh = GH_NO;
+                if (pl_start_from(v, c) && !v->held)
+                    pl_e_off(eng);
+            }
+        }
+    }
+}
+
+/* note v, a mute's (pl_v_muted), its block rendered in the voices pass with its mute's ramp: it leaves its engine, cut,
+ * and goes on as a ghost, held or let go (10 s after its let-go at the latest), its figures from its engine as its
+ * block left it, so at the next block's start; one whose end falls by then goes, and so does one let go whose last
+ * block peaked under hearing (PL_QUIET, measured before the mute: the quiet rule would free it); the list full, as its
+ * drop says (pl_gh_room). Ghosts a mute makes at once are made in their engines' order, as the pass walks them. RECORD
+ * LIVE's tap is told nothing: the mute itself is written.
+ * The block clock reads the next block (pl_blk + 1) while it works, so its figures (pl_gh_figures) and its end are that
+ * block's (passing the block to them instead cost more code). Nothing called here may take pl_blk as "now" for
+ * anything else: a sampler ghost's place walked to now (pl_gh_walk) would find itself a block ahead of the clock (the
+ * host tests' POOL_CHECK stops on it), and a figure or a stamp of when something happened would be a block late */
+static PLAT_COLD void pl_mute_ghost(pl_voice_t *v)
+{
+    pl_eng_t *eng = PL_E(v);
+    pl_blk++;
+    pl_gh_figures(v, eng);
+    if (!v->held)
+        v->t_end = pl_t_min(v->t_end, v->t_off + PL_GH_KEEP);
+    pl_e_cut(eng);
+    pl_unbind(v);
+    PL_GF(pl_gf_mk = GM_MUTED);          /* (the figures' why) */
+    if (!pl_t_due(v->t_end) && (v->held || v->peak >= PL_QUIET) && pl_gh_room(pl_gh_rank(v), v->t_off))
+        pl_gh_add(v);
+    else
+        pl_v_free(v);
+    PL_GF(pl_gf_mk = GM_TAKEN);
+    pl_blk--;
+}
+
+#ifdef PTFM_DEBUG
+/* (the figures: the GHOSTS stage, the voices pass's ghost work: the ends' walk, the returns' walk from t, one that spent
+ * nothing apart; a note's first block back rendered in us, engine kind k) */
+static PLAT_DBG void pl_gf_ends(uint32_t t)
+{
+    t = plat_us() - t;
+    dbg_gh_half += t;
+    pl_gf.ends_n++;
+    pl_gf.ends_us += t;
+}
+static PLAT_DBG void pl_gf_walk(uint32_t t)
+{
+    t = plat_us() - t;
+    dbg_gh_half += t;
+    if (pl_gf_spent <= 0) {
+        pl_gf.idle_n++;
+        pl_gf.idle_us += t;
+        pl_gf.idle_in = (uint16_t)(pl_gf.idle_in + pl_gf_ins);
+    }
+    pl_gf_ins = 0;
+}
+static PLAT_DBG void pl_gf_first(uint32_t k, uint32_t us)
+{
+    if (k == EN_TB)
+        return;
+    pl_gf.first_n[PL_GF_E(k)]++;
+    pl_gf.first_us[PL_GF_E(k)] += us;
+}
+#endif
+
+/* every voice that sounds, into its replay's mix and sends (the keys' into the song's), engine by engine; the places
+ * from the block's split on through the voice job when core 2 takes the half (pl_split); a note a mute silences goes on
+ * as a ghost after its block (pl_mute_ghost) */
 static void pl_voices(void)
 {
-    uint32_t c, c2, i, voices = 0, v2 = 0, v2i = 0;
+    uint32_t c, c2, i, voices = 0, v2 = 0, v2i = 0, split;
     int tick;
     pl_tick_acc += juno_tick_q16;
     tick = pl_tick_acc >= 65536u;
@@ -6802,21 +8712,46 @@ static void pl_voices(void)
                                           * rests (a later note hears another stretch of the same noise; built with
                                           * PL_NOISE_ALWAYS it runs every block, as before, for comparing renders) */
         int juno = PL_NOISE_ALWAYS;
-        for (c = 0; c < PL_NV && !juno; c++)
-            juno = pl_v[c].use != PV_FREE && pl_v[c].engine == EN_JUNO;
+        if (PL_RARE(pl_gh_soon != PL_NEVER) && pl_t_due(pl_gh_soon)) {
+            PL_GF_T(te);
+            pl_gh_ends();                /* (ghosts ended by themselves or let go 10 s ago: gone) */
+            PL_GFC(pl_gf_ends(te));       /* (the debug build: the GHOSTS stage) */
+        }
+        if (PL_RARE(pl_gn) && !pl_hush) {   /* (ghosts back into free engines of the count: a Juno-106 among them too; none
+                                          * while the half is heavy, pl_heavy: the walk waits for the next block) */
+            plat_sound_at = PLAT_AT_GHOSTS;
+            PL_GF_T(tr);
+            if (!pl_heavy())
+                pl_returns();
+            else                         /* (the debug build: a walk spending nothing, the guard's) */
+                PL_GFC(pl_gf_spent = 0, pl_gf.held++);
+            PL_GFC(pl_gf_walk(tr), pl_gf_could());   /* (the debug build: the stage, then (in no stage) the waits) */
+            plat_sound_at = PLAT_AT_VOICES;
+        }
+#ifdef PTFM_DEBUG
+        else if (pl_gn)                  /* (CUT held: no ghost may begin, every wait starts again after it) */
+            pl_gf_vcan = 0;
+#endif
+        for (c = 0; c < PL_NE && !juno; c++)   /* (an engine's voice is in use) */
+            juno = pl_e[c].kind == EN_JUNO && pl_e[c].voice != PL_NO_VOICE;
+        if (PL_RARE(pl_nfd) && !juno)    /* (a fade's, or a start waiting for one) */
+            juno = pl_fades_juno();
         if (juno)
             juno_block(tick);
     }
-    pl_unpark();
+    pl_silent = 1;
+    if (PL_RARE(pl_nfd))                 /* the notes taken: their last blocks, then the notes that took their engines */
+        pl_fades(tick);
     /* PLAYBACK's song volume (pl_sv_*): the song's voices alone, while that song is what plays (4096: none) */
     int32_t sv = pl_what == PL_SONG && !PL_DJ_ON && pl_sv_db ? (pl_sv_db <= -25 ? 0 : PL_VOL_Q12[pl_sv_db + 24]) : 4096;
     int32_t kg = PL_VOL_Q12[pl_kg_db + 24];   /* (KEYS GAIN on the keys' voices; 4096: none) */
-    if (pl_nv > PL_VOICES_C1 && !PL_ONE_CORE_16) {   /* core 2's places that sound: their job, handed over before
-                                          * core 1 renders its own (the ones the loop below would render) */
+    split = pl_split();                  /* the block's split: the places from it on that sound, core 2's job, handed over
+                                          * before core 1 renders its own (the ones the loop below would render) */
+    if (split < pl_nv) {
         pl_v2.n = 0;
-        for (c = PL_C2_FROM; c < pl_nv; c++) {
-            pl_voice_t *v = &pl_v[c];
-            if (v->use != PV_FREE && v->park != PK_PARKED && pl_v_sounds(v) && pl_v2_prep(pl_v2.n, v, sv, kg))
+        for (c = split; c < pl_nv; c++) {
+            uint32_t k = pl_e[c].voice;  /* (engine c's) */
+            if (k != PL_NO_VOICE && pl_e_sounds(&pl_e[c]) && pl_v2_prep(pl_v2.n, &pl_v[k], sv, kg))
                 pl_v2.place[pl_v2.n++] = (uint8_t)c;
         }
         if (pl_v2.n) {
@@ -6827,22 +8762,35 @@ static void pl_voices(void)
             v2 = 1;
 #ifdef PTFM_DEBUG
             pl_v2_jobs++;
+            pl_v2_vsum += pl_v2.n;
             if (pl_v2.n > pl_v2_most)
                 pl_v2_most = pl_v2.n;
 #endif
         }
     }
-    pl_silent = 1;
-    for (c = 0; c < PL_NV; c++) {
-        pl_voice_t *v = &pl_v[c];
-        if (PL_RARE(c == PL_C2_FROM && v2)) {     /* core 2's voices next: their job done first */
+#ifdef PTFM_DEBUG
+    if (pl_c2t) {                        /* (where the split stood) */
+        pl_v2_ksum += split;
+        pl_v2_kn++;
+        if (split < pl_v2_klow)
+            pl_v2_klow = (uint8_t)split;
+    }
+#endif
+    for (c = 0; c < PL_NE; c++) {
+        pl_eng_t *eng = &pl_e[c];
+        pl_voice_t *v;
+        if (PL_RARE(c == split && v2)) { /* core 2's voices next: their job done first; the margin moved by whether
+                                          * core 1 had to wait for it */
             DBG_T(tw);
-            plat_c2_wait();
+            int waited = plat_c2_wait();
+            int32_t m = pl_c2m + (waited ? PL_C2M_STEP : -PL_C2M_STEP);
+            pl_c2m = (int16_t)(m < PL_C2M_LOW ? PL_C2M_LOW : m > PL_C2M_HIGH ? PL_C2M_HIGH : m);
 #ifdef PTFM_DEBUG
             tw = plat_us() - tw;
             pl_v2_wait_sum += tw;
             if (tw > pl_v2_wait_max)
                 pl_v2_wait_max = tw;
+            pl_v2_waited += (uint32_t)(waited != 0);
             for (i = 0; pl_v2.done && i < pl_v2.n; i++)
                 pl_v2_us += pl_v2.us[i] + pl_v2.mus[i];
 #endif
@@ -6855,34 +8803,22 @@ static void pl_voices(void)
                 DBG_ADD(DS_MIX, ta);
             }
         }
-        v->live = 0;
         if (PL_RARE(v2 == 2u && v2i < pl_v2.n && pl_v2.place[v2i] == c)) {
             v2i++;                       /* (unheard this block: pl_v2_lost) */
             continue;
         }
-        if (v->use == PV_FREE)
+        if (eng->voice == PL_NO_VOICE)   /* (a free engine: a voice in it is in use) */
             continue;
+        v = &pl_v[eng->voice];
         uint32_t key = v->use == PV_KEY, k = key ? 0u : v->who >> 4 & 1u, kb = pl_d2 ? k : 0u;   /* (kb: its bus) */
-        uint32_t sends = PL_DJ_ON ? pl_dj.strip[k].route : (uint32_t)fx_sends(), dry = key && pl_keys_dry;
+        uint32_t sends = PL_DJ_ON ? pl_dj.strip[k].route : (uint32_t)fx_sends(), dry = key && pl_keys_dry && !pl_klp_on;   /* (on
+                                          * LOOPS never DRY: a loop's mix) */
         int32_t *mix = dry ? pl_kmix : kb ? pl_mix1 : pl_mix, *send = kb ? pl_send1 : pl_send;
         int32_t g;
-        if (v->park == PK_PARKED) {      /* (unheard, its time going on; let go, cut or ended meanwhile: gone) */
-            if (!v->held || v->cut || !pl_v_sounds(v))
-                pl_v_cut(v);
-            else if (v->engine == EN_DX7)
-                dx7_skip(&v->u.dx);
-            else if (v->engine == EN_JUNO)
-                juno_skip(&v->u.ju, tick);
-            else if (v->engine == EN_SAMP)
-                samp_skip(&v->u.sm);
-            else if (v->engine == EN_CHIP)
-                chip_skip(&v->u.ch);
-            continue;
-        }
         int jv = PL_RARE(v2 == 1u && v2i < pl_v2.n && pl_v2.place[v2i] == c);   /* (core 2 rendered and mixed it: the
                                           * job's) */
         const pl_v2mix_t *jx = jv ? &pl_v2.mx[v2i] : 0;
-        if (!jv && !pl_v_sounds(v)) {    /* it has ended (the job's: it sounded when handed over, as the render it
+        if (!jv && !pl_e_sounds(eng)) {  /* it has ended (the job's: it sounded when handed over, as the render it
                                           * made, which may have ended it, was made) */
             pl_v_free(v);
             continue;
@@ -6892,36 +8828,46 @@ static void pl_voices(void)
         else
             pl_silent = 0;               /* (it goes into the mix, the sends or the buses) */
         if (jv) {
-            uint32_t en = v->engine == EN_DX7 ? 0u : v->engine == EN_JUNO ? 1u : v->engine == EN_TB ? 2u : 3u;
+            uint32_t en = eng->kind == EN_DX7 ? 0u : eng->kind == EN_JUNO ? 1u : eng->kind == EN_TB ? 2u : 3u;
             pl_eng_us[en] += pl_v2.us[v2i];
             pl_eng_blocks[en]++;
             DBG_BLOCK(en);
+#ifdef PTFM_DEBUG
+            PL_GFC(if (PL_RARE(v->back == PL_BACK_N)) pl_gf_first(eng->kind, pl_v2.us[v2i]));   /* (its first block back: a
+                                          * sampler's seek in it) */
+#endif
             v2i++;
         } else {
             memset(pl_vbuf, 0, sizeof pl_vbuf);
-            uint32_t t0 = plat_us(), en = v->engine == EN_DX7 ? 0u : v->engine == EN_JUNO ? 1u : v->engine == EN_TB ? 2u : 3u;
-            if (v->engine == EN_DX7)                     /* (CHIP's time counted with the samples': en 3) */
-                dx7_render(&v->u.dx, pl_vbuf);
-            else if (v->engine == EN_JUNO)
-                juno_render(&v->u.ju, pl_vbuf, tick);
-            else if (v->engine == EN_TB)
-                tb_render(&v->u.tb, pl_vbuf);
-            else if (v->engine == EN_CHIP)
-                chip_render(&v->u.ch, pl_vbuf);
+            plat_sound_at = (uint8_t)(PLAT_AT_VOICE + eng->kind);
+            uint32_t t0 = plat_us(), en = eng->kind == EN_DX7 ? 0u : eng->kind == EN_JUNO ? 1u : eng->kind == EN_TB ? 2u : 3u;
+            if (eng->kind == EN_DX7)                     /* (CHIP's time counted with the samples': en 3) */
+                dx7_render(&eng->u.dx, pl_vbuf);
+            else if (eng->kind == EN_JUNO)
+                juno_render(&eng->u.ju, pl_vbuf, tick);
+            else if (eng->kind == EN_TB)
+                tb_render(&eng->u.tb, pl_vbuf);
+            else if (eng->kind == EN_CHIP)
+                chip_render(&eng->u.ch, pl_vbuf);
             else
-                samp_render(&v->u.sm, pl_vbuf);
+                samp_render(&eng->u.sm, pl_vbuf);
             t0 = plat_us() - t0;
             pl_eng_us[en] += t0;
             pl_eng_blocks[en]++;
             DBG_ADD_US(DS_DX7 + en, t0);
             DBG_BLOCK(en);
+#ifdef PTFM_DEBUG
+            PL_GFC(if (PL_RARE(v->back == PL_BACK_N)) pl_gf_first(eng->kind, t0));   /* (its first block back: a sampler's
+                                          * seek in it) */
+#endif
+            plat_sound_at = PLAT_AT_VOICES;
         }
         DBG_T(tm);                       /* (the debug build: its mixing in, to its peaks) */
         g = jx ? jx->g1 : pl_v_gain(v, key, k, dry, sv, kg);   /* (core 2's: its gain as handed over) */
         {
             int32_t m = !key && !v->lc && (PL_MCTX(k)->mute >> (v->who & 15u) & 1u) ? 0 : 4096;   /* (the stage's
                                           * column: never muted) */
-            uint32_t jm = v->engine == EN_JUNO ? (uint32_t)juno_chorus_mode(v->u.ju.p) : 0u;   /* (its chorus bus) */
+            uint32_t jm = eng->kind == EN_JUNO ? (uint32_t)juno_chorus_mode(eng->u.ju.p) : 0u;   /* (its chorus bus) */
             int32_t *bus = jm ? dry ? pl_kjbus[jm - 1u] : PL_JBUS(kb)[jm - 1u] : 0;   /* (DRY keys: their own) */
             int32_t *sb[3], sa[3];
             uint8_t sidx[3];
@@ -6939,8 +8885,8 @@ static void pl_voices(void)
                 v->peak = jx->peak;
                 v->g_last = g;
             } else if (m == 4096 && v->m_last == 4096) {   /* (no mute fading: all in one pass) */
-                v->peak = (int16_t)pl_mix_voice(pl_vbuf, v->g_last, g, &pl_scope[v - pl_v][pl_scope_w], mix, v->pan,
-                                                bus, sb, sa, (int)ns);
+                v->peak = (int16_t)pl_mix_voice(pl_vbuf, v->g_last, g, &pl_scope[c][pl_scope_w], mix, v->pan, bus,
+                                                sb, sa, (int)ns);
                 v->g_last = g;
             } else {
                 pl_ramp(v->g_last, g);
@@ -6969,28 +8915,21 @@ static void pl_voices(void)
             pl_v_cut(v);
             continue;
         }
-        if (v->park == PK_OUT) {         /* (taken from its voice, faded out: held, it waits parked; else gone) */
-            if (!v->held) {
-                pl_v_cut(v);
-                continue;
-            }
-            v->park = PK_PARKED;
-            v->g_last = 0;
-            v->peak = 0;
-            memset(pl_scope[c], 0, sizeof pl_scope[0]);
-            continue;
-        }
         if (v->back)
             v->back--;
         v->quiet = (uint8_t)(!v->held && v->peak < PL_QUIET ? v->quiet + 1u : 0u);
         if (v->quiet >= PL_QUIET_N) {    /* (a released note under hearing: it has ended) */
+            PL_GF(if ((uint16_t)(pl_blk - pl_gf_vt[v - pl_v]) <= PL_QUIET_N)   /* (the figures: come back let go, under */
+                      pl_gf.back_quiet++);   /* hearing at once) */
             pl_v_cut(v);
             continue;
         }
-        v->live = 1;
         if (!key)
             PL_CH(v->who).live = 1;
         voices++;
+        if (PL_RARE(!v->m_last) && v->engine != EN_TB && pl_v_muted(v))   /* (muted, its mute's ramp made: a ghost
+                                          * from the next block; DUCK's source's, a TB-303's keep their engines) */
+            pl_mute_ghost(v);
     }
     pl_scope_w = (pl_scope_w + PL_BLOCK) % PL_SCOPE;
     DBG_T(tj);
@@ -7008,6 +8947,21 @@ static void pl_voices(void)
     if (voices > pl_vw_cur)
         pl_vw_cur = (uint8_t)voices;
     pl_age_seen = pl_age;
+    pl_blk++;                            /* (the block made: the block clock on, as pl_tick_acc above) */
+}
+
+/* the note whose key lights with voice v (pl_voice_info_t.key): a key's voice its key's (who: a FUSION's layers too); on
+ * LOOPS a voice of a key's lane (the stage's keys, the stage-off keys) the lane's note now, while it is that note's (a
+ * glide or a legato has moved it on already; an earlier note's tail lights nothing); 0 none */
+static PLAT_COLD uint32_t pl_v_key(const pl_voice_t *v)
+{
+    const pl_ln_t *ln;
+    if (v->use == PV_KEY)
+        return v->who;
+    if (v->use != PV_SONG || (v->lc != PL_LC_SKEYS && v->lc < PL_LC_OKEYS))
+        return 0;
+    ln = &pl_ln[v->lc == PL_LC_SKEYS ? PL_LPT + (v->gen & 3u) : PL_LPO + (uint32_t)(v->lc - PL_LC_OKEYS)];
+    return v->gen == ln->gen ? (uint32_t)((int32_t)ln->vnote + ln->bend_to / 64) : 0u;
 }
 
 static void pl_snapshot(void)            /* what the screens read */
@@ -7051,8 +9005,8 @@ static void pl_snapshot(void)            /* what the screens read */
     pl_snap.ed_key = pl_ed_key;
     pl_snap.voice_count = pl_nv;
     pl_snap.steals = pl_steals;
-    for (i = 0, pl_snap.parked = 0; i < PL_NV; i++)
-        pl_snap.parked += pl_v[i].use != PV_FREE && pl_v[i].park == PK_PARKED;
+    for (i = 0, pl_snap.ghosts = 0; i < pl_gn; i++)   /* (the held ghosts) */
+        pl_snap.ghosts += pl_v[pl_gl[i]].held;
     pl_snap.hushed = pl_hush;
     pl_snap.muted = pl_mute;
     pl_snap.speed = (uint8_t)pl_speed;
@@ -7080,17 +9034,24 @@ static void pl_snapshot(void)            /* what the screens read */
         pl_snap.track[t].vol = (uint8_t)(pl_ch[t].vol * 127 / 64);
         pl_snap.track[t].sounding = pl_ch[t].live;
     }
-    for (i = 0; i < PL_NV; i++) {
-        pl_voice_t *v = &pl_v[i];
-        pl_vsnap[i].on = v->use != PV_FREE && v->park != PK_PARKED;   /* (a parked note is not heard) */
-        pl_vsnap[i].engine = v->use == PV_FREE ? PL_ENG_NONE : v->engine == EN_DX7 ? PL_ENG_DX7
-                           : v->engine == EN_JUNO ? PL_ENG_JUNO : v->engine == EN_TB ? PL_ENG_TB303
-                           : v->engine == EN_CHIP ? PL_ENG_CHIP : PL_ENG_SAMPLER;
-        pl_vsnap[i].track = v->use == PV_KEY ? 0xFFu : v->who;
-        pl_vsnap[i].note = v->note;
-        pl_vsnap[i].inst = v->inst;
-        pl_vsnap[i].level = (uint8_t)(v->peak >> 7);
-        pl_vsnap[i].pos = v->use != PV_FREE && v->engine == EN_SAMP ? v->u.sm.pos : -1;
+    for (i = 0; i < PL_NE; i++) {        /* (each engine, the note sounding in it: a ghost is not heard, so not here) */
+        const pl_eng_t *eng = &pl_e[i];
+        const pl_voice_t *v = eng->voice != PL_NO_VOICE ? &pl_v[eng->voice] : 0;
+        pl_voice_info_t *o = &pl_vsnap[i];
+        if (!v) {
+            memset(o, 0, sizeof *o);
+            o->pos = -1;
+            continue;
+        }
+        o->on = 1;
+        o->engine = v->engine == EN_DX7 ? PL_ENG_DX7 : v->engine == EN_JUNO ? PL_ENG_JUNO
+                  : v->engine == EN_TB ? PL_ENG_TB303 : v->engine == EN_CHIP ? PL_ENG_CHIP : PL_ENG_SAMPLER;
+        o->track = v->use == PV_KEY ? 0xFFu : v->who;
+        o->note = v->note;
+        o->inst = v->inst;
+        o->level = (uint8_t)(v->peak >> 7);
+        o->key = (uint8_t)pl_v_key(v);
+        o->pos = v->engine == EN_SAMP ? eng->u.sm.pos : -1;
     }
     {                                    /* DJ: the decks, the LFOs */
         pl_ctx_t *was = pl_cur;
@@ -7179,7 +9140,7 @@ PLAT_COLD void player_state(player_state_t *s, int reset_max)
 PLAT_COLD int player_voices_now(pl_voice_info_t *v, int max)
 {
     uint32_t q, tries;
-    int n = max < (int)PL_NV ? max : (int)PL_NV;
+    int n = max < (int)PL_NE ? max : (int)PL_NE;
     for (tries = 0; tries < 8u; tries++) {
         q = pl_snap_seq;
         PL_BARRIER();
@@ -7191,10 +9152,18 @@ PLAT_COLD int player_voices_now(pl_voice_info_t *v, int max)
     return n;
 }
 
-int player_scope(int voice, int16_t *dst, int n)
+int32_t player_gain_of(int note)      /* (the host tests: the gain of the held voice sounding that note, -1 none) */
+{
+    uint32_t i;
+    for (i = 0; i < PL_NV; i++)
+        if (pl_v[i].use != PV_FREE && pl_v[i].held && pl_v[i].note == note)
+            return pl_v[i].gain;
+    return -1;
+}
+int player_scope(int voice, int16_t *dst, int n)   /* (engine `voice`'s scope row) */
 {
     uint32_t w = pl_scope_w, i;
-    if (voice < 0 || voice >= (int)PL_NV || n < 1)
+    if (voice < 0 || voice >= (int)PL_NE || n < 1)
         return 0;
     n = n > (int)PL_SCOPE ? (int)PL_SCOPE : n;
     for (i = 0; i < (uint32_t)n; i++)
@@ -7208,10 +9177,20 @@ PLAT_COLD void player_init(void)
     dx7_init();
     juno_init();
     fx_init();
-    for (c = 0; c < PL_NV; c++) {
+    for (c = 0; c < PL_NV; c++) {        /* (every voice free, in no engine) */
         pl_v[c].use = PV_FREE;
-        pl_v[c].engine = 255;            /* (none yet: the first note zeroes its state) */
+        pl_v[c].engine = 255;            /* (no note yet) */
+        pl_v[c].place = PL_NO_ENG;
+        pl_v[c].gh = GH_NO;
     }
+    for (c = 0; c < PL_NE; c++) {
+        pl_e[c].kind = 255;              /* (none yet: the first note zeroes its state) */
+        pl_e[c].voice = PL_NO_VOICE;
+        pl_e[c].fade = PL_NO_FADE;
+        pl_e[c].wait = PL_NO_VOICE;
+    }
+    pl_gn = pl_nfd = 0;
+    pl_gh_soon = PL_NEVER;
     pl_ctx_init(0);
     pl_ctx_init(1);
     pl_ctxs[1].song = 0xFF;              /* (the second replay: no song till a deck has one) */
@@ -7434,6 +9413,7 @@ static void pl_audio_a(uint32_t b, uint32_t j, uint32_t left, uint32_t *prim)
 #ifdef PTFM_DEBUG
     pl_dbg_rp = 1;
 #endif
+    plat_sound_at = PLAT_AT_NOTES;
     for (k = 0; k < 2u; k++) {           /* each replay's ticks due, its tracks' levels (in the memories' order: their
                                           * notes take voices in the same order whatever side each is on) */
         pl_use(k ^ pl_swapped);
@@ -7695,14 +9675,17 @@ void player_audio(int16_t *lr, int frames)
     int c2, c2v;
     plat_c2_wait();                      /* (the half before: core 2 finished it before anything here touches what it
                                           * worked on, as the FM-1's interrupt makes sure first thing) */
+    plat_sound_at = PLAT_AT_START;       /* (where the sound's work stands: the freeze record's, plat.h) */
     if (PL_RARE(pl_fxm_on))
         pl_fxm_take();
     DBG_T(dt);                           /* (the debug build's stages: specs/debug.md) */
     rec_audio_ctx = 1;
     pl_lr = lr;
     pl_block_at = 0;                     /* (the requests' notes: at the half's start) */
+    pl_h_load = 0;                       /* (the load guard's count: the half's own) */
     c2v = plat_c2_half();                /* (core 2 takes this half: its blocks' effects, but in CUT's halves, and the
-                                          * voices in its places, CUT's too) */
+                                          * voices from each block's split on, CUT's too) */
+    pl_c2t = (uint8_t)(c2v != 0);
     pl_dj_take();                        /* DJ's mix as the main loop last set it */
     pl_requests();
     pl_nv_half(c2v);
@@ -7782,13 +9765,16 @@ void player_audio(int16_t *lr, int frames)
                     mix[j] = pl_hmix[j];
                     snd[j] = pl_hb[j].fx == 2u || pl_hb[j].sends ? pl_hsend[j] : 0;
                 }
+                plat_sound_at = PLAT_AT_EFFECTS;
                 PLAT_FAR(fx_blocks)(mix, snd, n, pl_hclk, pl_hset);
                 DBG_ADD(DS_EFFECTS, de);
                 if (pl_hb[0].fxm)        /* (STATUS' EFFECTS: the half's, on its first block) */
                     pl_hb[0].fx_us = (uint16_t)(pl_hb[0].fx_us + plat_us() - t);
+                plat_sound_at = PLAT_AT_OUTPUT;
                 for (j = 0; j < n; j++)
                     PLAT_FAR(pl_audio_c)(j);
             } else {
+                plat_sound_at = PLAT_AT_EFFECTS;   /* (the effects, then the output, block by block) */
                 for (j = 0; j < n; j++)  /* (as each block had them: its settings, its clock, its changes) */
                     PLAT_FAR(pl_c2_job)(j);
             }
@@ -7827,8 +9813,225 @@ PLAT_DBG void player_v2_figures(player_v2_t *f)
     f->wait_sum = pl_v2_wait_sum;
     f->wait_max = pl_v2_wait_max;
     f->most = pl_v2_most;
+    f->low = pl_v2_klow;
+    f->fixed = (uint8_t)PL_SPLIT_FIXED;
+    f->margin = pl_c2m;
+    f->k_sum = pl_v2_ksum;
+    f->k_blocks = pl_v2_kn;
+    f->v_sum = pl_v2_vsum;
+    f->waited = pl_v2_waited;
     pl_v2_jobs = pl_v2_us = pl_v2_wait_sum = pl_v2_wait_max = 0;
+    pl_v2_ksum = pl_v2_kn = pl_v2_vsum = pl_v2_waited = 0;
     pl_v2_most = 0;
+    pl_v2_klow = PL_NE;
+}
+/* (the debug part's, from 30 FIGURES?: taken by the audio context's next block) */
+PLAT_DBG void player_split_fixed(int on) { pl_split_how = (uint8_t)(on ? SPLIT_FIXED : SPLIT_MOVES); }
+
+/* the ghosts' figures since the last call (FIGURES 2's ghosts, specs/debug.md: their bytes from the 9th on, at g + 8; the
+ * stage's first 8 are dbg.c's), and a new window started; the ghosts and the engines now, as they stand (the audio
+ * context held back meanwhile). The debug part's */
+static PLAT_DBG void pl_gf_put16(uint8_t *p, uint32_t v)
+{
+    v = v > 0xFFFFu ? 0xFFFFu : v;
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+}
+static PLAT_DBG void pl_gf_put32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+/* (the layout's fixed offsets, below, against the kinds' counts and the length: a kind added moves what follows) */
+typedef char pl_gf_layout[44 + 2 * GM_N == 58 && 70 + 4 * GO_N == 130 && 134 + 2 * GG_N == 142 && 230 + 6 * GK_N == 248 &&
+                          308 + 2 == DBG_GHOSTS_LEN ? 1 : -1];
+PLAT_DBG void player_gh_figures(uint8_t *g)
+{
+    static const uint8_t cost[5][2] = PL_COSTS;
+    uint8_t now[12], gn;
+    uint32_t i, k, gtr = 0, etr = 0, was;
+    uint8_t *p;
+    pl_gf_t s;                           /* (the window's counts, taken under the lock, written out after it) */
+    memset(now, 0, sizeof now);
+    was = plat_lock();
+    for (i = 0; i < pl_gn; i++) {        /* the ghosts now: held (heard, muted, a key's), let go; returning; by engine */
+        const pl_voice_t *v = &pl_v[pl_gl[i]];
+        now[0]++;
+        now[!v->held ? 4 : v->use == PV_KEY ? 3 : pl_v_muted(v) ? 2 : 1]++;
+        now[5] = (uint8_t)(now[5] + (v->gh == GH_BACK));
+        if (v->engine != EN_TB && v->engine < EN_FUS)
+            now[8 + PL_GF_E(v->engine)]++;
+        if (v->use == PV_SONG && v->who < 32u)
+            gtr |= 1u << v->who;
+    }
+    for (i = 0; i < pl_nv; i++) {        /* the notes in the count's engines: the keys', the songs' and loops' */
+        const pl_voice_t *v = pl_e[i].voice != PL_NO_VOICE ? &pl_v[pl_e[i].voice] : 0;
+        if (v && v->use == PV_KEY)
+            now[6]++;
+        else if (v && v->use == PV_SONG) {
+            now[7]++;
+            if (v->who < 32u)
+                etr |= 1u << v->who;
+        }
+    }
+    s = pl_gf;
+    gn = pl_gn;
+    memset(&pl_gf, 0, sizeof pl_gf);
+    pl_gf.gn_most = gn;                  /* (the next window's most: at least those there at its start) */
+    plat_unlock(was);
+    memcpy(g + 8, now, 12);
+    pl_gf_put32(g + 20, gtr);
+    pl_gf_put32(g + 24, etr);
+    g[28] = s.gn_most > gn ? s.gn_most : gn;
+    g[29] = s.way_most;
+    g[30] = s.n_most;
+    g[31] = PL_RETURNS;
+    pl_gf_put16(g + 32, PL_BUDGET);
+    g[34] = PL_READY;
+    g[35] = PL_SEEK;
+    for (k = 0; k < 4u; k++) {           /* (DX7, Juno-106, sampler, CHIP: EN_* 0, 1, 2, 4) */
+        g[36 + 2 * k] = cost[k == 3u ? EN_CHIP : k][0];
+        g[37 + 2 * k] = cost[k == 3u ? EN_CHIP : k][1];
+    }
+    for (k = 0; k < GM_N; k++)
+        pl_gf_put16(g + 44 + 2 * k, s.made[k]);
+    pl_gf_put16(g + 58, s.made_tb);
+    pl_gf_put16(g + 60, s.back_free);
+    pl_gf_put16(g + 62, s.back_tail);
+    pl_gf_put16(g + 64, s.tail_lost);
+    pl_gf_put16(g + 66, s.back_mute);
+    pl_gf_put16(g + 68, s.back_muted);
+    for (k = 0; k < GO_N; k++) {
+        pl_gf_put16(g + 70 + 4 * k, s.gone[k][0]);
+        pl_gf_put16(g + 72 + 4 * k, s.gone[k][1]);
+    }
+    pl_gf_put16(g + 130, s.deferred);
+    pl_gf_put16(g + 132, s.back_quiet);
+    for (k = 0; k < GG_N; k++)
+        pl_gf_put16(g + 134 + 2 * k, s.gave[k]);
+    for (k = 0, p = g + 142; k < 4u; k++, p += 10) {   /* each engine's forward work: calls, steps, us */
+        pl_gf_put16(p, s.fwd_n[k]);
+        pl_gf_put32(p + 2, s.fwd_steps[k]);
+        pl_gf_put32(p + 6, s.fwd_us[k]);
+    }
+    for (k = 0, p = g + 182; k < 4u; k++, p += 6) {    /* its note starts; its first blocks back rendered */
+        pl_gf_put16(p, s.start_n[k]);
+        pl_gf_put32(p + 2, s.start_us[k]);
+        pl_gf_put16(p + 24, s.first_n[k]);
+        pl_gf_put32(p + 26, s.first_us[k]);
+    }
+    for (k = 0, p = g + 230; k < GK_N; k++, p += 6) {  /* the checks: the others', a sampler's, a FUSION layer's */
+        pl_gf_put16(p, s.ready_n[k]);
+        pl_gf_put32(p + 2, s.ready_us[k]);
+    }
+    pl_gf_put16(g + 248, s.search_n);
+    pl_gf_put32(g + 250, s.search_us);
+    pl_gf_put16(g + 254, s.idle_n);
+    pl_gf_put32(g + 256, s.idle_us);
+    pl_gf_put16(g + 260, s.ends_n);
+    pl_gf_put32(g + 262, s.ends_us);
+    pl_gf_put32(g + 266, s.units);
+    pl_gf_put16(g + 270, s.units_most);
+    pl_gf_put16(g + 272, s.blocks);
+    pl_gf_put16(g + 274, s.stop4);
+    pl_gf_put16(g + 276, s.stopb);
+    pl_gf_put16(g + 278, s.wait_most);
+    pl_gf_put16(g + 280, s.way_long);
+    pl_gf_put32(g + 282, s.oldest);
+    g[286] = s.oldest_fl;
+    g[287] = PL_READY_S;
+    for (k = 0; k < 4u; k++)             /* the list full: the notes not kept, by rank */
+        pl_gf_put16(g + 288 + 2 * k, s.full_new[k]);
+    pl_gf_put16(g + 296, s.look_n);      /* the waits' own look (in no stage) */
+    pl_gf_put32(g + 298, s.look_us);
+    pl_gf_put16(g + 302, s.probe_n ? s.probe32 : 0xFFFFu);   /* a probe pair's own cost x 32 (0xFFFF: not measured) */
+    pl_gf_put16(g + 304, s.idle_in);     /* the timed pieces inside the walks spending nothing */
+    pl_gf_put16(g + 306, s.held);        /* the walks the load guard held; its cap */
+    pl_gf_put16(g + 308, PL_LOAD_CAP);
+}
+
+/* (the tests' round trip of the layout: every count of the window set to a value of its own, the field's place in a
+ * list the page's test knows (the "now" and the stage's bytes not: the pool's and dbg.c's). Each kind's count is set by
+ * its name, in the page's order (fw/web/figures.js' GH_*_AT): a kind moved in its enum lands where the page does not
+ * read it. Nothing on the FM-1 calls it) */
+PLAT_DBG void player_gh_fill(void)
+{
+    static const uint8_t made[GM_N] = {GM_TAKEN, GM_BORN, GM_BORN_MUTED, GM_MUTED, GM_COUNT, GM_C2_BEGUN, GM_C2_NEVER};
+    static const uint8_t gone[GO_N] = {GO_CUT, GO_KEEP, GO_SELF, GO_SELF_BACK, GO_INST, GO_FULL_LET, GO_FULL_MUTED,
+                                       GO_FULL_SONG, GO_FULL_KEY, GO_QUIET, GO_JREL, GO_OFF_INST, GO_FUS_CELL, GO_FUS_OLD,
+                                       GO_SAMP_END};
+    static const uint8_t gave[GG_N] = {GG_NOTE, GG_COUNT, GG_CMD, GG_MUTE};
+    static const uint8_t kind[GK_N] = {GK_PLAIN, GK_SAMP, GK_FUS};
+    static const uint8_t rank[4] = {GR_LET, GR_MUTED, GR_SONG, GR_KEY};
+    static const uint8_t eng[4] = {EN_DX7, EN_JUNO, EN_SAMP, EN_CHIP};
+    uint32_t k, e, v = 1000;
+    uint32_t was = plat_lock();
+    memset(&pl_gf, 0, sizeof pl_gf);
+    for (k = 0; k < GM_N; k++)
+        pl_gf.made[made[k]] = (uint16_t)v++;
+    pl_gf.made_tb = (uint16_t)v++;
+    pl_gf.back_free = (uint16_t)v++;
+    pl_gf.back_tail = (uint16_t)v++;
+    pl_gf.tail_lost = (uint16_t)v++;
+    pl_gf.back_mute = (uint16_t)v++;
+    pl_gf.back_muted = (uint16_t)v++;
+    for (k = 0; k < GO_N; k++) {
+        pl_gf.gone[gone[k]][0] = (uint16_t)v++;
+        pl_gf.gone[gone[k]][1] = (uint16_t)v++;
+    }
+    pl_gf.deferred = (uint16_t)v++;
+    pl_gf.back_quiet = (uint16_t)v++;
+    for (k = 0; k < GG_N; k++)
+        pl_gf.gave[gave[k]] = (uint16_t)v++;
+    for (k = 0; k < 4u; k++) {
+        e = PL_GF_E(eng[k]);
+        pl_gf.fwd_n[e] = (uint16_t)v++;
+        pl_gf.fwd_steps[e] = 100000u + v++;
+        pl_gf.fwd_us[e] = 200000u + v++;
+    }
+    for (k = 0; k < 4u; k++) {
+        e = PL_GF_E(eng[k]);
+        pl_gf.start_n[e] = (uint16_t)v++;
+        pl_gf.start_us[e] = 300000u + v++;
+    }
+    for (k = 0; k < 4u; k++) {
+        e = PL_GF_E(eng[k]);
+        pl_gf.first_n[e] = (uint16_t)v++;
+        pl_gf.first_us[e] = 400000u + v++;
+    }
+    for (k = 0; k < GK_N; k++) {
+        pl_gf.ready_n[kind[k]] = (uint16_t)v++;
+        pl_gf.ready_us[kind[k]] = 500000u + v++;
+    }
+    pl_gf.search_n = (uint16_t)v++;
+    pl_gf.search_us = 600000u + v++;
+    pl_gf.idle_n = (uint16_t)v++;
+    pl_gf.idle_us = 600000u + v++;
+    pl_gf.ends_n = (uint16_t)v++;
+    pl_gf.ends_us = 600000u + v++;
+    pl_gf.units = 700000u + v++;
+    pl_gf.units_most = (uint16_t)v++;
+    pl_gf.blocks = (uint16_t)v++;
+    pl_gf.stop4 = (uint16_t)v++;
+    pl_gf.stopb = (uint16_t)v++;
+    pl_gf.wait_most = (uint16_t)v++;
+    pl_gf.way_long = (uint16_t)v++;
+    pl_gf.oldest = 800000u + v++;
+    pl_gf.oldest_fl = 5;
+    for (k = 0; k < 4u; k++)
+        pl_gf.full_new[rank[k]] = (uint16_t)v++;
+    pl_gf.look_n = (uint16_t)v++;
+    pl_gf.look_us = 900000u + v++;
+    pl_gf.probe32 = (uint16_t)v++;
+    pl_gf.probe_n = 1;
+    pl_gf.idle_in = (uint16_t)v++;
+    pl_gf.held = (uint16_t)v++;
+    pl_gf.n_most = 3;
+    pl_gf.gn_most = 21;
+    pl_gf.way_most = 2;
+    plat_unlock(was);
 }
 #endif
 
@@ -7844,45 +10047,52 @@ PLAT_DBG void player_v2_figures(player_v2_t *f)
 #define PM_ALL 826u                      /* 1.2 s */
 #define PM_WIN 206u                      /* 300 ms */
 #define PM_REST 1378u                    /* 2 s */
-typedef struct { pl_voice_t *v; int32_t gain; uint8_t mode; } pm_part_t;   /* gain Q12; mode: its chorus (0 off) */
+/* a note measured: a voice (its Juno-106 patch copy) and its engine, side by side in the caller's memory, never in
+ * the pool (its engine is worked on directly) */
+typedef struct { pl_voice_t v; pl_eng_t eng; } pm_note_t;
+typedef struct { pm_note_t *n; int32_t gain; uint8_t mode; } pm_part_t;   /* gain Q12; mode: its chorus (0 off) */
 static uint32_t (*pm_lock)(void);        /* the caller's: the interrupts held back, and let go */
 static void (*pm_unlock)(uint32_t);
 
-/* instrument in's note on v, as pl_voice_on starts it (vol 1-127, at its LEVEL or not); 0 none. Interrupts off */
+/* instrument in's note on part p, as pl_voice_on starts it (vol 1-127, at its LEVEL or not); 0 none. Interrupts off */
 static PLAT_COLD int pm_start(pm_part_t *p, pl_inst_t in, int note, uint32_t vol, int level)
 {
     const uint8_t *slot;
-    pl_voice_t *v = p->v;
+    pl_voice_t *v = &p->n->v;
+    pl_eng_t *eng = &p->n->eng;
     uint32_t e = pl_engine(in, &slot);
     int32_t trim = level ? pl_level_q12(in) : 4096, l = (int32_t)(4096u * vol / 127u);
-    memset(v, 0, sizeof *v);
-    v->engine = (uint8_t)e;
-    v->use = PV_KEY;                     /* (for pl_v_sounds; never in the pool) */
-    v->held = 1;
+    memset(p->n, 0, sizeof *p->n);
+    v->place = PL_NO_ENG;                /* (outside the pool: linked to none of its engines, as its engine to none of
+                                          * its voices) */
+    eng->voice = eng->wait = PL_NO_VOICE;
+    eng->fade = PL_NO_FADE;
+    eng->kind = (uint8_t)e;
     p->mode = 0;
     p->gain = (int32_t)(((int64_t)trim * l) >> 12);
     if (e == EN_DX7) {
         uint8_t vc[156];
         rec_dx7_vced(slot, vc);
-        dx7_note_on(&v->u.dx, vc, note, PL_VEL);
+        dx7_note_on(&eng->u.dx, vc, note, PL_VEL, PL_VEL);   /* (its modulators too at the velocity LEVEL is measured at, a
+                                                         * gain its volume: AUTO LEVEL as before 1.0, the disk's LEVELs) */
     } else if (e == EN_JUNO) {           /* (its level in the engine, its LEVEL on what it renders) */
-        rec_juno_patch(slot, v->jp);
-        juno_note_on(&v->u.ju, v->jp, note, l);
+        rec_juno_patch(slot, v->p.jp);
+        juno_note_on(&eng->u.ju, v->p.jp, note, l);
         p->gain = trim;
-        p->mode = (uint8_t)juno_chorus_mode(v->jp);
+        p->mode = (uint8_t)juno_chorus_mode(v->p.jp);
     } else if (e == EN_TB) {
         uint8_t k[TB_NK];
         rec_tb_knobs(slot, k);
-        tb_note_on(&v->u.tb, k, note, 0);
+        tb_note_on(&eng->u.tb, k, note, 0);
     } else if (e == EN_SAMP) {
         samp_t s;
         if (!pl_sample_of(in, &s, 0))
             return 0;
-        samp_note_on(&v->u.sm, &s, note, 0);
+        samp_note_on(&eng->u.sm, &s, note, 0);
     } else if (e == EN_CHIP) {
         chip_patch_t cp;
         chip_unpack(slot, &cp);
-        chip_note_on(&v->u.ch, &cp, note);
+        chip_note_on(&eng->u.ch, &cp, note);
     } else
         return 0;
     return 1;
@@ -7903,7 +10113,7 @@ static PLAT_COLD int pm_run(pm_part_t *p, uint32_t n, uint32_t *ms, int32_t *pea
         return 0;
     for (k = 0; k < n; k++) {
         modes |= p[k].mode ? 1u << (p[k].mode - 1u) : 0u;
-        juno |= p[k].v->engine == EN_JUNO;
+        juno |= p[k].n->eng.kind == EN_JUNO;
     }
     memset(ch, 0, sizeof ch);
     memset(tmp, 0, sizeof tmp);
@@ -7945,31 +10155,31 @@ static PLAT_COLD int pm_run(pm_part_t *p, uint32_t n, uint32_t *ms, int32_t *pea
             pm_unlock(f);
         }
         for (k = 0; k < n; k++) {
-            pl_voice_t *v = p[k].v;
+            pl_eng_t *eng = &p[k].n->eng;
             int32_t *to = p[k].mode ? bus[p[k].mode - 1u] : mix;
             f = pm_lock();
             if (b == PM_HELD)
-                pl_v_off(v);
-            if (v->engine == EN_JUNO && !juno_busy(&v->u.ju)) {
-                juno_idle(&v->u.ju, tick);
+                pl_e_off(eng);
+            if (eng->kind == EN_JUNO && !juno_busy(&eng->u.ju)) {
+                juno_idle(&eng->u.ju, tick);
                 pm_unlock(f);
                 continue;
             }
-            if (!pl_v_sounds(v)) {
+            if (!pl_e_sounds(eng)) {
                 pm_unlock(f);
                 continue;
             }
             memset(tmp, 0, sizeof tmp);
-            if (v->engine == EN_DX7)
-                dx7_render(&v->u.dx, tmp);
-            else if (v->engine == EN_JUNO)
-                juno_render(&v->u.ju, tmp, tick);
-            else if (v->engine == EN_TB)
-                tb_render(&v->u.tb, tmp);
-            else if (v->engine == EN_CHIP)
-                chip_render(&v->u.ch, tmp);
+            if (eng->kind == EN_DX7)
+                dx7_render(&eng->u.dx, tmp);
+            else if (eng->kind == EN_JUNO)
+                juno_render(&eng->u.ju, tmp, tick);
+            else if (eng->kind == EN_TB)
+                tb_render(&eng->u.tb, tmp);
+            else if (eng->kind == EN_CHIP)
+                chip_render(&eng->u.ch, tmp);
             else
-                samp_render(&v->u.sm, tmp);
+                samp_render(&eng->u.sm, tmp);
             pm_unlock(f);
             for (i = 0; i < PL_BLOCK; i++)
                 to[i] += (int32_t)(((int64_t)tmp[i] * p[k].gain) >> 12);
@@ -8010,8 +10220,8 @@ PLAT_COLD int player_measure(pl_inst_t in, void *mem, uint32_t size, uint32_t (*
                    uint32_t *ms, int32_t *peak)
 {
     pm_part_t p[PL_NLAYER];
-    pl_voice_t *vs = mem;
-    uint32_t nv = size / sizeof(pl_voice_t), n = 0, f, e, k;
+    pm_note_t *ns = mem;
+    uint32_t nv = size / sizeof(pm_note_t), n = 0, f, e, k;
     int r = 0;
     if (nv > PL_NLAYER)
         nv = PL_NLAYER;
@@ -8020,7 +10230,7 @@ PLAT_COLD int player_measure(pl_inst_t in, void *mem, uint32_t size, uint32_t (*
     pm_lock = lock;
     pm_unlock = unlock;
     for (k = 0; k < nv; k++)
-        p[k].v = &vs[k];
+        p[k].n = &ns[k];
     f = pm_lock();
     e = pl_engine(in, 0);
     if (e != EN_FUS) {

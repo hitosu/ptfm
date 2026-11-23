@@ -27,7 +27,7 @@ typedef struct {
                                          * METRONOME at FOLLOW counts at its tempo */
     uint32_t fire, held;                /* FILTER's envelope's sources (specs/ui/screens/fx.md#filters-envelope): bit 0
                                          * the keys, bit 1 + t track t (0-15) of what plays; notes started in this block,
-                                         * notes held (parked and muted ones too) */
+                                         * notes held (ghosts and muted ones too) */
 } fx_clock_t;
 extern fx_clock_t fx_clk;               /* the player's, as it plays now (the live clock: a block's is kept with it, and
                                          * the effects work with that one, fx_work); DJ's decks' own effects run on it */

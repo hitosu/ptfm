@@ -97,6 +97,9 @@ typedef struct {
     const uint8_t *trk_end[16]; /* where each stream's part ends */
 } rec_loops_t;
 int rec_loops(rec_loops_t *l, int streams);                     /* 0 read (streams: theirs too), -1 none */
+/* LOOPS set num (specs/files/loops.md#sets) read as the loops are, its loops' record after its 16 bytes (*pre: those,
+ * its name and solos; pre may be NULL): 0 read, -1 none */
+int rec_lset(uint8_t num, rec_loops_t *l, int streams, const uint8_t **pre);
 /* the length a head with none (byte 7 0) has: 4 bars, or the most whole bars that fit 128 rows where 4 do not (a bar
  * BEATS A BAR beats, the FX setup's byte 11 (1-16; 0 read as 4), each the grid's rows: 4, 6 or 8) */
 int rec_loops_rows_default(const uint8_t *head);
@@ -106,19 +109,25 @@ typedef struct {
     uint8_t mono, muted;
     uint8_t lanes;              /* 1-4 */
     uint8_t base;               /* the rows its notes cover, 1-128 */
-    uint8_t repeats;            /* 1-255 */
+    uint8_t repeats;            /* 1-255 (a cut loop: 1) */
     uint8_t shift;              /* its SHIFT: the rows it plays later, round the length (stored 0-127: entry byte 2's bit 7
                                  * its bit 6, byte 3's bits 7-2 its bits 5-0; read modulo the length) */
+    uint8_t cut;                /* its cut (specs/files/loops.md#the-record): it wraps at that row, 0 none; stored as byte
+                                 * 2's bit 6 with byte 5 the cut's rows (1 to the length - 1) over a base of the length,
+                                 * once; anything else read as no cut */
     const uint8_t *mix;         /* its mixer bytes (RM_*), in the head */
 } rec_loop_t;
 void rec_loop(const rec_loops_t *l, int i, rec_loop_t *o);      /* loop i's table entry (i < l->n) */
 #define REC_LOOP_SHIFT(e) (((e)[2] >> 7) << 6 | (e)[3] >> 2)    /* an entry's SHIFT as stored, 0-127 */
+/* an entry's cut over a length of `rows` rows: byte 5 where byte 2's bit 6 is set, its base the length and byte 5 under
+ * it; else 0 (none: what an older PT/FM's edit of it leaves) */
+#define REC_LOOP_CUT(e, rows) (((e)[2] & 0x40u) && (e)[4] + 1u == (unsigned)(rows) && (e)[5] && (e)[5] < (unsigned)(rows) ? (e)[5] : 0u)
 /* the loops' cells as the player and LOOPS' screen read them, one copy for both. rec_bridge: c is a gap's bridge, nothing
  * in it (an ED0 alone: no cell to a reader). rec_stage_cells: the stage's row r through cu (set on its stream, rows asked
  * for in order), *c4 its lanes' cells; the lanes with one returned (a bit a lane; a bridge none). rec_stage_merge: a MONO
  * stage's row (has: the lanes with a cell; *from: the lane whose note sounds, -1 none, carried from row to row), as REC
- * writes it: the later lane's note takes over; else an end on from's lane (from none then); else nothing. The lane of
- * the cell it plays, -1 none */
+ * writes it: the later lane's note takes over; else from's lane's cell (an end, a note off or a key off: from none then;
+ * a volume alone: the note goes on); else nothing. The lane of the cell it plays, -1 none */
 int rec_bridge(const rec_cell_t *c);
 int rec_stage_cells(rec_cur_t *cu, int r, rec_cell_t *c4);
 int rec_stage_merge(int has, const rec_cell_t *c4, int8_t *from);
@@ -181,6 +190,7 @@ typedef struct {
 } rec_sinst_t;
 void rec_sampler_inst(const uint8_t *slot, rec_sinst_t *si);
 uint8_t rec_sampler_volume(const uint8_t *slot);                /* its VOLUME alone (rec_sinst_t's volume) */
+int rec_sampler_tune(const uint8_t *slot);                      /* its TUNE alone, 1/128 semitones from none */
 /* a sample (specs/files/instruments.md#samples): the record (REC_SAMPLE, num, 0), version 1, read in place: its entry
  * (16 B: length 20 bits, rate 18, coding 4, name 60 from bit 42), then its PTR audio, the index's offsets from there */
 typedef struct {

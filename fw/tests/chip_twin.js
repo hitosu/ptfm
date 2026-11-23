@@ -46,7 +46,7 @@ scen.forEach((line, n) => {
         if (b === bb) v.bend64 = bend;
         if (b === pb) C.param(v.p, v, code, val);
         for (const [a, c, x] of xs) if (b === a) C.param(v.p, v, c, x);
-        if (b >= pf && b < pt) { if (C.active(v)) C.skip(v); }  /* (parked: its time goes on unheard) */
+        if (b >= pf && b < pt) { if (C.active(v)) C.skip(v); }  /* (skipped: its time goes on unheard) */
         else if (C.active(v)) { C.block(v, out); act = b + 1; }
         for (let i = 0; i < 64; i++) {
             h = Math.imul((h ^ out[i]) >>> 0, 16777619) >>> 0;

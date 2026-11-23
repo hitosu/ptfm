@@ -1,0 +1,133 @@
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     Copyright (C) 2026 Vasily Kazantsev -->
+<section class="chapter" id="automations" data-kind="screen">
+<h2>AUTOMATIONS</h2>
+<p class="lead">AUTOMATIONS records what you do on the FM-1, every key, button and knob at the times you worked them,
+and plays it back: a performance of mutes, knob sweeps or notes played into LOOPS, or a piece of work on the screens,
+done again by the FM-1 itself. Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP6</kbd></span> to open it.
+It holds 16 automations, and <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd class="w">white key</kbd></span>
+plays one from any screen; with <kbd>REC</kbd> before the white key it records one there.</p>
+
+<section class="topic" id="automations-slots">
+<h3>The 16 slots</h3>
+<figure data-shot="automations"><figcaption>AUTOMATIONS: 16 slots, each with the screen it was recorded on and its
+length.</figcaption></figure>
+<ul>
+<li>Each slot shows its number, the screen it was recorded on and its length in minutes and seconds; an empty one
+says EMPTY.</li>
+<li><kbd>SELECT</kbd> and <kbd>ALGORITHM</kbd> move between the slots, and a <kbd class="w">white key</kbd> picks one:
+white key 1 is slot 00, white key 16 slot 0F. The keys play nothing here.</li>
+</ul>
+</section>
+
+<section class="topic" id="automations-record">
+<h3>Recording</h3>
+<ul>
+<li>Press <kbd>REC</kbd>: AUTOMATIONS closes and you are back on the screen you came from. That screen is the
+automation's. A slot that already holds one asks first: REPLACE or KEEP.</li>
+<li><b>From any screen,</b> <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd>REC</kbd> + <kbd class="w">white key</kbd></span>
+records without opening AUTOMATIONS: with HOME's combination open (HOME tapped, or held), ARP switches its white keys
+to the automations, REC switches them from playing to recording (REC lights), and a white key records into its slot,
+white key 1 slot 00 to white key 16 slot 0F, on the screen you are on. Nothing needs holding, and none of these keys is
+recorded. A slot that already holds one asks first, as above; while an automation records or plays, none starts
+(ONE AUTOMATION AT A TIME).</li>
+<li>The recording starts at your first press, key or turn, with no silence before it. Meanwhile the header shows the
+slot in red, <b>AUTO 03</b>, after a red dot.</li>
+<li>Everything you do is recorded: keys, buttons and knob turns, HOME's combinations and every hold by its timing, and
+MIDI's learned controls as the controls they stand for. The <kbd>MASTER</kbd> knob is never recorded.</li>
+<li>Press <span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP6</kbd></span> to end it, HOME held or tapped first:
+AUTOMATIONS opens again and says how long it is. Or press <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> +
+<kbd>REC</kbd></span> to end it where you are: you stay on your screen, and the FM-1 says how long it is
+(AUTOMATION 03 RECORDED: 0:42). The keys that end it are not recorded, and whatever you still hold is let go in the
+automation at that moment.</li>
+<li>A recording is a change like any other: <kbd>SAVE</kbd> keeps it, AUTOMATIONS' REVERT drops it, and REVERT ALL
+ends it and drops it with your other changes. A minute of busy playing takes about 1 KB of the memory for edits; when
+that memory is full the recording stops there (MEMORY FOR EDITS IS FULL), keeping what it has.</li>
+</ul>
+</section>
+
+<section class="topic" id="automations-play">
+<h3>Playing</h3>
+<ul>
+<li>Press <kbd>PLAY</kbd>: as you let it go, the FM-1 goes to the automation's screen and plays it back there, every
+press and turn at its time, as if made by hand: a fast knob turn takes the same bigger steps it took when you
+recorded it. The header shows the slot in green, <b>AUTO 03</b>, after a green play
+arrow.</li>
+<li><b>From any screen,</b> <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd class="w">white key</kbd></span>
+plays one without opening AUTOMATIONS: with HOME's combination open (HOME tapped, or held), ARP switches its white keys
+from the tracks' mutes to the automations, and a white key plays its slot as PLAY does, on the automation's own screen:
+white key 1 slot 00, white key 16 slot 0F. Nothing needs holding. ARP lights while the white keys are the automations,
+each one dim where its slot holds one, dark where it is empty; ARP again takes them back to the mutes.</li>
+<li>A white key whose slot is empty says so (AUTOMATION 03 IS EMPTY), and the combination stays open for another key.
+An automation cannot start another: while one records or plays, the combination starts none (ONE AUTOMATION AT A
+TIME).</li>
+<li>Nothing else is set first: the automation plays on whatever the FM-1 is doing. Have the right song, instrument or
+loops ready, as you had them when you recorded it.</li>
+<li>Any key, button or knob of yours stops it (AUTOMATION STOPPED), and that press does nothing else. The
+<kbd>MASTER</kbd> knob stays yours throughout.</li>
+<li>It plays once. At its end, what it holds is let go (AUTOMATION 03 PLAYED).</li>
+<li>A SAVE in the automation saves, as yours does. While the save's progress shows, the FM-1 takes no input, so the
+playback waits: its time stands still, and it goes on from there once the save is over, with no step lost.</li>
+<li>REVERT ALL stops it, and a page writing to the FM-1 (an upload, the EDITOR page's WRITE) stops a playback or ends
+a recording (AUTOMATION STOPPED).</li>
+</ul>
+<figure data-shot="home-automations"><figcaption>HOME tapped on SONGS, then ARP: the white keys play the
+automations, slot 00 to 0F.</figcaption></figure>
+</section>
+
+<section class="topic" id="automations-compact">
+<h3>Compacting: shorter pauses</h3>
+<p>Work done on the screens at a hand's pace (a few edits, a round of the menus) can play back as fast as the FM-1
+takes it: COMPACT, in the menu, shortens an automation's pauses. Leave an automation of music as it is: its pauses are
+part of the music.</p>
+<figure data-shot="automations-compact"><figcaption>COMPACT's limits for slot 02.</figcaption></figure>
+<ul>
+<li><kbd>SEL</kbd>, COMPACT opens a list of limits, <b>COMPACT AUTOMATION 03</b>: <b>1 S</b>, <b>0.5 S</b> and
+<b>0.3 S</b>. Pick one with <kbd>SELECT</kbd> and press <kbd>SEL</kbd>: every pause while nothing is held that is longer
+than the limit is cut to it, and the FM-1 gives the new length (AUTOMATION 03 COMPACTED: 0:18). On an empty slot:
+AUTOMATION 03 IS EMPTY.</li>
+<li><b>Only the pauses while nothing is held are shortened:</b> from a step after which no key or button is down in the
+automation, to its next step. A pause while something is held keeps its time, as it is part of what that control does:
+a hold (SETTINGS' HOLD DELAY), the 2-second holds (<kbd>FX</kbd> held, <kbd>EDIT</kbd> held on LOOPS,
+<span class="combo"><kbd>HOME</kbd> + <kbd>REC</kbd></span> held), a knob turned with <kbd>SEL</kbd> held, a note's
+length. Every step stays, in its order.</li>
+<li>With no such pause longer than the limit: NOTHING TO COMPACT, and the slot is as it was.</li>
+<li><b>Which limit:</b> 0.3 s is the shortest, as it stays above COMBO GRACE's longest setting, 250 ms: a button let go
+within that time still makes a combination with the next press, so a shorter pause could join two separate presses.
+An automation whose steps wait for the music (a LOAD on DJ waiting for the bar line, notes on LOOPS waiting for
+QUANTIZE's line) wants a longer limit, so the music gets there first. Compacting again with a shorter limit goes
+further.</li>
+<li>Compacting is a change like a recording: <kbd>SAVE</kbd> keeps it, AUTOMATIONS' REVERT drops it. With no room for it
+in the memory for edits: MEMORY FOR EDITS IS FULL, and the slot is as it was.</li>
+</ul>
+</section>
+
+<section class="topic" id="automations-menu">
+<h3>The menu</h3>
+<p><kbd>SEL</kbd> opens the menu: RECORD, PLAY, COMPACT (<a href="#automations-compact">above</a>), CLEAR (it asks
+first) and, while there are changes not saved, REVERT, which brings back the automations as last saved.</p>
+<figure data-shot="automations-menu"><figcaption>AUTOMATIONS' menu.</figcaption></figure>
+</section>
+
+<section class="topic" id="automations-keys">
+<h3>Keys on AUTOMATIONS</h3>
+<table class="keys">
+<thead><tr><th>Key</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd class="b">OP6</kbd></span></td><td>Opens AUTOMATIONS; while recording, ends the
+recording.</td></tr>
+<tr><td><kbd>SELECT</kbd> <kbd>ALGORITHM</kbd> <kbd class="w">white key</kbd></td><td>Pick a slot: a slot a click, or
+white key 1 for slot 00 to white key 16 for slot 0F.</td></tr>
+<tr><td><kbd>REC</kbd></td><td>Records into the slot, back on the screen you came from.</td></tr>
+<tr><td><kbd>PLAY</kbd></td><td>Plays the slot, on its own screen.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd class="w">white key</kbd></span></td><td>On any
+screen: plays that key's slot (white key 1 slot 00 to white key 16 slot 0F), on its own screen.</td></tr>
+<tr><td><span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> + <kbd>REC</kbd> + <kbd class="w">white key</kbd></span></td><td>On
+any screen: records into that key's slot, there; while recording, <span class="combo"><kbd>HOME</kbd> + <kbd>ARP</kbd> +
+<kbd>REC</kbd></span> ends it where you are.</td></tr>
+<tr><td><kbd>SEL</kbd></td><td>The menu: RECORD, PLAY, COMPACT, CLEAR, REVERT.</td></tr>
+<tr><td><kbd>SAVE</kbd></td><td>Keeps the automations, as every change.</td></tr>
+</tbody>
+</table>
+</section>
+</section>

@@ -32,6 +32,7 @@ void midi_audio(int frames);            /* the audio context, after the player: 
  * two passes are seen as a press, then a release. */
 void midi_merge(plat_input_t *in);
 int midi_key_vel(int n);                /* key n held by a MIDI note: its velocity (1-127); 0: not by MIDI */
+int midi_mirror_vel(int n);             /* key n held by MIRROR (a press of the panel's): its Note On's velocity; 0 none */
 
 /* MIRROR (specs/connections.md#mirror-the-panel-from-a-page): the PT/FM controller's mirror messages from USB as
  * the FM-1's panel, through midi_merge as the learned controls. midi_sysex takes the controller's hello (43),

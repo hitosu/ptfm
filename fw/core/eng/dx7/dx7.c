@@ -166,7 +166,11 @@ static void env_init(dx7_env_t *e, const int r[4], const int l[4], int ol, int r
     env_advance(e, 0);
 }
 
-static int32_t env_getsample(dx7_env_t *e)
+#define ENV_JUMP (1716 << 16)             /* FM-1: the jump target (MSFA's jumptarget, 1716), named for the forward work */
+
+/* FM-1: always inlined: with the forward work as its second caller the device's compiler stopped inlining it into
+ * note_params (the render's every block) */
+static inline __attribute__((always_inline)) int32_t env_getsample(dx7_env_t *e)
 {
     if (e->staticcount) {
         e->staticcount -= N;
@@ -179,9 +183,8 @@ static int32_t env_getsample(dx7_env_t *e)
         if (e->staticcount) {
             ;
         } else if (e->rising) {
-            const int jumptarget = 1716;
-            if (e->level < (jumptarget << 16))
-                e->level = jumptarget << 16;
+            if (e->level < ENV_JUMP)
+                e->level = ENV_JUMP;
             e->level += (((17 << 24) - e->level) >> 24) * e->inc;
             if (e->level >= e->targetlevel) {
                 e->level = e->targetlevel;
@@ -236,16 +239,18 @@ static void penv_advance(dx7_penv_t *p, int newix)
 static void penv_set(dx7_penv_t *p, const int r[4], const int l[4])
 {
     int i;
-    for (i = 0; i < 4; i++) {
-        p->rates[i] = (uint8_t)r[i];
-        p->levels[i] = (uint8_t)l[i];
+    for (i = 0; i < 4; i++) {            /* FM-1: at most 99, the tables' range (a stored patch may hold more) */
+        p->rates[i] = (uint8_t)(r[i] > 99 ? 99 : r[i]);
+        p->levels[i] = (uint8_t)(l[i] > 99 ? 99 : l[i]);
     }
-    p->level = pitchenv_tab[l[3]] * (1 << 19);
+    p->level = pitchenv_tab[p->levels[3]] * (1 << 19);
     p->down = 1;
     penv_advance(p, 0);
 }
 
-static int32_t penv_getsample(dx7_penv_t *p)
+/* FM-1: always inlined, as env_getsample: with the forward work as its second caller the device's compiler stopped
+ * inlining it into note_params */
+static inline __attribute__((always_inline)) int32_t penv_getsample(dx7_penv_t *p)
 {
     if (p->ix < 3 || (p->ix < 4 && !p->down)) {
         if (p->rising) {
@@ -463,12 +468,14 @@ static const int32_t coarsemul[] = {
     73690858, 74816848, 75892776, 76922906, 77910978, 78860292, 79773775, 80654032, 81503396, 82323963,
     83117622};
 
-/* FM-1: standard tuning only; the double arithmetic of mode 0 (DETUNE, FINE) is in tables */
+/* FM-1: standard tuning only; the double arithmetic of mode 0 (DETUNE, FINE) is in tables (DETUNE's as each note's
+ * one step, every value checked by gen_dx7.py) */
 static int32_t osc_freq(int midinote, int mode, int coarse, int fine, int detune)
 {
     int32_t logfreq;
     if (mode == 0) {
-        logfreq = DX7_LOGFREQ[midinote][detune > 14 ? 14 : detune];
+        logfreq = DX7_LOGFREQ_BASE + DX7_LOGFREQ_STEP * midinote +
+                  ((DX7_DETUNE[midinote] * ((detune > 14 ? 14 : detune) - 7)) >> DX7_DETUNE_SHIFT);
         logfreq += coarsemul[coarse & 31];
         if (fine)
             logfreq += DX7_FINE[fine > 99 ? 99 : fine];
@@ -527,9 +534,11 @@ static int ScaleLevel(int midinote, int break_pt, int left_depth, int right_dept
 static const uint8_t pitchmodsenstab[] = {0, 10, 20, 33, 55, 92, 153, 255};
 static const uint32_t ampmodsenstab[] = {0, 4342338, 7171437, 16777216};
 
-/* Dx7Note::init */
-static void note_init(dx7_voice_t *v, const uint8_t *patch, int midinote, int velocity)
+/* Dx7Note::init. FM-1: two velocities, the carriers' (the operators on the output: the out bus 0, added) and the
+ * modulators' (the others); Dexed's one velocity is both */
+static void note_init(dx7_voice_t *v, const uint8_t *patch, int midinote, int velocity, int mod_velocity)
 {
+    const uint8_t *alg = algorithms[patch[134] & 31];
     int rates[4], levels[4], op, i, feedback;
     v->initialised = 1;
     for (op = 0; op < 6; op++) {
@@ -545,7 +554,7 @@ static void note_init(dx7_voice_t *v, const uint8_t *patch, int midinote, int ve
         outlevel += level_scaling;
         outlevel = imin(127, outlevel);
         outlevel = outlevel * 32;        /* FM-1: * for << of a negative */
-        outlevel += ScaleVelocity(velocity, patch[off + 15]);
+        outlevel += ScaleVelocity((alg[op] & 7) == OUT_BUS_ADD ? velocity : mod_velocity, patch[off + 15]);
         outlevel = imax(0, outlevel);
         rate_scaling = ScaleRate(midinote, patch[off + 13]);
         env_init(&v->env[op], rates, levels, outlevel, rate_scaling);
@@ -614,14 +623,15 @@ static void note_compute(dx7_voice_t *v, int32_t *buf, int32_t lfo_val, int32_t 
 /* ------------------------------------------------------- the voice --- */
 /* as Dexed's keydown: the patch's transpose (24 = none), init, the LFO's key down, and the
  * oscillators' phases reset if OSC KEY SYNC is on */
-PLAT_COLD void dx7_note_on(dx7_voice_t *v, const uint8_t *vced, int note, int velocity)   /* FM-1: PLAT_COLD */
+PLAT_COLD void dx7_note_on(dx7_voice_t *v, const uint8_t *vced, int note, int velocity, int mod_velocity)
+                                         /* FM-1: PLAT_COLD; mod_velocity */
 {
     int op;
     note += vced[144] - 24;
     note = note < 0 ? 0 : note > 127 ? 127 : note;   /* FM-1: Dexed indexes its tuning table unchecked */
     lfo_reset(&v->lfo, vced + 137);
     lfo_keydown(&v->lfo);
-    note_init(v, vced, note, velocity);
+    note_init(v, vced, note, velocity, mod_velocity);
     v->bend = 0;                         /* FM-1 addition */
     if (vced[136])
         for (op = 0; op < 6; op++) {     /* Dx7Note::oscSync */
@@ -659,7 +669,7 @@ void dx7_render(dx7_voice_t *v, int32_t *buf)
         buf[i] += (int32_t)(((int64_t)out[i] * DX7_OUT_Q16) >> 29);
 }
 
-/* FM-1 addition: a block of the voice's time without its sound (the player's parked voices): the LFO, the
+/* FM-1 addition: a block of the voice's time without its sound (what dx7_forward's work stands for): the LFO, the
  * envelopes, each operator's gain and phase move on as core_render moves them; only the feedback's last two
  * samples stay as they were */
 void dx7_skip(dx7_voice_t *v)
@@ -670,6 +680,182 @@ void dx7_skip(dx7_voice_t *v)
     for (op = 0; op < 6; op++) {
         v->op[op].gain_out = dx7_exp2(v->op[op].level_in - (14 * (1 << 24)));
         v->op[op].phase += (uint32_t)v->op[op].freq << LG_N;
+    }
+}
+
+/* -------------------------------------------------- the forward work --- */
+/* FM-1 addition: a note's envelopes and LFO worked on over many blocks at once (dx7_forward: a note coming back after
+ * its voice was taken), each to the state the blocks themselves leave (env_getsample, penv_getsample, lfo_getsample,
+ * lfo_getdelay; the operators' phases, gains and frequencies are not kept: the next block's note_params makes them
+ * again), a stretch of blocks at a time: within a stretch the change a block is the same, so its blocks are one sum,
+ * and the block that may end it (a stage reaching its target, a rising level leaving its band, a hold's count running
+ * out) is the block's own step */
+
+/* the blocks of e's stretch from its state now, the last of them the one that may end it; 0: it stands for good (a
+ * sustain held, a release ended) */
+static PLAT_COLD uint32_t env_span(const dx7_env_t *e)
+{
+    int32_t l, m, d;
+    uint32_t to, band;
+    if (e->staticcount)                  /* a hold (a count above 0): it runs out in the last */
+        return (uint32_t)(e->staticcount + N - 1) >> LG_N;
+    if (!(e->ix < 3 || (e->ix < 4 && !e->down)))
+        return 0;
+    if (!e->rising)
+        return e->level > e->targetlevel ? (uint32_t)(e->level - e->targetlevel - 1) / (uint32_t)e->inc + 1u : 1u;
+    l = e->level < ENV_JUMP ? ENV_JUMP : e->level;
+    m = ((17 << 24) - l) >> 24;          /* the band: m * inc a block */
+    if (m <= 0) {                        /* (above the patches' ranges: in the top band it moves 0 a block, short of
+                                          * its target for good; above it down, short of it, a band at a time) */
+        if (!m)
+            return l < e->targetlevel ? 0u : 1u;
+        return (uint32_t)(l - ((16 - m) << 24) - 1) / (uint32_t)(-m * e->inc) + 1u;
+    }
+    d = m * e->inc;
+    to = e->targetlevel > l ? (uint32_t)(e->targetlevel - l - 1) / (uint32_t)d + 1u : 1u;
+    band = (uint32_t)(((17 - m) << 24) - l) / (uint32_t)d + 1u;   /* (the blocks that start within the band) */
+    return to < band ? to : band;
+}
+
+/* e moved on n blocks of its stretch (span: its env_span, n <= span): those before the last in one sum, the last
+ * (n == span) by env_getsample itself */
+static PLAT_COLD void env_go(dx7_env_t *e, uint32_t n, uint32_t span)
+{
+    int last = n == span;
+    if (!span)
+        return;
+    n -= (uint32_t)last;
+    if (n) {
+        if (e->staticcount) {
+            e->staticcount -= (int32_t)(n << LG_N);
+        } else if (e->rising) {
+            int32_t l = e->level < ENV_JUMP ? ENV_JUMP : e->level;
+            e->level = l + (int32_t)n * (((17 << 24) - l) >> 24) * e->inc;
+        } else {
+            e->level -= (int32_t)n * e->inc;
+        }
+    }
+    if (last)
+        (void)env_getsample(e);
+}
+
+/* the pitch envelope's stretch: a stage to its target (a step of 0, short of it, stands for good) */
+static PLAT_COLD uint32_t penv_span(const dx7_penv_t *p)
+{
+    int32_t gap;
+    if (!(p->ix < 3 || (p->ix < 4 && !p->down)))
+        return 0;
+    gap = p->rising ? p->targetlevel - p->level : p->level - p->targetlevel;
+    if (gap <= 0)
+        return 1;
+    return p->inc > 0 ? (uint32_t)(gap - 1) / (uint32_t)p->inc + 1u : 0u;
+}
+
+static PLAT_COLD void penv_go(dx7_penv_t *p, uint32_t n, uint32_t span)
+{
+    int last = n == span;
+    if (!span)
+        return;
+    n -= (uint32_t)last;
+    p->level += (p->rising ? 1 : -1) * (int32_t)n * p->inc;
+    if (last)
+        (void)penv_getsample(p);
+}
+
+/* the LFO moved on n blocks: its phase in one sum; the sample-and-hold's random value one step a cycle, the cycles
+ * crossed counted and stepped by doubling (179x + 17 on 8 bits comes round in 128 steps from any start, not 256: 179 is
+ * 3 mod 4; forward_test checks it), the count taken mod 128; its delay's two rates in one sum each, until a step would pass 2^32: there it
+ * stands */
+static PLAT_COLD void lfo_go(dx7_lfo_t *o, uint32_t n)
+{
+    uint64_t to = (uint64_t)o->phase + (uint64_t)n * o->delta;
+    uint32_t s = o->delaystate, k;
+    if (o->waveform == 5) {
+        uint32_t a = 179, c = 17, x = o->randstate;
+        for (k = (uint32_t)(to >> 32) & 127u; k; k >>= 1) {
+            if (k & 1u)
+                x = (a * x + c) & 255u;
+            c = (a * c + c) & 255u;
+            a = (a * a) & 255u;
+        }
+        o->randstate = (uint8_t)x;
+    }
+    o->phase = (uint32_t)to;
+    if (s < (1u << 31)) {
+        k = ((1u << 31) - s - 1u) / o->delayinc + 1u;   /* (the steps at the first rate: the last reaches 2^31) */
+        if (n < k) {
+            o->delaystate = s + n * o->delayinc;
+            return;
+        }
+        s += (k - 1u) * o->delayinc;
+        n -= k;
+        if ((uint64_t)s + o->delayinc > ~0u) {
+            o->delaystate = s;
+            return;
+        }
+        s += o->delayinc;
+    }
+    k = (~0u - s) / o->delayinc2;
+    o->delaystate = s + (n < k ? n : k) * o->delayinc2;
+}
+
+/* the six envelopes and the pitch envelope moved on together by up to n blocks, their stretches taken in the order
+ * they end (a step each), so that when the budget runs out they all stand at one block (where the stretch taken last
+ * ended); then the LFO as far (a step). Returns the blocks gone */
+static PLAT_COLD uint32_t fwd_run(dx7_voice_t *v, uint32_t n, int32_t *steps)
+{
+    uint32_t at[7], span[7], to = n, end;
+    int i, c;
+    for (i = 0; i < 7; i++) {
+        at[i] = 0;
+        span[i] = i < 6 ? env_span(&v->env[i]) : penv_span(&v->penv);
+        *steps -= span[i] != 0;          /* (one standing for good costs nothing) */
+    }
+    for (;;) {
+        for (c = -1, end = n, i = 0; i < 7; i++)   /* the stretch that ends first, before the n-th block */
+            if (span[i] && span[i] < end - at[i]) {
+                end = at[i] + span[i];
+                c = i;
+            }
+        if (c < 0)
+            break;
+        if (c < 6) {
+            env_go(&v->env[c], span[c], span[c]);
+            span[c] = env_span(&v->env[c]);
+        } else {
+            penv_go(&v->penv, span[c], span[c]);
+            span[c] = penv_span(&v->penv);
+        }
+        at[c] = end;
+        if (--*steps <= 0) {
+            to = end;
+            break;
+        }
+    }
+    for (i = 0; i < 6; i++)              /* (each within its stretch: none ends before `to`) */
+        env_go(&v->env[i], to - at[i], span[i]);
+    penv_go(&v->penv, to - at[6], span[6]);
+    lfo_go(&v->lfo, to);
+    (*steps)--;
+    return to;
+}
+
+/* FM-1 addition (dx7.h): the held time, the note off, the release */
+PLAT_COLD int dx7_forward(dx7_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps)
+{
+    for (;;) {
+        if (!*on && (*off == FWD_HELD || (!*off && !v->penv.down)))
+            return 1;
+        if (*steps <= 0)
+            return 0;
+        if (*on) {
+            *on -= fwd_run(v, *on, steps);
+        } else if (v->penv.down) {       /* the note off, once (its key up tells it was): the 7 stretches it starts */
+            dx7_note_off(v);
+            *steps -= 7;
+        } else {
+            *off -= fwd_run(v, *off, steps);
+        }
     }
 }
 
@@ -697,9 +883,9 @@ void dx7_live(dx7_voice_t *v, int at, int value)
     }
 }
 
-int dx7_carrier(int algorithm, int op)   /* FM-1 addition (the views) */
+int dx7_carrier(int algorithm, int op)   /* FM-1 addition (the views): MSFA's n_out, the out bus 0 added */
 {
-    return (algorithms[algorithm & 31][6 - op] & OUT_BUS_ADD) != 0;
+    return (algorithms[algorithm & 31][6 - op] & 7) == OUT_BUS_ADD;
 }
 
 int dx7_active(const dx7_voice_t *v)
@@ -708,7 +894,29 @@ int dx7_active(const dx7_voice_t *v)
     if (!v->initialised)
         return 0;
     for (i = 0; i < 6; i++)
-        if ((algorithms[v->algorithm][i] & OUT_BUS_ADD) && env_active(&v->env[i]))
+        if ((algorithms[v->algorithm][i] & 7) == OUT_BUS_ADD && env_active(&v->env[i]))   /* (its carriers: MSFA's n_out) */
             return 1;
     return 0;
+}
+
+/* FM-1 addition (dx7.h): the carriers are the operators whose output is the voice's (MSFA's n_out: the out bus 0,
+ * added); the operators that add into a modulators' bus are not (Dexed's isCarrier counts them; dx7_carrier and
+ * dx7_active no longer do). A carrier's stage moving up now (no hold) counts at its target, the most it reaches */
+PLAT_COLD int32_t dx7_heard(const dx7_voice_t *v)
+{
+    const uint8_t *alg = algorithms[v->algorithm & 31];
+    int64_t g = 0;
+    int op;
+    if (!v->initialised)
+        return 0;
+    for (op = 0; op < 6; op++)
+        if ((alg[op] & 7) == OUT_BUS_ADD) {
+            const dx7_env_t *e = &v->env[op];
+            int up = e->rising && !e->staticcount && (e->ix < 3 || (e->ix < 4 && !e->down));
+            int32_t l = up ? e->targetlevel : e->level;
+            l = l < (20 << 24) ? l : 20 << 24;   /* (past the patches' ranges a target can lie beyond what
+                                                  * dx7_exp2 takes: counted at a gain of 64, far above any patch's) */
+            g += dx7_exp2(l - (14 * (1 << 24)));
+        }
+    return (int32_t)((g * DX7_OUT_Q16) >> 29);
 }

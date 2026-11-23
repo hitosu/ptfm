@@ -294,7 +294,8 @@
 
     /* the panel's input to the firmware */
     dev.on("button", ev => { send({ t: "btn", id: ev.id, down: ev.down }); if (ev.down) askForSound(); });
-    dev.on("note", ev => { send({ t: "note", id: ev.note, down: ev.down }); if (ev.down) askForSound(); });
+    dev.on("note", ev => { send({ t: "note", id: ev.note, down: ev.down, d: ev.reading, v: ev.vel }); if (ev.down) askForSound(); });
+    dev.on("pressure", ev => send({ t: "touch", id: ev.note, d: ev.reading }));   /* (a held key dragged: its reading) */
     dev.on("encoder", ev => send({ t: "knob", id: ev.id, step: ev.step }));
     dev.on("master", ev => send({ t: "master", v: ev.value }));
 

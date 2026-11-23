@@ -12,7 +12,7 @@ spectrum, a meter for each track, and FOMA, PT/FM's mascot. Open it with <span c
 round. The header names the view (VISUAL SCOPE).</p>
 <dl class="params">
 <dt>VOICES</dt><dd>A small scope for each voice, labelled with what plays it (T03 a song's track, KEY the keys, L05 a
-loop) and its note.
+loop) and its note. Notes waiting for a voice (ghost notes, a muted track's among them) have none.
 <figure data-shot="visual-voices"><figcaption>VOICES: a scope for each voice, its track and note on top.</figcaption></figure></dd>
 <dt>SCOPE</dt><dd>The output as an oscilloscope, left above, right below.
 <figure data-shot="visual-scope"><figcaption>SCOPE: the output's left and right.</figcaption></figure></dd>
@@ -20,8 +20,13 @@ loop) and its note.
 <figure data-shot="visual-wave"><figcaption>WAVE: the last seconds of the output.</figcaption></figure></dd>
 <dt>SPECTRUM</dt><dd>The output's spectrum: bass on the left, treble on the right (30 Hz to 18 kHz).
 <figure data-shot="visual-spectrum"><figcaption>SPECTRUM: the sound's frequencies.</figcaption></figure></dd>
-<dt>LEVELS</dt><dd>A meter for each track, 00 to 0F.
-<figure data-shot="visual-levels"><figcaption>LEVELS: a meter a track.</figcaption></figure></dd>
+<dt>LEVELS</dt><dd>A meter for each track, 00 to 0F; a muted track's falls empty
+(its notes are ghost notes), or shows grey for DUCK's SOURCE track and a TB-303, which sound on unheard. While LOOPS
+plays, the meters are the loops (meter 05 loop 05), a loop's number dark grey while it is muted or silenced by a solo;
+what you play on the stage shows in the meter of the loop it sounds as.
+<figure data-shot="visual-levels"><figcaption>LEVELS: a meter a track.</figcaption></figure>
+<figure data-shot="visual-levels-loops"><figcaption>LEVELS while LOOPS plays: a meter a loop. Loop 02 is muted: its
+number dark grey, its meter empty.</figcaption></figure></dd>
 <dt>FOMA</dt><dd>PT/FM's mascot: a little FM-1 with a cat's ears, flying into the stars, its rainbow tail waving
 with the sound.
 <figure data-shot="visual-foma"><figcaption>FOMA, into the stars.</figcaption></figure></dd>

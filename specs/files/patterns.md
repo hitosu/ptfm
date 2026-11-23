@@ -28,9 +28,9 @@ instruments play their rows, and LOOPS' loops keep their notes as a pattern's tr
 ## Size
 
 - **1-16 tracks** (`00`-`0F`) **and 1-128 rows** (`00`-`7F`), set for each pattern. 16 is the most, as the
-  white keys are 16; the FM-1 sounds at most 12 voices for now, so a pattern of more busy tracks parks notes
-  ([../ui/screens/settings.md](../ui/screens/settings.md#voices)): the writer watches the voices (STATUS,
-  VISUAL).
+  white keys are 16; the FM-1 sounds 16 voices at most (12 without the second core), so a pattern of more busy
+  tracks makes ghosts of notes ([../ui/screens/settings.md](../ui/screens/settings.md#voices)): the writer watches
+  the voices (STATUS, VISUAL).
 - **128 rows** are 8 bars at 4 rows a beat, 5 at 6, 4 at 8. The largest pattern, every cell full with four
   commands, is then ~30 KB in at most 8 parts ([below](#parts-sizes-and-reading)), so the EDITOR's room is
   32 KB and any pattern's whole edit fits the edit memory ([ram.md](ram.md#editing-and-saving)).
@@ -72,7 +72,8 @@ A head byte, then the fields it announces, in this order:
   sounds. The cells after it that name no instrument play it too, silent, until one names another. A portamento
   onto it (3xx, 5xx, the volume column's Fx) starts no note, as onto any other instrument: the sounding note glides
   on. LEG onto it is a plain note ([commands.md](commands.md#legato)): silent, releasing the one before.
-- **Volume:** `7F` plays the instrument at its own level; no volume, the instrument's default.
+- **Volume:** `7F` plays the instrument at its own level; no volume, the instrument's default. A DX7 note's
+  volume at its start is its modulators' velocity too: louder, brighter ([instruments.md](instruments.md#dx7)).
   Volumes of 0-64 (MOD, S3M, XM) convert exactly both ways: v becomes 2v, 64 becomes `7F`; back,
   round(u × 64 / 127).
 - **A cell takes 2 to 15 bytes** (16 after a long skip): 7 at most with one command. So one track's

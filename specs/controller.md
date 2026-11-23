@@ -54,7 +54,7 @@ Channel 16 (or the start screen's), both ways. The tables give channel 16's stat
 
 | Control | Message |
 |---|---|
-| a key, F3-G5 (k = 0-26) | Note On 53 + k, velocity 127; Note Off 53 + k, velocity 0, when let go |
+| a key, F3-G5 (k = 0-26) | Note On 53 + k, velocity the key's (KEYS VELOCITY's, [hardware.md](hardware.md#the-keys-velocity)), 127 without one; Note Off 53 + k, velocity 0, when let go |
 | a button (id 0-13) | CC 102 + id: 127 pressed, 0 let go |
 | a knob (id 0-6) | CC 20 + id, relative: 1-63 that many clicks clockwise, 127-65 1-63 clicks back |
 | MASTER | CC 7, 0-127 |
@@ -86,7 +86,8 @@ Channel 1 (or the start screen's).
 
 | Control | Sends |
 |---|---|
-| keys | notes, velocity 100 |
+| keys | notes, velocity the key's (KEYS VELOCITY's), 100 without one |
+| keys held, F3-C5 | their pressure, by SETTINGS' CONTROLLER AFTERTOUCH: CHANNEL (the default), Channel Pressure (Dn), the highest of the held keys' (0 when none presses); POLY, Polyphonic Key Pressure (An) on each held key's note (the note its Note On sent); OFF, none. Only on change. Not with KEYS VELOCITY CONSTANT (nothing is read then); the top seven keys have no converter: none |
 | OCT- / OCT+ | nothing: the keys an octave down / up, -3 to +3; both together: back to 0 |
 | K1-K4 | CC 74 (cutoff), 71 (resonance), 73 (attack), 72 (release), 0-127 |
 | SELECT | CC 1 (modulation), 0-127 |
@@ -104,6 +105,15 @@ Channel 1 (or the start screen's).
 - **PLAY reaches the most DAWs this way:** those that follow MIDI Machine Control start and stop with
   no setup; the others learn CC 114. The controller sends no MIDI clock, so no MIDI Start / Stop.
 - **A key's Note Off goes to the note its Note On sent,** whatever the octave is by then.
+- **A key's velocity** is the FM-1's own reading of it, as the tracker plays it ([hardware.md](hardware.md#the-keys-velocity)):
+  KEYS VELOCITY as SETTINGS left it when the controller started; the top row the mean of the last four keys read;
+  without one (CONSTANT, a press not read in time, the top row before any) the mode's own, 127 mirror, 100 general.
+- **The keys' pressure** (CONTROLLER AFTERTOUCH) is pressing harder than where the key rests: each held key's driven
+  readings go on as the velocity's scan takes them (every 4.4 ms), its rest follows the reading down for 250 ms after
+  the landing (a key goes on settling), then creeps after it slowly, and comes up at once when the key eases; the
+  pressure is log2(rest / reading), the pill's resistance below its rest in octaves: 0.04 of an octave is nothing,
+  0.46 more is 127; smoothed over about 30 ms, worked out every 5 ms in the main loop and sent on change. POLY sends
+  a key's 0 once when it eases to nothing, and again just before its Note Off if it was not 0. Mirror mode sends none.
 - **The LEDs:** keys lit while held; OCT- or OCT+ for the shift (dim at 1, lit at 2, blinking at 3);
   PLAY green from an MMC Play to the next MMC Stop; the other buttons lit while held.
 - **When USB comes up,** the FM-1 sends All Notes Off (CC 123) on its channel.
@@ -172,9 +182,11 @@ SWITCH OFF AND ON FOR THE TRACKER            dark grey
 
 - **A log line:** the control as printed on the panel (a key as the note it sent, `C-4`), the message
   in words, the bytes in dark grey (a SysEx as `F0 .. F7`).
-- **Colours:** notes white, CCs light blue, Program Change yellow, MMC green, the handshake light magenta.
+- **Colours:** notes white, CCs light blue, Program Change yellow, MMC green, the handshake light magenta, the keys'
+  pressure light green (`KEYS      CHAN PRESS 64`, a POLY one by its note: `C-4       POLY PRESS 64`).
 - **A turn does not flood the log:** while a knob's or MASTER's line is the newest, it is updated in
-  place: in mirror mode the clicks add up (`+12`), in general mode it shows the value.
+  place: in mirror mode the clicks add up (`+12`), in general mode it shows the value; a pressure's line too (the
+  same note's, or the channel's).
 - **The first line** is the mode picked at the start (section 1): `REC  MODE MIRROR`.
 
 ## 7. The pages
@@ -185,11 +197,14 @@ SWITCH OFF AND ON FOR THE TRACKER            dark grey
 - **`panel/midi.js`** (the playground, the emulator): a MIDI button beside the size buttons
   turns it on (remembered across reloads; the button's click also starts the sound); a label shows
   `MIDI: OFF`, `LOOKING`, `FM-1 MIRROR` or `FM-1 GENERAL (ignored)`. Mirror messages become the panel's
-  controls (`press` / `release` from source "midi", `turn`, `setMaster`), on the answer's channel;
+  controls (`press` / `release` from source "midi", a Note On's velocity the key's own, `turn`, `setMaster`), on the
+  answer's channel;
   every LED change goes back. The paired port's messages go to the panel only. One page at a time: two
   would both drive the LEDs.
 - **The playground's own MIDI CONTROLLER** (SETTINGS' MIDI page there too) ends the playground's tracker as
-  the firmware's does and shows the start, then a monitor of what would be sent; it sends no MIDI.
+  the firmware's does and shows the start, then a monitor of what would be sent; it sends no MIDI. Its keys' velocity
+  is where they are pressed, their pressure (general mode) a held key dragged further down
+  ([panel.md](panel.md)), worked out as the firmware's.
 
 ## 8. Testing
 

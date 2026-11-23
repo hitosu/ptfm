@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Vasily Kazantsev */
 /* MIDI on the PC (specs/connections.md): all of fw/core with a fake platform whose MIDI in is a queue the
  * test fills and whose MIDI out is a log; the demo disk laid into its flash as records. Notes as the keys
- * (velocity, the keys' range and past it, IN CHANNEL, the sustain pedal, program change, bank select), a
+ * (velocity, the keys' range and past it, IN CHANNEL, the sustain pedal, program change, bank select, also in
+ * INSTRUMENTS' edit modes), a
  * press and its release between two passes, MIDI OUT (OFF, KEYS, ALL; no echo of MIDI's own notes; every
  * note sent ended at STOP), MIDI learn (knobs absolute and relative, pads momentary and toggle, MASTER, HOME
  * cancelling, a control learned again, 64 at most), the MIDI map record through SAVE and a power-on, its
@@ -20,6 +21,7 @@
 #include "store/crc.h"
 #include "ui/ui_core.h"
 #include "ui/ui_data.h"
+#include "ui/ed_inst.h"
 #include "ui/gfx.h"
 #include "play/player.h"
 #include "play/dj.h"
@@ -27,6 +29,7 @@
 
 void ui_render(void);
 const char *ui_toast_now(void);
+void ui_settings_reload(void);                          /* (ui_priv.h's) */
 
 /* ------------------------------------------------------------- the fake FM-1 --- */
 static uint8_t flash[1 << 20];
@@ -44,6 +47,11 @@ void plat_input(plat_input_t *in)
 }
 uint32_t plat_notes(void) { return in_now.notes; }
 void plat_led(int id, uint8_t level) { (void)id; (void)level; }
+/* the keys' velocity as the FM-1's scan gives it (0 none), and KEYS VELOCITY as the app last gave it */
+static uint8_t kvel_now[27];
+static int touch_curve = -1;
+int plat_key_vel(int n) { return n >= 0 && n < 27 && (in_now.notes >> n & 1u) ? kvel_now[n] : 0; }
+void plat_key_touch(int curve) { touch_curve = curve; }
 void plat_lcd_rows(int y, int h, const uint16_t *px) { memcpy(screen + y * 240, px, (size_t)h * 240 * 2); }
 int plat_screen_lost(void) { return 0; }
 void plat_cpu(plat_cpu_t *c, int reset) { (void)reset; memset(c, 0, sizeof *c); c->half_us = 5804; c->c2_state = PLAT_C2_OFF; }
@@ -219,6 +227,8 @@ static void check(const char *what, int ok)
     if (!ok) fails++;
 }
 static int toast_is(const char *t) { const char *s = ui_toast_now(); return s && !strcmp(s, t); }
+/* a text as drawn (text_as_s in FONT_S): ui3_test.c's probe */
+#include "text_probe.h"
 static int unpack7(const uint8_t *p, uint32_t n, uint8_t *out)  /* PT/FM's 7-in-8 packing undone */
 {
     int k = 0;
@@ -292,6 +302,33 @@ int main(int argc, char **argv)
     check("... and let go in the next", ui_keys_held() == 0);
     run(300);
     check("... and not sent back out either", sent(t0, 0x90, 1) == 0);
+    /* a held note's off and its next on between two passes (a sequencer's repeated notes, back to back): let go in
+     * the first, pressed again in the next; so an on again without its off; off, on and off again: a tap after */
+    t0 = ntx;
+    midi(0x90, (uint8_t)(k0 + 3), 100);
+    run(10);
+    midi(0x80, (uint8_t)(k0 + 3), 0);
+    midi(0x90, (uint8_t)(k0 + 3), 100);
+    run(1);
+    check("a held note's off and on again between two passes: let go in the first", ui_keys_held() == 0);
+    run(1);
+    check("... and held again in the next", ui_keys_held() == 1);
+    midi(0x90, (uint8_t)(k0 + 3), 90);
+    run(1);
+    check("a held note on again without its off: let go in the first pass", ui_keys_held() == 0);
+    run(1);
+    check("... and held again in the next", ui_keys_held() == 1 && midi_key_vel(3) == 90);
+    midi(0x80, (uint8_t)(k0 + 3), 0);
+    midi(0x90, (uint8_t)(k0 + 3), 100);
+    midi(0x80, (uint8_t)(k0 + 3), 0);
+    run(1);
+    check("off, on and off again between two passes: let go in the first", ui_keys_held() == 0);
+    run(1);
+    check("... pressed in the next", ui_keys_held() == 1);
+    run(1);
+    check("... and let go in the one after", ui_keys_held() == 0);
+    run(300);
+    check("... none of it sent back out", sent(t0, 0x90, 1) == 0);
     midi(0x90, 20, 100);                                /* past the keys' range: plays, as the keys would */
     run(30);
     check("a note past the keys' range plays the current instrument", key_voice(20) && ui_keys_held() == 0);
@@ -333,6 +370,33 @@ int main(int argc, char **argv)
         check("bank select 3: the fourth cartridge", nc > 3 && (ui_cur.inst >> 8) == carts[3]);
         midi(0xB0, 0, 0);
         run(10);
+        /* in INSTRUMENTS' edit mode, as SEL + PRESETS there (specs/ui/screens/instruments.md): a favourite's, nothing
+         * (bank 0 is FB, the FM-1's one FAVORITES); an instrument's, a FAVORITES cartridge's bank nothing, another's it */
+        static const uint8_t fv[3] = {0xF0, 0x00, 0};
+        ins_put_slot(UI_FB, 0, fv);
+        ins_put_slot(UI_FB, 1, fv);
+        ui_go_name("INSTRUMENTS");
+        run(100);
+        ui_set_inst(UI_FB << 8 | 1);
+        tap(B_EDIT);
+        midi(0xB0, 0, 0);
+        run(10);
+        check("bank select in a favourite's edit mode: nothing (the place and the edit as they were)",
+              carts[0] == UI_FB && scr_instr_edit() == 2 && ui_cur.place == (UI_FB << 8 | 1));
+        tap(B_HOME);
+        ui_set_inst(0xF000);
+        tap(B_EDIT);
+        midi(0xB0, 0, 0);
+        run(10);
+        check("... in an instrument's: FB's bank nothing", scr_instr_edit() == 1 && ui_cur.place == 0xF000);
+        midi(0xB0, 0, 3);
+        run(10);
+        check("... the fourth cartridge's: it", scr_instr_edit() == 1 && (ui_cur.place >> 8) == carts[3]);
+        tap(B_HOME);
+        ui_edit_revert(REC_FAV, UI_FB, 0);
+        ui_set_inst(0xF000);
+        ui_go_name("SONGS");
+        run(100);
     }
     midi(0xE0, 0, 127);                                 /* pitch bend up: no harm (heard, not checked here) */
     midi(0xE0, 0, 64);
@@ -350,6 +414,57 @@ int main(int argc, char **argv)
     key(1, 1); key(1, 0);
     check("MIDI OUT CHANNEL 5", sent_note(t0, 0x94, (uint8_t)(k0 + 1), 0xFF) && sent_note(t0, 0x84, (uint8_t)(k0 + 1), 0xFF));
     ui_midi_set[S_MIDI_OUT_CH] = 1;
+
+    /* ---- the keys' velocity (specs/hardware.md#the-keys-velocity): the platform's, heard as a MIDI note's ---- */
+    check("KEYS VELOCITY: NORMAL at power-on, given to the platform", ui_set[S_KEYS_VELOCITY] == 2 && touch_curve == 2);
+    t0 = ntx;
+    kvel_now[2] = 87;
+    key(2, 1);
+    check("a key's velocity (87): its note's volume, and MIDI OUT KEYS sends it", ui_key_vol(2) == 87 &&
+          sent_note(t0, 0x90, (uint8_t)(k0 + 2), 87));
+    key(2, 0);
+    kvel_now[2] = 0;
+    t0 = ntx;
+    key(3, 1);
+    check("... a key without one (the top row before any, a press not read in time): KEYS VOLUME",
+          ui_key_vol(3) == ui_set[S_KEYS_VOLUME] && sent_note(t0, 0x90, (uint8_t)(k0 + 3), (uint8_t)ui_set[S_KEYS_VOLUME]));
+    key(3, 0);
+    midi(0x90, (uint8_t)(k0 + 4), 33);
+    kvel_now[4] = 99;
+    run(30);
+    check("... a MIDI note holding a key: its own velocity, not the key's", ui_key_vol(4) == 33);
+    midi(0x80, (uint8_t)(k0 + 4), 0);
+    kvel_now[4] = 0;
+    run(30);
+    ui_set[S_KEYS_VELOCITY] = 0;                        /* CONSTANT */
+    ui_settings_apply(S_KEYS_VELOCITY);
+    t0 = ntx;
+    kvel_now[2] = 87;
+    key(2, 1);
+    check("KEYS VELOCITY CONSTANT: given to the platform; every key at KEYS VOLUME", touch_curve == 0 &&
+          ui_key_vol(2) == ui_set[S_KEYS_VOLUME] && sent_note(t0, 0x90, (uint8_t)(k0 + 2), (uint8_t)ui_set[S_KEYS_VOLUME]));
+    key(2, 0);
+    kvel_now[2] = 0;
+    {                                                   /* the settings record: KEYS VELOCITY, CONTROLLER AFTERTOUCH */
+        uint32_t len;
+        uint8_t ver;
+        ui_set[S_KEYS_VELOCITY] = 3;                    /* HARD */
+        ui_midi_set[S_MIDI_CTL_AT] = 2;                 /* POLY */
+        ui_settings_changed();
+        const uint8_t *p = store_get(REC_SETTINGS, 0, 0, &len, &ver);
+        check("the settings record: KEYS VELOCITY HARD in byte 123's bits 5-4 (1), CONTROLLER AFTERTOUCH POLY in 7-6 (1), 133 B",
+              p && len == 133 && (p[123] >> 4 & 3) == 1 && (p[123] >> 6) == 1);
+        ui_set[S_KEYS_VELOCITY] = 2;
+        ui_midi_set[S_MIDI_CTL_AT] = 1;
+        ui_settings_reload();
+        check("... read back: HARD, POLY; HARD given to the platform", ui_set[S_KEYS_VELOCITY] == 3 &&
+              ui_midi_set[S_MIDI_CTL_AT] == 2 && touch_curve == 3);
+        ui_edit_revert(REC_SETTINGS, 0, 0);
+        ui_settings_reload();
+        p = store_get(REC_SETTINGS, 0, 0, &len, &ver);
+        check("... reverted: NORMAL and CHANNEL, the defaults, as 0 bits (a record from before them reads so)",
+              ui_set[S_KEYS_VELOCITY] == 2 && ui_midi_set[S_MIDI_CTL_AT] == 1 && touch_curve == 2 && (!p || !(p[123] & 0xF0)));
+    }
     ui_midi_set[S_MIDI_OUT] = 0;
     t0 = ntx;
     key(2, 1); key(2, 0);
@@ -561,6 +676,9 @@ int main(int argc, char **argv)
         check("the MIDI page: MIDI CONTROLLER after its items, EDIT: SWITCH", f && !strcmp(f, "EDIT: SWITCH"));
     }
     turn(K_SELECT, 1);                                  /* to LEARN */
+    check("the MIDI page with no mappings: NO MAPPINGS: EDIT ON LEARN after LEARN, in S, whole (26 characters, to x 212)",
+          midi_map_count() == 0 && text_as_s(4, BODY_Y + 2 + 16 * (S_MIDI_COUNT + 3), "NO MAPPINGS: EDIT ON LEARN", C_DGREY));
+                                                        /* (+ 3: CONTROLLER AFTERTOUCH's value on a line of its own) */
     shot("midi_page_empty");
     tap(B_EDIT);
     check("EDIT on LEARN: step 1", midi_learning() == 1);
@@ -627,6 +745,21 @@ int main(int argc, char **argv)
               m.ctl == MC_KNOB + K_SELECT && m.num == 74);
     }
     shot("midi_page_mappings");
+    {   /* a mapping two lines (specs/ui/screens/settings.md#the-midi-page): the FM-1's control, then the MIDI control and
+         * its kind right-aligned to 236 under it; 12 lines in view (rows of 16 px from 19), the selected row whole and kept 5
+         * lines down (tests/playground/lists_s.js the same) */
+        turn(K_SELECT, 1);                              /* the first mapping: K2, after the items, MIDI CONTROLLER, LEARN */
+        const char *a = "CC 20 CH 1  RELATIVE", *b = "CC 74 CH 1  ABSOLUTE";
+        check("the MIDI page: the first mapping selected, K2 on its first line, CC 20 CH 1  RELATIVE right-aligned on its second",
+              text_as_s(4, BODY_Y + 2 + 16 * 5, "K2", C_WHITE) && text_as_s(236 - (int)strlen(a) * 8, BODY_Y + 2 + 16 * 6, a, C_WHITE));
+        shot("midi_page_two_lines");
+        turn(K_SELECT, 20);                             /* the last */
+        check("the last mapping selected at the list's bottom: both its lines in view (SELECT, CC 74 CH 1  ABSOLUTE)",
+              text_as_s(4, BODY_Y + 2 + 16 * 10, "SELECT", C_WHITE) && text_as_s(236 - (int)strlen(b) * 8, BODY_Y + 2 + 16 * 11, b, C_WHITE));
+        shot("midi_page_last");
+        turn(K_SELECT, -30);
+        turn(K_SELECT, S_MIDI_COUNT + 1);               /* (LEARN again, as it was) */
+    }
 
     /* ---- the learned controls act as the FM-1's ---- */
     ui_go_name("SETTINGS");
@@ -800,6 +933,25 @@ int main(int argc, char **argv)
         midi(0x9F, 53 + 0, 127);                        /* key 0 held: it plays as the FM-1's own key */
         run(30);
         check("MIRROR: note 53 holds key 0; not sent out again", ui_keys_held() == 1 && sent(t0, 0x9F, 1) == 0);
+        check("MIRROR: its Note On's velocity the key's own (127), MIDI OUT KEYS sending it as the FM-1's key",
+              ui_key_vol(0) == 127 && sent_note(t0, 0x90, (uint8_t)k0, 127));
+        t0 = ntx;
+        midi(0x9F, 53 + 6, 50);
+        run(30);
+        check("MIRROR: a press at velocity 50: the key's velocity 50", ui_key_vol(6) == 50 && sent_note(t0, 0x90, (uint8_t)(k0 + 6), 50));
+        midi(0x9F, 53 + 6, 0);
+        run(30);
+        ui_set[S_KEYS_VELOCITY] = 0;
+        ui_settings_apply(S_KEYS_VELOCITY);
+        t0 = ntx;
+        midi(0x9F, 53 + 6, 50);
+        run(30);
+        check("MIRROR, KEYS VELOCITY CONSTANT: at KEYS VOLUME, as the FM-1's own key", ui_key_vol(6) == ui_set[S_KEYS_VOLUME] &&
+              sent_note(t0, 0x90, (uint8_t)(k0 + 6), (uint8_t)ui_set[S_KEYS_VOLUME]));
+        midi(0x9F, 53 + 6, 0);
+        run(30);
+        ui_set[S_KEYS_VELOCITY] = 2;
+        ui_settings_apply(S_KEYS_VELOCITY);
         midi(0xBF, 102 + B_OCTP, 127);                  /* held when the hello comes again: let go */
         run(20);
         app_sysex(on, 10);

@@ -51,11 +51,12 @@
      * keys play; erasers: OVERWRITE's; over: OVERWRITE on (LFO's tap; EDIT's and the pattern recorder's fills end it; off
      * at every power-on, never saved); jumps: the last jump of the loops seen; off: the stage
      * switched off (ARP's tap; on at every power-on, never saved); ol: the 16 lanes of the keys played while it is off
-     * (each null, or the key it holds and whether MONO), onext the lane an overflow takes. Kept in the edit memory as a
-     * piece of its own, never saved (M.stagePiece) */
+     * (each null, or the key it holds and whether MONO), onext the lane an overflow takes; fcut: the cut its own rows go
+     * round (the selected loop's, 0 none: checkCut). Kept in the edit memory as a piece of its own, never saved
+     * (M.stagePiece) */
     const OFF_LANES = 16;
     const st = { cells: null, keys: {}, silent: -1, setup: null, run: 0, line: -1, erasers: [], over: false, jumps: 0, off: false,
-                 ol: Array(OFF_LANES).fill(null), onext: 0 };
+                 ol: Array(OFF_LANES).fill(null), onext: 0, fcut: 0 };
 
     /* --------------------------------------------------------------- time --- */
     const beats = () => ((LS().fx.knobs || {}).METRONOME || [])[1] || 4;    /* the METRONOME's BEATS A BAR */
@@ -68,16 +69,34 @@
     const lengthText = rows => rows % barRows() === 0 ? barsText(rows / barRows())
                              : rows % LS().rpb === 0 ? rows / LS().rpb + (rows === LS().rpb ? " BEAT" : " BEATS") : rows + " ROWS";
     const playingHere = () => P.playing && P.what === "loops";
+    /* a loop's cut (specs/ui/screens/loops.md#cut), 0 none */
+    const cutOf = L => M.loopCut(L, LS().rows);
+    /* the stage's own rows (specs/ui/screens/loops.md#cut): over a cut loop (the selected one) its window's, the loops'
+     * rows from their start round its cut, as the player plays the stage there; else the length's. sfFrom: the loops'
+     * place (pass, row) as the stage's; sfTo: back; lpAt: a stage row of its pass (-1: at once) as the player is asked
+     * for a note or a cut there (P.lpNote, P.lpStageCut) */
+    const sfCut = () => cutOf(selLoop());
+    const sfLen = () => sfCut() || LS().rows;
+    function sfFrom(pass, row) {
+        const c = sfCut(), a = pass * LS().rows + row;
+        return c ? { pass: Math.floor(a / c), row: a % c } : { pass, row };
+    }
+    function sfTo(pass, row) {
+        const c = sfCut(), n = LS().rows, a = pass * c + row;
+        return c ? { pass: Math.floor(a / n), row: a % n } : { pass, row };
+    }
+    const sfRow = (pass, row) => sfFrom(pass, row).row;
+    const lpAt = (pass, row) => row < 0 ? { pass, row: -1 } : sfTo(pass, row);
     /* the loops heard now (tm: at that time instead, a moment ago): their row, pass, the replay's row count (n), place in
-     * rows (pos), where in the row (frac) and tick, the jumps landed so far and the last one's landing {row, pass}; null
-     * while they do not play (or before their first row is heard) */
+     * rows (pos), where in the row (frac) and tick, the jumps landed so far and the last one's landing {row, pass}, each
+     * row and pass the stage's own (sfFrom); null while they do not play (or before their first row is heard) */
     function here(tm) {
         if (!playingHere() || P.lpRestState().on) return null;   /* (silent for a song: not playing, the stage's line standing) */
         const h = P.at(tm);
         if (!h || h.pass == null) return null;
-        const frac = U.clamp(((tm == null ? P.time() : tm) - h.t) / h.dur, 0, .999);
-        return { row: h.row, pass: h.pass, n: h.n, pos: h.row + frac, frac, tick: Math.min(LS().ticks - 1, Math.floor(frac * LS().ticks)),
-                 jumps: h.jumps || 0, land: h.land || null };
+        const frac = U.clamp(((tm == null ? P.time() : tm) - h.t) / h.dur, 0, .999), s = sfFrom(h.pass, h.row);
+        return { row: s.row, pass: s.pass, n: h.n, pos: s.row + frac, frac, tick: Math.min(LS().ticks - 1, Math.floor(frac * LS().ticks)),
+                 jumps: h.jumps || 0, land: h.land ? sfFrom(h.land.pass, h.land.row) : null };
     }
     /* the row playing (the strips' play line; silent for a song: their place), else where PLAY starts (the cursor) */
     function playRow() {
@@ -116,8 +135,34 @@
         lp.sel = U.clamp(lp.sel, 0, topSel());
         lp.top = Math.min(U.clamp(lp.top, lp.sel - 3, lp.sel), Math.max(0, slots() - 4));
     }
-    /* the mixers past the last loop: the next loop's mix (the stage on + NEW LOOP and the preview sound through it) */
-    function syncMix(j) { for (let k = j.list.length; k < 16; k++) j.mixer[k] = Object.assign({}, j.nextMix); }
+    /* the mixers past the last loop: kept plain, unread (the place past them is NEW's) */
+    function syncMix(j) { for (let k = j.list.length; k < 16; k++) j.mixer[k] = { lvl: 127, pan: 128, dck: 0, cho: 0, dly: 0, rev: 0 }; }
+    /* NEW: the next loop's own mix (the MIXER's NEW column, K1-K4 on + NEW LOOP), RAM's alone (never saved, no edit): the
+     * defaults at LOOPS' first look (a power cycle forgets it), again after each REC that makes a loop from it, LOAD FROM
+     * PATTERN and CLEAR LOOPS (newReset); GLO's change of a default takes NEW's value with it. Heard on the stage on + NEW
+     * LOOP and the preview there (M.loopsMixer), written into the loop REC makes there */
+    let newMix = null;
+    const nw = () => newMix || (newMix = M.loopsNewDef(LS()));
+    const newReset = () => { newMix = M.loopsNewDef(LS()); };
+    M.loopsNewMix = nw;
+    /* one of NEW's values set (k: lvl, pan, dck, cho, dly, rev): heard at once, and a song recording takes it */
+    M.loopsNewSet = (k, v) => {
+        const t0 = P.time();
+        if (nw()[k] === v) return;
+        nw()[k] = v;
+        PTFM.audio.changed();
+        liveChanges(t0);
+    };
+    /* the keys played freely on LOOPS (the loops stopped, the LFO's insert) sound through the mix REC would put the stage in:
+     * the selected loop's, on + NEW LOOP NEW's (in place of KEYS GAIN, the KEYS column and DRY); off LOOPS their own again */
+    let keysSent = null;
+    function keysTell() {
+        if (U.screen !== U.screens.LOOPS) return;
+        const m = selLoop() ? LS().mixer[lp.sel] : nw(), s = JSON.stringify(m) + (PTFM.audio.running ? "" : "?");   /* (told
+                                                         * again once the sound runs: nothing reaches it before) */
+        if (s !== keysSent) { keysSent = s; PTFM.audio.keysLoop(m); }
+    }
+    function keysOwn() { keysSent = null; PTFM.audio.keysLoop(null); }
     const nextCol = () => { const L = list(); return L.length ? (L[L.length - 1].col + 1) % 12 : 0; };
     const colOf = L => M.LOOP_COLS[L.col % 12];
     const anySolo = () => list().some(l => l.soloed);
@@ -152,9 +197,10 @@
     /* the stage row `row` of pass q plays (asked as the replay schedules it, a moment ahead): a note asked for at that row
      * stands in for its cell that once (heard once as played, then from the stage each time the line reaches it); while
      * a key is held, what its span replaces (POLY every lane, MONO its own) is not heard from its row on. Not heard while
-     * it is off */
-    P.lpStagePlay = (q, row) => {
+     * it is off. Asked with the loops' pass and row, answered in the stage's own (sfFrom: over a cut loop its window's) */
+    P.lpStagePlay = (q0, row0) => {
         if (P.what !== "loops" || st.run !== P.lpRun() || st.off || !st.cells || st.cells.length !== LS().rows * 4) return null;
+        const { pass: q, row } = sfFrom(q0, row0);
         const held = liveKeys().map(k => k.rec).concat(st.erasers);
         const cells = stageNow(st.cells).map((c, k) => {
             if (!c) return null;
@@ -177,11 +223,15 @@
         const h = here();
         for (const n of Object.keys(st.keys)) {
             const k = st.keys[n];
+            if (k.ins && !k.into && k.rec) { recKeyUp(+n); lp.free[n] = "ins"; continue; }   /* (an insert's: ended at its own time,
+                                                         * sounding on as a key played freely; taken at PLAY, never written
+                                                         * again: keysIntoStage) */
             if (k.rec && k.live && h) recKeyUp(+n);
             else if (k.rec) P.lpNote(P.LP_NOW, k.rec.lane, M.newCell(M.OFF, null, null), 0, -1, +n);
             st.keys[n] = { rec: null, live: false };
         }
         st.cur = null;
+        if (st.ins) insDone();
     }
     /* the stage emptied (and what of it sounds let go); the selected loop heard again */
     function clearStage() {
@@ -191,6 +241,19 @@
         if (P.lpStageMute) P.lpStageMute();
         st.silent = -1;
         M.version++;
+    }
+    /* the stage's own rows changed (fcut: the cut it plays round, 0 the length's; a cut set, moved or removed, the
+     * selection moved to or from a cut loop, a length dropping a cut): the keys down stop writing (under the rows they
+     * were written in: a change that knows it is coming stops them first), the line and OVERWRITE's eraser found again
+     * where the loops are, as the stage's own (the eraser going on from there, as from a jump's landing) */
+    function checkCut() {
+        const c = sfCut();
+        if (c === st.fcut) return;
+        stopWriting();
+        st.fcut = c;
+        const h = here(), row = h ? Math.floor(h.pos) : 0;
+        st.line = h ? h.pass : -1;
+        for (const e of st.erasers) if (h) Object.assign(e, { pass: h.pass, row, erasedTo: row });
     }
     /* a new run of the loops' replay (PLAY): its passes counted from 0; nothing held (OVERWRITE starts again at the line,
      * overdubTick) */
@@ -209,20 +272,7 @@
      * the store busy (a save being written), the stream past its most, the edit memory full (extra: bytes kept for a
      * note's end, which then always fits) */
     const STAGE_MOST = 3800;
-    /* a stream's bytes as the firmware encodes it (play/loops.c's enc_put): each cell its head, its note, its volume, its
-     * commands (2-4 with their count's 2 bytes before them), a long skip's byte (7 rows or more since the cell before); a
-     * gap past 255 rows bridged (an ED0 alone: 4 bytes); its 0x00 at the end. A cell with nothing in it is not stored */
-    const streamOf = cells => {
-        let n = 1, prev = -1;
-        cells.forEach((c, k) => {
-            if (!c || (c.note == null && c.vol == null && !c.cmds.length)) return;
-            while (k - prev - 1 > 255) { n += 4; prev += 256; }
-            const nc = Math.min(4, c.cmds.length);
-            n += 1 + (c.note != null ? 1 : 0) + (c.vol != null ? 1 : 0) + (nc > 1 ? 2 : 0) + 2 * nc + (k - prev - 1 >= 7 ? 1 : 0);
-            prev = k;
-        });
-        return n;
-    };
+    const streamOf = M.streamOf;                         /* (a stream's bytes as the firmware encodes it) */
     const pieceOf = cells => cells && cells.some(isNote) ? M.pieceRoom(streamOf(cells)) : 0;
     M.stagePiece = () => pieceOf(st.cells);
     function stageRefusal(cells, extra = 0) {
@@ -233,7 +283,7 @@
     }
     /* a power cycle drops it, and the stage is on again */
     M.onPowerOn = () => { st.keys = {}; st.cur = null; st.cells = null; st.erasers = []; st.over = false; st.silent = -1; lp.arm = null;
-                          st.off = false; st.ol = Array(OFF_LANES).fill(null); st.onext = 0; };
+                          st.off = false; st.ol = Array(OFF_LANES).fill(null); st.onext = 0; newMix = null; };   /* (NEW: RAM's too) */
     /* where a note lands by QUANTIZE: the nearest line of Q rows (halves up), waiting for it when it is
      * ahead; REAL TIME the row it falls in, its tick a note delay, at once */
     function landing(pos, tick) {
@@ -277,16 +327,17 @@
      * sounding where it lands is cut there, a note starting while it is held has its start moved on with the key, put down
      * where it is let go (one it covers whole gone). OVERWRITE: a key clears every lane over its span, as ever */
     const dub = () => !overwriteOn();
-    /* the row of the next cell on lane l after row r (not this pass's own), the length if none */
+    /* the row of the next cell on lane l after row r (not this pass's own), the stage's own length if none */
     function laneNext(cells, l, r, pass) {
-        for (let k = r + 1; k < LS().rows; k++) { const c = cells[k * 4 + l]; if (c && !ownCell(c, pass)) return k; }
-        return LS().rows;
+        const rows = sfLen();
+        for (let k = r + 1; k < rows; k++) { const c = cells[k * 4 + l]; if (c && !ownCell(c, pass)) return k; }
+        return rows;
     }
     /* key rec's lane (OVERDUB) from erasedTo to `to`: what was there cleared (this pass's own kept), a note starting there
      * moved on to `to` (a later one starting there: the earlier covered whole; a note's end there: it covered whole),
-     * unless a cell is at `to` already or `to` is the length's end (covered whole) */
+     * unless a cell is at `to` already or `to` is the stage's own end (covered whole) */
     function dubOn(rec, to) {
-        const cells = stageCells(), rows = LS().rows, l = rec.mono ? 0 : rec.lane;
+        const cells = stageCells(), rows = sfLen(), l = rec.mono ? 0 : rec.lane;
         to = Math.min(to, rows);
         if (to <= rec.erasedTo) return;
         let p = null;
@@ -314,11 +365,12 @@
         P.lpStageCut([0, 1, 2, 3], pass, -1);             /* (the stage's sounding notes there stopped, at once) */
         M.version++;
     }
-    /* key n's note m on the stage at row (delay: REAL TIME's ticks) in pass `pass`, heard live at that row (at: -1 at
-     * once): the row replaced on its lanes, a note from before sounding into it cut there; MONO legato as MONO LEGATO
-     * says; what the stage plays on the lanes it replaces silenced from that row (the other lanes and the rows before play
-     * on). Not taken (a fifth POLY note; one the stage has no room for: why, in the header): neither heard nor written
-     * (null) */
+    /* key n's note m on the stage at row (delay: REAL TIME's ticks) in pass `pass`, heard at once, at the key's press (at:
+     * that row while it is still ahead, the note standing in for its cell there that once; -1 not): the row replaced on its
+     * lanes, a note from before sounding into it cut there; MONO legato as MONO LEGATO says, heard now on the note held;
+     * what the stage plays on the lanes it replaces silenced from that row (the other lanes and the rows before play on).
+     * Not taken (a fifth POLY note; one the stage has no room for: why, in the header): neither heard nor written (null).
+     * A song recording writes it at its row */
     function writeNote(n, m, row, delay, pass, at) {
         const j = LS(), mono = isMono(), dubbing = dub();
         const busy = liveKeys().map(k => k.rec).filter(r => !r.mono).map(r => r.lane);
@@ -330,7 +382,7 @@
             lane = null;
             for (let l = 0; l < 4; l++) {
                 if (busy.includes(l)) continue;
-                const c = cs && cs[row * 4 + l], nxt = cs ? laneNext(cs, l, row, pass) : LS().rows, here_ = isNote(c) && !ownCell(c, pass);
+                const c = cs && cs[row * 4 + l], nxt = cs ? laneNext(cs, l, row, pass) : sfLen(), here_ = isNote(c) && !ownCell(c, pass);
                 const v = !here_ && !(cs && soundsAt(cs, l, row, pass)) ? 512 + nxt : 256 - nxt;
                 if (v > best) { best = v; lane = l; }
             }
@@ -341,7 +393,7 @@
         if (mono && st.cells && usedLanes(st.cells) > 1) st.cells = monoOf(st.cells);   /* (a POLY stage overdubbed in MONO: as it plays) */
         st.cells = stageCells().slice();
         const cells = st.cells;
-        const cell = Object.assign(M.newCell(m, null, U.set("KEYS VOLUME")), { wp: pass });
+        const cell = Object.assign(M.newCell(m, null, U.keyVol(n)), { wp: pass });   /* (the key's volume: U.keyVol) */
         if (delay) cell.cmds.push({ c: 0x0E, v: 0xD0 | delay });
         let slide = false;
         if (mono) {
@@ -361,7 +413,7 @@
         let pushed = false;                                /* (OVERDUB: a note from before starting there, moved on a row) */
         if (dubbing) {
             const p = cells[row * 4 + lane];
-            if (isNote(p) && !ownCell(p, pass) && row + 1 < LS().rows && !cells[(row + 1) * 4 + lane]) { cells[(row + 1) * 4 + lane] = p; pushed = true; }
+            if (isNote(p) && !ownCell(p, pass) && row + 1 < sfLen() && !cells[(row + 1) * 4 + lane]) { cells[(row + 1) * 4 + lane] = p; pushed = true; }
             replaceRows(row, row + 1, lanes, pass);
         } else {
             replaceRows(row, row + 1, lanes, pass);
@@ -372,34 +424,40 @@
         if (why) { st.cells = was; U.toast(why); return null; }
         const rec = { lane, row, delay, pass, held: true, mono, note: m, erasedTo: row + 1, pushed };
         if (mono) st.cur = rec;
+        if (st.ins) { M.version++; return rec; }        /* (an insert: the loops stand, its key sounds freely) */
         if (slide) P.lpSlide(P.LP_NOW, 0);
-        P.lpStageCut(lanes, pass, at);
-        if (at < 0) landAt(lane, row, delay);
-        if (P.lpNote(P.LP_NOW, lane, cell, pass, at, n)) cell.sub = pass;   /* (asked for at its row: it stands in for it there) */
+        const la = lpAt(pass, at);                         /* (asked for at the loops' place of the stage's row) */
+        P.lpStageCut(lanes, la.pass, la.row);
+        landAt(lane, pass, row, delay);
+        if (P.lpNote(P.LP_NOW, lane, cell, la.pass, la.row, n, true)) cell.sub = pass;   /* (heard now; its row still ahead: it
+                                                         * stands in for it there) */
         P.lpLand(4 * P.LP_NOW + lane, null);
         M.version++;
         return rec;
     }
-    /* a song recording takes the stage's keys as they land: what is heard now on lane l is written at (row, tick) of the
-     * pass heard */
-    function landAt(l, row, tick) {
+    /* a song recording takes the stage's keys as they land: what is heard now on lane l (a note, or its end), heard at
+     * once, is written at (row, tick) of the stage's pass `pass`, ahead of the place heard or behind it */
+    function landAt(l, pass, row, tick) {
         const h = here(), sp = LS().ticks;
-        if (h && songOn()) P.lpLand(4 * P.LP_NOW + l, P.lpTn() - (h.row * sp + h.tick - (row * sp + tick)));
+        if (h && songOn()) P.lpLand(4 * P.LP_NOW + l, P.lpTn() - (((h.pass - pass) * sfLen() + h.row - row) * sp + h.tick - tick));
     }
     /* the held keys' spans grow with the play position: what they pass is replaced. OVERWRITE goes on from where a jump
      * lands */
     function overdubTick() {
         if (playingHere()) syncRun();                      /* (a new run: OVERWRITE starts again where they start) */
+        checkCut();
         /* OVERWRITE: its eraser runs while the mode is on and the loops play (started where the line is), gone with it */
         if (!overwriteOn()) st.erasers = st.erasers.filter(e => e.key !== "LFO");
         else if (playingHere() && !st.erasers.some(e => e.key === "LFO")) startEraser(null, "LFO");
+        if (st.ins) { insTick(); return; }             /* (an insert: its keys' own time) */
+        intoTick();
         const h = here();
         if (h && h.jumps !== st.jumps) {                   /* (the loops landed from a jump) */
             st.jumps = h.jumps;
             if (h.land) for (const e of st.erasers) Object.assign(e, { pass: h.land.pass, row: h.land.row, erasedTo: h.land.row });
         }
         if (!h || !st.cells) return;
-        for (const r of liveKeys().map(k => k.rec).concat(st.erasers)) {
+        for (const r of liveKeys().filter(k => !k.into).map(k => k.rec).concat(st.erasers)) {
             const to = Math.floor(h.pos) + 1;
             if (r.pass !== h.pass || to <= r.erasedTo || (r.mono && st.cur !== r)) continue;
             if (r.key == null && dub()) dubOn(r, to);      /* (OVERDUB: its lane, a note there moved on with it) */
@@ -414,8 +472,8 @@
         syncRun();
         checkSetup();
         overdubTick();
-        const len = LS().rows, h = here();
-        const hp = h ? h.pass : 0, at = landing(h ? h.pos : lp.startRow, h ? h.tick : 0);
+        const len = sfLen(), h = here(), s0 = sfFrom(0, lp.startRow);   /* (not heard yet: the stage's place at the start) */
+        const hp = h ? h.pass : s0.pass, at = landing(h ? h.pos : s0.row, h ? h.tick : 0);
         let row = at.row, pass = hp;
         if (row >= len) { row -= len; pass++; }
         const rec = writeNote(n, m, row, at.delay, pass, at.wait || pass !== hp ? row : -1);
@@ -424,8 +482,9 @@
     }
     /* a key let go: its span replaced up to its end, its note off on the nearest row, at least a row after the note (REAL
      * TIME a key off at its tick); past the length nothing is written (the note ends at the line: a note off at row 0
-     * where that lane is free). A MONO key ends its note only while it has the lane. A key no longer writing: its sound
-     * ends now */
+     * where that lane is free). Its sound ends at once (a song recording writes its end where the stage has it; an
+     * insert's key held into PLAY: heard to its end as the play line comes to it). A MONO key ends its note only while it
+     * has the lane. A key no longer writing: its sound ends now */
     function recKeyUp(n) {
         const k = st.keys[n];
         delete st.keys[n];
@@ -434,10 +493,15 @@
         rec.held = false;
         if (rec.mono && st.cur !== rec) return;
         if (rec.mono) st.cur = null;
-        const h = here(), len = LS().rows;
-        if (!k.live || !st.cells || (h && h.pass !== rec.pass && h.pass !== rec.pass - 1)) { P.lpNote(P.LP_NOW, rec.lane, off0, 0, -1, n); return; }
+        const h = k.ins ? insHere(rec) : here(), len = sfLen();
+        /* (an insert's key sounds freely: no stage note; a stage row asked for at the loops' place of it) */
+        const lpNote = (i, l, c, pass, row, key) => { if (k.ins && !k.into) return false; const a = lpAt(pass, row); return P.lpNote(i, l, c, a.pass, a.row, key); };
+        if (!k.live || !st.cells || (h && h.pass !== rec.pass && h.pass !== rec.pass - 1)) { lpNote(P.LP_NOW, rec.lane, off0, 0, -1, n); return; }
         let pos = h ? h.pos : 0;
         if (h && h.pass === rec.pass - 1) pos -= len;      /* (its note in the next pass: before its start) */
+        const hp = k.into ? (here() || { pos: sfFrom(0, lp.startRow).row }).pos : pos;   /* (held into PLAY: heard to its end as
+                                                         * the play line comes to it; let go before the loops are heard: from
+                                                         * where they start) */
         let row, cell;
         if (LS().quantize === "REAL TIME") {
             const tick = h ? h.tick : 0;
@@ -460,9 +524,9 @@
             rec.pushed = false;
             M.version++;
             if (moved && row < len) {                       /* (the note moved there ends this one) */
-                if (row <= pos) landAt(l, row, 0);
-                P.lpNote(P.LP_NOW, l, off0, rec.pass, row > pos ? row : -1, n);
-                P.lpLand(4 * P.LP_NOW + l, null);
+                if (!k.ins || row <= pos) landAt(l, rec.pass, row, 0);
+                lpNote(P.LP_NOW, l, off0, rec.pass, k.ins && row > hp ? row : -1, n);
+                if (!k.ins || k.into) P.lpLand(4 * P.LP_NOW + l, null);
                 return;
             }
         } else {
@@ -473,13 +537,16 @@
         if (row >= len) {
             const fresh = !cells[rec.lane];
             if (fresh) cells[rec.lane] = offCell(rec.pass);
-            if (P.lpNote(P.LP_NOW, rec.lane, off0, rec.pass + 1, 0, n) && fresh) cells[rec.lane].sub = rec.pass + 1;
+            if (k.ins) { if (lpNote(P.LP_NOW, rec.lane, off0, rec.pass + 1, 0, n) && fresh) cells[rec.lane].sub = rec.pass + 1; return; }
+            landAt(rec.lane, rec.pass, len, 0);            /* (its end at the line) */
+            lpNote(P.LP_NOW, rec.lane, off0, rec.pass, -1, n);
+            P.lpLand(4 * P.LP_NOW + rec.lane, null);
             return;
         }
         const there = cells[row * 4 + rec.lane];
         if (cell.note == null && row === rec.row && there && !there.cmds.some(x => x.c === 0x14)) {   /* (let go in its note's row) */
             if (there.cmds.length < 4) there.cmds.push(cell.cmds[0]);
-            P.lpNote(P.LP_NOW, rec.lane, cell, rec.pass, -1, n);
+            lpNote(P.LP_NOW, rec.lane, cell, rec.pass, -1, n);
             return;
         }
         const put = !isNote(there);
@@ -487,20 +554,20 @@
             if (there && cell.note == null) { if (there.cmds.length < 4) there.cmds.push(cell.cmds[0]); cell = there; }
             cells[row * 4 + rec.lane] = cell;
         }
-        if (row <= pos) landAt(rec.lane, row, h && LS().quantize === "REAL TIME" ? h.tick : 0);
-        if (P.lpNote(P.LP_NOW, rec.lane, cell.note == null && !cell.cmds.length ? off0 : cell, rec.pass, row > pos ? row : -1, n) && put) cell.sub = rec.pass;
-        P.lpLand(4 * P.LP_NOW + rec.lane, null);
+        if (!k.ins || row <= pos) landAt(rec.lane, rec.pass, row, h && LS().quantize === "REAL TIME" ? h.tick : 0);
+        if (lpNote(P.LP_NOW, rec.lane, cell.note == null && !cell.cmds.length ? off0 : cell, rec.pass, k.ins && row > hp ? row : -1, n) && put) cell.sub = rec.pass;
+        if (!k.ins || k.into) P.lpLand(4 * P.LP_NOW + rec.lane, null);
     }
-    /* the line of pass p heard (the loops' row 0 of pass p): a key still held stops writing there: its note ends at the
-     * line (its span replaced to the end, a note off at row 0 where the lane is free, its sound let go) and the key is
-     * forgotten (nothing written for it in the next pass, its release does nothing), so its note plays again where it
-     * was written */
+    /* the line of pass p heard (the stage's own row 0 of its pass p: the loops', or over a cut loop its window's wrap): a
+     * key still held stops writing there: its note ends at the line (its span replaced to the end, a note off at row 0
+     * where the lane is free, its sound let go) and the key is forgotten (nothing written for it in the next pass, its
+     * release does nothing), so its note plays again where it was written */
     function lineAt(p) {
         syncRun();
         if (st.line >= p) return;
         st.line = p;
         if (!st.cells) return;
-        const len = LS().rows;
+        const len = sfLen();
         for (const key of Object.keys(st.keys)) {
             const k = st.keys[key], r = k.rec;
             if (!k.live || !r || !r.held || r.pass !== p - 1 || (r.mono && st.cur !== r)) continue;
@@ -520,10 +587,11 @@
         M.version++;
     }
     /* MONO: one note at a time over all the lanes (the later of overlapping notes takes over, on lane 0; a note's end kept
-     * while it is the one sounding): how a POLY stage switched to MONO plays, and how REC writes it */
-    function monoOf(cells) {
+     * while it is the one sounding, and its volumes alone, the note going on with them): how a POLY stage switched to
+     * MONO plays, and how REC writes it */
+    function monoOf(cells, round) {                        /* (round: as it plays round, the lane sounding over the line going on) */
         const n = cells.length >> 2, out = new Array(cells.length).fill(null);
-        let from = -1;                                     /* (the lane the note sounding came from) */
+        let from = round ? monoFrom(cells, n) : -1;        /* (the lane the note sounding came from) */
         for (let r = 0; r < n; r++) {
             let note = null, end = null;
             for (let l = 0; l < 4; l++) {
@@ -534,12 +602,27 @@
             }
             const keep = c => Object.assign(M.copyCell(c), c.wp != null ? { wp: c.wp } : {}, c.sub != null ? { sub: c.sub } : {});   /* (an overdub's marks kept) */
             if (note) out[r * 4] = keep(note);
-            else if (end) { out[r * 4] = keep(end); from = -1; }
+            else if (end) { out[r * 4] = keep(end); if (end.note === M.OFF || end.cmds.some(x => x.c === 0x14)) from = -1; }
         }
         return out;
     }
+    /* the lane whose note sounds after a MONO stage's last row (-1 none) */
+    function monoFrom(cells, n) {
+        let from = -1;
+        for (let r = 0; r < n; r++) {
+            let note = -1, end = null;
+            for (let l = 0; l < 4; l++) {
+                const c = cells[r * 4 + l];
+                if (!c) continue;
+                if (isNote(c)) note = from = l;
+                else if (l === from && note < 0) end = c;
+            }
+            if (note < 0 && end && (end.note === M.OFF || end.cmds.some(x => x.c === 0x14))) from = -1;
+        }
+        return from;
+    }
     /* the stage as it plays now (MONO: one note at a time) */
-    const stageNow = cells => isMono() && usedLanes(cells) > 1 ? monoOf(cells) : cells;
+    const stageNow = cells => isMono() && usedLanes(cells) > 1 ? monoOf(cells, true) : cells;
     /* a length changed: the stage cut at the new end (a note sounding there ends at the line) or longer with empty rows */
     function fitStage() {
         const n = LS().rows;
@@ -551,7 +634,8 @@
     /* REC: the stage sent to LOOPS at its press, where the selection is: on + NEW LOOP a new loop (the current instrument
      * and mode, the next colour, the next loop's mix as heard, its sends the KEYS column's; the selection on + NEW LOOP
      * again), on a loop its notes replaced
-     * (the instrument and mode written, SHIFT back to 0); the stage emptied, what of it sounds going on as the loop's;
+     * (the instrument and mode written, SHIFT back to 0, a cut kept: the stage was played round it, as heard); the stage
+     * emptied, what of it sounds going on as the loop's;
      * an arm ends with it. An empty stage: REC blinks; stopped, it arms (again: disarms). True: a job done */
     function recPress() {
         if (lp.adj) { U.refuse(B.REC); return false; }
@@ -602,9 +686,10 @@
             U.toast("STAGE INTO " + name(i));
         } else {
             if (j.list.length >= M.LOOPS_MAX) { st.cells = was; U.refuse(B.REC); return false; }
-            const nl = { inst, col: nextCol(), mono, lanes, base: rows, repeats: 1, muted: false, soloed: false, cells, shift: 0 };
-            /* (its mix the next loop's as heard: its sends the KEYS column's) */
-            if (!U.edit(() => { j.mixer[j.list.length] = M.nextLoopMix(j); j.list.push(nl); syncMix(j); })) { st.cells = was; return false; }
+            const nl = { inst, col: nextCol(), mono, lanes, base: rows, repeats: 1, muted: false, soloed: false, cells, shift: 0, cut: 0 };
+            /* (its mix NEW's; NEW then the defaults again) */
+            if (!U.edit(() => { j.mixer[j.list.length] = Object.assign({}, nw()); j.list.push(nl); syncMix(j); })) { st.cells = was; return false; }
+            newReset();
             lp.sel = topSel();                              /* (+ NEW LOOP again) */
             P.mutesChanged();
             U.toast("STAGE AS " + name(i));
@@ -702,7 +787,7 @@
         const cur = l >= 0;
         if (l < 0) l = ol.findIndex(e => !e);
         if (l < 0) { l = st.onext; st.onext = (l + 1) % OFF_LANES; }
-        const lane = 4 + l, cell = M.newCell(m, null, U.set("KEYS VOLUME"));
+        const lane = 4 + l, cell = M.newCell(m, null, U.keyVol(n));
         if (cur && j.legato !== "JUMP") {
             if (M.instType(U.inst) === "TB303") P.lpSlide(P.LP_NOW, lane);
             else cell.cmds.push(j.legato === "LEGATO" ? { c: 0xD3, v: 0 } : { c: 0x03, v: 0x20 });   /* (LEG; a glide, 2 semitones a tick) */
@@ -711,6 +796,35 @@
         P.lpNote(P.LP_NOW, lane, cell, 0, -1, n);
     }
     const offHeld = n => st.ol.some(e => e && e.n === n);   /* (key n holds a lane: not forgotten) */
+    /* a held key's pressure (the FM-1's scr_loops.c pressure): heard now on its lane; a stage key's, while the loops play,
+     * also its volume alone on its lane's next row (a row with a note left as it is; the edit memory short: none) */
+    function pressure(n, vol) {
+        const ol = st.ol.findIndex(e => e && e.n === n), k = st.keys[n];
+        if (ol >= 0) { P.lpNote(P.LP_NOW, 4 + ol, M.newCell(null, null, vol), 0, -1, n); return; }
+        if (!k || !k.rec || (k.rec.mono && st.cur !== k.rec)) return;   /* (MONO: the key whose note sounds alone) */
+        const rec = k.rec, lane = rec.mono ? 0 : rec.lane, h = k.ins ? insHere(rec) : here();
+        P.lpNote(P.LP_NOW, lane, M.newCell(null, null, vol), 0, -1, n);
+        /* written as the loops play: on the row its time is in (a key held into PLAY: its own time), the lane gliding there
+         * over that row as it plays back; before its note's row and in it, the note itself as loud as it was heard, its
+         * loudest (a quantized note heard before its row; the press's first travel), less in its row: on the next; within
+         * the length, this pass (not an insert's); this pass's own (its span keeps it) */
+        if (st.ins || !h || M.EDITS_MAX - M.editsUsed < 256 || !st.cells) return;
+        const ahead = rec.pass === h.pass + 1 || (rec.pass === h.pass && Math.floor(h.pos) < rec.row);   /* (its note still ahead) */
+        if (!ahead && rec.pass !== h.pass) return;
+        let r = ahead ? rec.row : Math.floor(h.pos);
+        const mine = st.cells[r * 4 + lane], raise = r === rec.row && isNote(mine) && vol > mine.vol;
+        if (ahead && !raise) return;
+        if (!raise && r === rec.row) r++;
+        if (r >= sfLen()) return;
+        const cells = st.cells = stageCells().slice(), at = r * 4 + lane, old = cells[at];
+        if (!raise && old && old.note != null) return;   /* (a note or a note's end there: left as it is) */
+        const c = old ? M.copyCell(old) : M.newCell(null, null, vol);
+        c.vol = vol;
+        if (!raise) c.wp = h.pass;
+        else for (const f of ["wp", "sub"]) if (old[f] != null) c[f] = old[f];   /* (its marks kept: its pass's, stood in for) */
+        cells[at] = c;
+        M.version++;
+    }
     function offKeyUp(n) {
         const l = st.ol.findIndex(e => e && e.n === n);
         if (l < 0) return;
@@ -759,8 +873,8 @@
     const songOn = () => !!lp.song && lp.song.state === "on";
     const songArmed = () => !!lp.song && lp.song.state !== "on";
     let lv = null, slName = "";                        /* (slName: the panel's NAME) */
-    /* a source's mix: channel c's (a loop's, the next loop's as heard past them), 16 the keys' on another screen */
-    const srcMix = c => c === 16 ? lv.km : c < LS().list.length ? LS().mixer[c] : M.nextLoopMix(LS());
+    /* a source's mix: channel c's (a loop's, NEW's past them), 16 the keys' on another screen */
+    const srcMix = c => c === 16 ? lv.km : c < LS().list.length ? LS().mixer[c] : nw();
     /* DUCK's and FILTER's envelope's SOURCE name a loop in LOOPS (its track 16 + i): in the song, the first track its notes
      * took */
     function srcOf(n, v) {
@@ -1197,12 +1311,13 @@
             },
         });
     }
-    /* each row the loops' replay schedules: a pass's line (its row 0) heard at its time (the stage); mutes and solos
-     * waiting for the bar line act on it (each at its time) */
+    /* each row the loops' replay schedules: a pass's line heard at its time (the stage's: its own row 0, over a cut loop
+     * its window's, as the stage's rows stand then); mutes and solos waiting for the bar line act on it (each at its
+     * time) */
     P.loopsRow = function (row, t, dur, pass) {
         if (P.what !== "loops") return;
-        const ms = Math.max(0, (t - P.time()) * 1000), run = P.lpRun();
-        if (row === 0 && pass > 0) setTimeout(() => { if (P.lpRun() === run && playingHere()) lineAt(pass); }, ms);
+        const ms = Math.max(0, (t - P.time()) * 1000), run = P.lpRun(), line = () => { const s = sfFrom(pass, row); return s.row === 0 && s.pass > 0 ? s.pass : 0; };
+        if (line()) setTimeout(() => { const p = line(); if (P.lpRun() === run && playingHere() && p) lineAt(p); }, ms);
         if (row % barRows() === 0) for (const [k, p] of lp.pend) if (!p.due) { p.due = true; setTimeout(() => applyPend(k, t), ms); }
     };
 
@@ -1313,10 +1428,12 @@
         const m = U.midi(n), s = lp.song;
         if (m < 12 || m > 127) return;
         if (s && s.state === "armed" && !songStart()) return;
-        if ((st.off || (songOn() && P.lpRestState().on)) && playingHere() && !P.countingIn()) { offKeyDown(n, m); return; }   /* (a song
-                                                         * keeping the loops silent: the stage's line stands) */
-        if (lp.arm && !P.countingIn() && !playingHere()) { startPlay(P.time()); recKeyDown(n, m); return; }
-        if (playingHere() && !P.countingIn()) { recKeyDown(n, m); return; }
+        /* (the key's light: from its press, then by its note through its lane, as a key played freely) */
+        if ((st.off || (songOn() && P.lpRestState().on)) && playingHere() && !P.countingIn()) { U.keyLit(n); offKeyDown(n, m); return; }
+                                                         /* (a song keeping the loops silent: the stage's line stands) */
+        if (lp.arm && !P.countingIn() && !playingHere()) { startPlay(P.time()); U.keyLit(n); recKeyDown(n, m); return; }
+        if (playingHere() && !P.countingIn()) { U.keyLit(n); recKeyDown(n, m); return; }
+        keysTell();                                        /* (through the mix REC would put the stage in) */
         U.keyOn(n, U.inst);
         lp.free[n] = true;
     }
@@ -1335,28 +1452,143 @@
         if (v !== j.view) U.edit(() => { j.view = v; });
         if (!quiet) U.showKnob("VIEW", barsText(j.view));
     }
-    /* K1-K4: each the job GLO gives it (M.LOOP_KNOBS): the selected loop's mix value (on + NEW LOOP the next loop's, whose
-     * sends are the KEYS column's: a send turned there turns FX MIXER's KEYS column, a setting; SEL held: by 16), the
-     * loops' TEMPO, or VIEW */
+    /* K1-K4: each the job GLO gives it (M.LOOP_KNOBS): the selected loop's mix value (on + NEW LOOP NEW's: the next loop's
+     * own, RAM's, no edit; SEL held: by 16), the loops' TEMPO, or VIEW */
     const MIXK = { LEVEL: "lvl", PAN: "pan", DUCK: "dck", "CHORUS SEND": "cho", "DELAY SEND": "dly", "REVERB SEND": "rev" };
     function knobTurn(e, s, coarse) {
         const job = LS().knobs[e - E.K1];
         if (job === "TEMPO") { tempoTurn(s, coarse); return; }
         if (job === "VIEW") { viewTurn(s); return; }
-        const k = MIXK[job], j = LS(), L = selLoop(), send = !L && ["cho", "dly", "rev"].includes(k);
-        const row = L ? j.mixer[lp.sel] : send ? U.set("KEYS MIX") : j.nextMix;
+        const k = MIXK[job], j = LS(), L = selLoop();
         if (!k) return;
-        const v = U.clamp(row[k] + s * (coarse ? 16 : 1), 0, k === "pan" ? 255 : 127);
-        if (send) { if (v !== row[k]) U.changeSetting("KEYS MIX", { ...row, [k]: v }); }   /* (unsaved till SAVE; heard at once) */
-        else if (v !== row[k]) U.edit(() => { row[k] = v; if (!L) syncMix(j); });
+        const row = L ? j.mixer[lp.sel] : nw(), v = U.clamp(row[k] + s * (coarse ? 16 : 1), 0, k === "pan" ? 255 : 127);
+        if (!L) M.loopsNewSet(k, v);                       /* (heard at once) */
+        else if (v !== row[k]) U.edit(() => { row[k] = v; });
         if (L) PTFM.audio.mixUnset(16 + lp.sel, k);
+        keysTell();                                        /* (the keys played freely: through it) */
         U.showKnob(job, U.mixWords(k, v));
+    }
+    /* LFO held with the loops stopped (specs/ui/screens/loops.md#lfo-held-erasing): the eraser; on LOOPS itself with the
+     * stage on, not in ADJUST, the pattern recorder, a count-in or RECORD LIVE */
+    const lfoTools = () => U.held(B.LFO) && !lp.adj && !prOpen() && !st.off && !lp.song && !playingHere() && !P.countingIn();
+    /* the stage's notes starting on `row`, every lane, each whole: its cell, and its own end (the lane's next cell, when
+     * that is an end alone); how many */
+    function notesOut(cells, row) {
+        const rows = sfLen();
+        let n = 0;
+        for (let l = 0; l < 4; l++) {
+            if (!isNote(cells[row * 4 + l])) continue;
+            const e = laneNext(cells, l, row, -1), ce = e < rows ? cells[e * 4 + l] : null;
+            if (ce && !isNote(ce) && (ce.note != null || cmdOf(ce, 0x14) != null)) cells[e * 4 + l] = null;
+            cells[row * 4 + l] = null;
+            n++;
+        }
+        return n;
+    }
+    /* the eraser: ALGORITHM moves the play position a row a click (SEL held too: the same), and a row it has entered in
+     * this hold and now leaves loses the notes starting there (the row the hold began on only once entered again; the
+     * row it stands on not yet) */
+    function eraseTurn(s) {
+        const n = LS().rows, steps = 1, dir = s > 0 ? 1 : -1;
+        for (let i = 0; i < steps; i++) {
+            if (st.ezIn) {
+                const was = st.cells, cells = st.cells = stageCells().slice();
+                if (notesOut(cells, sfRow(0, P.kept.loops.row || 0))) {   /* (the stage's own row there: over a cut loop its window's) */
+                    const why = stageRefusal(cells);
+                    if (why) { st.cells = was; U.toast(why); return; }
+                    M.version++;
+                } else st.cells = was;
+            }
+            P.kept.loops.row = (((P.kept.loops.row || 0) + dir) % n + n) % n;
+            st.ezIn = true;
+        }
+        U.showKnob("ERASING", barBeat(P.kept.loops.row));
+    }
+    /* the insert (specs/ui/screens/loops.md#the-insert): on LOOPS itself, the loops stopped, the stage on and not armed,
+     * not in ADJUST, the pattern recorder, a count-in or RECORD LIVE */
+    const insOk = () => !lp.adj && !prOpen() && !st.off && !lp.song && !lp.arm && !playingHere() && !P.countingIn();
+    const insKeys = () => Object.values(st.keys).filter(k => k.ins && k.rec);
+    const INS_PASS = 1e6;                                /* (an insert's own pass: its cells its own, apart from any other's) */
+    const stageSig = () => JSON.stringify((st.cells || []).map(c => (c ? [c.note, c.vol, c.cmds] : 0)));   /* (the stage as it
+                                                         * stands: what its stream holds) */
+    /* an insert's key: where its note's end has run to since its press, at TEMPO (whole ticks of whole ms, as the firmware
+     * counts them), the stage's own end at most; as here() gives a place */
+    function insHere(rec) {
+        const j = LS(), sp = j.ticks, all = sfLen() * sp;
+        const ms = Math.floor((P.time() - rec.t0) * 1000), t = Math.min(all, rec.row * sp + Math.floor(ms * j.tempo / 2500));
+        return { row: Math.floor(t / sp), pass: rec.pass, pos: t / sp, frac: (t % sp) / sp, tick: t % sp, jumps: 0, land: null };
+    }
+    /* a new insert (at the play position: the stage's own row there, over a cut loop its window's): at the last one's row,
+     * the stage as that one left it, the last one's notes and ends gone first (what it moved on or erased stays so) */
+    function insBegin() {
+        const row = sfRow(0, P.kept.loops.row || 0), last = st.insLast;
+        st.insLast = null;
+        if (last && last.row === row && last.sig === stageSig() && st.cells) {
+            st.cells = st.cells.map(c => (c && c.wp === last.pass ? null : c));
+            M.version++;
+        }
+        st.insN = (st.insN || 0) + 1;
+        st.ins = { row, pass: INS_PASS + st.insN };
+    }
+    /* the insert's keys all let go, or ended: over; its cells kept, to be replaced by the next at its row while the stage
+     * stays as it is */
+    function insDone() {
+        if (!st.ins) return;
+        st.insLast = { row: st.ins.row, pass: st.ins.pass, sig: stageSig() };
+        st.ins = null;
+        M.version++;
+    }
+    /* a key down for the insert: a new one (no key of it down), or a key more of its chord; each on the insert's row, its
+     * note as long as the key is held, at TEMPO, written as the keys write while the loops play (writeNote). MONO: the
+     * first key alone. A key not written is not heard */
+    function insKey(n, m) {
+        checkSetup();                                      /* (a new sound or mode: the keys down stop writing first) */
+        if (!st.ins) insBegin();
+        else if (isMono() && insKeys().length) return;
+        const rec = writeNote(n, m, st.ins.row, 0, st.ins.pass, -1);
+        if (!rec) { if (!insKeys().length) st.ins = null; return; }
+        rec.t0 = P.time();
+        st.keys[n] = { rec, live: true, ins: true };
+        syncSilent();
+        keysTell();                                        /* (through the mix REC would put the stage in) */
+        U.keyOn(n, U.inst);
+    }
+    /* an insert's keys growing with their time: what each passes replaced on its lane (OVERWRITE: all four); one reaching
+     * the stage's own end ends there (its note to the end, a note off on row 0 where its lane is free), the key forgotten,
+     * sounding on as a key played freely; none left, the insert over */
+    function insTick() {
+        const len = sfLen();
+        for (const n of Object.keys(st.keys)) {
+            const k = st.keys[n];
+            if (!k.ins || !k.rec) continue;
+            const r = k.rec, h = insHere(r);
+            if (h.pos >= len) { recKeyUp(+n); lp.free[n] = "ins"; continue; }
+            const to = Math.floor(h.pos) + 1;
+            if (to <= r.erasedTo || !st.cells) continue;
+            if (dub()) dubOn(r, to);
+            else replaceRows(r.erasedTo, to, lanesOf(r), r.pass);
+            r.erasedTo = to;
+            M.version++;
+        }
+        if (!insKeys().length) insDone();
     }
     /* ALGORITHM: the play position, a row a click (SEL held: a bar); playing, the loops jump there at once (a key held
      * stops writing; a loop landing in its rest falls silent; OVERWRITE goes on from where they land); stopped, where
-     * PLAY starts */
+     * PLAY starts (an insert's keys held stop writing, their notes ending as they stand); LFO held, stopped: the eraser
+     * (eraseTurn, the same). LFO held at all: used, its release switches nothing */
     function algTurn(s, coarse) {
         const n = LS().rows, d = s * (coarse ? barRows() : 1);
+        if (U.held(B.LFO)) {                               /* (LFO held at all: used, its release switches nothing) */
+            U.consume(B.LFO);
+            if (lfoTools()) { if (st.ins) stopWriting(); eraseTurn(s, coarse); return; }
+        } else if (coarse) {                               /* SEL held: the selected loop's SHIFT, a row a click, as
+                                                            * ADJUST's K1 (SEL held + SELECT moves it); on + NEW LOOP nothing */
+            const L = selLoop();
+            if (!L) { U.refuse(B.SEL); return; }
+            U.edit(() => { L.shift = (((L.shift || 0) + Math.sign(s)) % n + n) % n; });
+            U.showKnob("SHIFT", shiftText(L.shift || 0));
+            return;
+        }
         if (playingHere()) {
             overdubTick();
             stopWriting();
@@ -1364,6 +1596,7 @@
             U.showKnob("JUMP", (d > 0 ? "+" : "") + d + (Math.abs(d) === 1 ? " ROW" : " ROWS"));
             return;
         }
+        if (st.ins) stopWriting();
         P.kept.loops.row = (((P.kept.loops.row || 0) + d) % n + n) % n;
         U.showKnob("PLAY FROM", barBeat(P.kept.loops.row));
     }
@@ -1378,26 +1611,33 @@
         U.toast("KEYS: " + M.refText(L.inst) + " " + U.instName(L.inst) + ", " + (L.mono ? "MONO" : "POLY"));
     }
     /* SEL → ADJUST: K1 shifts the selected loop a row, K2 a bar (round the length; the loops play on, the shift heard and
-     * drawn at once); SEL keeps, HOME cancels. The SHIFT is the loop's own: no note moves */
-    function adjustOpen() {
+     * drawn at once); SEL keeps, HOME cancels. The SHIFT is the loop's own: no note moves. SEL → MOVE (move): the same
+     * frame, SELECT moving the loop up and down the list (moveStep); SEL keeps, HOME takes it back */
+    function adjustOpen(move) {
         const L = selLoop(), i = lp.sel;
         if (!L) return;
-        lp.adj = { L, i, was: L.shift || 0 };
+        lp.adj = { L, i, was: move ? i : L.shift || 0, move: !!move };
         const shiftBy = d => { const n = LS().rows; U.edit(() => { L.shift = (((L.shift || 0) + d) % n + n) % n; }); };
         U.open({
             kind: "adjust", opener: B.SEL,
             knob(e, s, coarse) {
-                if (e === E.K1) shiftBy(s);
+                if (e === E.ALGORITHM) algTurn(s, coarse);
+                else if (move) { if (e === E.SELECT) moveStep(s); }
+                else if (e === E.K1) shiftBy(s);
                 else if (e === E.K2) shiftBy(s * barRows());
-                else if (e === E.ALGORITHM) algTurn(s, coarse);
             },
             tap(b) {
-                if (b === B.SEL) { U.close(this); lp.adj = null; U.toast(name(i) + ": SHIFT " + shiftText(L.shift || 0)); }
+                if (b !== B.SEL) return true;
+                U.close(this);
+                if (move) U.toast(lp.sel !== lp.adj.was ? "MOVED TO " + name(lp.sel) : "NOT MOVED");
+                else U.toast(name(i) + ": SHIFT " + shiftText(L.shift || 0));
+                lp.adj = null;
                 return true;
             },
             cancel() {
                 U.close(this);
-                if ((L.shift || 0) !== lp.adj.was) U.edit(() => { L.shift = lp.adj.was; });
+                if (move) { if (selLoop() && lp.sel !== lp.adj.was && lp.adj.was < list().length) moveTo(lp.adj.was); }
+                else if ((L.shift || 0) !== lp.adj.was) U.edit(() => { L.shift = lp.adj.was; });
                 lp.adj = null;
                 U.toast("CANCELLED");
             },
@@ -1408,6 +1648,41 @@
     /* a SHIFT shown signed, the nearer way round: -3 ROWS, +1 ROW */
     const shiftSigned = v => { const n = LS().rows; v = ((v % n) + n) % n; return v > n / 2 ? v - n : v; };
     const shiftText = v => { const s = shiftSigned(v); return (s > 0 ? "+" : "") + s + (Math.abs(s) === 1 ? " ROW" : " ROWS"); };
+    /* CUT HERE (specs/ui/screens/loops.md#cut): the selected loop's window to the current position `at` (the row playing;
+     * stopped, the play position), a cut loop's moved there; REMOVE CUT (at < 0), its notes past the mark heard again. A
+     * loop with no cut has its repeats and rest written out over the length first (its base the length, once; its SHIFT
+     * kept), so it sounds the same. On + NEW LOOP, at the loops' first row, with no cut to remove or during a count-in,
+     * the button that asked (b) blinks. The keys down stop writing first (the stage's rows go with the selected loop's
+     * cut) */
+    function cutGo(at, b) {
+        const L = selLoop(), i = lp.sel, n = LS().rows;
+        if (!L) { U.refuse(b); return; }
+        if (refused(b)) return;
+        overdubTick();
+        stopWriting();
+        const cut = cutOf(L), c = at < 0 ? 0 : at % n;
+        if (at < 0 ? !cut : !c) { U.refuse(b); return; }   /* (no cut to remove; at the first row nothing lies before it) */
+        if (!U.edit(() => {
+            if (at < 0) { L.cut = 0; return; }
+            if (!cut && (L.base !== n || L.repeats !== 1)) Object.assign(L, { cells: flatOf(L, n), base: n, repeats: 1 });
+            L.cut = c;
+        })) return;
+        checkCut();
+        U.toast(name(i) + (at < 0 ? ": CUT REMOVED" : ": CUT AT " + barBeat(c)));
+    }
+    /* SEL held + EDIT (either order; on the screen itself, nothing open over it): EDIT let go before HOLD DELAY, CUT HERE;
+     * held past it, REMOVE CUT; on + NEW LOOP SEL blinks, during a count-in EDIT. SEL used so opens no menu (the grammar's
+     * combination: neither button's tap, EDIT's hold no clear of the stage) */
+    function cutCombo() {
+        overdubTick();
+        if (!selLoop()) { U.refuse(B.SEL); return; }
+        if (refused(B.EDIT)) return;
+        const h = U.holdOf(B.EDIT);
+        if (!h) { cutGo(playRow(), B.EDIT); return; }    /* (EDIT already let go) */
+        let done = false;
+        const timer = setTimeout(() => { if (done || U.holdOf(B.EDIT) !== h) return; done = true; cutGo(-1, B.EDIT); }, U.set("HOLD DELAY"));
+        h.action = { end() { clearTimeout(timer); if (!done) { done = true; cutGo(playRow(), B.EDIT); } } };
+    }
 
     /* ---------------------------------------------------------------- dialogs --- */
     const edit = fn => U.edit(() => fn(LS()));
@@ -1427,6 +1702,16 @@
             { name: "VIEW", get: () => barsText(LS().view) + " A SCREEN", change: d => viewTurn(d, true) },
             ...[0, 1, 2, 3].map(k => ({ name: "K" + (k + 1) + " TURNS", get: () => LS().knobs[k],
                                         change: d => edit(j => { j.knobs[k] = step(M.LOOP_KNOBS, j.knobs[k], d); }) })),
+            /* a new loop's defaults (saved with LOOPS: the six written, stored), `40 50%`; SEL held: by 16; NEW takes the
+             * value too */
+            ...[["LEVEL", "lvl"], ["CHORUS", "cho"], ["DELAY", "dly"], ["REVERB", "rev"]].map(([n, k]) => ({ name: "NEW LOOP " + n,
+                get: () => U.mixWords(k, M.loopsNewDef(LS())[k]),
+                change: (d, c) => {
+                    const v = U.clamp(M.loopsNewDef(LS())[k] + Math.sign(d) * (c ? 16 : 1), 0, 127);
+                    if (v === M.loopsNewDef(LS())[k]) return;
+                    if (edit(j => { j.newDef = Object.assign(M.loopsNewDef(j), { [k]: v }); j.newDefOn = true; })) M.loopsNewSet(k, v);
+                    keysTell();
+                } })),
         ]);
         /* a shorter LENGTH is only planned while GLO is open: it cuts when GLO closes (GLO or HOME), asking then, once,
          * if notes would go */
@@ -1450,12 +1735,17 @@
     /* the length n rows: a shifted loop first written out as it is heard over the old length (its SHIFT 0), so the bars
      * kept play as they did; then cut, or silence added at the end: before a longer length a loop whose last repeat the
      * old length cut is written out over it first (as DOUBLE does), its note sounding at the old line ending there as
-     * it rests, and repeats past it dropped, so the new bars are silence. The stage cut or made longer with them; the
-     * keys down stop writing */
+     * it rests, and repeats past it dropped, so the new bars are silence. A cut loop keeps its cut, its base the new
+     * length (written out as any shifted loop is); as short as its cut or shorter, the cut goes and it is as any loop.
+     * The stage cut or made longer with them; the keys down stop writing */
     function lengthSet(j, n) {
         stopWriting();
         if (!U.edit(() => {
+            const kept = [];                               /* (the cut loops keeping their cut) */
             for (const L of j.list) {
+                const cut = M.loopCut(L, j.rows);
+                if (cut && n <= cut) L.cut = 0;            /* (as short as its cut: the cut goes) */
+                else if (cut) kept.push(L);
                 if (L.shift) { if (L.shift % j.rows) heardOut(L, j.rows); else L.shift = 0; }
                 if (n > j.rows && L.base * L.repeats > j.rows) {
                     if (j.rows % L.base) Object.assign(L, { cells: flatOf(L, j.rows, false), base: j.rows, repeats: 1 });
@@ -1463,6 +1753,10 @@
                 }
             }
             if (n > j.rows) j.rows = n; else cutTo(j, n);
+            for (const L of kept) {                        /* (its base the new length: longer, the rows added silent) */
+                L.cells = L.cells.slice(0, n * 4).concat(new Array(Math.max(0, n * 4 - L.cells.length)).fill(null));
+                Object.assign(L, { base: n, repeats: 1 });
+            }
         })) return;
         P.lpLength(n);
         fitStage();
@@ -1524,6 +1818,32 @@
         P.mutesChanged();
         U.toast(name(i) + " DELETED");
     }
+    /* MOVE's step (SEL's MOVE; SEL held + SELECT): the selected loop a place down or up (clockwise down), the ones between
+     * with it, their waiting mutes too; the selection goes with it, so the stage stays its; at either end, on + NEW LOOP
+     * and during a count-in nothing (SEL blinks). What sounds in a place another loop now stands in ends as at DELETE LOOP */
+    const movedIndex = (k, i, to) => k === i ? to : i < to && k > i && k <= to ? k - 1 : i > to && k >= to && k < i ? k + 1 : k;
+    function moveTo(to) {
+        const j = LS(), i = lp.sel, was = j.list.slice();
+        if (!U.edit(() => {
+            j.list.splice(to, 0, j.list.splice(i, 1)[0]);
+            j.mixer.splice(to, 0, j.mixer.splice(i, 1)[0]);
+        })) return false;
+        P.lpMoved(Math.min(i, to), Math.max(i, to), was);
+        const pend = [...lp.pend.values()];
+        lp.pend.clear();
+        for (const p of pend) { const q = Object.assign({}, p, { i: movedIndex(p.i, i, to) }); lp.pend.set(q.i + "/" + q.kind, q); }
+        lp.sel = to;
+        syncSel();
+        syncSilent();
+        P.mutesChanged();
+        return true;
+    }
+    function moveStep(s) {
+        const to = lp.sel + Math.sign(s);
+        if (refused(B.SEL)) return;
+        if (!selLoop() || to < 0 || to >= list().length) { U.refuse(B.SEL); return; }
+        if (moveTo(to)) U.showKnob("MOVE", name(to));
+    }
     /* SEL → QUANTIZE: the selected loop's notes to the nearest line of the size picked (2, 3, 4 ROWS, ROW), the lines
      * counted as the loop is heard (from the loops' start, its SHIFT counted, its first repeat), back in its base; REAL
      * TIME's note delays and key offs dropped; each note off moved with its note (its length kept, a row at least); two
@@ -1564,9 +1884,14 @@
         const L = selLoop();
         const canDouble = LS().list.length > 0 && LS().rows * 2 <= maxRows();   /* (shown only when it can be done) */
         U.menu("loops", L ? name(lp.sel) + " " + U.instName(L.inst) : "LOOPS",
-               [L && "TAKE ITS INSTRUMENT", L && "APPLY INSTRUMENT", L && "ADJUST", L && "QUANTIZE", L && "DELETE LOOP", canDouble && "DOUBLE",
-                "RECORD PATTERN", songArmed() ? "CANCEL RECORD LIVE" : !songOn() && "RECORD LIVE", "SAVE TO PATTERN", "LOAD FROM PATTERN",
-                stageHas() && "CLEAR STAGE", "CLEAR LOOPS", M.unsavedThing("loops") && "REVERT"], a => {
+               [L && "TAKE ITS INSTRUMENT", L && "APPLY INSTRUMENT", L && "ADJUST",
+                L && playRow() > 0 && "CUT HERE", L && cutOf(L) > 0 && "REMOVE CUT",   /* (CUT HERE not at the loops' first row:
+                                                                             * nothing lies before it there) */
+                L && "MOVE", L && "QUANTIZE", L && "DELETE LOOP", canDouble && "DOUBLE",
+                "RECORD PATTERN", songArmed() ? "CANCEL RECORD LIVE" : !songOn() && "RECORD LIVE",
+                "STORE AS A SET", M.setNums().length > 0 && "LOAD A SET",   /* (LOAD A SET while a set exists; the whole of LOOPS:
+                                                                             * before the pattern's) */
+                "SAVE TO PATTERN", "LOAD FROM PATTERN", stageHas() && "CLEAR STAGE", "CLEAR LOOPS", M.unsavedThing("loops") && "REVERT"], a => {
             const none = () => { if (LS().list.length) return false; U.toast("NO LOOPS YET"); return true; };
             if (a === "APPLY INSTRUMENT") {                /* (the keys' MONO / POLY with it) */
                 const i = list().indexOf(L);
@@ -1574,7 +1899,10 @@
                 U.toast(name(i) + ": " + M.refText(U.inst) + " " + U.instName(U.inst) + ", " + (L.mono ? "MONO" : "POLY"));
             }
             else if (a === "TAKE ITS INSTRUMENT") takeItsInstrument(B.SEL);
-            else if (a === "ADJUST") { if (!refused(B.SEL)) adjustOpen(); }
+            else if (a === "ADJUST") { if (!refused(B.SEL)) adjustOpen(false); }
+            else if (a === "CUT HERE") cutGo(playRow(), B.SEL);
+            else if (a === "REMOVE CUT") cutGo(-1, B.SEL);
+            else if (a === "MOVE") { if (!refused(B.SEL)) adjustOpen(true); }
             else if (a === "QUANTIZE") {
                 if (refused(B.SEL)) return;
                 const i = lp.sel;
@@ -1599,19 +1927,26 @@
             else if (a === "CANCEL RECORD LIVE") { songCancel(); U.toast("CANCELLED"); }
             else if (a === "SAVE TO PATTERN") { if (!none()) saveTo(); }
             else if (a === "LOAD FROM PATTERN") { if (!refused(B.SEL)) loadFrom(); }
+            else if (a === "STORE AS A SET") setsList(true);    /* (the loops unchanged: during a count-in too) */
+            else if (a === "LOAD A SET") { if (!refused(B.SEL)) setsList(false); }
             else if (a === "CLEAR STAGE") stageClear(B.SEL);
             else if (a === "CLEAR LOOPS") { if (!none() && !refused(B.SEL)) clearAll(); }
             else if (a === "REVERT") { if (!refused(B.SEL)) revert(); }
         });
     }
     /* DOUBLE: the length x2; a loop filling the length exactly doubles its repeats, any other has its notes written out
-     * to the old length first and plays twice; a SHIFT kept (the loop plays the same). True: done */
+     * to the old length first and plays twice; a SHIFT kept (the loop plays the same); a cut loop its base written twice
+     * (its base the new length, once), its cut kept: it plays the same. True: done */
     function double() {
         const j = LS();
         if (j.rows * 2 > maxRows()) { U.refuse(B.SEL); U.toast("DOUBLE: AT MOST " + barsText(maxBars())); return false; }
         if (!U.edit(() => {
             for (const L of j.list) {
-                if (L.base * L.repeats === j.rows) L.repeats *= 2;
+                if (M.loopCut(L, j.rows)) {
+                    const a = L.cells.slice(0, j.rows * 4).concat(new Array(Math.max(0, j.rows * 4 - L.cells.length)).fill(null));
+                    Object.assign(L, { cells: a.concat(a.map(c => c && M.copyCell(c))), base: 2 * j.rows, repeats: 1 });
+                }
+                else if (L.base * L.repeats === j.rows) L.repeats *= 2;
                 else { writeOut(L, j.rows); L.repeats = 2; }
             }
             j.rows *= 2;
@@ -1643,6 +1978,21 @@
     }
     /* a shifted loop written out as it is heard, its SHIFT 0 (LENGTH: the bars kept play as they did) */
     function heardOut(L, rows) { Object.assign(L, { cells: asHeard(L, rows), base: rows, repeats: 1, shift: 0 }); }
+    /* loop L as it is heard in the loops' first pass over the length (rows), its cut applied: row r plays its window's row
+     * r % cut as the loop is heard there with no cut (asHeard: its SHIFT included), a note off at each wrap on a lane whose
+     * note still sounds at the cut; its notes past the cut not there. With no cut, asHeard (SAVE TO PATTERN, the loops'
+     * pattern) */
+    function heardCut(L, rows) {
+        const flat = asHeard(L, rows), cut = M.loopCut(L, rows), cells = new Array(rows * 4).fill(null);
+        if (!cut) return flat;
+        let held = 0;                                      /* (the lanes sounding at the cut, as heard with none) */
+        for (let r = 0; r < cut; r++)
+            for (let l = 0; l < 4; l++) { const c = flat[r * 4 + l]; if (c) held = sounding(held >> l & 1, c) ? held | 1 << l : held & ~(1 << l); }
+        for (let r = 0; r < rows; r++)
+            for (let l = 0; l < 4; l++) { const c = flat[(r % cut) * 4 + l]; if (c) cells[r * 4 + l] = M.copyCell(c); }
+        for (let r = 0; r < rows; r += cut) stopAt(cells, held, r);
+        return cells;
+    }
     /* 1: a lane's note still sounds after cell c (was: before it): a note starts one, a note off or a key off ends it */
     const sounding = (was, c) => c.cmds.some(x => x.c === 0x14) ? false : c.note != null ? c.note !== M.OFF : was;
     /* the lanes (bit l) of loop L whose note still sounds at row n, its repeats written out to there */
@@ -1660,11 +2010,14 @@
             cells[r * 4 + l] = c ? Object.assign(M.copyCell(c), { note: M.OFF }) : M.newCell(M.OFF, null, null);
         }
     }
-    /* CLEAR LOOPS: every loop goes, and the stage's notes, after a question; the length stays, the loops play on empty */
+    /* CLEAR LOOPS: every loop goes, and the stage's notes, after a question; the length stays, the loops play on empty;
+     * NEW the defaults again */
     function clearAll() {
         const j = LS(), n = j.list.length;
         U.ask(["CLEAR ALL " + n + (n === 1 ? " LOOP?" : " LOOPS?"), "THE STAGE TOO; THE LENGTH STAYS"], ["CLEAR", "KEEP"], a => {
             if (a !== "CLEAR" || !U.edit(() => { j.list = []; syncMix(j); })) return;
+            newReset();
+            PTFM.audio.changed();
             P.lpCleared();
             lp.pend.clear();
             clearStage();                                  /* (the stage emptied too; the length stays) */
@@ -1696,8 +2049,9 @@
             else store(n);
         }, B.SEL, { plus: true, plusText: "NEW" });
     }
-    /* the loops written out into pattern n, as long as they are: every loop as it is heard (asHeard: its repeats, a note
-     * off where it goes to rest with a note still sounding, the cut at the wrap, turned SHIFT rows), each note naming its
+    /* the loops written out into pattern n, as long as they are: every loop as it is heard in their first pass (heardCut,
+     * asHeard: its repeats, a note off where it goes to rest with a note still sounding, the cut at the wrap, turned SHIFT
+     * rows; a cut loop round its cut, its notes past it not written), each note naming its
      * instrument; each lane onto the first track free over all its rows (a lane sounding at the length's end rings into
      * its start: the track whole; what does not fit left out, counted); a loop's mix as commands (= LEVEL and the sends,
      * 8xx PAN) with its first note on a track, where the track's mix there differs (as the lanes before it in time left
@@ -1706,7 +2060,7 @@
         const j = LS(), rows = j.rows, p = M.newPattern(n, 1, rows), taken = [], mixOn = [], lanes = [];
         let left = 0, used = 0;
         j.list.forEach((L, i) => {
-            const heard = asHeard(L, rows);
+            const heard = heardCut(L, rows);
             for (let l = 0; l < 4; l++) {
                 const ev = [];
                 for (let r = 0; r < rows; r++) { const c = heard[r * 4 + l]; if (c) ev.push([r, c]); }
@@ -1822,12 +2176,15 @@
         stopWriting();
         if (!U.edit(() => {
             j.list = loops.map((L, k) => ({ inst: L.inst, col: k % 12, mono: false, lanes: L.lanes, base: rows, repeats: 1, muted: false, soloed: false, cells: L.cells,
-                                            shift: 0 }));
+                                            shift: 0, cut: 0 }));   /* (no cut) */
             j.mixer = loops.map(L => Object.assign({ lvl: 127, pan: 128, dck: 0, cho: 0, dly: 0, rev: 0 }, L.mix || {}));
             while (j.mixer.length < 16) j.mixer.push({});
             syncMix(j);
             Object.assign(j, { rows, tempo: tm.tempo, ticks: tm.ticks, rpb: tm.rpb, swing: tm.swing });   /* (with notes or none) */
         })) return;
+        M.loopsLoaded = true;                              /* (a REVERT of it leaves no solos) */
+        newReset();                                        /* (NEW the defaults again) */
+        PTFM.audio.changed();
         P.lpCleared();
         lp.pend.clear();
         st.silent = -1;
@@ -1839,6 +2196,114 @@
         P.mutesChanged();
         const say = (k, w) => k + " " + w + (k === 1 ? "" : "S");
         U.toast("PATTERN " + M.hex(n) + " IN LOOPS: " + (out.size ? say(out.size, "INSTRUMENT") + " LEFT OUT" : cmds ? say(cmds, "COMMAND") + " LEFT OUT" : say(loops.length, "LOOP")));
+    }
+
+    /* ------------------------------------------------------------------- the sets --- */
+    /* STORE AS A SET and LOAD A SET (specs/ui/screens/loops.md#sets): a set is a copy of the whole working area (every loop,
+     * its mutes and solos, the setup, LOOPS' own FX setup, the selection) under a number of its own (M.state.lsets). The
+     * sets' list as the song list: the number and the name in F.S, the loops and the length in bars in F.T on the names'
+     * baseline, 10 lines; STORE's NEW first and picked. SEL (its opener) picks, HOME closes, PLAY does nothing (no preview),
+     * EDIT renames the highlighted set, LFO deletes it after a question; the last line says so */
+    const SET_LINES = 10;
+    /* a length in bars of a bar's rows: `4`; a part bar to tenths, `4.5` (.1 to .9) */
+    const barsDec = (rows, bar) => {
+        const w = Math.floor(rows / bar), r = rows % bar;
+        return r ? w + "." + U.clamp(Math.floor((r * 20 + bar) / (2 * bar)), 1, 9) : String(w);
+    };
+    /* a set's bar: its METRONOME's BEATS A BAR beats (1-16; 0 read as 4) of its grid's rows */
+    const setBar = j => { const b = (((j.fx || {}).knobs || {}).METRONOME || [])[1] || 4; return j.rpb * U.clamp(b, 1, 16); };
+    /* a set's STORE or rename refused for its size (M.setTooBig): told, nothing changed */
+    const tooBig = (j, b) => { if (!M.setTooBig(j)) return false; U.refuse(b); U.toast("THE LOOPS ARE TOO BIG FOR A SET"); return true; };
+    /* the room for a whole new copy, made before anything changes (as the FM-1 holds its store while it copies) */
+    const roomFor = (j, pre) => { if (M.editsUsed + M.loopsCopyBytes(j, pre) <= M.EDITS_MAX) return true; M.onFull(); return false; };
+    function setsList(store) {
+        const at = i => { const k = i - (store ? 1 : 0); return k < 0 ? "NEW" : M.setNums()[k]; };
+        const lines = () => M.setNums().length + (store ? 1 : 0);
+        return U.open({
+            kind: "list", title: store ? "STORE THE LOOPS AS" : "LOAD INTO LOOPS", opener: B.SEL, sel: 0, store,
+            knob(e, s) { if (e === E.SELECT && lines()) this.sel = U.clamp(this.sel + s, 0, lines() - 1); },
+            play() {},                                     /* (no preview: a set is a whole loop station, heard once loaded) */
+            tap(b) {
+                const n = at(this.sel), set = typeof n === "number";
+                if (b === this.opener) { U.close(this); if (store) storeSet(n); else if (set) loadSet(n); return true; }
+                if (b === B.EDIT) {                        /* RENAME: the text entry, 16 characters */
+                    if (set) U.textEntry("SET " + M.hex(n), M.state.lsets[n].name, 16, B.EDIT, nm => {
+                        if (nm != null && !tooBig(M.state.lsets[n].loops, B.EDIT))   /* (a set made elsewhere in 17
+                                                                                 * parts: kept as it is) */
+                            U.edit(() => { M.state.lsets[n].name = nm || "NO NAME"; });
+                    });
+                    return true;
+                }
+                if (b === B.LFO) {                         /* DELETE: after its question */
+                    if (set) U.ask(["DELETE SET " + M.hex(n) + "?"], ["DELETE", "KEEP"], a => {
+                        if (a !== "DELETE" || !U.edit(() => { M.state.lsets[n] = null; })) return;
+                        this.sel = U.clamp(this.sel, 0, Math.max(0, lines() - 1));
+                        U.toast("SET " + M.hex(n) + " DELETED");
+                        if (!lines() && U.top() === this) U.close(this);   /* (LOAD's list with no set left: closed) */
+                    });
+                    return true;
+                }
+                return false;
+            },
+            cancel() { U.close(this); },
+            draw() {
+                const y = Y0 + 2, nums = M.setNums(), all = lines(), top = Math.max(0, Math.min(this.sel - 4, all - SET_LINES));
+                U.panelS(2, y, 236, 206, this.title);
+                for (const [x, w] of [[8, "NR"], [32, "NAME"], [190 - D.tw(F.T, "LOOPS"), "LOOPS"], [202, "BARS"]])
+                    D.text(x, y + 19, F.T, w, D.DGREY);  /* (the column heads, each over its column) */
+                for (let i = top; i < Math.min(all, top + SET_LINES); i++) {
+                    const yy = y + 32 + (i - top) * U.ROW, on = i === this.sel, k = i - (store ? 1 : 0);
+                    if (on) D.box(4, yy - 1, 232, U.ROW, D.WHITE);
+                    if (k < 0) { D.text(8, yy, F.S, "NEW", D.WHITE); continue; }
+                    const s = M.state.lsets[nums[k]], j = s.loops, c = String(j.list.length);
+                    D.text(8, yy, F.S, M.hex(nums[k]), on ? D.WHITE : D.LGREY);
+                    D.text(32, yy, F.S, s.name, on ? D.WHITE : D.LGREY);
+                    D.text(190 - D.tw(F.T, c), yy + U.T_ON_S, F.T, c, D.CYAN);
+                    D.text(202, yy + U.T_ON_S, F.T, barsDec(j.rows, setBar(j)), D.CYAN);
+                }
+                D.runs(8, y + 192, F.T, [["EDIT", D.YELLOW], [": RENAME  ", D.LGREY], ["LFO", D.YELLOW], [": DELETE", D.LGREY]]);
+            },
+        });
+    }
+    /* STORE's pick: NEW at the first free number (named LOOPS 03), or a set, asking first (its name kept). The working area
+     * as it stands, its solos and the selection with it; an edit (SAVE keeps it, REVERT ALL drops it); the loops go on */
+    function storeSet(n) {
+        if (n === "NEW" && (n = M.freeSet()) < 0) { U.refuse(B.SEL); U.toast("ALL " + (M.USER_LAST + 1) + " SETS USED"); return; }
+        const go = () => {
+            const was = M.state.lsets[n], j = structuredClone(LS());
+            if (tooBig(j, B.SEL) || !roomFor(j, 16)) return;
+            j.sel = lp.sel;
+            if (!U.edit(() => { M.state.lsets[n] = { n, name: was ? was.name : "LOOPS " + M.hex(n), loops: j }; })) return;
+            U.toast("LOOPS STORED AS SET " + M.hex(n));
+        };
+        if (M.state.lsets[n]) U.ask(["SET " + M.hex(n) + " HOLDS LOOPS", "REPLACE IT WITH THESE?"], ["YES", "NO"], a => { if (a === "YES") go(); });
+        else go();
+    }
+    /* LOAD's pick: over loops after a question; the room first (refused: LOOPS as it was, playing on), then the set into
+     * the working area (an edit: SAVE keeps it, REVERT undoes it, leaving no solos), its solos and selection, NEW its
+     * defaults; the loops stop at their start (a song recording: silent there, PLAY bringing them on); the stage stays,
+     * fitted to the set's length */
+    function loadSet(n) {
+        const go = () => {
+            const s = M.state.lsets[n];
+            if (!s || s.other || !roomFor(s.loops, 0)) return;
+            stopWriting();
+            if (!U.edit(() => { M.state.loops = structuredClone(s.loops); })) return;
+            M.loopsLoaded = true;
+            newReset();                                    /* (NEW the set's defaults) */
+            PTFM.audio.changed();
+            P.lpCleared();
+            syncSel();                                     /* (the selection the set's) */
+            st.silent = -1;
+            fitStage();
+            if (songOn()) { P.lpRest(1); P.lpRest(2); }    /* (the song's time runs on: the loops silent, at their start) */
+            else if (playingHere()) P.pause();
+            P.kept.loops.row = 0;
+            P.mutesChanged();
+            U.toast("SET " + M.hex(n) + " LOADED");
+        };
+        if (list().length) U.ask(["REPLACE THE LOOPS", "WITH SET " + M.hex(n) + "?"], ["YES", "NO"], a => { if (a === "YES") go(); });
+        else go();
     }
 
     /* ---------------------------------------------------- the pattern recorder (ARP) --- */
@@ -2086,7 +2551,65 @@
         if (lp.song && lp.song.state === "armed" && !lp.song.splay && !playingHere()) { songCount(); return; }
         if (playingHere()) { overdubTick(); stopWriting(); P.pause(); P.kept.loops.row = 0; P.atStart = true; return; }
         if (lp.arm) { countThen(); return; }
+        let into = [];
+        if (st.ins) {                                      /* (an insert's keys held: they write on as the loops play, each by
+                                                         * its own time, its note as long as it is held; their free sound
+                                                         * let go, the loops' from the play position: intoPlay) */
+            into = Object.keys(st.keys).filter(n => st.keys[n].ins && st.keys[n].rec).map(n => [+n, st.keys[n]]);
+            for (const [n] of into) U.keyOff(n);
+            st.ins = null;
+        }
         startPlay();
+        intoPlay(into);
+        keysIntoStage();
+    }
+    /* the insert's keys held into PLAY, as the loops start (the new run forgot every key): each its cells the play's first
+     * pass's, its key writing on by its own time (intoTick), its sound the stage's from its row (the play position: at
+     * once) */
+    function intoPlay(into) {
+        if (!into.length) return;
+        const pass = sfFrom(0, lp.startRow).pass, cells = st.cells;
+        for (const [n, k] of into) {
+            const r = k.rec, old = r.pass;
+            if (cells) for (const c of cells) if (c && c.wp === old) c.wp = pass;
+            r.pass = pass;
+            st.keys[n] = { rec: r, live: true, ins: true, into: true };
+            if (r.mono && st.cur !== r) continue;
+            const cell = cells && cells[r.row * 4 + r.lane], la = lpAt(pass, r.row);
+            if (isNote(cell) && P.lpNote(P.LP_NOW, r.lane, cell, la.pass, la.row, n)) cell.sub = pass;
+            P.lpLand(4 * P.LP_NOW + r.lane, null);
+        }
+        M.version++;
+    }
+    /* the keys held into PLAY growing by their own time as the loops play (as insTick); one reaching the stage's own end
+     * ends there (its note to the end, a note off on row 0 where its lane is free), the key forgotten */
+    function intoTick() {
+        const len = sfLen();
+        for (const n of Object.keys(st.keys)) {
+            const k = st.keys[n];
+            if (!k.into || !k.rec || !k.rec.held) continue;
+            const r = k.rec, h = insHere(r);
+            if (h.pos >= len) { recKeyUp(+n); continue; }
+            const to = Math.floor(h.pos) + 1;
+            if (to <= r.erasedTo || !st.cells) continue;
+            if (dub()) dubOn(r, to);
+            else replaceRows(r.erasedTo, to, lanesOf(r), r.pass);
+            r.erasedTo = to;
+            M.version++;
+        }
+    }
+    /* PLAY's start, stopped, the stage on (no song armed or recording, PLAY mode): each key held then, sounding freely,
+     * is let go and taken as a stage key pressed at the play position, written from there as long as it is held; an
+     * insert's key that writes no more ("ins") taken alone, never written again */
+    function keysIntoStage() {
+        if (st.off || lp.song || keysShown()) return;
+        for (const n of Object.keys(lp.free).map(Number)) {
+            const m = U.midi(n), ins = lp.free[n] === "ins";
+            if (m < 12 || m > 127) continue;
+            delete lp.free[n];
+            U.keyOff(n);
+            if (!ins) recKeyDown(n, m);
+        }
     }
 
     /* -------------------------------------------------------------- drawing --- */
@@ -2144,42 +2667,56 @@
         return g;
     }
     /* the window: VIEW's bars (at most the length), the page the play position is on (the last page ends at the length's
-     * end) */
-    function win() {
-        const len = LS().rows, v = Math.min(len, LS().view * barRows()), play = playRow();
-        return { start: Math.max(0, Math.min(Math.floor(play / v) * v, len - v)), v };
+     * end); a cut loop's strip, and the stage's over it, the page of its own place (row: the window's row playing now;
+     * stopped, where PLAY would start it), the play line drawn there only where its row is on that page */
+    function win(row = playRow()) {
+        const len = LS().rows, v = Math.min(len, LS().view * barRows());
+        return { start: Math.max(0, Math.min(Math.floor(row / v) * v, len - v)), v };
     }
     const GX = 28, GW = 180, GR = GX + GW;               /* the strips (the loops', the stage's, the length's bar): x, width */
-    const SLOT_Y = 33, SLOT_H = 32, STRIP_DY = 13, STRIP_H = 14, OV_X = 229;
+    const SLOT_Y = 33, SLOT_H = 32, STRIP_DY = 11, STRIP_H = 17, OV_X = 229;
     const cellX = (r, w) => GX + Math.floor((r - w.start) * GW / w.v);
-    /* a lane's place in a strip of h px with n lanes */
-    const laneBox = (h, n, k) => { const each = Math.max(1, Math.floor((h - (n - 1)) / n)); return [k * (each + 1), each]; };
+    /* a lane's place in a strip of h px with n lanes: the lanes equal, as high as fit a pixel apart, in the middle: the rest
+     * above and below; an odd rest every gap can take widens the gaps to 2 px instead, and an odd pixel still left goes below */
+    const laneBox = (h, n, k) => {
+        const each = Math.max(1, Math.floor((h - (n - 1)) / n)), rest = h - n * each - (n - 1);
+        const gap = n > 1 && rest % 2 === 1 && rest >= n - 1 ? 2 : 1;
+        return [Math.max(0, (rest - (gap - 1) * (n - 1)) >> 1) + k * (each + gap), each];
+    };
     /* a strip: L's cells (g: its grid) in the window w at y, h px high, in colour col; the play line at play. Empty cells
      * deep grey, a beat's first deep light grey; the sustain in col, the attack and the release its deep shade. look.off:
      * the stage off, much fainter: nothing behind its notes, the sustain and the bar lines deep light grey, the attack and
-     * the release deep grey, the play line dark grey */
+     * the release deep grey, the play line dark grey. look.cut (specs/ui/screens/loops.md#cut, 0 none): the notes from it
+     * on dimmed (as a silenced loop's: the sustain dark grey, the attack and the release deep dark grey), its mark a line
+     * in col in the gap before its cell, a pixel over and under, as the bar lines; look.own (>= 0): the row its window
+     * plays now, a line in col within the strip, where the play line is not */
     function strip(L, g, y, h, w, look) {
         const bR = barRows(), rpb = LS().rpb, n = U.clamp(L.lanes || 1, 1, 4), off = look.off, play = look.play;
-        const sus = off ? D.DEEP + D.LGREY : look.col, edge = off ? D.DEEP + D.DGREY : D.DEEP + look.col;
+        const sus = off ? D.DEEP + D.LGREY : look.col, edge = off ? D.DEEP + D.DGREY : D.DEEP + look.col, mc = off ? D.DEEP + D.LGREY : look.col;
+        const cut = look.cut || 0, own = look.own == null ? -1 : look.own;
         for (let r = w.start; r < w.start + w.v; r++) {
             const x0 = cellX(r, w), x1 = cellX(r + 1, w), cw = Math.max(1, x1 - x0 - (x1 - x0 >= 4 ? 1 : 0));
-            const bg = off ? D.BLACK : r % rpb === 0 ? D.DEEP + D.LGREY : D.DEEP + D.DGREY;
+            const bg = off ? D.BLACK : r % rpb === 0 ? D.DEEP + D.LGREY : D.DEEP + D.DGREY, past = cut && r >= cut && !off;
             for (let k = 0; k < n; k++) {
                 const [ly, lh] = laneBox(h, n, k);
                 D.rect(x0, y + ly, cw, lh, bg);
                 const s = g ? g[r * 4 + k] : 0;
-                if (s) D.rect(x0, y + ly, cw, lh, s === 3 ? sus : edge);
+                if (s) D.rect(x0, y + ly, cw, lh, s === 3 ? (past ? D.DGREY : sus) : past ? D.DEEP + D.DGREY : edge);
             }
         }
-        /* the bar lines, in the gap before each bar's first cell, a pixel over and under the strip */
+        /* the bar lines, in the gap before each bar's first cell, a pixel over and under the strip; a cut's mark after
+         * them; the cut loop's own place; the play line last */
         for (let r = Math.ceil(w.start / bR) * bR; r < w.start + w.v; r += bR) D.vline(cellX(r, w) - 1, y - 1, h + 2, off ? D.DEEP + D.LGREY : D.LGREY);
+        if (cut > w.start && cut < w.start + w.v) D.vline(cellX(cut, w) - 1, y - 1, h + 2, mc);
+        if (own >= w.start && own < w.start + w.v && own !== play) D.vline(cellX(own, w) - 1, y, h, mc);
         if (play != null && play >= w.start && play < w.start + w.v) D.vline(cellX(play, w) - 1, y - 1, h + 2, off ? D.DGREY : D.WHITE);
     }
     /* the top line; ADJUST: the loop and its SHIFT; a song recording: `SONG`, the time recorded (M:SS, MM:SS from 10
      * minutes), its patterns so far (the one being written counted), the tempo */
     function top() {
         const j = LS(), at = playingHere() ? P.at() : null, bR = barRows(), y = Y0 + 2;   /* (the beats go on while the loops rest) */
-        if (lp.adj) D.text(2, y, F.T, name(lp.adj.i) + ": SHIFT " + shiftText(lp.adj.L.shift || 0), D.WHITE);
+        if (lp.adj && lp.adj.move) D.text(2, y, F.T, name(lp.sel) + (lp.sel !== lp.adj.was ? ": MOVED FROM " + M.hex(lp.adj.was) : ": MOVE"), D.WHITE);
+        else if (lp.adj) D.text(2, y, F.T, name(lp.adj.i) + ": SHIFT " + shiftText(lp.adj.L.shift || 0), D.WHITE);
         else if (songOn()) {
             const sec = Math.max(0, Math.floor(P.time() - lv.t0)), min = Math.floor(sec / 60), np = lv.done + 1;
             D.text(2, y, F.T, "SONG", D.RED);
@@ -2198,20 +2735,25 @@
         D.hline(0, Y0 + 14, 240, D.DGREY);
     }
     const keysShown = () => lp.control || U.held(B.SEQ);   /* (the white keys mute: CONTROL mode, or SEQ held) */
-    /* a loop's slot k (y): its number in the gutter (CONTROL mode: its key), its label line (sound, P / M, repeats,
-     * SHIFT, its state), its strip; selected while the stage holds notes: silent, grey, STAGED */
+    /* the loops' place counted from their start, across the length's end (stopped: the play position), as drawn now:
+     * where a cut loop's window is (draw) */
+    let drAt = 0;
+    /* a loop's slot k (y): its number in the gutter (CONTROL mode: its key), its label line (sound, P / M, repeats or
+     * CUT (a cut loop plays once), SHIFT, its state), its strip (a cut loop's mark, its notes past it dimmed, its own
+     * place); selected while the stage holds notes: silent, grey, STAGED */
     function loopSlot(L, i, y, w, play) {
-        const staged = silentNow() === i, dim = staged || silenced(L), wt = waiting(i);
+        const staged = silentNow() === i, dim = staged || silenced(L), wt = waiting(i), cut = cutOf(L);
         D.text(i >= 9 && keysShown() ? 2 : 5, y + 8, F.S, keysShown() ? String(i + 1).padStart(2) : M.hex(i),   /* (keys 10-16 at 2) */
                keysShown() ? D.WHITE : dim ? D.DGREY : D.CYAN);
         D.text(GX, y, F.T, U.instName(L.inst).slice(0, 9), staged ? D.RED : dim ? D.DGREY : colOf(L));
         D.text(GX + 60, y, F.T, L.mono ? "M" : "P", dim ? D.DGREY : D.LGREY);
-        if (L.repeats > 1) D.text(GX + 72, y, F.T, L.repeats > 9 ? "X+" : "X" + L.repeats, dim ? D.DGREY : D.LGREY);
-        if (shiftSigned(L.shift || 0)) D.text(GX + 90, y, F.T, "SHIFT " + (shiftSigned(L.shift) > 0 ? "+" : "") + shiftSigned(L.shift), dim ? D.DGREY : D.LGREY);
+        if (cut) D.text(GX + 72, y, F.T, "CUT", dim ? D.DGREY : D.LGREY);
+        else if (L.repeats > 1) D.text(GX + 72, y, F.T, L.repeats > 9 ? "X+" : "X" + L.repeats, dim ? D.DGREY : D.LGREY);
+        if (shiftSigned(L.shift || 0)) D.text(GX + (cut ? 96 : 90), y, F.T, "SHIFT " + (shiftSigned(L.shift) > 0 ? "+" : "") + shiftSigned(L.shift), dim ? D.DGREY : D.LGREY);
         const s = staged ? ["STAGED", D.RED] : wt ? [wt === "mute" ? "M" : "S", D.YELLOW] : L.soloed ? ["S", D.YELLOW] : L.muted ? ["M", D.DGREY] : null;
         if (s) D.text(226 - D.tw(F.T, s[0]), y, F.T, s[0], s[1]);
         levelText(LS().mixer[i].lvl, y, dim ? D.DGREY : D.LGREY);
-        strip(L, grid(L), y + STRIP_DY, STRIP_H, w, { col: dim ? D.DGREY : colOf(L), play });
+        strip(L, grid(L), y + STRIP_DY, STRIP_H, cut ? win(drAt % cut) : w, { col: dim ? D.DGREY : colOf(L), play, cut, own: cut ? drAt % cut : -1 });
     }
     /* a slot's LEVEL (a loop's; + NEW LOOP's the next loop's) in hex, as K1 and the MIXER show it, at the strip's right */
     function levelText(v, y, col) { const t = M.hex(v); D.text(226 - D.tw(F.T, t), y + 14, F.T, t, col); }
@@ -2222,7 +2764,7 @@
         D.text(GX, y, F.T, "NEW LOOP " + M.hex(n), D.WHITE);
         const it = M.refText(U.inst) + " " + U.instName(U.inst).slice(0, 10);
         D.text(226 - D.tw(F.T, it), y, F.T, it, M.instCol(U.inst));
-        levelText(LS().nextMix.lvl, y, D.LGREY);
+        levelText(nw().lvl, y, D.LGREY);
         const sy = y + STRIP_DY;
         for (let x = GX; x < GR - 1; x += 4) { D.px(x, sy, D.DGREY); D.px(x, sy + STRIP_H - 1, D.DGREY); }
         D.vline(GX, sy, STRIP_H, D.DGREY);
@@ -2270,7 +2812,8 @@
     /* THE STAGE, a panel of its own in a dark grey frame: its title (stageHead); one strip, a little taller than a
      * loop's, its notes as they play (MONO: one at a time). In the gutter a dot: red while keys overdub, deep red while
      * the loops play, grey stopped or off. While the stage is off all of it much fainter: the frame deep light grey, the
-     * texts dark grey, the strip's own (strip). sh: the strip's height */
+     * texts dark grey, the strip's own (strip). Over a cut loop (the selected one) as a cut loop's strip: the mark, the
+     * notes past it dimmed, the window's row playing now (its held keys drawn up to that row). sh: the strip's height */
     function stage(y0, sh, w, play) {
         const ry = y0 + 14, yb = ry + sh + 2, on = playingHere();
         D.box(0, y0 + 6, 240, yb - y0 - 5, st.off ? D.DEEP + D.LGREY : D.DGREY);
@@ -2279,25 +2822,36 @@
         D.rect(234 - tw - 3, y0, tw + 6, 12, D.BLACK);
         D.runs(6, y0, F.T, runs);
         D.runs(234 - tw, y0, F.T, to);
-        D.disc(13, ry + (sh >> 1), 4, st.off ? D.DEEP + D.DGREY : on && liveKeys().length ? D.RED : on ? D.DEEP + D.RED : D.DEEP + D.DGREY);
+        D.disc(13, ry + (sh >> 1), 4, st.off ? D.DEEP + D.DGREY : (on || st.ins) && liveKeys().length ? D.RED : on ? D.DEEP + D.RED : D.DEEP + D.DGREY);
         fitStage();
         const cells = st.cells ? stageNow(st.cells) : null, sl = cells ? stageLoop(cells) : { lanes: 1 };
-        const g = cells ? grid(sl, true) : null;
-        if (g) heldUpToLine(g, cells, play);
-        strip(sl, g, ry, sh, w, { col: scol, off: st.off, play });
+        const g = cells ? grid(sl, true) : null, cut = sfCut(), now = cut ? drAt % cut : play;   /* (over a cut loop: its
+                                                         * window, the row the stage plays) */
+        if (g) heldUpToLine(g, cells, now);
+        strip(sl, g, ry, sh, cut ? win(now) : w, { col: scol, off: st.off, play, cut, own: cut ? now : -1 });
         if (!stageHas()) D.text(GR, ry + ((sh - 12) >> 1), F.T, "EMPTY", D.DGREY);   /* (at 208: its last pixel two clear of the frame) */
         return yb;
     }
-    /* a held key's note drawn only up to the play row (cell by cell as the line moves): ahead of the line its lane shows
-     * what the stage had, up to the next note there (replaced only as the line passes); a note landing ahead (quantized
-     * forward, or the next pass's) not drawn until the line reaches it */
+    /* a held key's note drawn only up to the play row (play: the stage's own row playing, over a cut loop its window's;
+     * cell by cell as the line moves): ahead of the line its lane shows what the stage had, up to the next note there
+     * (replaced only as the line passes); a note landing ahead (quantized forward, or the next pass's) not drawn until the
+     * line reaches it */
     function heldUpToLine(g, cells, play) {
         const h = here(), len = LS().rows;
-        if (!h) return;
-        for (const k of liveKeys()) {
+        if (st.ins) {                                      /* (an insert's held notes: up to where their time has run) */
+            for (const k of insKeys()) {
+                const r = k.rec, l = isMono() ? 0 : r.lane;
+                for (let x = r.erasedTo; x < len; x++) {
+                    if (x !== r.row && isNote(cells[x * 4 + l])) break;
+                    g[x * 4 + l] = 0;
+                }
+            }
+            return;
+        }
+        for (const k of liveKeys()) {                      /* (one held into PLAY: before the loops are heard too) */
             const r = k.rec, l = isMono() ? 0 : r.lane;
-            if (r.pass < h.pass) continue;
-            for (let x = r.pass > h.pass || r.row > play ? r.row : play + 1; x < len; x++) {
+            if (!h ? !k.into : r.pass < h.pass) continue;
+            for (let x = k.into ? r.erasedTo : r.pass > h.pass || r.row > play ? r.row : play + 1; x < len; x++) {
                 if (x !== r.row && isNote(cells[x * 4 + l])) break;
                 g[x * 4 + l] = 0;
             }
@@ -2318,6 +2872,7 @@
      * recorded: the keys write the song then); the first that holds; null: hidden */
     function hint() {
         const Y = D.YELLOW, G = D.LGREY;
+        if (lp.adj && lp.adj.move) return [["SELECT", Y], [" MOVE  ", G], ["SEL", Y], [" KEEP  ", G], ["HOME", Y], [" CANCEL", G]];
         if (lp.adj) return [["K1", Y], [" ROW  ", G], ["K2", Y], [" BAR  ", G], ["SEL", Y], [" KEEP  ", G], ["HOME", Y], [" CANCEL", G]];
         if (songOn()) return [["RECORDING: ", D.RED], ["HOME", Y], [" ENDS AND KEEPS IT", G]];
         if (songArmed() && lp.song.state === "count") return [["COUNTING IN: ", D.RED], ["HOME", Y], [" CANCELS", G]];
@@ -2332,13 +2887,15 @@
         checkSetup();
         overdubTick();                                     /* (the held keys' and OVERWRITE's spans grow with the line) */
         syncSilent();                                      /* (the stage emptied or filled by anything: the loop follows) */
+        keysTell();                                        /* (the keys played freely: the selected loop's mix, NEW's) */
         top();
-        const L = list(), n = L.length, w = win(), play = playRow();
+        const L = list(), n = L.length, w = win(), play = playRow(), h = playingHere() ? P.at() : null, rs = P.lpRestState();
+        drAt = play + (h && h.pass != null && rs.on !== 1 && rs.on !== 2 ? h.pass * LS().rows : 0);
         for (let k = 0; k < 4; k++) {
             const i = lp.top + k, y = SLOT_Y + k * SLOT_H;
             if (i >= slots()) break;
             if (i < n) loopSlot(L[i], i, y, w, play); else newSlot(y);
-            if (i === lp.sel) D.box(0, y - 1, 228, 29, D.WHITE);
+            if (i === lp.sel) D.box(0, y - 1, 228, 30, D.WHITE);
         }
         overview();
         if (!n) {                                          /* no loops yet: how the first comes */
@@ -2348,20 +2905,21 @@
             D.runs(2, 112, F.T, [["PRESETS", D.YELLOW], [", ", D.LGREY], ["ENV", D.YELLOW], [": THE SOUND", D.LGREY]]);
             D.runs(2, 124, F.T, [["GLO", D.YELLOW], [": LENGTH, TEMPO, VIEW", D.LGREY]]);
         }
-        const hn = hint(), yb = stage(162, 18, w, play);  /* (the hint line's row kept free: nothing moves when it shows) */
+        const hn = hint(), yb = stage(162, 19, w, play);  /* (the hint line's row kept free: nothing moves when it shows) */
         lengthBar(yb + 3, w, play);
         if (hn) D.runs(2, 214, F.T, hn);
     }
     const G0 = D.LGREY;
-    /* the loops' pattern as they are heard (a loop a track, over the length: its repeats written out, its SHIFT applied;
-     * each row its lowest lane's cell), read by EDIT, RECORD LIVE, SAVE TO PATTERN and QUANTIZE */
+    /* the loops' pattern as they are heard (a loop a track, over the length's first pass: its repeats written out, its
+     * SHIFT applied, a cut loop round its cut; each row its lowest lane's cell), read by EDIT, RECORD LIVE, SAVE TO PATTERN
+     * and QUANTIZE */
     const pbCache = { v: -1, p: null, j: null };
     U.loopsPattern = function () {
         const j = LS();
         if (pbCache.v === M.version && pbCache.j === j) return pbCache.p;
         const rows = Math.max(1, j.rows), p = M.newPattern(-1, Math.max(1, j.list.length), rows);
         j.list.forEach((L, t) => {
-            const heard = asHeard(L, rows);
+            const heard = heardCut(L, rows);
             for (let r = 0; r < rows; r++)
                 for (let l = 0; l < 4; l++) {
                     const c = heard[r * 4 + l];
@@ -2374,7 +2932,7 @@
 
     /* ---------------------------------------------------------------- screen --- */
     U.register({
-        name: "LOOPS", group: "PLAY",
+        name: "LOOPS", group: "PLAY", pressure,
         does: [B.GLO, B.SEQ, B.ENV, B.SEL, B.ARP, B.REC, B.EDIT, B.LFO],
         ownArp: "pattern",                                 /* ARP: the stage's switch; held + REC, the pattern recorder (no
                                                             * arpeggiator here) */
@@ -2412,7 +2970,7 @@
             if (b === B.ARP) return st.off ? .25 : 1;
             if (b === B.ENV) return .25;
         },
-        sub: () => lp.adj ? "ADJUST" : null,               /* (the header's subpage while ADJUST is open) */
+        sub: () => lp.adj ? (lp.adj.move ? "MOVE" : "ADJUST") : null,   /* (the header's subpage while ADJUST or MOVE is open) */
         /* ENV held: the pipette (a shortcut; its tap the cartridge list); EDIT held 2 s (longHold): the stage's clear; SEQ
          * held: the keys as in CONTROL mode (no layer); ARP held: its layer (arpLayer), let go nothing. LFO has no hold */
         hold(b, h) {
@@ -2424,9 +2982,10 @@
         },
         /* HOME's press, a song recording: the row a tap would end it in */
         holdStart(b) {
+            if (b === B.LFO) st.ezIn = false;             /* (a hold begins: the eraser's path anew) */
             if (b === B.HOME && songOn()) { liveDrain(true); lp.hrow = songNow().row; }
         },
-        enter() { syncSel(); },
+        enter() { syncSel(); keysTell(); },
         /* HOME during a count-in cancels it (otherwise HOME's combination, as everywhere) */
         back() {
             if (P.countingIn()) { P.stopCountIn(); lp.arm = null; songCancel(); U.toast("CANCELLED"); return true; }
@@ -2447,6 +3006,7 @@
             overdubTick();
             stopWriting();                                 /* (the keys elsewhere never write onto the stage) */
             offKeysEnd();                                  /* (nor sound in its sound: the stage off) */
+            keysOwn();                                     /* (KEYS GAIN, the KEYS column, DRY as everywhere) */
             st.erasers = [];
             const a = U.overlays.find(o => o.kind === "adjust");
             if (a) a.cancel();
@@ -2460,7 +3020,7 @@
         paused() { livePoll(); stopWriting(); },          /* (the loops paused, PLAY on FX, a stop: a song recording ends
                                                          * where it was heard last; the keys down stop writing) */
         /* FX from LOOPS (not leaving LOOPS): the keys down stop writing (on FX the keys are FX's), the eraser rests */
-        toFx() { overdubTick(); stopWriting(); offKeysEnd(); st.erasers = []; },
+        toFx() { overdubTick(); stopWriting(); offKeysEnd(); st.erasers = []; keysOwn(); },
         live(t) { liveChanges(t); livePunch(U.punch == null ? -1 : U.punch); },   /* (an edit, a punch-in: RECORD LIVE
                                                          * writes what changed, at its row) */
         toSave() { syncSel(); LS().sel = lp.sel; },     /* (SAVE: the selection with the record, no change of its own) */
@@ -2512,10 +3072,16 @@
             });
             return true;
         },
-        selLines: () => ["K1-K4: BIG STEPS"],
+        selLines: () => ["SELECT: MOVE THE LOOP", "ALGORITHM: ITS SHIFT", "EDIT: CUT HERE, HELD: NO CUT", "K1-K4: BIG STEPS"],
+        /* SEL held + EDIT, either order, on the screen itself: CUT HERE, or held REMOVE CUT (cutCombo) */
+        combo(m, b) {
+            if (U.top() || !((m === B.SEL && b === B.EDIT) || (m === B.EDIT && b === B.SEL))) return null;
+            return cutCombo;
+        },
         /* SELECT: the loops, then + NEW LOOP (clockwise down; the view scrolls past 4; the stage stays, the loop left heard
          * again); ALGORITHM: the play position; K1-K4: their jobs (GLO) */
         knob(e, s, coarse) {
+            if (e === E.SELECT && coarse) { moveStep(s); return; }   /* (SEL held: MOVE's step) */
             if (e === E.SELECT) {
                 const to = U.clamp(lp.sel + s, 0, topSel());
                 if (to !== lp.sel) { overdubTick(); stopWriting(); lp.sel = to; syncSel(); syncSilent(); }   /* (the stage holding notes: the loop
@@ -2549,12 +3115,22 @@
                 if (lp.free[n]) { delete lp.free[n]; U.keyOff(n); }
                 else if (lp.held[n]) controlKey(n, false);
                 else if (offHeld(n)) offKeyUp(n);
-                else recKeyUp(n);
+                else {
+                    const ins = st.keys[n] && st.keys[n].ins && !st.keys[n].into;
+                    recKeyUp(n);
+                    if (ins) { U.keyOff(n); if (!insKeys().length) insDone(); }   /* (an insert's key: its free sound ends) */
+                }
                 return true;
             }
             if (U.held(B.SEQ)) U.consume(B.SEQ);
-            if (keysShown()) controlKey(n, true);
-            else playKey(n, true);
+            if (keysShown()) { controlKey(n, true); return true; }
+            const m = U.midi(n);
+            if (m >= 12 && m <= 127) {
+                if (U.held(B.LFO)) U.consume(B.LFO);        /* (used: its release switches nothing) */
+                if (insOk()) { insKey(n, m); return true; }  /* (stopped, the stage on: the insert at the play position,
+                                                            * heard as the keys play freely; a key not written, not heard) */
+            }
+            playKey(n, true);
             return true;
         },
         footer() {

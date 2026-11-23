@@ -22,7 +22,8 @@
  *   ED.model.fromRecords(recs, { side, src, builtins }) -> { items, skipped }
  *   ED.model.toRecords(items) -> the FM-1 panel's records [{ kind, num, sub, ver, payload }]
  *   refs(item), closure(items, ids), users(items), hashes(items), size(item), sizeWith(items, id)
- *   transfer(st, from, ids, opts) -> { ok, st, msg, ids (the moved ones on the other side), need }
+ *   transfer(st, from, ids, opts) -> { ok, st, msg, ids (the moved ones on the other side), need, replaced (to ask
+ *     about), fav (a FAVORITES item put on as FB), said (the status line's parts on what the FM-1 keeps one of) }
  *   blockers(items, ids), exclusive(items, sel), remove(st, side, ids, also) -> { st, msg }, deleteAll(st, side)
  *   canRenumber(item), renumber(st, id, number) -> { ok, st, msg, plan, other }
  *   space(items, layout) -> { blocks, used, data, audio, free, reserve (advised, not kept), fits, missing, low (the
@@ -35,11 +36,14 @@ const BUILTIN = "B";                                /* a link to the firmware's 
 const H2 = v => (v < 16 ? "0" : "") + (v & 0xFF).toString(16).toUpperCase();
 const align4 = n => (n + 3) & ~3;
 const FIRST_FW = 0xF0, FE = 0xFE;
-const SYSTEM = [K.SETTINGS, K.MIDIMAP, K.LOOPS, K.DJ];            /* one of each on the FM-1 */
+const FB = 0xFB;                                    /* the built-in FAVORITES, the FM-1's one (specs/files/instruments.md#favorites) */
+const SYSTEM = [K.SETTINGS, K.MIDIMAP, K.LOOPS, K.DJ, K.AUTO];    /* one of each on the FM-1 */
 const isCart = k => R.CART_KINDS.includes(k);
-const space = k => isCart(k) ? "c" : k === K.PATTERN ? "p" : k === K.SONG ? "s" : k === K.SAMPLE ? "m" : null;     /* numbers' spaces */
-const SPACE_NAME = { c: "CARTRIDGE", p: "PATTERN", s: "SONG", m: "SAMPLE" };
-const SPACE_MOST = { c: FIRST_FW, p: FIRST_FW, s: FIRST_FW, m: 256 };       /* (the samples have all 256 numbers) */
+/* numbers' spaces (a LOOPS set's "l": numbers of their own, 00-EF, nothing refers to them) */
+const space = k => isCart(k) ? "c" : k === K.PATTERN ? "p" : k === K.SONG ? "s" : k === K.SAMPLE ? "m" : k === K.LSET ? "l" : null;
+const SPACE_NAME = { c: "CARTRIDGE", p: "PATTERN", s: "SONG", m: "SAMPLE", l: "LOOPS SET" };
+const SPACE_MOST = { c: FIRST_FW, p: FIRST_FW, s: FIRST_FW, m: 256, l: FIRST_FW };   /* (the samples have all 256 numbers) */
+const spaces = () => ({ c: new Map(), p: new Map(), s: new Map(), m: new Map(), l: new Map() });
 let seq = 1;
 const newId = () => "i" + (seq++).toString(36);
 function seen(id) { const n = parseInt(String(id).slice(1), 36); if (n >= seq) seq = n + 1; }
@@ -85,9 +89,9 @@ function refsOf(it) {
             const o = 10 + 40 * i;
             if (R.unpackSamplerInst(b.subarray(o, o + 40), 2)) out.push({ sp: "m", num: b[o], r: 0, at: o });
         }
-    } else if (it.kind === K.LOOPS) {
-        const b = recs[0].payload, n = b[5];
-        for (let i = 0; i < n; i++) out.push({ sp: "c", num: b[80 + 12 * i], r: 0, at: 80 + 12 * i });
+    } else if (it.kind === K.LOOPS || it.kind === K.LSET) {   /* (each loop its instrument's cartridge; a set's after its 16 B) */
+        const b = recs[0].payload, h = it.kind === K.LSET ? R.LSET_PRE : 0, n = b[h + 5];
+        for (let i = 0; i < n; i++) out.push({ sp: "c", num: b[h + 80 + 12 * i], r: 0, at: h + 80 + 12 * i });
     } else if (it.kind === K.DJ) {
         const b = recs[0].payload;
         for (const d of [88, 112]) if (b.length > d && b[d] !== 0xFF) out.push({ sp: "s", num: b[d], r: 0, at: d, soft: true, deck: d });
@@ -171,7 +175,7 @@ function fromRecords(recs, o) {
         if (!groups.has(g)) groups.set(g, []);
         groups.get(g).push(r);
     }
-    const byNum = { c: new Map(), p: new Map(), s: new Map(), m: new Map() };
+    const byNum = spaces();
     const known = r => R.VERSION[r.kind] === r.ver;
     for (const [g, rs] of groups) {
         if (g[0] === "a") continue;
@@ -192,7 +196,7 @@ function fromRecords(recs, o) {
             it.dim = true;
             it.differ = true;
         }
-        if (space(r0.kind) && space(r0.kind) !== "m" && r0.num >= FIRST_FW) {
+        if (space(r0.kind) && space(r0.kind) !== "m" && space(r0.kind) !== "l" && r0.num >= FIRST_FW) {   /* (no built-in sets yet) */
             if (r0.num === FE && (r0.kind === K.PATTERN || r0.kind === K.SONG)) {
                 if (side === "L") it.name = r0.kind === K.PATTERN ? "EDITOR FE" : "KEYS FE";
             } else it.builtin = true;               /* a changed built-in */
@@ -334,8 +338,9 @@ function toRecords(items, all) {
     return out;
 }
 
-/* records in a disk's order (specs/files/disk.md): settings, cartridges, songs, patterns, the loops, then the audio */
-const DISK_ORDER = [0x30, 0x31, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x21, 0x20, 0x22, 0x23, 0xE0, 0x10, 0x11];
+/* records in a disk's order (specs/files/disk.md): settings, cartridges, the marks of deleted built-ins (0x0F), songs,
+   patterns, the loops, then the audio */
+const DISK_ORDER = [0x30, 0x31, 0x32, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0F, 0x21, 0x20, 0x22, 0x23, 0x24, 0xE0, 0x10, 0x11];
 function diskOrder(recs) {
     const rank = k => { const i = DISK_ORDER.indexOf(k); return i < 0 ? 100 + k : i; };
     return recs.slice().sort((a, b) => rank(a.kind) - rank(b.kind) || a.num - b.num || a.sub - b.sub);
@@ -365,7 +370,7 @@ function longText(it) {
     const r = longRate(it);
     return "TOO LONG FOR THE FM-1: " + (it.long / r).toFixed(1) + " S, " + (MAX_FRAMES / r).toFixed(1) + " S AT MOST";
 }
-const SYS_NAME = { [K.SETTINGS]: "SETTINGS", [K.MIDIMAP]: "MIDI MAP", [K.LOOPS]: "LOOPS", [K.DJ]: "DJ SETUP" };
+const SYS_NAME = { [K.SETTINGS]: "SETTINGS", [K.MIDIMAP]: "MIDI MAP", [K.LOOPS]: "LOOPS", [K.DJ]: "DJ SETUP", [K.AUTO]: "AUTOMATIONS" };
 function nameOf(it, items) {
     if (it.older) return R.unpackName(it.recs[0].payload.subarray(0, 9), 12) || "SAMPLER " + H2(it.num != null ? it.num : it.orig);
     if (it.differ) return "SAMPLE " + H2(it.num != null ? it.num : it.orig);
@@ -376,14 +381,16 @@ function nameOf(it, items) {
     if (it.name) return it.name;
     if (isCart(it.kind)) return R.unpackName(it.recs[0].payload.subarray(0, 9), 12) || "CART " + H2(it.num != null ? it.num : it.orig);
     if (it.kind === K.SONG) return R.unpackName(it.recs[0].payload.subarray(0, 12), 16) || "SONG";
+    if (it.kind === K.LSET) return R.unpackName(it.recs[0].payload.subarray(0, 12), 16) || "LOOPS " + H2(it.num != null ? it.num : it.orig);
     if (it.kind === K.AUDIO) return "OLD AUDIO " + H2(it.idx);
     if (it.kind === K.PATTERN) return "PATTERN " + H2(it.num != null ? it.num : it.orig);
     return "?";
 }
-/* its group: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES, SYSTEM */
+/* its group: SONGS, PATTERNS, CARTRIDGES, SAMPLERS, SAMPLES, LOOPS SETS, SYSTEM */
 function groupOf(it) {
     if (SYS_NAME[it.kind] || (it.side === "R" && it.num === FE)) return "SYSTEM";
     if (it.kind === K.SONG) return "SONGS";
+    if (it.kind === K.LSET) return "LOOPS SETS";
     if (it.kind === K.PATTERN) return "PATTERNS";
     if (it.kind === K.SAMPLER) return "SAMPLERS";
     if (it.kind === K.SAMPLE) return "SAMPLES";
@@ -413,6 +420,14 @@ function kindText(it, items) {
         return (e.coding === 2 ? "16" : "8") + "-BIT · " + (e.rate / 1000).toFixed(1) + " KHZ · " + (e.rate ? (len / e.rate).toFixed(2) : "?") + " S";
     }
     if (it.kind === K.LOOPS) return b[5] + " LOOPS";
+    if (it.kind === K.LSET) {                       /* SET · 6 LOOPS · 4 BARS · TEMPO 120 (a part bar 4.5 BARS, as the FM-1's list) */
+        try {
+            const L = R.unpackLSet(it.recs.map(r => r.payload)).loops, bars = R.barsText(L);
+            return "SET · " + L.n + (L.n === 1 ? " LOOP · " : " LOOPS · ") + bars + (bars === "1" ? " BAR" : " BARS") + " · TEMPO " + L.tempo;
+        } catch (e) { return "SET"; }
+    }
+    /* (the slots holding one, as the FM-1 counts them: by their part 0; one without it is empty there) */
+    if (it.kind === K.AUTO) return R.unpackAuto(it.recs).filter(s => s && s.screen >= 0).length + " OF " + R.AUTO_SLOTS + " SLOTS";
     return SYS_NAME[it.kind] || "";
 }
 
@@ -553,7 +568,7 @@ function hashes(items) {
 
 /* ---- numbers on the FM-1 panel ---- */
 function taken(items) {
-    const t = { c: new Set(), p: new Set(), s: new Set(), m: new Set() };
+    const t = { c: new Set(), p: new Set(), s: new Set(), m: new Set(), l: new Set() };
     for (const it of items) { const sp = space(it.kind); if (sp && it.num != null) t[sp].add(it.num); }
     return t;
 }
@@ -623,6 +638,8 @@ function lowSpace(free, reserve) {
 
 /* ---- moving items (specs/editor.md, Moving items) ---- */
 const SYS_KINDS = new Set(SYSTEM);
+/* a system item of no record (AUTOMATIONS with every slot empty): on the FM-1 panel nothing the FM-1 holds, its default */
+const noRecords = it => !it.recs.length && SYS_KINDS.has(it.kind);
 function systemOf(it) { return SYS_KINDS.has(it.kind) ? it.kind : null; }
 /* an item in a sentence: SONG 03 CITY LIGHTS, PATTERN 0A, SAMPLE KICK, MYSONG P07 (the TABLE's) */
 function label(it, items) {
@@ -669,6 +686,18 @@ function transfer(st, from, ids, opts) {
     const long = ids.map(id => sm.get(id)).filter(isLong);
     if (long.length) return { ok: false, msg: (ids.length > 1 ? nameOf(long[0], src) + " IS " : "") + longText(long[0]) +
         (long.length > 1 ? " (AND " + (long.length - 1) + " MORE)" : "") + ": NOTHING MOVED" };
+    /* FAVORITES onto the FM-1 panel (specs/editor.md, Moving items): the FM-1 holds one, FB. The FAVORITES item moved
+     * replaces FB's slots, FB keeping its name and number; of several, the last in the TABLE's order (opts.order, else
+     * the order given), the others not put on, nor what only they name */
+    const favIds = to === "R" ? ids.filter(id => sm.get(id).kind === K.FAVORITES) : [];
+    const rank = id => { const i = opts.order ? opts.order.indexOf(id) : -1; return i < 0 ? ids.indexOf(id) - ids.length : i; };
+    const favKeep = favIds.length ? favIds.reduce((a, b) => rank(b) >= rank(a) ? b : a) : null;
+    const favLeft = favIds.filter(id => id !== favKeep);
+    if (favLeft.length) ids = ids.filter(id => !favLeft.includes(id));
+    /* (FB of a version this page cannot read is kept as it is: nothing is put over it) */
+    const fbAt = favKeep ? dst.find(d => d.num === FB && isCart(d.kind)) || null : null;
+    if (fbAt && fbAt.dim) return { ok: false, msg: "FB IS OF A VERSION THIS PAGE CANNOT READ: NOTHING MOVED" };
+    const fbOld = fbAt && fbAt.kind === K.FAVORITES ? fbAt : null;
     const set = closure(src, ids);
     for (const id of [...set]) if (sm.get(id).dim) set.delete(id);    /* (what the page cannot read stays where it is) */
     const sh = hashes(src), dh = hashes(dst);
@@ -737,6 +766,7 @@ function transfer(st, from, ids, opts) {
             if (ex) replaced.push(ex);
             continue;
         }
+        if (it.id === favKeep) { map.set(it.id, newId()); made.push(it); continue; }  /* (FB's new slots: below) */
         const same = sameAs(it);
         if (same) { map.set(it.id, same.id); reused.push(it.id); continue; }
         const twin = madeByHash.get(twinKey(it));
@@ -745,6 +775,7 @@ function transfer(st, from, ids, opts) {
         madeByHash.set(twinKey(it), it);
     }
     for (const it of leftOut) set.delete(it.id);
+    if (fbOld) replaced.push(fbOld);
     /* numbers on the FM-1 panel */
     const numOf = new Map(), renum = [];
     if (to === "R") {
@@ -763,7 +794,8 @@ function transfer(st, from, ids, opts) {
             const sp = space(it.kind);
             if (!sp || systemOf(it)) continue;
             let n;
-            if (it.builtin && it.orig >= FIRST_FW) {
+            if (it.id === favKeep) n = FB;
+            else if (it.builtin && it.orig >= FIRST_FW) {
                 n = tk[sp].has(it.orig) ? pickNum(tk[sp], null) : it.orig;
             } else {
                 const want = it.side === "R" ? it.num : it.orig, most = SPACE_MOST[sp];
@@ -780,12 +812,27 @@ function transfer(st, from, ids, opts) {
     const numByDst = new Map();
     for (const d of dst) if (d.num != null) numByDst.set(d.id, d.num);
     for (const it of made) if (numOf.has(it.id)) numByDst.set(map.get(it.id), numOf.get(it.id));
-    const atDst = { c: new Map(), p: new Map(), s: new Map(), m: new Map() };
+    const atDst = spaces();
     for (const d of dst) { const sp = space(d.kind); if (sp && d.num != null && !replaced.includes(d)) atDst[sp].set(d.num, d.id); }
     /* (an item the other side holds already, by content: where a soft reference left behind still finds its own) */
     const there = id => { const s = sm.get(id); const d = s && sameAs(s); return d ? d.id : null; };
     const ctx = { map, numOf, numByDst, atDst, sm, stamp, there };
     const copies = made.map(it => copyItem(it, to, ctx));
+    /* the FAVORITES item as FB: a changed built-in under FB's name; one equal to the panel's FB is that one; one equal to
+     * the firmware's own (empty) is no change: the panel's FB goes back to it */
+    let favSame = false, fbNew = null;
+    if (favKeep) {
+        const i = copies.findIndex(c => c.id === map.get(favKeep)), fw = builtinAt("c", FB);
+        fbNew = asFb(copies[i], fbOld);
+        const asFw = !!fw && sameBytes(fw.payload, fbNew.recs[0].payload);
+        if (fbOld ? sameBytes(fbOld.recs[0].payload, fbNew.recs[0].payload) : asFw) {
+            favSame = true;
+            copies.splice(i, 1);
+            if (fbOld) { map.set(favKeep, fbOld.id); replaced.splice(replaced.indexOf(fbOld), 1); } else map.delete(favKeep);
+            reused.push(favKeep);
+        } else if (asFw) { copies.splice(i, 1); map.delete(favKeep); }    /* (the panel's FB: the firmware's own again) */
+        else copies[i] = fbNew;
+    }
     const cm = byIdMap(copies);
     const next = dst.filter(d => !replaced.includes(d));
     if (to === "R") {
@@ -796,13 +843,16 @@ function transfer(st, from, ids, opts) {
             return { ok: false, need: sp.missing * 4096, msg: "DOESN'T FIT: " + what + " NEEDS " + sp.missing * 4 + " KB MORE ON THE FM-1. NOTHING MOVED." };
         }
     }
-    const out = Object.assign({}, st, { [to]: to === "R" ? linkChanged(next.concat(copies)) : next.concat(copies) });
+    /* (on the FM-1 panel a system item of no record is its default: not kept as an item) */
+    const out = Object.assign({}, st, { [to]: to === "R" ? linkChanged(next.concat(copies).filter(i => !noRecords(i))) : next.concat(copies) });
     const moved = ids.map(id => map.get(id)).filter(Boolean);
     /* the status line */
     const rest = copies.filter(c => !ids.some(id => map.get(id) === c.id));
     const cnt = {};
     for (const c of rest) { const k = oneOf(c); cnt[k] = (cnt[k] || 0) + 1; }
-    const parts = [(to === "R" ? "→ FM-1: " : "← TABLE: ") + (ids.length === 1 ? label(cm.get(map.get(ids[0])) || sm.get(ids[0]), out[to]) : ids.length + " ITEMS")];
+    const one = ids.length === 1 && ids[0] === favKeep ? nameOf(sm.get(favKeep), src)    /* (a FAVORITES item: its own name) */
+        : ids.length === 1 ? label(cm.get(map.get(ids[0])) || sm.get(ids[0]), out[to]) : ids.length + " ITEMS";
+    const parts = [(to === "R" ? "→ FM-1: " : "← TABLE: ") + one];
     const extra = Object.entries(cnt).map(([k, n]) => n + " " + k + (n > 1 ? "S" : "")).join(", ");
     if (extra) parts.push("+ " + extra);
     const copied = made.filter(it => copyOf.has(it.id)).map(it => H2(copyOf.get(it.id)));
@@ -810,11 +860,32 @@ function transfer(st, from, ids, opts) {
     if (reused.length) parts.push(reused.length + (reused.length > 1 ? " ITEMS" : " ITEM") + " ALREADY THERE");
     if (renum.length) parts.push(renum.slice(0, 2).map(([it, n]) => nameOf(it, src) + " IS NOW " + H2(n)).join(", ") +
         (renum.length > 2 ? " AND " + (renum.length - 2) + " MORE RENUMBERED" : ""));
-    if (replaced.length) parts.push(replaced.map(r => nameOf(r, dst)).join(", ") + " REPLACED");
-    if (leftOut.length) parts.push("THE FM-1 KEEPS ONE OF EACH: " + leftOut.map(r => nameOf(r, src) + " FROM " + (r.src || "THE TABLE")).join(", ") + " NOT MOVED");
-    if (!copies.length) parts.push("NOTHING NEW TO COPY");
-    return { ok: true, st: out, msg: parts.join(" · "), ids: moved, replaced: replaced.map(r => r.id) };
+    const sysRep = replaced.filter(r => r !== fbOld);
+    if (sysRep.length) parts.push(sysRep.map(r => nameOf(r, dst)).join(", ") + " REPLACED");
+    /* (said: what the FM-1 keeping one of a kind did to the move, for DOWNLOAD AS DISK's status line too) */
+    const said = [];
+    if (leftOut.length) said.push({ part: "THE FM-1 KEEPS ONE OF EACH: " + leftOut.map(r => nameOf(r, src) + " FROM " + (r.src || "THE TABLE")).join(", "), left: " NOT MOVED" });
+    const fbNow = favKeep && !favSame ? fbNew : null;
+    if (fbNow) said.push({ part: H2(FB) + " " + nameOf(fbNow, out[to]) + " IS NOW " + nameOf(sm.get(favKeep), src), left: "" });
+    if (favLeft.length) said.push({ part: favLeft.length + " OTHER FAVORITES", left: " NOT PUT ON" });
+    for (const s of said) parts.push(s.part + s.left);
+    if (!copies.length && !fbNow) parts.push("NOTHING NEW TO COPY");
+    /* (asked first: what a move replaces, FB only when it holds favourites; fav: what the question says of FB) */
+    const ask = replaced.filter(r => r !== fbOld || favCount(fbOld) > 0);
+    const fav = fbNow ? { name: H2(FB) + " " + nameOf(fbNow, out[to]), from: nameOf(sm.get(favKeep), src), had: fbOld ? favCount(fbOld) : 0,
+        now: favCount(fbNow), left: favLeft.length } : null;
+    return { ok: true, st: out, msg: parts.join(" · "), ids: moved, replaced: ask.map(r => r.id), fav, said };
 }
+/* FAVORITES: how many favourites an item holds (its references to their sources); an item as FB, its records FB's
+ * (its name the panel's FB's, else the firmware's own) */
+const favCount = it => refs(it).filter(f => f.fav).length;
+function asFb(it, fbOld) {
+    const fw = builtinAt("c", FB), b = it.recs[0].payload.slice();
+    const name = fbOld ? fbOld.recs[0].payload : fw ? fw.payload : R.packCart(K.FAVORITES, { name: "FAVORITES", slots: [] });
+    b.set(name.subarray(0, 9), 0);                  /* (the name: 12 characters of 6 bits) */
+    return Object.assign({}, it, { num: FB, orig: FB, builtin: true, recs: [Object.assign({}, it.recs[0], { payload: b })] });
+}
+const sameBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 function packedEntry(e) { return R.packSample(e, new Uint8Array(0)); }       /* (a sample's 16-byte entry) */
 function copyItem(it, to, ctx) {
     const { map, numOf, numByDst, atDst, sm, stamp, there } = ctx;
@@ -990,15 +1061,17 @@ function sameRecs(a, b) {
 function pending(st) {
     const now = st.R, base = st.base || [];
     const nm = byIdMap(now), bm = byIdMap(base);
-    const bk = new Map(base.map(b => [recKey(b, bm), b]));
+    const none = noRecords;                         /* (nothing the FM-1 holds: as its default) */
+    const bk = new Map(base.filter(b => !none(b)).map(b => [recKey(b, bm), b]));
     const ids = new Set(), keys = new Set();
     for (const it of now) {
+        if (none(it)) continue;
         const k = recKey(it, nm);
         keys.add(k);
         const b = bk.get(k);
         if (!b || !sameRecs(b, it)) ids.add(it.id);
     }
-    const removed = base.filter(b => !keys.has(recKey(b, bm)));
+    const removed = base.filter(b => !none(b) && !keys.has(recKey(b, bm)));
     return { ids, removed, count: ids.size + removed.length };
 }
 
@@ -1097,10 +1170,10 @@ function linkChanged(items) {
     return any ? out : items;
 }
 
-ED.model = { BUILTIN, SYSTEM, FE, FIRST_FW, newId, seen, setBuiltins, builtinAt, get builtins() { return builtins; }, refs,
+ED.model = { BUILTIN, SYSTEM, FE, FB, FIRST_FW, newId, seen, setBuiltins, builtinAt, get builtins() { return builtins; }, refs,
     rewrite, lk, fromRecords, toRecords, nameOf, groupOf, oneOf, kindText, label, ENGINE, size, sizeWith, closure, users, uses,
     hardUses, isSoft, hashes, taken, pickNum, space: spaceOf, lowSpace, USER, RESERVE, transfer, blockers, usersAll, exclusive, remove,
-    deleteAll, pending, History, replaceItem, linkChanged, renumber, canRenumber, pruned, numberFor, sampleEntry, packedEntry, patternPlace, byIdMap, ownedMap,
+    deleteAll, pending, noRecords, History, replaceItem, linkChanged, renumber, canRenumber, pruned, numberFor, sampleEntry, packedEntry, patternPlace, byIdMap, ownedMap,
     numSpace: space, isCart, H2, MAX_FRAMES, isLong, asLong, longText, upgradeKept, instrumentsNaming, namedNothing, freeSampleNumbers,
     spaceMost: SPACE_MOST };
 })(globalThis.ED = globalThis.ED || {});

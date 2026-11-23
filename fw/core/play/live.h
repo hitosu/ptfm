@@ -35,8 +35,11 @@ void live_poll(void);
 /* the pattern live_done() written, its rows up to end (LIVE_ROWS whole; less: the song ended there, its last pattern
  * that long): LIVE_* */
 int live_chunk(int end);
-/* what is heard next on the stage's keys' lane (0-3) is written at the replay's tick `tick`: a key on the stage heard at
- * once, written where QUANTIZE landed it */
+/* the note heard next on the stage's keys' lane (0-3), or its end (lane | LIVE_LAND_OFF), is written at the replay's tick
+ * `tick`: a key on the stage heard at once, written where QUANTIZE landed it, up to 3 rows ahead of the event or behind
+ * it (further: stale, as played). A note's place serves every note of that lane at once (a MONO chord's keys landing
+ * together), an end's one end */
+#define LIVE_LAND_OFF 4
 void live_land(int lane, uint32_t tick);
 void live_punch(int k);                 /* the punch-in running now (0-15, -1 none), as heard */
 void live_punch_end(int at);            /* the punch-in running ends at the song's row `at` (the recording's end) */

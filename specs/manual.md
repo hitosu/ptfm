@@ -18,12 +18,13 @@ version.
 | `01-glance.html` ... `05-first-steps.html` | `glance`, `install`, `panel`, `basics`, `first-steps` | the basics |
 | `06-songs.html` ... `15-fx.html` | the screen's name in lower case | a screen each: SONGS, EDITOR, INSTRUMENTS, PLAYBACK, DJ, VISUAL, STATUS, SETTINGS, LOOPS, FX |
 | `16-midi-usb.html`, `17-editor-page.html` | `midi-usb`, `editor-page` | MIDI and USB; the EDITOR page |
+| `18-automations.html` | `automations` | AUTOMATIONS, the screen added last (after the EDITOR page, so no chapter's number changes) |
 | `A-shortcuts.html` ... `F-midi-chart.html` | `shortcuts`, `messages`, `troubleshooting`, `data`, `specs`, `midi-chart` | the appendices A to F |
 | `G-glossary.html` | `glossary` | the words the manual uses, a line each, with where each is explained |
 | `Z-credits.html` | `credits` | the licences |
 
 The contents are made by the build; so is the PDF's index (appendix H). A chapter's number is its file's: `01` to
-`17`, `A` to `G`.
+`18`, `A` to `G`.
 
 **The vocabulary** (nothing else is used; both outputs render it):
 

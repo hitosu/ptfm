@@ -22,14 +22,16 @@ static void full(void)
     const char *lines[3];
     lines[0] = T("MEMORY FOR EDITS IS FULL");
     lines[1] = T("SAVE BEFORE MAKING MORE EDITS");
-    lines[2] = ui_txt_v(T("# UNSAVED CHANGES"), ui_dec(store_edit_count()));
-    ui_ask(lines, 3, T("SAVE NOW"), T("BACK"), ui_save_answer);
+    lines[2] = ui_txt_d(TX("# UNSAVED CHANGES"), store_edit_count());
+    ui_ask_t(lines, 3, TX("SAVE NOW"), TX("BACK"), ui_save_answer);
 }
+static uint16_t fails;                  /* the edits refused since power-on (ui_edit_fails) */
 static int result(int r)
 {
+    if (r != STORE_OK) fails++;
     if (r == STORE_ERR_FULL) full();
-    else if (r == STORE_ERR_BIG) ui_toast(T("TOO BIG FOR ONE RECORD"));
-    else if (r != STORE_OK) ui_toast(T("NOT NOW: THE FLASH IS BUSY"));
+    else if (r == STORE_ERR_BIG) ui_toast_t(TX("TOO BIG FOR ONE RECORD"));
+    else if (r != STORE_OK) ui_toast_t(TX("NOT NOW: THE FLASH IS BUSY"));
     return r == STORE_OK ? 0 : -1;
 }
 /* running low (specs/ui/saving.md#the-edit-memory): an edit grew it past three quarters: for 2 s, at most once a
@@ -77,9 +79,12 @@ int ui_edit_loops(int r, uint32_t was)
 int ui_edit_reserve(uint32_t n)
 {
     if (store_edit_reserve(n)) return 0;
+    fails++;
     full();
     return -1;
 }
+uint16_t ui_edit_fails(void) { return fails; }
+void ui_edit_too_big(void) { result(STORE_ERR_BIG); }
 
 /* REVERT's one exception (specs/ui/saving.md#revert): a sample instrument a REVERT brings back (slot, or -1 every slot
  * of the cartridge) naming a sample whose deletion waits for SAVE takes that deletion back with it, so no REVERT leaves
@@ -121,13 +126,13 @@ static void rv_answer(int a)
 {
     if (a != 1 || !rv_then) return;
     rv_then();
-    ui_toast(T("REVERTED"));
+    ui_toast_t(TX("REVERTED"));
 }
 void ui_ask_revert(const char *l0, const char *l1, void (*then)(void))
 {
     const char *l[2] = {l0, l1};
     rv_then = then;
-    ui_ask(l, l1 ? 2 : 1, T("REVERT"), T("KEEP"), rv_answer);
+    ui_ask_t(l, l1 ? 2 : 1, TX("REVERT"), TX("KEEP"), rv_answer);
 }
 int ui_edit_revert_slot(uint8_t cart, uint8_t slot)
 {
@@ -157,7 +162,7 @@ int ui_edit_session_drop(void)
     int r = store_edit_session_drop();
     ui_unsaved_refresh();
     ui_dirty();
-    if (r) ui_toast(T("CHANGES DROPPED"));
+    if (r) ui_toast_t(TX("CHANGES DROPPED"));
     return r;
 }
 

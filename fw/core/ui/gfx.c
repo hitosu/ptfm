@@ -181,9 +181,10 @@ void g_disc(int x, int y, int r, int c)
 /* ---- text ---- */
 static int glyph(const ui_font_t *f, int ch)                  /* the glyph's first row */
 {
-    if (ch >= 'a' && ch <= 'z') ch -= 32;                       /* capitals only, everywhere */
+    if (ch >= 'a' && ch <= 'z') ch -= 32;                       /* capitals only, everywhere: the fonts hold no a-z */
+    else if (ch > 'z') ch -= 26;                                /* (so { | } ~ follow the backtick) */
     if (ch < f->first || ch >= f->first + f->count) ch = '?';
-    return (ch - f->first) * f->gh;
+    return (ch - f->first) * f->rh;                             /* (rh rows kept a glyph) */
 }
 int g_text_crop(int x, int y, const ui_font_t *f, const char *s, int c, int r0, int r1)
 {
@@ -196,7 +197,9 @@ int g_text_crop(int x, int y, const ui_font_t *f, const char *s, int c, int r0, 
         for (int r = r0; r < r1; r++) {
             int py = y + (r - r0) * k;
             if (py + k <= ey0 || py >= ey1) continue;
-            uint16_t bits = f->rows8 ? f->rows8[g + r] : f->rows[g + r];   /* (a byte a row up to 8 pixels wide) */
+            unsigned kr = (unsigned)(r - f->r0);                /* (a row outside the kept ones is blank) */
+            if (kr >= f->rh) continue;
+            uint16_t bits = f->rows8 ? f->rows8[g + kr] : f->rows[g + kr];   /* (a byte a row up to 8 pixels wide) */
             if (!bits) continue;
             for (int b = 0; b < f->gw; b++) {
                 if (!(bits & (top >> b))) continue;
@@ -230,6 +233,8 @@ int g_centre(const ui_font_t *f, const char *s, int x0, int w)
     int d = w - g_tw(f, s);
     return x0 + (d >= 0 ? d / 2 : -((-d + 1) / 2));            /* floor, as the playground's */
 }
+int g_text_r(int xr, int y, const ui_font_t *f, const char *s, int c) { return g_text(xr - g_tw(f, s), y, f, s, c); }
+int g_text_c(int x0, int w, int y, const ui_font_t *f, const char *s, int c) { return g_text(g_centre(f, s, x0, w), y, f, s, c); }
 int g_runs_crop(int x, int y, const ui_font_t *f, const g_run_t *r, int n, int r0, int r1)
 {
     for (int i = 0; i < n; i++) if (r[i].s) x = g_text_crop(x, y, f, r[i].s, r[i].c, r0, r1);

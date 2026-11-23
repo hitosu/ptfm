@@ -90,6 +90,17 @@ ED_EXPORT("ed_loops_default") uint32_t edg_loops_default(void) { return loops_re
 
 /* the loops, all of them together, from their start (as LOOPS' PLAY) */
 ED_EXPORT("ed_play_loops") void edg_play_loops(void) { loops_play(0); }
+/* the loops' record changed through the edit memory (the page's LOOPS tab): heard at once, what plays going on, as after
+ * an edit on LOOPS itself (loops_changed: the player told); rows: the length changed; fx: the FX setup changed (read
+ * again, as FX's ROUTING does); soloed: the solos (bit i loop i; a set's, which its loops' records never hold), the
+ * mutes as the record has them. With the loops not playing yet, only the solos kept for their start. */
+ED_EXPORT("ed_loops_changed") void edg_loops_changed(uint32_t rows, uint32_t fx, uint32_t soloed)
+{
+    loops_set_mutes(loops_muted_mask(), soloed);
+    loops_changed((int)rows);
+    if (fx)
+        player_fx_reload();
+}
 
 ED_EXPORT("ed_pause") void edg_pause(void) { player_pause(); }
 ED_EXPORT("ed_continue") void edg_continue(void) { player_continue(); }
@@ -108,7 +119,7 @@ ED_EXPORT("ed_keys_off") void edg_keys_off(void) { player_keys_off(); }
 
 /* what plays and where, as bytes (the page's preview.js reads them):
  *   0 what (PL_*), 1 playing, 2 ended, 3 song, 4 pos, 5 pat, 6 row, 7 rows - 1, 8 tracks, 9 voices sounding,
- *   10-11 tempo, BPM x 10, 12 tick, 13 ticks a row, 14 voice count, 15 parked, 16-19 halves played,
+ *   10-11 tempo, BPM x 10, 12 tick, 13 ticks a row, 14 voice count, 15 held ghosts, 16-19 halves played,
  *   20-23 muted tracks, 24-39 each track's last note (0xFF none), 40-55 a track sounds (0 / 1),
  *   56-71 each track's instrument's cartridge, 72-87 its slot, 88-91 voices taken (steals) */
 static uint8_t ed_st[96];
@@ -133,7 +144,7 @@ ED_EXPORT("ed_state") uint8_t *edg_state(void)
     ed_st[12] = s.tick;
     ed_st[13] = s.speed;
     ed_st[14] = s.voice_count;
-    ed_st[15] = s.parked;
+    ed_st[15] = s.ghosts;
     memcpy(ed_st + 16, &s.halves, 4);
     memcpy(ed_st + 20, &s.muted, 4);
     for (t = 0; t < PL_TRACKS; t++) {

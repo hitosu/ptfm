@@ -53,6 +53,8 @@ int ins_slot_bytes(uint8_t cart, int slot, uint8_t *out);       /* the slot's by
  * slot then at rec_slot_at */
 int ins_cart_copy(uint8_t cart, rec_cart_t *c, uint8_t *dst, uint32_t *len, uint8_t *ver);
 int ins_put_slot(uint8_t cart, int slot, const uint8_t *bytes); /* bytes NULL: emptied. 0 done */
+uint32_t ins_put_need(uint8_t cart, int slot);  /* the edit memory a put of that slot takes at most (slot < 0: the whole
+                                                 * cartridge copied to another number), a deletion's entry with it */
 int ins_new_cart(uint8_t num, int kind, const char *name);
 int ins_copy_cart(uint8_t from, uint8_t to, const char *name);
 int ins_delete_cart(uint8_t num);

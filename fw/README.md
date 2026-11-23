@@ -16,7 +16,7 @@ same sources, for the emulator (`../emulator/`). Engine only: no data but the bu
 | `core/app.h`, `app.c` | the entry points a platform calls: `app_init`, `app_poll`, `app_audio`, `app_sysex` |
 | `core/store/` | the store (`../specs/files/store.md`): the scan, the map, reading records, saving, compaction; seeding's device side (`../specs/files/blob.md`) |
 | `core/play/` | the player: the replay of songs and patterns tick by tick (`../specs/files/patterns.md`, `commands.md`, `songs.md`), the voice pool, the mix; DJ (`dj.c`), LOOPS' record (`loops.c`), RECORD LIVE's song (`live.c`) |
-| `core/eng/` | the engines: DX7, Juno-106, TB-303, the sampler (PTR audio) |
+| `core/eng/` | the engines: DX7, Juno-106, TB-303, the sampler (PTR audio), the CHIP (`../specs/chip.md`); `fwd.h` the engines' forward work, a ghost's return (`../specs/ui/screens/settings.md#coming-back`) |
 | `core/fx/` | the effects, the sends, the punch-ins, the METRONOME (`../specs/ui/screens/fx.md`) |
 | `core/ui/` | drawing, the fonts, the frame, the controls' grammar, every screen (`../specs/ui/`) |
 | `core/midi/` | MIDI in and out (`../specs/connections.md`): notes as the keys, MIDI learn and its record (`../specs/files/midi.md`), MIDI OUT, the clock in and out; USB and the MIDI IN jack alike, through `plat_midi_rx` / `plat_midi_tx` |
@@ -73,8 +73,11 @@ record readers), `store/seed.h` (`seed_poll`, `seed_active`, `seed_sysex`), `pla
   length's default (`rec_loops_rows_default`). **`play/ibxm/`** is IBXM's replay, extended for PT/FM's cells (up to four commands each, E3x,
   E5x, PANBRELLO, Kxx at its tick), without audio: the player's engines sound its notes.
 - **`eng/`**: the DX7 (MSFA in C), the Juno-106 (after KR-106), the TB-303 (Open303 in integer), the sampler
-  (PTR decoded as it plays: 8 and 16 bits, START / END, sustain loops forward and ping-pong); each at its
-  reference sound's -20 dB (`../specs/files/instruments.md`), a voice entering the mix at half.
+  (PTR decoded as it plays: 8 and 16 bits, START / END, sustain loops forward and ping-pong), the CHIP (our own
+  retro sound chip, `../specs/chip.md`); each at its reference sound's -20 dB (`../specs/files/instruments.md`), a
+  voice entering the mix at half. `eng/fwd.h` is the contract of each engine's forward work: a note started afresh
+  and worked forward over its time unheard, in pieces under a budget, for a ghost's return
+  (`../specs/ui/screens/settings.md#coming-back`).
 - **`fx/`**: the chain (GATE, FILTER, DRIVE, LO-FI, CHORUS, DELAY, REVERB, LIMITER, in the setup's order, the
   sends in SENDS routing), the punch-ins from a 0.5 s buffer, the METRONOME; the REVERB (Dattorro's plate)
   and the DELAY at 29.4 kHz through 2:3 converters; a soft ceiling at the output.

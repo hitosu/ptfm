@@ -10,6 +10,8 @@
 #include <string.h>
 #include "plat.h"
 #include "ctlmode.h"
+#define PRESS_DEFINE                    /* (press.h's press_step: its copy here, ui.c not linked) */
+#include "press.h"
 
 static uint16_t screen[240 * 240];
 static uint32_t now_ms;
@@ -29,6 +31,11 @@ void plat_led(int id, uint8_t level) { if (id >= 0 && id < LED_COUNT) leds[id] =
 void plat_lcd_rows(int y, int h, const uint16_t *px) { memcpy(screen + y * 240, px, (size_t)h * 240 * 2); }
 int plat_screen_lost(void) { return 0; }
 uint32_t plat_usb_resets(void) { return 0; }
+/* the keys' velocity and readings, as the FM-1's scan gives them (KEYS VELOCITY's): 0 none */
+static uint8_t kvel[27];
+static uint16_t kread[27];
+int plat_key_vel(int n) { return n >= 0 && n < 27 ? kvel[n] : 0; }
+int plat_key_reading(int n) { return n >= 0 && n < 27 ? kread[n] : 0; }
 int plat_usb_up(void) { return 1; }
 static void keep(const uint8_t *m, uint32_t n)
 {
@@ -101,7 +108,7 @@ int main(int argc, char **argv)
     fast_mode = argc > 3 && !strcmp(argv[3], "fast");
     int key = general ? B_HOME : B_REC;
     in_now.buttons = 1u << key;                         /* (held as it starts: no pick, it has to be pressed) */
-    ctlmode_start();
+    ctlmode_start(1);                                   /* (CONTROLLER AFTERTOUCH CHANNEL, the default) */
     run(50);
     check(leds[B_REC] == 255 && leds[B_HOME] == 255 && leds[B_PLAY] == 0 && nsent == 0,
           "the start: REC and HOME lit, nothing sent; a key held since before picks nothing");
@@ -183,6 +190,37 @@ int main(int argc, char **argv)
     }
     run(100);
     shot(dir, general ? "ctl_monitor_general" : "ctl_monitor_mirror");
+    {                                                   /* the keys' velocity in their Note On */
+        nsent = 0;
+        kvel[10] = 77;
+        in_now.notes = 1u << 10;
+        run(10);
+        const uint8_t on10[3] = {(uint8_t)(0x90 | ch), (uint8_t)(general ? 53 + 10 + 12 : 53 + 10), 77};
+        check(sent_has(on10, 3), "a key with a velocity (77): its Note On carries it");
+        in_now.notes = 0;
+        kvel[10] = 0;
+        run(20);
+    }
+    {                                                   /* general mode's aftertouch: CHANNEL, from the readings */
+        int n = 0, top = 0;
+        nsent = 0;
+        in_now.notes = 1u << 5;
+        kread[5] = 600;
+        run(300);
+        kread[5] = 470;
+        run(200);
+        for (uint32_t i = 0; i < nsent; i++)
+            if (sent_n[i] == 3 && sent[i][0] == (0xD0 | ch)) { n++; if (sent[i][1] > top) top = sent[i][1]; }
+        if (general) {
+            check(n > 0 && top > 40, "general: a key pressed harder than it rests: Channel Pressure sent (CONTROLLER AFTERTOUCH CHANNEL)");
+            shot(dir, "ctl_monitor_pressure");
+        } else {
+            check(n == 0, "mirror: no aftertouch");
+        }
+        in_now.notes = 0;
+        kread[5] = 0;
+        run(30);
+    }
     printf("ctlmode %s: %d checks, %s\n", general ? "general" : "mirror", checks, fails ? "FAILED" : "all as controller.md says");
     return fails != 0;
 }

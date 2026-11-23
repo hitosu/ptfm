@@ -60,6 +60,8 @@ PTFM.audio = (function () {
                 if (!ctx.audioWorklet) break;
                 await ctx.audioWorklet.addModule(typeof url === "function" ? url() : url);
                 node = new AudioWorkletNode(ctx, "ptfm", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+                /* (an error in the worklet stops it for good, the page silent until it is loaded again: said, at least) */
+                node.onprocessorerror = e => console.error("PT/FM sound: the worklet stopped on an error:", e && e.message ? e.message : e);
                 break;
             } catch (e) { console.warn("PT/FM sound: no worklet from this URL:", e.message); }
         }
@@ -85,7 +87,8 @@ PTFM.audio = (function () {
         }
         node.port.postMessage({ t: "samples", list });
         voicesSent = A.voicesInForce();
-        node.port.postMessage({ t: "voices", n: voicesSent });
+        c2Sent = A.c2On();
+        node.port.postMessage({ t: "voices", n: voicesSent, c2: c2Sent });
         node.port.postMessage({ t: "master", v: master });
         node.port.postMessage({ t: "output", mono: M.state.settings.OUTPUT === "MONO" });
         node.port.postMessage({ t: "pulseside", side: Math.max(0, A.pulseSideNow()) });
@@ -147,42 +150,88 @@ PTFM.audio = (function () {
         return { t: "inst", ref, engine: type, p, level: inst.level };
     }
     A.instMsg = instMsg;                        /* (what a note on ref is sent with: for the checks) */
+    /* the model changed since the worklet was last told (an edit, REVERT ALL, a take's end ...): every instrument it
+     * holds sent again as it is now, or gone (deleted, or no longer an engine's), so a ghost comes back as its instrument
+     * is now (or goes) */
+    function sync() {
+        if (M.version === version) return;
+        const refs = [...sent.keys()];
+        sent.clear();
+        version = M.version;
+        for (const ref of refs) { const m = instMsg(ref); post(m || { t: "inst", ref, gone: true }); if (m) sent.set(ref, true); }
+    }
     function ensure(ref) {
-        if (M.version !== version) { sent.clear(); version = M.version; }
+        sync();
         if (sent.has(ref) && ref !== M.KEYS_SAMPLE) return;       /* (THE SAMPLES list's keys: their instrument each time) */
         const m = instMsg(ref);
         if (m) post(m);
         sent.set(ref, true);
     }
     A.instrument = ref => { if (node) ensure(ref); };
-    A.changed = () => { A.fxNow(); };
+    /* a FUSION pattern's cells as its layers start them (each row's track: its note and instrument), for the worklet: a
+     * song's layer back from a ghost is checked against its cell again (dsp-core.js); sent once a version, again after
+     * an edit */
+    const fpatSent = new Map();                 /* a pattern's number -> the version its cells were sent at */
+    function fpatMsg(num) {
+        const p = M.pattern(num), cells = [];
+        if (p) for (let r = 0; r < p.rows; r++) for (let k = 0; k < 16; k++) {
+            const c = p.cells[r * 16 + k], ins = c && c.inst != null ? c.inst : (c && k < p.tracks ? M.trackInst(p, r, k) : null);
+            cells[r * 16 + k] = c && c.note != null && c.note !== M.OFF && ins != null ? [c.note, ins] : null;
+        }
+        return { t: "fpat", pat: num, cells };
+    }
+    function fpat(num) {
+        if (fpatSent.get(num) === M.version) return;
+        post(fpatMsg(num));
+        fpatSent.set(num, M.version);
+    }
+    /* after an edit: the worklet's instruments as they are now (sync), the FUSION patterns' cells again */
+    A.changed = () => {
+        A.fxNow();
+        if (!node) return;
+        sync();
+        for (const num of fpatSent.keys()) fpat(num);
+    };
+    /* the instruments being edited, for the worklet (a song's ghost of one comes back with none of its track's
+     * commands): looked at with the figures it sends, among the instruments it holds */
+    let editedSent = "";
+    function editedNow() {
+        const refs = [...sent.keys()].filter(ref => PTFM.ui && PTFM.ui.editing && PTFM.ui.editing("inst", ref)), k = refs.join(",");
+        if (k !== editedSent) { post({ t: "editing", refs }); editedSent = k; }
+    }
 
     /* --------------------------------------------------------------------- notes --- */
     /* vol 0-127 (127: the instrument at its own level); opts: accent, glide (TB-303), offset (a
      * sample's start, in samples past START), params (instrument parameters for this note alone),
      * asEdited (the instrument is being edited: its track's parameters from commands left out), leg (a
      * legato note, LEG: the held note's id, which goes on at this note if it still sounds), tap (RECORD LIVE records: the
-     * worklet tells of it, A.tapped, if it gets no voice or loses it) */
+     * worklet tells of it, A.tapped, if it gets no engine or loses it), lane (a loop's lane's: its own parameters at a
+     * return), fcell (a song's FUSION layer: its cell, checked at a return) */
     A.noteOn = (id, time, midi, ref, vol, track, opts) => {
         if (!node) return;
         ensure(ref);
+        if (opts.fcell) fpat(opts.fcell.pat);
         post({ t: "on", id, time, midi, ref, vol, track, accent: !!opts.accent, glide: !!opts.glide, offset: opts.offset || 0,
                params: opts.params && opts.params.length ? opts.params : null, asEdited: !!opts.asEdited, key: !opts.song,
-               leg: opts.leg || null, tap: !!opts.tap });
+               leg: opts.leg || null, tap: !!opts.tap, lane: !!opts.lane, fcell: opts.fcell || null, retrig: !!opts.retrig });
     };
+    /* a note cut (NOTE CUT, a FUSION layer's ECx): it fades out over 64 frames and goes; a ghost goes at once */
+    A.cut = (id, time) => post({ t: "cut", id, time });
     A.tapped = m => { if (PTFM.player.lpTapped) PTFM.player.lpTapped(m); };
     /* FILTER's envelope's hits (specs/ui/screens/fx.md#filters-envelope): a track's note (its row; idp its replay's ids'
      * first letter, so a flush drops it with the replay's notes), or the keys' (-1) */
     A.fire = (track, time, idp) => { if (node) post({ t: "fire", track, time, id: idp ? idp + "~f" : undefined }); };
     A.noteOff = (id, time) => post({ t: "off", id, time });
-    /* a sounding note's pitch (semitones from its note) and level (0-1), tick by tick */
-    A.ctl = (id, time, bend, vol) => post({ t: "ctl", id, time, bend, vol });
+    /* a sounding note's pitch (semitones from its note) and level (0-1), tick by tick; track: given when the bend is its
+     * track's own (a song's track following its latest note: what DJ's KEY and stops put every note of a deck on) */
+    A.ctl = (id, time, bend, vol, track, glide) => post({ t: "ctl", id, time, bend, vol, track, glide });
+    A.trackBend = (track, time, bend) => post({ t: "tbend", track, time, bend });   /* (a track's own bend: 0 at its note) */
     A.flush = (prefix, time, at) => post({ t: "flush", prefix, time, at: at != null ? at - off : null });
     /* LOOPS' stage (specs/ui/screens/loops.md#the-stage): some notes' events from `time` on dropped, by their ids (the
      * lanes a key replaces, from its landing row); its column's mix, the loop's track it stands for (never its mute or a
      * solo); notes moved to another track, sounding and scheduled (the stage kept as a loop goes on as the loop's) */
     A.flushIds = (ids, time) => post({ t: "flushids", ids, time });
-    A.stageCol = track => post({ t: "stagecol", track });
+    A.stageCol = track => { A.stageTrack = track; post({ t: "stagecol", track }); };   /* (kept: LEVELS' meters on LOOPS) */
     A.retrack = (ids, track) => post({ t: "retrack", ids, track });
     /* at `time`, every note of a replay (its ids' first letter) cut, as NOTE CUT cuts a track's: silent at once,
      * gone 4 ms on (PLAYBACK's K1 landing: the position starts clean) */
@@ -191,7 +240,12 @@ PTFM.audio = (function () {
     A.hush = on => post({ t: "hush", on });             /* CUT: silent while on */
     /* a track's instrument parameters (the commands 0x40-0x7F), its mixer (LEVEL, PAN, sends, DUCK) */
     A.iparam = (track, code, value, time) => post({ t: "iparam", track, code, value, time });
-    A.iclear = (track, time) => post({ t: "iclear", track, time });
+    /* (ref: its new instrument; a FUSION's pattern, its cells sent) */
+    A.iclear = (track, time, ref) => {
+        const fus = ref != null && M.instType(ref) === "FUSION" && M.inst(ref) ? M.inst(ref).p.pattern : null;
+        if (fus != null && node) fpat(fus);
+        post({ t: "iclear", track, time, ref, fpat: fus });
+    };
     A.trackMix = (track, key, value, time) => post({ t: "tmix", track, key, value, time });
     A.trackMute = (track, on) => post({ t: "mute", track, on });
     A.click = (time, accent, sound, level) => post({ t: "click", time, accent, sound, level });
@@ -211,14 +265,20 @@ PTFM.audio = (function () {
     A.pulse = time => post({ t: "pulse", time });
     A.gain = db => post({ t: "gain", v: lineGain(db) });              /* LINE GAIN, in dB */
     /* the voices notes take: SETTINGS' VOICES, 16 counted as 12 while the second core does not run
-     * (specs/second-core.md#the-voices-on-core-2); the worklet told at a change of either (stats watches the core) */
+     * (specs/second-core.md#the-voices-on-core-2); the worklet told at a change of either, and whether the second core
+     * runs (its share in the load guard's count, at any VOICES; stats watches the core) */
     A.voicesInForce = () => { const n = +M.state.settings.VOICES; return n > 12 && !A.c2On() ? 12 : n; };
-    let voicesSent = 0;
-    A.voices = () => { voicesSent = A.voicesInForce(); post({ t: "voices", n: voicesSent }); };
+    let voicesSent = 0, c2Sent = false;
+    A.voices = () => { voicesSent = A.voicesInForce(); c2Sent = A.c2On(); post({ t: "voices", n: voicesSent, c2: c2Sent }); };
     A.songGain = g => post({ t: "songgain", g });       /* PLAYBACK's K3: the song's voices (tracks 0-15) times g */
     A.keysGain = g => post({ t: "keysgain", g });       /* SETTINGS' KEYS GAIN: the keys' voices times g */
     A.keysDry = on => post({ t: "keysdry", on });       /* SETTINGS' KEYS: DRY, the keys past every effect */
     A.keysMix = m => post({ t: "keysmix", m: { ...m } });   /* FX MIXER's KEYS column: the keys' PAN, DUCK, sends */
+    /* LOOPS shown: the keys' own notes through a loop's mix (the selected loop's, NEW's on + NEW LOOP: its LEVEL, PAN, DUCK,
+     * sends) in place of KEYS GAIN, the KEYS column and DRY; null: their own again */
+    A.keysLoop = m => post({ t: "keysloop", m: m ? { ...m } : null });
+    /* key k's pressure (ui.js, the FM-1's ui.c): its own notes' level (the keys' "k<k>", a FUSION's layers) x g */
+    A.keyPress = (k, g) => { if (node) post({ t: "press", k, g }); };
 
     /* the FX setup (specs/ui/screens/fx.md): in LOOPS the loops'; else the playing song's, else the one played
      * last's (a pattern played from the EDITOR uses the current song's), else the keys' song's. FX commands change
@@ -302,7 +362,9 @@ PTFM.audio = (function () {
     A.c2On = () => A.c2State() === "ON";
     function stats(m) {
         const S = A.stats;
-        if (A.voicesInForce() !== voicesSent) A.voices();   /* (the second core started, or SECOND CORE switched) */
+        if (A.voicesInForce() !== voicesSent || A.c2On() !== c2Sent) A.voices();   /* (the second core started, or SECOND
+                                                                                   * CORE switched) */
+        editedNow();
         S.voices = m.voices;
         S.count = m.count;
         S.used = m.voices.length;
@@ -329,10 +391,21 @@ PTFM.audio = (function () {
         for (const k in m.count) v += m.count[k] * COST[k];
         S.fxCost = fxc;
         /* the split: with the second core on, the effects (not DJ's decks' small ones, which core 1 keeps) and an
-         * output share of 1 are core 2's, the rest core 1's; off, everything is core 1's */
-        const on = A.c2On(), noise = Math.random();
-        const cpu2 = on ? Math.min(100, fxc - djc + 1 + noise * .5) : 0;
-        const cpu = Math.min(100, v + fxc - (on ? fxc - djc + 1 : 0) + noise * (on ? 1 : 1.5));
+         * output share of 1 are core 2's, and the voices from the top place down while its share stays under core 1's
+         * (the rest), 10 at most, as the FM-1's block's split puts them (specs/second-core.md#the-split: its margin,
+         * the effects less core 1's own work, is here what the figures say they are); off, everything is core 1's */
+        const on = A.c2On(), noise = Math.random(), fx2 = fxc - djc + 1;
+        let v2 = 0;
+        if (on) {
+            const top = m.voices.slice().sort((a, b) => b.eng - a.eng);
+            for (let i = 0; i < top.length && i < 10; i++) {
+                const c = COST[top[i].engine] || 0;
+                if (v2 + c + fx2 >= v - v2 - c + djc - 1) break;
+                v2 += c;
+            }
+        }
+        const cpu2 = on ? Math.min(100, fx2 + v2 + noise * .5) : 0;
+        const cpu = Math.min(100, v - v2 + fxc - (on ? fx2 : 0) + noise * (on ? 1 : 1.5));
         S.cpu = S.cpu * .7 + cpu * .3;
         S.cpu2 = S.cpu2 * .7 + cpu2 * .3;
         S.cpuMax = Math.max(S.cpuMax, S.cpu);

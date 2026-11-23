@@ -2,7 +2,8 @@
 
 Status: **settled** (2026-10-09), revised 2026-10-24. The records: [the UI proposal](../proposals/202610072229-ui.md),
 sections 1.5 and 1.7, and the shared lists of 6.2 and 6.3; [the loop station proposal](../proposals/202610240236-loops-station.md)
-(RECORD PATTERN the EDITOR's alone, LOOPS' pattern lists).
+(RECORD PATTERN the EDITOR's alone, LOOPS' pattern lists); [menus and lists in 8 × 16](../proposals/202611131620-bigger-lists.md)
+(menus, properties, the song and cartridge lists and the hold layers that fit in S).
 
 Everything that opens over a screen and is the same on every screen: menus (SEL), MOVE, questions,
 RECORD PATTERN (the EDITOR's), properties (GLO), HOME's combination, the hold layers' overlays, the pattern and cartridge lists (ENV),
@@ -23,6 +24,30 @@ is in [frame.md](frame.md#the-header).
   while SELECT turns the screens ([below](#homes-combination)).
 - **The progress bar** takes no input: every control waits until it has gone.
 
+### Rows in S
+
+Menus, properties, SETTINGS (its MIDI page too), the song list, the cartridge list, LOOPS' sets' list
+([screens/loops.md](screens/loops.md#the-sets-list)) and the hold layers that fit are
+drawn in S (8 × 16, [frame.md](frame.md#fonts)); the wide tables stay in T (the pattern list, CHECK REFERENCES' list,
+CLEAN UP's checklist, the questions' lines, text entry's hints, FX's and HOME's layers), and PRESETS' lists in B.
+- **A row is 16 px,** S's height, its text at the row's top; a highlight or a box is the row's height, from the row's
+  top − 1.
+- **A row too long for one line takes two:** its name on the first line, on the left; its value on the second,
+  right-aligned (a property, a SETTINGS item, a MIDI mapping: the FM-1's control on the first, the MIDI control and its
+  kind under it). Which rows take two follows from their texts as drawn, so a value changing can make its row one
+  line or two.
+- **Scrolling goes by rows, a two-line row whole:** the selected row always shows whole, both its lines, the list
+  moving far enough for it at either end; the selection kept in the middle while it can, as with rows of one line. A
+  row not selected may show its first line alone at the list's bottom.
+
+  The first row shown is the earlier of two: the first from which the selected row's first line comes *m* lines down
+  or less (*m* the list's middle), and the first from which every row to the end fits the lines shown; then, while the
+  selected row does not fit whole, the next. With rows of one line that is the usual
+  `max(0, min(sel − m, rows − lines))`.
+- **T beside S** (a list's figures beside its names) is drawn 2 px lower, on S's baseline
+  ([the song list](#the-song-list)).
+- **The same characters:** S holds what T holds, so every text draws as it does in T.
+
 ## Menus
 
 - **SEL** opens the actions menu for the marked block, or for the item at the cursor.
@@ -35,7 +60,9 @@ is in [frame.md](frame.md#the-header).
 - **SEL** (the key that opened it) does the highlighted action; HOME closes the menu and does nothing.
 - **Items that cannot act are left out,** not shown dim: REVERT is listed only when what it takes back
   has a change not saved ([saving.md](saving.md#revert)), and EDIT PATTERN only on a FUSION instrument.
-- **At most 15 items show;** a longer menu scrolls, keeping the highlight in the middle while it can.
+- **At most 11 items show;** a longer menu scrolls, keeping the highlight in the middle while it can.
+- **An item is 26 characters at most** (room for a group's mark after it); none is near it (the longest,
+  `REMOVE FROM FAVORITES`, has 21).
 
 ### Levels
 
@@ -45,7 +72,7 @@ Added 2026-10-10, so the menus' items can be grouped.
   actions go in groups; the frequent ones stay at the top.
 - **SEL on a group** shows its items in the same panel: `BACK` first, then the group's items. The title
   becomes the menu's title and the group's name, `CELL > ROWS`; the group's name alone when that is
-  longer than 23 characters.
+  longer than 28 characters.
 - **The highlight** starts on the group's last-used item, else on its first after BACK.
 - **BACK** (SEL on it) shows the level above, with the group highlighted, and the menu reopens there
   next time, on the group, not inside it. **HOME** closes the whole menu, at any level.
@@ -55,52 +82,55 @@ Added 2026-10-10, so the menus' items can be grouped.
   repeating it stays SEL, SEL from a group too; BACK leads to the rest.
 - **Groups follow the items' rule:** a group with nothing that can act is left out; a group with one
   item that can act shows that item in its place, without the group.
-- **15 items** show at most at either level, BACK counted.
+- **11 items** show at most at either level, BACK counted.
 
 ### Layout
 
+At the screen's whole width, in S ([Rows in S](#rows-in-s)). A character here is one of S's (8 px), a line a
+16-px row:
+
 ```
-EDITOR 12 1/8                          |   header (frame.md)
-----------------------------------------
-              +-----------------------+
-              |BLOCK 4 X 1            |    the title, T
-              |[COPY                 ]|    the highlight
-              | CUT                   |
-              | PASTE                 |
-              | PASTE MIX             |
-              | CLEAR                 |
-              | MOVE                  |
-              | SWAP                  |
-              | ROWS                 >|    a group
-              | TRANSFORM            >|
-              +-----------------------+
-----------------------------------------
-01:00 EL PIANO                SLD SLIDE    footer (frame.md)
+EDITOR 12 1/8                 |   header (frame.md)
+------------------------------
++----------------------------+
+| BLOCK 4 X 1                |    the title, S
+|[COPY                      ]|    the highlight
+|  CUT                       |
+|  PASTE                     |
+|  PASTE MIX                 |
+|  CLEAR                     |
+|  MOVE                      |
+|  SWAP                      |
+|  ROWS                     >|    a group
+|  TRANSFORM                >|
++----------------------------+
+------------------------------
+01:00 EL PIANO      SLD SLIDE     footer (frame.md, T)
 ```
 
 A group opened, in the same place:
 
 ```
-              +-----------------------+
-              |BLOCK 4 X 1 > ROWS     |
-              | < BACK                |    `<` and BACK cyan
-              | --------------------- |    a dark grey rule
-              |[INSERT ROW           ]|
-              | DELETE ROW            |
-              +-----------------------+
++----------------------------+
+| BLOCK 4 X 1 > ROWS         |
+|  < BACK                    |    `<` and BACK cyan
+|  ------------------------- |    a dark grey rule
+|[INSERT ROW                ]|
+|  DELETE ROW                |
++----------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| the panel | 84, 21 | 150 × (min(items, 15) × 12 + 22) | | a black box with a 1-px outline, at the body's right |
-| the title | 88, 24 | | T | what the menu acts on (`BLOCK 4 X 1`, `SLOT 01:05`, `PATTERN 1A`); in a group, ` > ` and the group's name after it |
-| item *i* (of those shown) | 90, 39 + 12 × *i* | | T | the action; in a group, `BACK` first |
-| BACK | `<` at 90, `BACK` at 102, 39 | | T | the first line in a group |
-| BACK's rule | 88, 49 | 142 × 1 | | under BACK, unless it is highlighted |
-| a group's mark | 222, 39 + 12 × *i* | | T | `>` |
-| the highlight | 86, 38 + 12 × *i* | 146 × 12 | | a bar under the highlighted item, outlined |
+| the panel | 2, 19 | 236 × (min(items, 11) × 16 + 22) | | a black box with a 1-px outline, the body's width |
+| the title | 8, 22 | | S | what the menu acts on (`BLOCK 4 X 1`, `SLOT 01:05`, `PATTERN 1A`); in a group, ` > ` and the group's name after it; 28 characters, cut past them |
+| item *i* (of those shown) | 10, 39 + 16 × *i* | | S | the action; in a group, `BACK` first |
+| BACK | `<` at 10, `BACK` at 26, 39 | | S | the first line in a group |
+| BACK's rule | 6, 53 | 228 × 1 | | under BACK, in its own row (the next item's bar never covers it), unless BACK is highlighted |
+| a group's mark | 222, 39 + 16 × *i* | | S | `>` |
+| the highlight | 4, 38 + 16 × *i* | 232 × 16 | | a bar under the highlighted item, outlined |
 
-The first item shown is `max(0, min(sel − 7, items − 15))`.
+The first item shown is `max(0, min(sel − 5, items − 11))`.
 
 Colours: the panel's outline light grey; the title cyan; items and groups' marks light grey; `<` and
 `BACK` cyan, its rule dark grey; the highlighted item white on a deep blue bar with a white outline.
@@ -314,31 +344,55 @@ keyboard's octave has it), the rest dark.
 - **A name** opens text entry with EDIT ([below](#text-entry)); EDIT is then its DONE.
 - **Some lines only inform** (what uses a pattern, a cartridge's type): K1 does nothing there, and
   their values are dim.
+- **At most 11 lines show** (10 under a title of two lines, FX's `FOR`); more scroll by rows, keeping the selected one
+  in the middle while it can, as a menu's items do (LOOPS' 16), a row of two lines whole when selected
+  ([Rows in S](#rows-in-s)).
+- **A row takes two lines** when its name, two spaces and its value pass 27 characters: its value then right-aligned
+  on the next line. Every row fits one line but a few as their values are drawn: FX's `KEYS, EVERYWHERE`
+  (`THROUGH FX`), PLAYBACK's `UNLOAD SONG` with a long name held, LOOPS' LENGTH while a shorter one is planned
+  (`5 BARS (NOW 21 BEATS)`).
 
 ### Layout
 
+In S ([Rows in S](#rows-in-s)); a character here is one of S's (8 px), a line a 16-px row:
+
 ```
-SONGS                                  |
-----------------------------------------
-+--------------------------------------+
-|SONG 00 PROPERTIES                    |   the title, T
-|[NAME                       PUNCH IN ]|   the selected property
-| TEMPO                 7C (124 BPM)   |
-| TICKS A ROW                      6   |
-| ROWS A BEAT                      4   |
-| SWING                         50 %   |
-| AT THE END                    STOP   |
-| LOOP FROM              POSITION 00   |
-+--------------------------------------+
+SONGS                         |
+------------------------------
++----------------------------+
+|SONG 00 PROPERTIES          |   the title, S
+|[NAME             PUNCH IN ]|   the selected property
+| TEMPO         7C (124 BPM) |
+| TICKS A ROW              6 |
+| ROWS A BEAT              4 |
+| SWING                 50 % |
+| AT THE END            STOP |
+| LOOP FROM      POSITION 00 |
++----------------------------+
+```
+
+A row of two lines (FX's, under its title of two lines):
+
+```
++----------------------------+
+|FX PROPERTIES FOR           |   the title, S
+|CITY LIGHTS                 |   whose setup, S
+| ROUTING             GLOBAL |
+|[KEYS, EVERYWHERE          ]|   its name on the first line,
+|[                THROUGH FX]|   its value on the second
++----------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
-| the panel | 6, 21 | 228 × (14 × properties + 24) | | a black box with a 1-px outline |
-| the title | 10, 24 | | T | `SONG 00 PROPERTIES`, `PATTERN 1A PROPERTIES`, ... |
-| property *i*'s name | 12, 40 + 14 × *i* | | T | its name |
-| property *i*'s value | right-aligned to 228, same | | T | its value |
-| the selection | 8, 38 + 14 × *i* | 224 × 14 | | an outline |
+| the panel | 4, 19 | 232 × (16 × the rows' lines + 24), the lines at most those in view (11, or 10), the same however it scrolls; 16 more under a title of two lines | | a black box with a 1-px outline |
+| the title | 8, 22 | | S | `SONG 00 PROPERTIES`, `PATTERN 1A PROPERTIES`, ...; `FX PROPERTIES FOR` and whose setup under it, at 8, 38 |
+| a row's name | 10, 40 + 16 × *line* | | S | its name (*line* the line shown, from the first in view; under a title of two lines from 56) |
+| its value | right-aligned to 230, the same line, or the next one when name + 2 spaces + value pass 27 characters | | S | its value |
+| the selection | 6, the row's first line − 1 | 228 × 16 × its lines | | an outline |
+
+The selection is kept 5 lines down while it can, with 11 lines in view or 10 ([Rows in S](#rows-in-s)): with rows of
+one line the first shown is `max(0, min(sel − 5, rows − 11))`.
 
 Colours: the outline light grey; the title cyan; names cyan and values light grey, both white on the
 selected line; values that only inform dark grey; a value may carry its own colour where the screen
@@ -348,8 +402,9 @@ gives it one.
 
 A HOME tap at the top of a screen opens HOME's combination
 ([controls.md](controls.md#homes-combination)) as an overlay at the body's bottom: what can act, a line
-each, and `HOME: CLOSE`. It stays through the change of screen that SELECT makes; a black key, PLAY,
-REC, LFO, HOME, and any control that is no member close it. **Once a member has acted, only its lines
+each, and `HOME: CLOSE`, in T (its screens two a line pass S's width). It stays through the change of screen that SELECT makes; a black key, PLAY,
+REC (after ARP, only as it ends a recording), LFO, HOME, an automation a white key plays or starts recording, and any
+control that is no member close it. **Once a member has acted, only its lines
 are left,** with `HOME: CLOSE`.
 
 | Line | Shows | Left after |
@@ -361,9 +416,11 @@ are left,** with `HOME: CLOSE`.
 | `WHITE KEY: MUTE A LOOP, HELD: SOLO`, `WHITE KEY: SOLO A LOOP` | in LOOPS, instead of the two above (the loops mute and solo as tracks do: [screens/loops.md](screens/loops.md#control-mode-mutes-and-solos)) | a mute or solo |
 | `KEYS 1-8: LEFT DECK, 9-16: RIGHT` | on DJ, after the white keys' line: whose tracks they are | a mute or solo |
 | `OCT+: TRACKS 08-0F` / `OCT-: TRACKS 00-07` | on DJ, where a deck's song has tracks that way | a mute or solo |
-| `SEQ: WHITE KEYS SOLO INSTEAD` / `SEQ: WHITE KEYS MUTE INSTEAD` | always | a mute or solo |
+| `WHITE KEY: PLAY ITS AUTOMATION` | after ARP: the white keys play the automations (key 1 slot `00`), in place of the mute and solo lines | |
+| `WHITE KEY: RECORD ITS AUTOMATION` | after ARP and REC: the white keys record the automations, in its place | |
+| `SEQ: SOLO INSTEAD  ARP: AUTOMATIONS` | always, two a line as the screens (ARP 19 characters in): SEQ's `SOLO INSTEAD`, or `MUTE INSTEAD` while the white keys solo; ARP's `AUTOMATIONS`, or `MUTE INSTEAD` while they play the automations | a mute or solo |
 | `PLAY: BACK TO THE START` | always; on DJ `PLAY: BACK TO THE CUES` | |
-| `REC: CUT, SILENT WHILE HELD` | always ([controls.md](controls.md#cut)) | |
+| `REC: CUT, SILENT WHILE HELD` | always ([controls.md](controls.md#cut)); after ARP `REC: RECORD INSTEAD`, `REC: PLAY INSTEAD` while the white keys record, `REC: END THE RECORDING` while an automation records ([screens/automations.md](screens/automations.md#recording)) | |
 | `LFO: HELP FOR THIS SCREEN` | always | |
 | `HOME: CLOSE` | always, last | |
 
@@ -378,11 +435,11 @@ EDITOR 00 1/8                          |
 |SELECT: THE SCREENS, ONE BY ONE       |
 |OP1: SONGS         OP2: EDITOR        |   the current screen white
 |OP3: INSTRUMENTS   OP4: PLAYBACK      |
-|OP5: DJ            PIT: VISUAL        |
-|GLO: STATUS        MONO: SETTINGS     |
-|POLY: LOOPS                           |
+|OP5: DJ            OP6: AUTOMATIONS   |
+|PIT: VISUAL        GLO: STATUS        |
+|MONO: SETTINGS     POLY: LOOPS        |
 |WHITE KEY: MUTE A TRACK, HELD: SOLO   |
-|SEQ: WHITE KEYS SOLO INSTEAD          |
+|SEQ: SOLO INSTEAD  ARP: AUTOMATIONS   |
 |PLAY: BACK TO THE START               |
 |REC: CUT, SILENT WHILE HELD           |
 |LFO: HELP FOR THIS SCREEN             |
@@ -409,13 +466,19 @@ let go.
 |---|---|
 | HOME | its combination's, as tapped open ([above](#homes-combination)), without `HOME: CLOSE` |
 | FX | the heading `HOLD FX + KEYS`; then the 16 punch-ins by key as a table of two columns, two a line (a group of four on two lines), by their full names: each key's number right-aligned in 2 characters and yellow, a space, the name light grey (the one running white); the second column 19 characters in, so a line is 37 characters at most (T is the smallest font): ` 1 LOOP 1/4          2 LOOP 1/8` … ` 9 LOW-PASS SWEEP   10 HIGH-PASS SWEEP` … `15 TAPE STOP        16 VINYL STOP` (below) |
-| SEL | only what applies where you are: in a name being typed, `SELECT IN A NAME: NEXT GROUP` alone; else the screen's own lines, then `PRESETS: OTHER CARTRIDGE` (every screen but DJ), then `GLO: FAVORITES AND BACK` wherever SEL + GLO works ([screens/instruments.md](screens/instruments.md#favorites)). The screens' own: SONGS, editing the order, `K1: 8 PATTERNS AT A TIME`; the EDITOR's grid `SELECT, ALGORITHM: MARK A BLOCK` and `K4: BY 16` (`K1: AN OCTAVE` while TRANSPOSE turns; none in the note editor); INSTRUMENTS browsing `SELECT, ALGORITHM: MARK SLOTS`, on the edit page `K1-K4: BIG STEPS`; FX `K1-K4: BIG STEPS`, on EDIT then `OCT: THE OCTAVE` (on the MIXER `K1: BY 16`); LOOPS `K1-K4: BIG STEPS`; DJ `K1, K4: THE TEMPO BY 1 BPM`, `K2, K3: THE FILTERS BY 10` (`K2, K3: THE VOLUMES BY 6 DB` while ENV has them on the volumes); PLAYBACK, VISUAL, STATUS and SETTINGS none |
+| SEL | only what applies where you are: in a name being typed, `SELECT IN A NAME: NEXT GROUP` alone; else the screen's own lines, then `PRESETS: OTHER CARTRIDGE` (every screen but DJ), then `GLO: FAVORITES AND BACK` wherever SEL + GLO works ([screens/instruments.md](screens/instruments.md#favorites)). The screens' own: SONGS, editing the order, `K1: 8 PATTERNS AT A TIME`; the EDITOR's grid `SELECT, ALGORITHM: MARK A BLOCK` and `K4: BY 16` (`K1: AN OCTAVE` while TRANSPOSE turns; none in the note editor); INSTRUMENTS browsing `SELECT, ALGORITHM: MARK SLOTS`, on the edit page `K1-K4: BIG STEPS`; FX `K1-K4: BIG STEPS`, on EDIT then `OCT: THE OCTAVE` (on the MIXER `K1: BY 16`); LOOPS `SELECT: MOVE THE LOOP`, `ALGORITHM: ITS SHIFT`, `EDIT: CUT HERE, HELD: NO CUT`, `K1-K4: BIG STEPS`; DJ `K1, K4: THE TEMPO BY 1 BPM`, `K2, K3: THE FILTERS BY 10` (`K2, K3: THE VOLUMES BY 6 DB` while ENV has them on the volumes); PLAYBACK, VISUAL, STATUS and SETTINGS none; gone while the cartridge list SEL + PRESETS opens shows |
 | GLO | `PRESETS: A FAVORITE, ONCE` wherever GLO + PRESETS works ([screens/instruments.md](screens/instruments.md#favorites)): not on DJ or INSTRUMENTS, nor over an overlay; gone while the favourites' list it opens shows |
 | SAVE | `OCT+: SAVE`, `OCT-: REVERT ALL` |
 | LFO | `HOME: HELP FOR THIS SCREEN`; on DJ then its LFO pads by key, as FX's punch-ins (the names white while on: an LFO running, the reverse, a deck's KEY not 0): `1 FADER\|2 SHAPE\|3 RANGE\|4 REVERSE`, `5 FILTER L\|6 SHAPE\|7 RANGE\|8 KEY`, `9 FILTER R\|10 SHAPE\|11 RANGE\|12 KEY`, `13 FX\|14 SHAPE\|15 RANGE\|16 ALL OFF`, `1 5 9 13: ON / OFF; + ALG: SPEED`, `8 12 HELD + K1 / K4: THE KEY` (the keys and knobs yellow); let go there, the pads are the LFO pads ([screens/dj.md](screens/dj.md#the-lfo-pads)) |
 | ARP | the arpeggiator's, on every screen but two: `SELECT: THE RHYTHM, # A NOTE, _ A REST`, `ALGORITHM: THE PATTERN`, `K1: HOW MANY NOTES LATCH`, `LFO: LET THE LATCHED NOTES GO` ([controls.md](controls.md)); the EDITOR's own, the row preview's rhythm ([screens/editor.md](screens/editor.md)); in LOOPS `REC: RECORD PATTERN` (ARP held + REC opens the pattern recorder, [screens/loops.md](screens/loops.md#the-pattern-recorder-arp)), on the screen itself (none over an overlay) |
 
 Buttons with no lines on a screen show no layer.
+
+**A layer is in S when every line fits:** its heading and each line 28 characters at most, 11 lines at most; else the
+whole layer is in T, never mixed. Which it is follows from its lines as drawn, screen by screen: SAVE's, GLO's, LFO's
+`HOME: HELP FOR THIS SCREEN` (not on DJ, with its pads), SEL's where its lines fit (everywhere but the EDITOR's grid
+and INSTRUMENTS' browsing, whose `SELECT, ALGORITHM: MARK ...` pass 28) and LOOPS' ARP are in S; HOME's (two columns),
+FX's punch-ins, the LFO pads on DJ and the arpeggiator's ARP layer (the EDITOR's too) are in T.
 
 ### Layout
 
@@ -430,11 +493,11 @@ OUTPUT                          STEREO     (the screen goes on under it)
 |SELECT: THE SCREENS, ONE BY ONE       |
 |OP1: SONGS         OP2: EDITOR        |
 |OP3: INSTRUMENTS   OP4: PLAYBACK      |
-|OP5: DJ            PIT: VISUAL        |
-|GLO: STATUS        MONO: SETTINGS     |   the current screen white
-|POLY: LOOPS                           |
+|OP5: DJ            OP6: AUTOMATIONS   |
+|PIT: VISUAL        GLO: STATUS        |   the current screen white
+|MONO: SETTINGS     POLY: LOOPS        |
 |WHITE KEY: MUTE A TRACK, HELD: SOLO   |
-|SEQ: WHITE KEYS SOLO INSTEAD          |
+|SEQ: SOLO INSTEAD  ARP: AUTOMATIONS   |
 |PLAY: BACK TO THE START               |
 |REC: CUT, SILENT WHILE HELD           |
 |LFO: HELP FOR THIS SCREEN             |
@@ -443,13 +506,24 @@ OUTPUT                          STEREO     (the screen goes on under it)
 01:00 EL PIANO DX7           FREE 237K
 ```
 
-The panel sits at the body's bottom: with *n* lines, *h* = 12 × *n* + 26 and *y* = 225 − *h*.
+The panel sits at the body's bottom: with *n* lines, *h* = 12 × *n* + 26 in T, 16 × *n* + 26 in S, and
+*y* = 225 − *h*.
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 4, *y* | 232 × *h* | | a black box with a 1-px outline |
-| the heading | 8, *y* + 5 | | T | `HOLD`, the button's name, `+` |
-| line *i* | 8, *y* + 19 + 12 × *i* | | T | a control, `:`, what it does |
+| the heading | 8, *y* + 5 | | T or S | `HOLD`, the button's name, `+` |
+| line *i* | 8, *y* + 19 + 12 × *i* in T; 8, *y* + 21 + 16 × *i* in S | | T or S | a control, `:`, what it does |
+
+SAVE's layer, in S (a character here one of S's, a line 16 px; 2 lines, *h* = 58, *y* = 167):
+
+```
++----------------------------+
+|HOLD SAVE +                 |
+|OCT+: SAVE                  |
+|OCT-: REVERT ALL            |
++----------------------------+
+```
 
 Colours: the outline light grey; `HOLD` and `+` cyan, the button's name yellow; in each line the
 control (up to the colon) yellow, the rest light grey.
@@ -558,37 +632,43 @@ yellow, its words light grey.
 
 ENV opens it on PLAYBACK and STATUS ([screens/playback.md](screens/playback.md),
 [screens/status.md](screens/status.md)).
-- **Each line:** the song's number, name, tempo (BPM) and length; the song playing in green.
-- **13 songs show;** with more, SELECT scrolls a song at a time, keeping the highlight in the middle while
+- **Each line:** the song's number and name in S, its tempo (BPM) and length in T beside them, on the names' baseline
+  (as PRESETS' lists set a name in B and its type in T); the song playing in green.
+- **10 songs show;** with more, SELECT scrolls a song at a time, keeping the highlight in the middle while
   it can (SONGS' list and DJ's scroll the same way).
 - **PLAY** starts the highlighted song from its start, as the current song; **ENV again** or **HOME**
   closes the list. It opens on the song playing, else the current one.
 - **On PLAYBACK** the song then plays there, PLAYBACK following it. **On STATUS it is a shortcut to the
   songs:** PLAY goes to SONGS with it.
 
+On the T grid; the number and the name are S's (a line a 16-px row):
+
 ```
 PLAYBACK 00/05                         |
 ----------------------------------------
 +--------------------------------------+
-|SONGS                                 |   the title, T
-| NR NAME               BPM  TIME      |   the column heads
-| 00 PUNCH IN           124  01:33     |
-| 01 SPICE ROAD          96  02:00     |   playing: green
-| 02 MIDNIGHT RUN       130  01:29     |
-|[03 CITY LIGHTS        120  01:36    ]|   the highlight
+|SONGS                                 |   the title, S
+| NR  NAME                   BPM TIME  |   the column heads, T
+| 00  PUNCH IN               124 01:33 |   the number and name S, the figures T
+| 01  SPICE ROAD              96 02:00 |   playing: green
+| 02  MIDNIGHT RUN           130 01:29 |
+|[03  CITY LIGHTS            120 01:36]|   the highlight
 +--------------------------------------+
 ```
 
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 2, 19 | 236 × 206 | | a black box with a 1-px outline |
-| the title | 6, 22 | | T | `SONGS` |
-| the column heads | 35 | | T | each over its column: `NR` at 8, `NAME` 26, `BPM` right-aligned to 152, `TIME` 164 |
-| line *i*'s number | 8, 49 + 13 × (*i* - top) | | T | `03`; 13 lines show, top = max(0, min(highlight - 6, songs - 13)) |
-| its name | 26, same | | T | up to 16 characters |
-| its tempo | right-aligned to 152, same | | T | `120` |
-| its length | 164, same | | T | `01:36` |
-| the highlight | 4, 48 + 13 × (*i* - top) | 232 × 13 | | an outline |
+| the title | 6, 22 | | S | `SONGS` |
+| the column heads | 38 | | T | each over its column: `NR` at 8, `NAME` 32, `BPM` right-aligned to 196, `TIME` 202 |
+| line *i*'s number | 8, 51 + 16 × (*i* - top) | | S | `03`; 10 lines show, top = max(0, min(highlight - 4, songs - 10)) |
+| its name | 32, same | | S | up to 16 characters |
+| its tempo | right-aligned to 196, its line + 2 | | T | `120`, on the name's baseline |
+| its length | 202, its line + 2 | | T | `01:36`; from 100:00 on, hours and whole minutes (the seconds dropped, not rounded): `1H41` (at most `99H59`, then `99H+`), so it ends by x 232 |
+| the highlight | 4, 50 + 16 × (*i* - top) | 232 × 16 | | an outline |
+
+**T on S's baseline:** S's capitals and digits sit in its rows 2-11, T's in its rows 2-9, so T drawn 2 px below a line
+of S ends its figures on the row S's end on.
 
 Colours: the outline light grey; the title cyan; the column heads dark grey; numbers, names and lengths
 light grey (the song playing green, the highlighted one white); tempos cyan. The highlight is boxed
@@ -599,10 +679,12 @@ white.
 ENV opens it on INSTRUMENTS while browsing, and on LOOPS for the keys' instrument, the stage's
 ([screens/instruments.md](screens/instruments.md), [screens/loops.md](screens/loops.md#controls)).
 
-- **Each line:** the cartridge's ID, name, type (in its colour) and slots used of its slots.
+- **Each line:** the cartridge's ID and name in S, its type (in its colour) and slots used of its slots in T beside
+  them, on the names' baseline (as [the song list's](#the-song-list)).
+- **10 cartridges show;** more scroll, keeping the highlight in the middle while it can.
 - **The order,** one in every cartridge list (this one, PRESETS' below, K1's on INSTRUMENTS, LOOPS', MIDI's bank
-  select): the built-in FAVORITES `FB` first, then the user's FAVORITES cartridges by number
-  ([screens/instruments.md](screens/instruments.md#favorites)), then the other cartridges by number, the user's
+  select): the built-in FAVORITES `FB` first, then the user's FAVORITES cartridges by number (an earlier PT/FM's: the
+  FM-1 makes none now, [screens/instruments.md](screens/instruments.md#favorites)), then the other cartridges by number, the user's
   then the built-in ones. A FAVORITES cartridge afloat (MOVE) is listed among the FAVORITES cartridges, under the
   number it would take. An empty FAVORITES cartridge picked has its cursor on its first slot and keeps the current
   instrument.
@@ -610,25 +692,23 @@ ENV opens it on INSTRUMENTS while browsing, and on LOOPS for the keys' instrumen
 - **SEL** opens the screen's menu for it, where the screen has one (INSTRUMENTS: NEW, CLONE, MOVE,
   DELETE, RENAME, AUTO LEVEL ALL).
 
+On the T grid; the ID and the name are S's (a line a 16-px row):
+
 ```
 INSTRUMENTS 1/4                        |
 ----------------------------------------
 +--------------------------------------+
-|CARTRIDGES                            |   the title, T
-| ID NAME         TYPE      SLOTS      |   the column heads
-| 05 BASS         SAMPLER   004/064    |
-| 06 FUSION       FUSION    006/064    |
-| F0 KEYS/ORGANS  DX7       032/032    |   a built-in cartridge
-| F1 BELLS/PLUCKS DX7       032/032    |
-| F2 GUITAR/STRGS DX7       032/032    |
-| F3 WINDS/BRASS  DX7       032/032    |
-| F4 PADS/CHOIRS  DX7       024/032    |
-| F5 LEADS/BASSES DX7       032/032    |
-| F6 FM DRUM KIT  DX7       032/032    |
-| F7 PERC/FX      DX7       032/032    |
-| F8 JUNO-106     JUNO-106  128/128    |
-| F9 CHIPTUNE     CHIP      128/128    |
-|[FA TB-303       TB-303    064/128   ]|   the highlight
+|CARTRIDGES                            |   the title, S
+| ID  NAME            TYPE      SLOTS  |   the column heads, T
+| 05  BASS            SAMPLER   004/064|   the ID and name S, the figures T
+| 06  FUSION          FUSION    006/064|
+| F0  KEYS/ORGANS     DX7       032/032|   a built-in cartridge
+| F1  BELLS/PLUCKS    DX7       032/032|
+| F2  GUITAR/STRGS    DX7       032/032|
+| F5  LEADS/BASSES    DX7       032/032|
+| F8  JUNO-106        JUNO-106  128/128|
+| F9  CHIPTUNE        CHIP      128/128|
+|[FA  TB-303          TB-303   064/128]|   the highlight
 +--------------------------------------+
 ----------------------------------------
 FA:40 EMPTY TB-303             FA TB-303
@@ -637,13 +717,13 @@ FA:40 EMPTY TB-303             FA TB-303
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 2, 19 | 236 × 206 | | a black box with a 1-px outline |
-| the title | 6, 22 | | T | `CARTRIDGES`, or the screen's own (`NEW LOOP: A CARTRIDGE`: [screens/loops.md](screens/loops.md#controls)) |
-| the column heads | 8, 35 | | T | `ID NAME         TYPE      SLOTS` |
-| line *i*'s ID | 8, 49 + 13 × (*i* - top) | | T | `01`; 13 lines show, top = max(0, min(cursor - 6, cartridges - 13)) |
-| its name | 26, same | | T | up to 12 characters |
-| its type | 110, same | | T | `DX7`, `JUNO-106`, `TB-303`, `CHIP`, `SAMPLER`, `FUSION`, `FAVORITES` |
-| its slots | 170, same | | T | used `/` size, 3 digits each |
-| the highlight | 4, 48 + 13 × (*i* - top) | 232 × 13 | | an outline |
+| the title | 6, 22 | | S | `CARTRIDGES`, or the screen's own (`NEW LOOP: A CARTRIDGE`: [screens/loops.md](screens/loops.md#controls)) |
+| the column heads | 38 | | T | each over its column: `ID` at 8, `NAME` 32, `TYPE` 134, `SLOTS` 192 |
+| line *i*'s ID | 8, 51 + 16 × (*i* - top) | | S | `01`; 10 lines show, top = max(0, min(cursor - 4, cartridges - 10)) |
+| its name | 32, same | | S | up to 12 characters |
+| its type | 134, its line + 2 | | T | `DX7`, `JUNO-106`, `TB-303`, `CHIP`, `SAMPLER`, `FUSION`, `FAVORITES`, on the name's baseline |
+| its slots | 192, its line + 2 | | T | used `/` size, 3 digits each, to 234 |
+| the highlight | 4, 50 + 16 × (*i* - top) | 232 × 16 | | an outline |
 
 Colours: the outline light grey; the title cyan; the column heads dark grey; IDs and names light grey,
 white when highlighted, the ID of a built-in cartridge brown while unchanged ([saving.md](saving.md#fws)); each type in its engine's colour ([colours.md](colours.md)); slots light grey.
@@ -687,14 +767,14 @@ PRESETS turned shows the instruments it turns through, titled `INSTRUMENTS`, whi
   skips them; the header names the source.
 - **It closes** a second after the last click, or at any other control, which does its own job as if it had not
   been open. No LED.
-- **GLO held + PRESETS** shows the same list, titled `FAVORITES`, for the FAVORITES cartridge it picks from, the
+- **GLO held + PRESETS** shows the same list, titled `FAVORITES`, for `FB`, the
   favourite just picked highlighted, with PRESETS LIST OFF too; it stays while GLO is held and closes when GLO is let
   go (or at any other control) ([screens/instruments.md](screens/instruments.md#favorites)).
 
 ### PRESETS' lists: layout
 
 Both lists PRESETS shows as it turns use FONT_B (12 × 24, twice FONT_T), so they read at a glance: 26 px lines where
-the cartridge list has 13.
+the cartridge list has 16.
 
 A character here is a FONT_B one (12 px); `~` marks where a cartridge's type stands, in FONT_T, right-aligned:
 
@@ -737,7 +817,7 @@ Names are edited the arcade way:
   last one drops off).
 - **Done:** the key that opened the entry: EDIT for every name, a menu's RENAME included. **Cancel:** HOME.
 - **Characters:** capitals A-Z, digits, space and `: . - ? | / \ * # $ @ %`, in that order.
-- **The lengths:** instrument names 10 characters, cartridge names 12, song names 16
+- **The lengths:** instrument names 10 characters, cartridge names 12, song names and LOOPS sets' names 16
   ([README.md](README.md#limits-the-screens-must-respect)). Trailing spaces are dropped; a name left
   empty becomes `NO NAME`.
 
@@ -767,7 +847,7 @@ INSTRUMENTS                            |
 | Element | x, y | w × h | Font | Shows |
 |---|---|---|---|---|
 | the panel | 10, 61 | 220 × 104 | | a black box with a 1-px outline |
-| the title | 14, 64 | | T | what is named: `INSTRUMENT 01:00`, `CARTRIDGE 0B`, `SONG NAME` |
+| the title | 14, 64 | | T | what is named: `INSTRUMENT 01:00`, `CARTRIDGE 0B`, `SONG NAME`, `SET 03` |
 | character *i* | *x0* + 12 × *i*, 84 | 12 × 24 | B | the character; a space as `_` |
 | the cursor | *x0* + 12 × *pos*, 83 | 12 × 26 | | a bar behind the character |
 | the hints | 16, 117 / 131 / 145 | | T | `ALGORITHM: MOVE  SELECT: LETTER`; the opener's name `: DONE  HOME: CANCEL`; `LFO: DELETE  OCT+: SPACE` |
@@ -824,7 +904,8 @@ ID or count; a count of 1 takes the singular (`1 CHANGE`, `1 TIME`).
 | `PATTERN 1A MOVED TO 1C` | toast | a pattern put down at another number |
 | `PATTERN 1A DELETED` | toast | DELETE |
 | `NR  SIZE   NOTES BY TRACK     SONGS` | the pattern list's heads | |
-| `ID NAME         TYPE      SLOTS` | the cartridge list's heads | |
+| `ID`, `NAME`, `TYPE`, `SLOTS` | the cartridge list's heads | each over its column |
+| `NR`, `NAME`, `BPM`, `TIME` | the song list's heads | each over its column |
 | `HOME: CANCEL` | every question | |
 | `OCT-`, `OCT+` | every question | over the answers |
 | `HOLD`, `+` and the layers' lines | the hold layers | [above](#hold-layers) |

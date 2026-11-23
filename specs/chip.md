@@ -162,8 +162,29 @@ commands, not the tables.
   division (the few divisions in the sound's loops are exact multiplies); amplitudes from the curves' tables; the
   kernel's taps summing to exactly one at every phase.
 - **Its state is the voice's own** (the running sum, the 16 samples of impulse tail past the block, the filters, the
-  registers): two voices of CHIP may render at once on the two cores, and a voice parked (unheard) keeps its time,
-  ending as it would.
+  registers): two voices of CHIP may render at once on the two cores.
+
+### A note without its engine
+
+A CHIP note taken from its engine, or started on a muted track, goes on as a ghost
+([ui/screens/settings.md](ui/screens/settings.md#ghosts)), and comes back worked forward:
+
+- **The forward work,** from its note's start in a fresh engine: its tables (a table's place from its speed and its
+  loop), its step envelope and its PSG envelope (a place from its period and shape) in one sum each, its sweep
+  stepped until it reaches its limit, its release counter (a level every RELEASE frames after its let-go; at 0 the
+  note has ended) in one sum, the vibrato's frames counted on; the frames counted as the engine counts them, from
+  the note's start. Not kept: the oscillator's, the gate's and the noise's phases and the filters, as its note's
+  start leaves them.
+- **Its end, two figures:** its end while held (its VOL table running out; never with none) and its release's length
+  once let go, worked out from its engine's state when it becomes a ghost (a note started as a ghost: from its start
+  on a scratch voice), by the commands it has then, and again as its return's note starts, from that note's start, by
+  the commands it comes back with. They end it whether its return is under way or not (its work waiting, it ends
+  where the note never taken ends; a return given up changes nothing in them), and the 10 s limit on a ghost let go
+  still holds; one whose end has come by its note's start goes at once. A return waiting on a release tail's engine,
+  its note not started yet, keeps the figures it has.
+- **Let go,** its release is counted from its note's start frame: up to a frame of its instrument later than the
+  note never taken, never sooner.
+- **Its commands meanwhile** (RELEASE, the VOL table, FRAMES) act from its return.
 
 ## The tables
 
@@ -274,7 +295,7 @@ as any.
   sample, stepped in runs). A Juno-106 voice is 30.5-48.7 µs, a DX7 23.5-40. Its ceiling: 128 + 128 + 64
   band-limited steps a block, 64 more with slow noise mixed in ([above](#the-clock-clock)). The debug build's
   figures count CHIP's time with the samples'.
-- **RAM:** none of its own. A voice's state (228 B) fits the voice slot; nothing static, no tables built at start.
+- **RAM:** none of its own. A voice's state (228 B) fits an engine's room; nothing static, no tables built at start.
 - **Flash:** the engine's code about 7 KB, its tables 5 KB (the kernel 2 KB, the curves 0.5 KB, the tables and waves
   1.5 KB, the clocks', noise's and steps' 1 KB); the built-in cartridge 3.6 KB.
 - **Core 2:** the engine runs from the image as the others do, its state the voice's alone, so a CHIP voice runs on
@@ -284,5 +305,6 @@ as any.
 
 The playground's CHIP is the firmware's integers in JS (whole numbers in doubles, every one exact; the same tables
 from one generator), not floats. `fw/tests/run_chip.sh` renders every instrument of the built-in cartridge at four
-notes, held and let go, bent and with a command, and random instruments, notes, parkings and commands, through both,
-and requires them equal sample for sample; the screens' tuning too.
+notes, held and let go, bent and with a command, and random instruments, notes, stretches skipped unheard (the steps
+a ghost's forward work is checked against) and commands, through both, and requires them equal sample for sample; the
+screens' tuning too.

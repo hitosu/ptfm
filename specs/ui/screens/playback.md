@@ -90,12 +90,14 @@ Colours: as the EDITOR's grid; the playing row's band deep blue; the empty scree
 
 ### GLO: the view's options
 
+A character here is one of S's (8 px), a line a 16-px row:
+
 ```
-+--------------------------------------+   a panel at 6, 21, 228 x 52 (38 with SCROLL alone)
-| PLAYBACK VIEW                        |   the title, T at 10, 24
-|[SCROLL                           ROWS]|   items, T, every 14 px from 40
-| UNLOAD SONG                  PUNCH IN|   (while a song is held)
-+--------------------------------------+
++----------------------------+   a panel at 4, 19, 232 x 56 (40 with SCROLL alone)
+| PLAYBACK VIEW              |   the title, S at 8, 22
+|[SCROLL                ROWS]|   items, S, every 16 px from 40
+| UNLOAD SONG       PUNCH IN |   (while a song is held; a name of 15 or 16
++----------------------------+   characters goes to a second line)
 ```
 
 SELECT picks; K1 on SCROLL switches it (it is the setting PLAYBACK SCROLL, [settings.md](settings.md)):

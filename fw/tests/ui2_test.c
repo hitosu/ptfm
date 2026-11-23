@@ -34,6 +34,8 @@ uint32_t plat_ms(void) { return now_ms; }
 uint32_t plat_us(void) { return now_ms * 1000u; }
 void plat_input(plat_input_t *in) { *in = in_now; memset(in_now.knob, 0, sizeof in_now.knob); }
 uint32_t plat_notes(void) { return in_now.notes; }
+static uint8_t kvel_now[27];            /* the keys' velocity as the FM-1's scan gives it (0 none: KEYS VOLUME) */
+int plat_key_vel(int n) { return n >= 0 && n < 27 && (in_now.notes >> n & 1u) ? kvel_now[n] : 0; }
 void plat_led(int id, uint8_t level) { (void)id; (void)level; }
 void plat_lcd_rows(int y, int h, const uint16_t *px) { memcpy(screen + y * 240, px, (size_t)h * 240 * 2); }
 int plat_screen_lost(void) { return 0; }
@@ -474,6 +476,34 @@ int main(int argc, char **argv)
     rec_cell_t fcell;
     check(fp >= 0 && ed_cell((uint8_t)fp, 0x3C, 0, &fcell) && (fcell.has & RC_INS) && fcell.cart == dx && fcell.slot == 3,
           "... it offered the last sound picked (the DX7's slot 03), FILL wrote it on row 3C");
+    tap(B_HOME);
+    {   /* the keys' velocity (specs/hardware.md#the-keys-velocity): REC and a key write the key's velocity as its note's
+         * volume, as a MIDI note's; KEYS VELOCITY CONSTANT: KEYS VOLUME. The pattern made for it dropped again */
+        int vp = rec_free_pattern();
+        rec_cell_t vc;
+        ok = vp >= 0 && !ed_new_pattern((uint8_t)vp, 4, 64, 1);
+        ui_set_inst((uint16_t)(dx << 8));
+        ed_editor_goto((uint8_t)vp, 0, 0);
+        home_key(3);
+        tap(B_REC);
+        kvel_now[5] = 87;
+        keytap(5);
+        kvel_now[5] = 0;
+        check(ok && ed_cell((uint8_t)vp, 0, 0, &vc) && vc.note == ui_midi(5) && (vc.has & RC_VOL) && vc.vol == 87,
+              "the keys' velocity: REC + a key pressed at 87 writes its note at volume 87");
+        ui_set[S_KEYS_VELOCITY] = 0;
+        ui_settings_apply(S_KEYS_VELOCITY);
+        kvel_now[6] = 87;
+        keytap(6);
+        kvel_now[6] = 0;
+        check(ed_cell((uint8_t)vp, 1, 0, &vc) && vc.note == ui_midi(6) && vc.vol == ui_set[S_KEYS_VOLUME],
+              "... KEYS VELOCITY CONSTANT: at KEYS VOLUME");
+        ui_set[S_KEYS_VELOCITY] = 2;
+        ui_settings_apply(S_KEYS_VELOCITY);
+        tap(B_REC);
+        tap(B_HOME);
+        if (vp >= 0) ui_edit_revert(REC_PATTERN, (uint8_t)vp, 0);
+    }
 
     printf(fails ? "ui2_test: %d FAILED\n" : "ui2_test: all passed\n", fails);
     return fails ? 1 : 0;

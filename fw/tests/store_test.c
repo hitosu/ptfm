@@ -7,7 +7,11 @@
  * old form never touched, CHECK STORAGE's entry check, the LAYOUT; the edit memory as pieces (a pattern's tracks, a
  * cartridge's slots, LOOPS'), REVERT of one thing, the save of a pattern too big for one part, room joined, hold, an
  * edit mode's copies, pieces past 64 KB (run_store.sh builds them with an edit memory of 96 KB too), LOOPS in parts,
- * its older version kept; LOOPS' stage, a piece no SAVE or REVERT takes. */
+ * its older version kept; LOOPS' stage, a piece no SAVE or REVERT takes; the list of records (560 at most: a save past
+ * it refused with nothing written, deleted records reclaimed, deletions first at the limit, parts counted as the mount
+ * counts them, the count against a power-on's over random saves, power cuts while reclaiming; only as many reclaimed as a
+ * save needs; the seal left out with compaction's 2 blocks alone free; a failed flash operation in a sealing save; random
+ * saves with deletions near the limit and power cuts anywhere). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -990,12 +994,15 @@ static void t_layout(void)
     CHECK(lay_total && lay_n == lay_total && !memcmp(lay, "PTLY", 4), "the LAYOUT: %u of %u bytes", lay_n, lay_total);
     CHECK((lay[6] | lay[7] << 8) == STORE_MAP_MAX && STORE_MAP_MAX == 560, "its bytes 6-7: the map's room, %u", lay[6] | lay[7] << 8);
     uint32_t nreg = lay[20], nacc = lay[21], o = 36 + 12 * nreg;
-    int s2 = 0, smp = 0, s1 = 0, old = 0;
+    int s2 = 0, smp = 0, s1 = 0, old = 0, sets = 0, aut = 0;
     for (uint32_t i = 0; i < nacc; i++, o += 2) {
         s2 += lay[o] == REC_SAMPLER && lay[o + 1] == 2; s1 += lay[o] == REC_SAMPLER && lay[o + 1] == 1;
         smp += lay[o] == REC_SAMPLE && lay[o + 1] == 1; old += lay[o] == REC_AUDIO_OLD;
+        sets += lay[o] == REC_LSET && lay[o + 1] == REC_LSET_VER;
+        aut += lay[o] == REC_AUTO && lay[o + 1] == 1;
     }
-    CHECK(nacc == 14 && s2 && smp && !s1 && !old, "it takes samplers of version 2 and samples, not the old form (%u pairs)", nacc);
+    CHECK(nacc == 16 && s2 && smp && !s1 && !old && sets && aut, "it takes samplers of version 2, samples, LOOPS sets and "
+          "AUTOMATIONS, not the old form (%u pairs)", nacc);
 }
 
 /* A deleted object never comes back, whatever compaction does. */
@@ -1207,6 +1214,124 @@ static void t_editor_room(void)
  * (DELETE, CLEAN UP), then one SAVE. The deletion is saved first, on its own, then the rest once compaction has
  * freed its blocks (store.md#the-room-for-the-editors-pattern: "once something is deleted SAVE writes them"). A
  * pattern MOVEd (put at a new number, deleted at the old) is never split so: refused, nothing written. */
+/* A save in parts (store.md#a-save-in-parts): songs changed whose new copies together outgrow the free room, each
+ * fitting: one SAVE writes them all, in parts (compaction freeing the copies each part replaced), its percent never
+ * going back; after a power-cycle every song as edited. A full pattern added, bigger than the room: refused as storage
+ * full, short by what it lacks, none of it written. */
+static void t_save_parts(void)
+{
+    fake_reset();
+    store_init();
+    int obj = 0;
+    while (save_big(obj) == STORE_OK && obj < 200) obj++;
+    CHECK(store_save_begin() == 0, "parts: begin");
+    for (int i = obj - 4; i < obj; i++) store_save_del(REC_SONG, (uint8_t)i, 0);
+    CHECK(store_save_run() == STORE_OK, "parts: the last 4 songs deleted");
+    obj -= 4;
+    int fb = free_blocks(), n = obj < 15 ? obj : 15, put = 0;
+    static uint8_t b[sizeof big];
+    for (int i = 0; i < n; i++) {
+        memset(b, 0xA0 ^ i, sizeof b);
+        put += store_edit_put(REC_SONG, (uint8_t)i, 0, 1, b, sizeof b) == STORE_OK;
+    }
+    CHECK(put == n && n > fb - STORE_MIN_FREE - (int)STORE_EDITOR_ROOM, "parts: %d songs changed, more than the room of the %d free blocks", n, fb);
+    store_usage_t u0, u1;
+    store_usage(&u0);
+    int r = store_edit_save(), st, last = 0, back = 0;
+    uint8_t pc = 0;
+    while ((st = store_save_status(&pc)) == STORE_BUSY) { back |= pc < last; last = pc; store_poll(); }
+    store_usage(&u1);
+    CHECK(!r && st == STORE_OK && store_edit_count() == 0 && !back && u1.last_save > u0.last_save + 1,
+          "parts: one SAVE writes them all, in %u saves, its percent never going back (%d, %d, %d left)",
+          (unsigned)(u1.last_save - u0.last_save), r, st, store_edit_count());
+    store_init();
+    int same = 1;
+    for (int i = 0; i < obj; i++) {
+        uint32_t len;
+        const uint8_t *p = store_get(REC_SONG, (uint8_t)i, 0, &len, 0);
+        uint8_t want = (uint8_t)(i < n ? 0xA0 ^ i : i);
+        if (!p || len != sizeof big) { same = 0; continue; }
+        for (uint32_t k = 0; k < len; k++) if (p[k] != want) { same = 0; break; }
+    }
+    CHECK(same, "parts: after a power-cycle every song as edited, the others as they were");
+    CHECK(put_full_pattern(0x30, 3) == 0, "parts: a full pattern added (~30 KB)");
+    r = edits_saved();
+    uint32_t len;
+    CHECK(r == STORE_ERR_FULL && store_edit_count() > 0 && store_save_short() >= STORE_BLOCK && store_save_short() % STORE_BLOCK == 0,
+          "parts: not even it fits: refused, kept, short by %u", (unsigned)store_save_short());
+    store_edit_revert();
+    store_init();
+    CHECK(!store_get(REC_PATTERN, 0x30, 0, &len, 0), "parts: none of it written");
+}
+
+/* A MOVE with storage full (store.md#a-save-in-parts): pattern 20's copy put at 21 and 20 deleted, FE changed. The
+ * save goes in parts: 21 first, 20's deletion only after it (a deletion an edit could be made from never goes ahead of
+ * the new thing), then FE. Cut at every flash operation, a power-on finds the pattern at 20 or 21, never neither. */
+static uint8_t mp_base[sizeof fake_flash], mp_b[4096];
+static uint32_t mp_n21;
+static int mp_edits(void)
+{
+    uint8_t one[3] = { 0x81, 62, 0 };
+    int r = store_edit_piece(REC_PATTERN, 0xFE, 0, 1, one, sizeof one);
+    if (!r) r = store_edit_put(REC_PATTERN, 0x21, 0, 1, mp_b, mp_n21);
+    if (!r) r = store_edit_del(REC_PATTERN, 0x20, 0);
+    return r;
+}
+static int mp_state(void)               /* 0: at 20 alone; 1: at 21 alone; 2: both; -1: neither */
+{
+    uint32_t len;
+    int a = store_get(REC_PATTERN, 0x20, 0, &len, 0) != 0, b = store_get(REC_PATTERN, 0x21, 0, &len, 0) != 0;
+    return a && !b ? 0 : b && !a ? 1 : a && b ? 2 : -1;
+}
+static void t_move_parts(void)
+{
+    fake_reset();
+    store_init();
+    CHECK(put_full_pattern(0x20, 1) == 0 && edits_saved() == STORE_OK, "move: a full pattern 20 saved");
+    int obj = 0;
+    while (save_big(obj) == STORE_OK && obj < 200) obj++;
+    CHECK(put_full_pattern(0xFE, 2) == 0 && edits_saved() == STORE_OK && free_blocks() == STORE_MIN_FREE, "move: FE saved full, 2 free");
+    int cells[16] = { 4 };
+    mp_n21 = pat(mp_b, 1, cells, 1);
+    memcpy(mp_base, fake_flash, sizeof mp_base);
+    fake_ops = 0;
+    CHECK(mp_edits() == 0 && edits_saved() == STORE_OK && store_edit_count() == 0, "move: FE changed and 20 moved to 21: one SAVE, in parts");
+    uint32_t sv21 = 0, sv20 = 0;
+    for (int i = 0; i < store_count(); i++) {
+        store_rec_t r;
+        uint32_t sv;
+        store_entry(i, &r, &sv, 0);
+        if (r.kind == REC_PATTERN && r.num == 0x21 && !r.deleted) sv21 = sv;
+        if (r.kind == REC_PATTERN && r.num == 0x20 && r.deleted && sv > sv20) sv20 = sv;
+    }
+    CHECK(sv21 && sv20 > sv21, "move: 21 saved (save %u) before 20's deletion (save %u)", sv21, sv20);
+    long total = fake_ops;
+    store_init();
+    uint32_t len;
+    const uint8_t *q = store_get(REC_PATTERN, 0xFE, 0, &len, 0);
+    CHECK(mp_state() == 1 && q && q[5] == 0x81 && q[6] == 62, "move: after a power-cycle 21 there, 20 gone, FE as changed");
+    static int torn, n[3], bad;
+    static long k;                                      /* static: kept across the longjmp */
+    n[0] = n[1] = n[2] = bad = 0;
+    for (torn = 0; torn < 2; torn++)
+        for (k = 0; k <= total; k++) {
+            memcpy(fake_flash, mp_base, sizeof mp_base);
+            store_init();
+            store_edit_revert();
+            mp_edits();
+            fake_ops = 0; cut_at = k; cut_torn = torn;
+            if (!setjmp(cut_env)) edits_saved();
+            cut_at = -1;
+            store_init();                               /* power on: the edits in RAM gone */
+            store_edit_revert();
+            int st = mp_state();
+            if (st >= 0) n[st]++;
+            else { bad++; CHECK(0, "move cut at %ld%s: the pattern neither at 20 nor at 21", k, torn ? " (torn)" : ""); }
+        }
+    printf("  a MOVE in parts cut: %ld operations x 2, at 20 %d, at 21 %d, both %d\n", total + 1, n[0], n[1], n[2]);
+    CHECK(!bad && n[0] && n[1] && n[2], "move: cut at every operation, never lost (at 20 %d, at 21 %d, both %d)", n[0], n[1], n[2]);
+}
+
 static void t_editor_room_delete(void)
 {
     fake_reset();
@@ -1220,13 +1345,8 @@ static void t_editor_room_delete(void)
     static uint8_t b[4096];
     int cells[16] = { 4 };
     uint32_t n21 = pat(b, 1, cells, 1);
-    /* a MOVE: 20's copy put at 21, 20 deleted: one save or none */
-    CHECK(store_edit_put(REC_PATTERN, 0x21, 0, 1, b, n21) == 0 && store_edit_del(REC_PATTERN, 0x20, 0) == 0, "split: a MOVE edited");
-    CHECK(edits_saved() == STORE_ERR_FULL && store_edit_count() == 3, "split: a MOVE's delete never goes first: refused, all kept");
+    (void)n21;                                          /* (a MOVE here: t_move_parts) */
     uint32_t len;
-    store_edit_revert();                                /* power-cycle: the edits in RAM gone */
-    store_init();
-    CHECK(store_get(REC_PATTERN, 0x20, 0, &len, 0) && !store_get(REC_PATTERN, 0x21, 0, &len, 0), "split: after a power-cycle, 20 as saved, no 21");
     /* a plain DELETE: saved first, then FE */
     CHECK(store_edit_piece(REC_PATTERN, 0xFE, 0, 1, one, sizeof one) == 0 && store_edit_del(REC_PATTERN, 0x20, 0) == 0,
           "split: FE changed, pattern 20 deleted (edits)");
@@ -2494,6 +2614,489 @@ static void t_favorites(void)
     }
 }
 
+/* The list of records (specs/files/store.md#the-list-of-records): the map lists 560 at most, a record each (every part
+ * of a pattern too). A save that would list more is refused before anything of it is written; the deleted records it
+ * lists are reclaimed first (every copy spoilt), so what was deleted makes room at the next save; what the map lists
+ * is what a power-on lists. Records of kind 0x7E (no kind of the store's own), key k: number k / 16, sub k % 16, each
+ * payload saying its key and version. */
+#define JK 0x7E
+static uint32_t jk_most = 60;                   /* (a payload: 8 B and up to this) */
+static uint32_t jk_len(int k, int ver) { return 8 + (uint32_t)((k * 37 + ver * 11) % jk_most); }
+static void jk_fill(uint8_t *b, int k, int ver)
+{
+    uint32_t n = jk_len(k, ver);
+    for (uint32_t i = 0; i < n; i++) b[i] = (uint8_t)(k * 31 + ver * 7 + i * 13);
+    b[0] = (uint8_t)k; b[1] = (uint8_t)(k >> 8); b[2] = (uint8_t)ver; b[3] = (uint8_t)(ver >> 8);
+}
+static int jk_held(int k)                       /* its version, -1 none, -2 wrong bytes */
+{
+    uint32_t len;
+    const uint8_t *p = store_get(JK, (uint8_t)(k >> 4), (uint8_t)(k & 15), &len, 0);
+    if (!p) return -1;
+    int v = p[2] | p[3] << 8;
+    static uint8_t want[4096];
+    jk_fill(want, k, v);
+    return len == jk_len(k, v) && !memcmp(p, want, len) ? v : -2;
+}
+/* one save: np records put (keys put[], versions ver[]), nd deleted (keys del[]); its result */
+static int jk_save(const int *put, const int *ver, int np, const int *del, int nd)
+{
+    int r = store_save_begin();
+    for (int i = 0; !r && i < np; i++) {
+        jk_fill(bufs[i], put[i], ver[i]);
+        r = store_save_put(JK, (uint8_t)(put[i] >> 4), (uint8_t)(put[i] & 15), 1, bufs[i], jk_len(put[i], ver[i]));
+    }
+    for (int i = 0; !r && i < nd; i++) r = store_save_del(JK, (uint8_t)(del[i] >> 4), (uint8_t)(del[i] & 15));
+    if (r) { store_save_cancel(); return r; }
+    return store_save_run();
+}
+static int jk_range(int from, int n, int ver)   /* keys from .. from + n - 1 put, 150 a save (the save API's list
+                                                 * on the PC: 170); 0 done */
+{
+    static int ks[150], vs[150];
+    for (int at = 0; at < n; at += 150) {
+        int m = n - at < 150 ? n - at : 150, r;
+        for (int i = 0; i < m; i++) { ks[i] = from + at + i; vs[i] = ver; }
+        if ((r = jk_save(ks, vs, m, 0, 0))) return r;
+    }
+    return 0;
+}
+static int jk_one(int k, int ver) { return jk_save(&k, &ver, 1, 0, 0); }
+static int jk_del(int k) { return jk_save(0, 0, 0, &k, 1); }
+static int lost_now(void) { store_usage_t u; store_usage(&u); return u.lost; }
+static int dels_listed(void)            /* the map's deleted entries */
+{
+    store_rec_t r;
+    int n = 0;
+    for (int i = 0; store_entry(i, &r, 0, 0); i++) n += r.deleted;
+    return n;
+}
+static void t_list(void)
+{
+    fake_reset();
+    store_init();
+    jk_most = 60;
+    for (int i = 0; i < 10; i++) save_one(REC_SONG, i, 1);
+    int r = jk_range(0, 550, 1);
+    CHECK(r == 0 && store_count() == 560, "560 records saved (%d): %d listed", r, store_count());
+    store_init();
+    int all = 1;
+    for (int k = 0; k < 550; k++) if (jk_held(k) != 1) all = 0;
+    CHECK(store_count() == 560 && all && !lost_now(), "... a power-on lists all 560 again: %d, %d lost", store_count(), lost_now());
+    /* the 561st: refused, nothing written, nothing lost */
+    memcpy(base, fake_flash, sizeof base);
+    long ops = fake_ops;
+    r = jk_one(550, 1);
+    CHECK(r == STORE_ERR_FULL && store_save_over() == 1 && fake_ops == ops && !memcmp(base, fake_flash, sizeof base),
+          "the 561st record: refused (%d, %d over), nothing written (%ld flash operations)", r, store_save_over(), fake_ops - ops);
+    store_init();
+    CHECK(store_count() == 560 && jk_held(550) == -1 && jk_held(549) == 1 && !lost_now(), "... the 560 still there after a power-on");
+    /* written again: listed once */
+    CHECK(jk_one(5, 2) == 0 && store_count() == 560 && jk_held(5) == 2 && store_save_over() == 0,
+          "a record written again at 560: saved, still 560 listed");
+    /* deleted in a save of its own (listed till reclaimed), then a new one: the deleted record reclaimed; it was the
+       newest save's last record, so a live one is written again first */
+    CHECK(jk_del(7) == 0 && store_count() == 560, "a record deleted: its deleted record still listed, 560");
+    ops = fake_ops;
+    r = jk_one(550, 1);
+    CHECK(r == 0 && store_count() == 560 && jk_held(550) == 1 && jk_held(7) == -1,
+          "then a new one: saved (%d), the deleted record reclaimed: %d listed (%ld flash operations)", r, store_count(), fake_ops - ops);
+    store_init();
+    CHECK(store_count() == 560 && jk_held(550) == 1 && jk_held(7) == -1 && jk_held(5) == 2 && version_held(REC_SONG, 9) == 1 &&
+          !lost_now(), "... a power-on lists the same 560, the deleted one not back");
+    /* one save of the save API deleting one and adding one: the deletion's record still listed after it, refused */
+    int put = 551, ver = 1, del = 8;
+    ops = fake_ops;
+    r = jk_save(&put, &ver, 1, &del, 1);
+    CHECK(r == STORE_ERR_FULL && store_save_over() == 1 && fake_ops == ops && jk_held(8) == 1 && jk_held(551) == -1,
+          "one save deleting one and adding one at 560: refused (the deletion listed after it), nothing written");
+    /* the edits' SAVE at 560, a song deleted and a pattern made: the deletion first (a save of its own), then the rest,
+       the deletion reclaimed */
+    static uint8_t pb[4096];
+    int cells[16] = { 4, 2 };
+    uint32_t pl = pat(pb, 2, cells, 3);
+    CHECK(store_edit_del(REC_SONG, 3, 0) == STORE_OK && store_edit_put(REC_PATTERN, 0x40, 0, 1, pb, pl) == STORE_OK,
+          "edits: song 03 deleted, pattern 40 made");
+    r = edits_saved();
+    CHECK(r == 0 && store_count() == 560 && !store_edit_count() && version_held(REC_SONG, 3) == -1 &&
+          store_get(REC_PATTERN, 0x40, 0, 0, 0), "SAVE at 560 deleting one and making one: saved (%d), %d listed", r, store_count());
+    store_init();
+    CHECK(store_count() == 560 && version_held(REC_SONG, 3) == -1 && store_get(REC_PATTERN, 0x40, 0, 0, 0) && !lost_now(),
+          "... so after a power-on");
+    /* a pattern deleted and another made: that deletion cannot go first (the new pattern could be made of it), so the
+       SAVE is refused whole, the edits kept, nothing written */
+    CHECK(store_edit_del(REC_PATTERN, 0x40, 0) == STORE_OK && store_edit_put(REC_PATTERN, 0x41, 0, 1, pb, pl) == STORE_OK,
+          "edits: pattern 40 deleted, 41 made");
+    memcpy(base, fake_flash, sizeof base);
+    ops = fake_ops;
+    r = edits_saved();
+    CHECK(r == STORE_ERR_FULL && store_save_over() == 1 && fake_ops == ops && !memcmp(base, fake_flash, sizeof base) &&
+          store_edit_count() == 2 && store_edit_has(REC_PATTERN, 0x41, 0) == 1 && store_edit_has(REC_PATTERN, 0x40, 0) == 2,
+          "SAVE refused whole (%d, %d over): the edits kept, nothing written", r, store_save_over());
+    store_edit_revert();
+    /* parts are records: a pattern of 16 x 128 saves in 8. Seven records deleted (listed till reclaimed): the SAVE
+       reclaims them, then is 1 over */
+    int dels[7] = { 10, 11, 12, 13, 14, 15, 16 };
+    CHECK(jk_save(0, 0, 0, dels, 7) == 0 && store_count() == 560, "seven deleted, still listed");
+    CHECK(put_full_pattern(0x42, 1) == STORE_OK, "a pattern of 16 x 128 made");
+    r = edits_saved();
+    CHECK(r == STORE_ERR_FULL && store_save_over() == 1 && store_count() == 553 && store_edit_obj(REC_PATTERN, 0x42),
+          "its SAVE: the seven reclaimed (%d listed), its 8 parts 1 over (%d): refused, the edit kept", store_count(), store_save_over());
+    store_init();
+    CHECK(store_count() == 553 && jk_held(10) == -1 && jk_held(16) == -1 && jk_held(17) == 1 && !lost_now(),
+          "... a power-on lists the same 553");
+    CHECK(jk_del(17) == 0, "one more deleted");
+    r = edits_saved();
+    CHECK(r == 0 && store_count() == 560 && entries_of(REC_PATTERN, 0x42) == 8, "then the SAVE: %d, 560 listed (%d), its 8 parts",
+          r, store_count());
+    store_init();
+    CHECK(store_count() == 560 && entries_of(REC_PATTERN, 0x42) == 8 && jk_held(17) == -1 && !lost_now(), "... so after a power-on");
+    /* only as many deleted records reclaimed as the save is over, none that needs the seal while others do: three
+       deleted in one save (the last its last record), then one new: one reclaimed, no seal, two still listed */
+    int three[3] = { 30, 31, 32 }, two[2] = { 601, 602 }, v2[2] = { 1, 1 };
+    CHECK(jk_save(0, 0, 0, three, 3) == 0 && store_count() == 560 && dels_listed() == 3, "three deleted in one save, listed");
+    uint32_t sv = store_last_save();
+    r = jk_one(600, 1);
+    CHECK(r == 0 && store_count() == 560 && dels_listed() == 2 && store_last_save() == sv + 1 && jk_held(600) == 1,
+          "then one new: saved (%d), one deletion reclaimed, no seal (save %u after %u): %d listed, %d of them deleted", r,
+          store_last_save(), sv, store_count(), dels_listed());
+    store_init();
+    CHECK(store_count() == 560 && dels_listed() == 2 && jk_held(30) == -1 && jk_held(31) == -1 && jk_held(32) == -1 && !lost_now(),
+          "... a power-on lists the same, the reclaimed one not back");
+    CHECK(jk_save(two, v2, 2, 0, 0) == 0 && store_count() == 560 && !dels_listed(), "then two new: the other two reclaimed (%d listed, "
+          "%d deleted)", store_count(), dels_listed());
+}
+/* Random saves near the limit (puts, rewrites, deletes; payloads up to 1 KB, so compaction runs too; power-ons between):
+ * a save is refused for the list exactly when what is live and what it puts take more than 560 keys (no false refusal),
+ * by that many; one saved leaves a map that a power-on lists again entry for entry, every record as saved (no miss). */
+static void t_list_random(void)
+{
+    fake_reset();
+    store_init();
+    enum { NK = 720 };
+    static int held[NK];
+    for (int k = 0; k < NK; k++) held[k] = -1;
+    jk_most = 1000;
+    uint32_t x = 4242;
+    int saved = 0, over = 0, room = 0, mounts = 0, bad = 0;
+    long er = fake_erases;
+    for (int round = 0; round < 1500 && !bad; round++) {
+        static int put[40], ver[40], del[40];
+        int np = 0, nd = 0, live = 0, fresh = 0;
+        x = x * 1103515245u + 12345u;
+        int want = 1 + (int)(x >> 16) % 30;
+        for (int i = 0; i < want; i++) {
+            x = x * 1103515245u + 12345u;
+            int k = (int)(x >> 16) % NK, dup = 0;
+            for (int j = 0; j < np; j++) dup |= put[j] == k;
+            for (int j = 0; j < nd; j++) dup |= del[j] == k;
+            if (dup) continue;
+            if (held[k] >= 0 && (x >> 8) % 3 == 0) del[nd++] = k;
+            else { put[np] = k; ver[np] = held[k] + 2; np++; }
+        }
+        for (int k = 0; k < NK; k++) live += held[k] >= 0;
+        for (int j = 0; j < np; j++) fresh += held[put[j]] < 0;
+        int want_over = live + fresh - STORE_MAP_MAX, r = jk_save(put, ver, np, del, nd);
+        if (want_over > 0) {
+            CHECK(r == STORE_ERR_FULL && store_save_over() == want_over, "round %d: %d live and %d new: refused, %d over (%d, %d)",
+                  round, live, fresh, want_over, r, store_save_over());
+            over++;
+        } else if (r) {
+            CHECK(r == STORE_ERR_FULL && store_save_over() == 0, "round %d: %d live and %d new: refused for the list (%d, %d over)",
+                  round, live, fresh, r, store_save_over());
+            room++;
+        } else {
+            for (int j = 0; j < np; j++) held[put[j]] = ver[j];
+            for (int j = 0; j < nd; j++) held[del[j]] = -1;
+            saved++;
+        }
+        CHECK(store_count() <= STORE_MAP_MAX, "round %d: %d listed", round, store_count());
+        if (round % 17 == 16) {
+            int n = store_count(), same;
+            store_init();
+            mounts++;
+            same = store_count() == n && !lost_now();
+            for (int k = 0; k < NK; k++) if (jk_held(k) != held[k]) same = 0;
+            CHECK(same, "round %d: a power-on lists the same %d entries (%d, %d lost), every record as saved", round, n,
+                  store_count(), lost_now());
+            if (!same) bad = 1;
+        }
+    }
+    printf("  the list of records, random: %d saved, %d refused for the list, %d for room, %d power-ons, %ld erases\n",
+           saved, over, room, mounts, fake_erases - er);
+    CHECK(over > 30 && saved > 500 && fake_erases - er > 50, "the limit met often (%d), saves made (%d), compaction ran (%ld erases)",
+          over, saved, fake_erases - er);
+}
+/* A power cut at every flash operation of a save that reclaims (the live record written again first, the spoils, the save
+ * itself), plain and torn: after the power-on everything as it was or as saved, nothing deleted back, the list listed
+ * whole; and the save made after it. */
+static void t_list_cuts(void)
+{
+    fake_reset();
+    store_init();
+    jk_most = 60;
+    int dels[3] = { 20, 21, 22 }, put[3] = { 600, 601, 602 }, ver[3] = { 1, 1, 1 };
+    CHECK(jk_range(0, 560, 1) == 0 && jk_save(0, 0, 0, dels, 3) == 0 && store_count() == 560, "560 records, 3 deleted");
+    memcpy(base, fake_flash, sizeof base);
+    fake_ops = 0;
+    uint32_t sv = store_last_save();
+    CHECK(jk_save(put, ver, 3, 0, 0) == 0 && store_count() == 560 && !dels_listed() && store_last_save() == sv + 2,
+          "three new: saved, the seal first, the three reclaimed (%d listed, saves %u after %u)", store_count(), store_last_save(), sv);
+    long total = fake_ops;
+    static int torn, before, after;
+    static long k;
+    before = after = 0;
+    for (torn = 0; torn < 2; torn++)
+        for (k = 0; k <= total; k++) {
+            memcpy(fake_flash, base, sizeof base);
+            store_init();
+            fake_ops = 0; cut_at = k; cut_torn = torn;
+            if (!setjmp(cut_env)) jk_save(put, ver, 3, 0, 0);
+            cut_at = -1;
+            store_init();
+            int old = jk_held(600) == -1 && jk_held(601) == -1 && jk_held(602) == -1, rest = 1;
+            int nw = jk_held(600) == 1 && jk_held(601) == 1 && jk_held(602) == 1;
+            for (int j = 0; j < 560; j++) if (jk_held(j) != (j >= 20 && j <= 22 ? -1 : 1)) rest = 0;
+            before += old;
+            after += nw;
+            CHECK((old || nw) && rest && store_count() <= STORE_MAP_MAX && !lost_now(),
+                  "cut at %ld%s: before %d, after %d, the rest as it was %d, %d listed, %d lost", k, torn ? " (torn)" : "",
+                  old, nw, rest, store_count(), lost_now());
+            int n = store_count();
+            store_init();
+            CHECK(store_count() == n, "cut at %ld: a second power-on lists the same (%d, %d)", k, n, store_count());
+            CHECK(jk_save(put, ver, 3, 0, 0) == 0 && jk_held(600) == 1 && jk_held(602) == 1 && jk_held(21) == -1,
+                  "cut at %ld: the save made after it", k);
+        }
+    printf("  the list's power cuts: %ld operations x 2, before %d, after %d\n", total + 1, before, after);
+}
+/* The seal leaves compaction its room: with 2 free blocks and the open block too short for the smallest live record, a
+ * save past the list whose only deletion is the newest save's last record is refused (1 over), nothing written, the
+ * deletion still listed. Records of fixed sizes: 486 of 208 B (18 a block), 66 of 4,080 B (a block each) to the plain
+ * saves' floor (10 blocks free), the EDITOR's pattern of 16 x 128 in 8 parts in the 8 kept for it: 560 keys, 2 blocks
+ * free; then one deleted, its record at the head, which leaves less than the 224 B the seal would write. */
+static int sz_save(int from, int n, uint32_t len)       /* keys from .. from + n - 1, len B each (kind 0x7E), one save */
+{
+    static uint8_t pay[4080];
+    memset(pay, 0x5A, sizeof pay);
+    int r = store_save_begin();
+    for (int i = 0; !r && i < n; i++) r = store_save_put(JK, (uint8_t)((from + i) >> 4), (uint8_t)((from + i) & 15), 1, pay, len);
+    if (r) { store_save_cancel(); return r; }
+    return store_save_run();
+}
+static void t_list_seal_room(void)
+{
+    store_edit_revert();
+    fake_reset();
+    store_init();
+    int r = 0, del = 5;
+    for (int at = 0; !r && at < 486; at += 162) r = sz_save(at, 162, 208);
+    for (int k = 0; !r && k < 66; k++) r = sz_save(1000 + k, 1, 4080);
+    store_usage_t u;
+    store_usage(&u);
+    CHECK(!r && store_count() == 552 && u.user_free_blocks == 10, "the seal's room: filled (%d), %d listed, %u blocks free", r,
+          store_count(), u.user_free_blocks);
+    CHECK(put_full_pattern(STORE_EDITOR_PAT, 1) == STORE_OK && edits_saved() == 0 && entries_of(REC_PATTERN, STORE_EDITOR_PAT) == 8,
+          "... the EDITOR's pattern in 8 parts");
+    CHECK(jk_save(0, 0, 0, &del, 1) == 0, "... one deleted");
+    store_rec_t e;
+    uint32_t head = 0;
+    for (int i = 0; store_entry(i, &e, 0, 0); i++) if (e.kind == JK && e.num == 0 && e.sub == 5) head = e.addr + STORE_HDR;
+    uint32_t room = head & 0xFFFu ? STORE_BLOCK - (head & 0xFFFu) : 0;
+    store_usage(&u);
+    CHECK(store_count() == 560 && u.user_free_blocks == STORE_MIN_FREE && room < STORE_HDR + 208, "... 560 listed, %u blocks free, "
+          "%u B left in the open block", u.user_free_blocks, room);
+    memcpy(base, fake_flash, sizeof base);
+    long ops = fake_ops;
+    r = sz_save(2000, 1, 208);
+    CHECK(r == STORE_ERR_FULL && store_save_over() == 1 && fake_ops == ops && !memcmp(base, fake_flash, sizeof base) &&
+          dels_listed() == 1 && store_count() == 560, "a new one: no room for the seal, so refused (%d, %d over), nothing written (%ld "
+          "flash operations), the deletion listed (%d)", r, store_save_over(), fake_ops - ops, dels_listed());
+    store_init();
+    CHECK(store_count() == 560 && dels_listed() == 1 && !lost_now(), "... a power-on lists the same");
+    r = jk_one(5, 2);                   /* (the deleted record ending the newest save: its key saved again) */
+    CHECK(r == STORE_OK && store_save_over() == 0 && jk_held(5) == 2 && store_count() == 560 && !dels_listed(),
+          "... the deleted one saved again under its own number: saved (%d; it adds no key: %d over), %d listed, %d deleted", r,
+          store_save_over(), store_count(), dels_listed());
+    store_init();
+    CHECK(store_count() == 560 && jk_held(5) == 2 && !lost_now(), "... a power-on lists the same");
+}
+/* A flash operation failing (not a cut: the FM-1 goes on) at each operation of an edits' SAVE that seals and reclaims
+ * (560 records, three deleted in one save, three songs made): the SAVE made or refused, whole either way, its edits kept
+ * when refused; the map as a power-on lists it; every other record as it was; the SAVE made again after it. */
+static uint8_t song3[3][4096];
+static void songs3_put(void)
+{
+    for (int i = 0; i < 3; i++) store_edit_put(REC_SONG, (uint8_t)(0xC0 + i), 0, 1, song3[i], len_of(0xC0 + i, 1));
+}
+static int songs3(int ver)              /* all three songs at version ver (-1: none of them) */
+{
+    int all = 1;
+    for (int i = 0; i < 3; i++) all &= version_held(REC_SONG, 0xC0 + i) == ver;
+    return all;
+}
+static void t_list_fails(void)
+{
+    store_edit_revert();
+    fake_reset();
+    store_init();
+    jk_most = 60;
+    int dels[3] = { 20, 21, 22 }, bad = 0, made = 0, refused = 0;
+    CHECK(jk_range(0, 560, 1) == 0 && jk_save(0, 0, 0, dels, 3) == 0 && store_count() == 560, "failed operations: 560, 3 deleted");
+    memcpy(base, fake_flash, sizeof base);
+    for (int i = 0; i < 3; i++) fill(song3[i], 0xC0 + i, 1);
+    songs3_put();
+    fake_ops = 0;
+    uint32_t sv = store_last_save();
+    CHECK(edits_saved() == 0 && songs3(1) && store_last_save() == sv + 2 && !dels_listed(), "... the SAVE: the seal, the reclaim, the "
+          "songs (saves %u after %u)", store_last_save(), sv);
+    long total = fake_ops;
+    for (long k = 0; k < total; k++) {
+        store_edit_revert();
+        memcpy(fake_flash, base, sizeof base);
+        store_init();
+        songs3_put();
+        fake_ops = 0; fail_at = k;
+        int r = edits_saved();
+        fail_at = -1;
+        if (r) refused++; else made++;
+        int rest = 1, edits = store_edit_count();
+        for (int j = 0; j < 560; j++) if (jk_held(j) != (j >= 20 && j <= 22 ? -1 : 1)) rest = 0;
+        store_edit_revert();
+        int nw = songs3(1), old = songs3(-1), n = store_count();
+        store_init();
+        int same = store_count() == n && !lost_now() && songs3(1) == nw && songs3(-1) == old;
+        songs3_put();
+        int again = edits_saved() == 0 && songs3(1) && store_count() <= STORE_MAP_MAX;
+        if (!(nw || old) || !rest || !same || !again || (r && !edits) || (!r && !nw)) {
+            bad++;
+            printf("  failing operation %ld: %d, edits %d, new %d, old %d, the rest %d, a power-on the same %d, again %d\n", k, r,
+                   edits, nw, old, rest, same, again);
+        }
+    }
+    printf("  the list's failed operations: %ld, each failing once: %d saved, %d refused, %d bad\n", total, made, refused, bad);
+    CHECK(!bad && refused > 0, "a failed flash operation in a sealing, reclaiming SAVE: whole or not made, nothing lost (%d bad)", bad);
+    store_edit_revert();
+}
+/* The same failing operations in a save through the save API (the seed bridge's and the tests'; no FM-1 code calls it),
+ * which seals and reclaims (560 listed, three deleted in one save, three new): its list lies in the store's scratch,
+ * which the mount after a failed rewrite (the seal's, compaction's) takes, so the save is refused there
+ * (STORE_ERR_FLASH), never counted or written from what the mount left (a spoil failing leaves its deleted record listed:
+ * the list still over, STORE_ERR_FULL). Made or not, whole either way; the map as a power-on lists it; every other record
+ * as it was; the save made again after it. */
+static void t_list_fails_api(void)
+{
+    store_edit_revert();
+    fake_reset();
+    store_init();
+    jk_most = 60;
+    int dels[3] = { 20, 21, 22 }, put[3] = { 600, 601, 602 }, ver[3] = { 1, 1, 1 }, bad = 0, made = 0, flash = 0, full = 0;
+    CHECK(jk_range(0, 560, 1) == 0 && jk_save(0, 0, 0, dels, 3) == 0 && store_count() == 560,
+          "the save API's failed operations: 560, 3 deleted");
+    memcpy(base, fake_flash, sizeof base);
+    fake_ops = 0;
+    CHECK(jk_save(put, ver, 3, 0, 0) == 0 && jk_held(600) == 1 && jk_held(602) == 1 && !dels_listed(),
+          "... the save: the seal, the reclaim, three new");
+    long total = fake_ops;
+    for (long k = 0; k < total; k++) {
+        memcpy(fake_flash, base, sizeof base);
+        store_init();
+        fake_ops = 0; fail_at = k;
+        int r = jk_save(put, ver, 3, 0, 0);
+        fail_at = -1;
+        if (!r) made++;
+        else if (r == STORE_ERR_FLASH) flash++;
+        else if (r == STORE_ERR_FULL) full++;
+        int rest = 1;
+        for (int j = 0; j < 560; j++) if (jk_held(j) != (j >= 20 && j <= 22 ? -1 : 1)) rest = 0;
+        int nw = jk_held(600) == 1 && jk_held(601) == 1 && jk_held(602) == 1;
+        int old = jk_held(600) == -1 && jk_held(601) == -1 && jk_held(602) == -1, n = store_count();
+        store_init();
+        int same = store_count() == n && !lost_now() && (jk_held(600) == 1) == nw && (jk_held(602) == 1) == nw;
+        int again = jk_save(put, ver, 3, 0, 0) == 0 && jk_held(600) == 1 && jk_held(602) == 1 && store_count() <= STORE_MAP_MAX;
+        if (!(nw || old) || !rest || !same || !again || (r && r != STORE_ERR_FLASH && r != STORE_ERR_FULL) || (!r && !nw) ||
+            (!k && r != STORE_ERR_FLASH)) {              /* (operation 0: the seal's rewrite, the save's first write) */
+            bad++;
+            printf("  failing operation %ld: %d, new %d, old %d, the rest %d, a power-on the same %d, again %d\n", k, r, nw, old,
+                   rest, same, again);
+        }
+    }
+    printf("  the save API's failed operations: %ld, each failing once: %d saved, %d refused as a flash error, %d for the list "
+           "(a spoil failed), %d bad\n", total, made, flash, full, bad);
+    CHECK(!bad && flash > 0, "a failed flash operation in a sealing, reclaiming save of the save API: whole or not made, "
+          "the seal's failure refused as a flash error, nothing lost (%d bad)", bad);
+}
+/* Random puts, rewrites and deletes near the limit (payloads up to most B, so that compaction drops and spoils too) with
+ * power cuts, plain and torn, at random operations: the reclaim, the seal and compaction cut anywhere. A cut save comes
+ * back whole or not at all; after every round the map lists what a power-on lists, nothing lost, every key as saved; a
+ * refusal past the list by as many as what is live and what it puts pass 560. */
+static void t_list_churn(uint32_t seed, int rounds, int nk, uint32_t most, int delw)
+{
+    store_edit_revert();
+    fake_reset();
+    store_init();
+    static int held[1024];
+    for (int k = 0; k < nk; k++) held[k] = -1;
+    jk_most = most;
+    uint32_t x = seed;
+    int cuts = 0, saved = 0, refused = 0, bad = 0, wrong_over = 0;
+    for (int round = 0; round < rounds && !bad; round++) {
+        static int put[40], ver[40], del[40];
+        volatile int np = 0, nd = 0, live = 0, fresh = 0;
+        x = x * 1103515245u + 12345u;
+        int want = 1 + (int)(x >> 16) % 20;
+        for (int i = 0; i < want; i++) {
+            x = x * 1103515245u + 12345u;
+            int k = (int)(x >> 16) % nk, dup = 0;
+            for (int j = 0; j < np; j++) dup |= put[j] == k;
+            for (int j = 0; j < nd; j++) dup |= del[j] == k;
+            if (dup) continue;
+            if (held[k] >= 0 && (x >> 8) % (uint32_t)delw == 0) del[nd++] = k;
+            else { put[np] = k; ver[np] = held[k] + 2; np++; }
+        }
+        for (int k = 0; k < nk; k++) live += held[k] >= 0;
+        for (int j = 0; j < np; j++) fresh += held[put[j]] < 0;
+        int want_over = live + fresh - STORE_MAP_MAX;
+        x = x * 1103515245u + 12345u;
+        int cut = (x >> 16) % 4 == 0;
+        fake_ops = 0;
+        if (cut) { x = x * 1103515245u + 12345u; cut_at = (x >> 16) % 90; cut_torn = (x >> 20) & 1; }
+        volatile int r = -99;
+        if (!setjmp(cut_env)) r = jk_save(put, ver, np, del, nd);
+        int was_cut = cut && r == -99;
+        cut_at = -1;
+        if (was_cut) {
+            cuts++;
+            store_init();
+            int all_new = 1, all_old = 1;
+            for (int j = 0; j < np; j++) { int v = jk_held(put[j]); if (v != ver[j]) all_new = 0; if (v != held[put[j]]) all_old = 0; }
+            for (int j = 0; j < nd; j++) { int v = jk_held(del[j]); if (v != -1) all_new = 0; if (v != held[del[j]]) all_old = 0; }
+            if (!all_new && !all_old) { bad = 1; printf("  churn %u, round %d: a cut save came back mixed\n", seed, round); }
+            if (all_new) { for (int j = 0; j < np; j++) held[put[j]] = ver[j]; for (int j = 0; j < nd; j++) held[del[j]] = -1; }
+        } else if (r == 0) {
+            for (int j = 0; j < np; j++) held[put[j]] = ver[j];
+            for (int j = 0; j < nd; j++) held[del[j]] = -1;
+            saved++;
+        } else {
+            refused++;
+            if (want_over > 0 ? !(r == STORE_ERR_FULL && store_save_over() == want_over) : store_save_over() != 0) {
+                wrong_over++;
+                printf("  churn %u, round %d: %d, %d over, not %d (%d live, %d new)\n", seed, round, r, store_save_over(), want_over,
+                       live, fresh);
+            }
+        }
+        int n = store_count();
+        store_init();
+        if (store_count() != n || lost_now()) { bad = 1; printf("  churn %u, round %d: a power-on lists %d, not %d\n", seed, round, store_count(), n); }
+        for (int k = 0; k < nk && !bad; k++)
+            if (jk_held(k) != held[k]) { bad = 1; printf("  churn %u, round %d: key %d holds %d, not %d\n", seed, round, k, jk_held(k), held[k]); }
+    }
+    printf("  the list's churn %u: %d rounds, %d saved, %d refused, %d cut; wrong over %d, bad %d\n", seed, rounds, saved, refused, cuts,
+           wrong_over, bad);
+    CHECK(!bad && !wrong_over && cuts > 30 && refused > 0, "the list's churn %u with power cuts: every save whole, the map as a power-on's",
+          seed);
+}
+
 /* SETTINGS' FACTORY RESET (seed_wipe; specs/ui/screens/settings.md): refused while a save is made; else every block of
  * the user area erased, a block a poll (one already erased left as it is), the seeding's commands answered busy
  * meanwhile, the restart asked once at the end; the next start finds nothing */
@@ -2590,11 +3193,21 @@ int main(void)
     t_stage();
     t_editor_room();
     t_editor_room_delete();
+    t_save_parts();
+    t_move_parts();
     t_split_cuts();
     t_kb_map();
     t_spare();
     t_rows_cap();
     t_factory_reset();
+    t_list();
+    t_list_random();
+    t_list_cuts();
+    t_list_seal_room();
+    t_list_fails();
+    t_list_fails_api();
+    t_list_churn(1, 2000, 640, 700, 6);
+    t_list_churn(21, 2000, 600, 60, 10);
     t_favorites();
     t_builtin_extras();                                 /* (last: its extras stay) */
     printf("store: %d checks, %d failed\n", checks, fails);

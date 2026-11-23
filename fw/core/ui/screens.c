@@ -6,7 +6,7 @@
 
 extern const ui_screen_t SCR_STATUS, SCR_SONGS, SCR_PLAYBACK, SCR_SETTINGS;
 extern const ui_screen_t SCR_FX, SCR_VISUAL, SCR_LOOPS, SCR_DJ;
-extern const ui_screen_t SCR_EDITOR, SCR_INSTRUMENTS;
+extern const ui_screen_t SCR_EDITOR, SCR_INSTRUMENTS, SCR_AUTO;
 
 void ui_screens_register(void)
 {
@@ -20,4 +20,5 @@ void ui_screens_register(void)
     ui_register(&SCR_DJ);
     ui_register(&SCR_EDITOR);
     ui_register(&SCR_INSTRUMENTS);
+    ui_register(&SCR_AUTO);
 }

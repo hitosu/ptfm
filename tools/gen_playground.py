@@ -204,11 +204,13 @@ def samples_of(index):
 
 def check_disk(carts, samples):
     """the samples and the sampler instruments' numbers against the packed demo disk's (DISK): the same numbers, names,
-    rates and 8-bit audio"""
+    rates and 8-bit audio; each sample's record size there kept with it (`bytes`: its payload as the FM-1 holds it, its
+    audio packed, so the pages' sizes are the FM-1's, not an estimate)"""
     files = R.unpack_disk(DISK.read_bytes())
-    disk = {}
+    disk, size = {}, {}
     for kind, num, _, _, payload in files:
         if kind == R.KIND_SAMPLE:
+            size[num] = len(payload)
             r = R.unpack_sample(payload)
             _, values = R.ptr_decode(r["audio"])
             disk[num] = ((r["entry"] or {}).get("name"), (r["entry"] or {}).get("rate"),
@@ -225,6 +227,8 @@ def check_disk(carts, samples):
         got = next(c for c in carts if c["id"] == num)["slots"]
         if [s["sampler"]["sample"] for s in got] != want[:len(got)] or any(x is not None for x in want[len(got):]):
             raise SystemExit(f"gen_playground: sampler {num:02X}'s instruments name other samples than {DISK.relative_to(ROOT)}'s")
+    for s in samples:
+        s["bytes"] = size[s["n"]]
 
 
 def main():

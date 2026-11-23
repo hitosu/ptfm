@@ -67,6 +67,21 @@ module.exports = async t => {
         const off1 = S.cpu, off2 = S.cpu2;
         ok(on2 > 8 && on2 < 25 && off2 < .01, "the estimate: core 2 takes the effects and the output (" + on2.toFixed(1) + " %), none while off");
         ok(Math.abs(off1 - (on1 + on2)) < 3 && off1 > on1 + 8, "OFF: the effects' share is core 1's (" + on1.toFixed(1) + " + " + on2.toFixed(1) + " -> " + off1.toFixed(1) + ")");
+        /* the voices' split (specs/second-core.md#the-split): 12 Juno-106 voices in places 0-11, the top ones core 2's
+         * while its share stays under core 1's; with no place known (no voice in the list) none moves */
+        const feed12 = (places) => {
+            const voices = [];
+            for (let c = 0; places && c < 12; c++) voices.push({ engine: "JUNO", eng: c });
+            for (let i = 0; i < 80; i++) A.estimate({ voices, count: { JUNO: 12 }, steals: 0, fx: {} });
+        };
+        set["SECOND CORE"] = "ON"; feed12(false);
+        const n2 = S.cpu2;
+        feed12(true);
+        const s1 = S.cpu, s2 = S.cpu2;
+        set["SECOND CORE"] = "OFF"; feed12(true);
+        ok(s2 > n2 + 6 && s2 < s1 && S.cpu > s1 + 6 && Math.abs(S.cpu - (s1 + s2)) < 3, "the estimate: 12 voices, the top " +
+           "ones core 2's while its share stays under core 1's (" + s1.toFixed(1) + " + " + s2.toFixed(1) + ", its effects " +
+           n2.toFixed(1) + "; off " + S.cpu.toFixed(1) + ")");
         ok(A.c2State() === "OFF", "DEVICE: SECOND CORE OFF");
         /* the header's bar: core 2's column (219-220) drawn while on, empty while off */
         const ground = (x, y) => Dr.fb[y * 240 + x];
@@ -84,6 +99,24 @@ module.exports = async t => {
         ok(["STARTING", "ON"].includes(A.c2State()), "DEVICE: SECOND CORE STARTING, then ON (" + A.c2State() + ")");
         t.shot("ui_status_device");
         await t.turn("SELECT", -9);                      /* (the first page again) */
+        await t.homeKey(3);
+    }
+
+    /* ---- CORE SUPPLIES (specs/ui/screens/settings.md, specs/hardware.md#the-chip): after SECOND CORE, STOCK at first; LOWER
+     * told as from the next power-on; LFO back to STOCK. The playground has no supplies: the row alone ---- */
+    {
+        const set = M.state.settings, at = M.SETTINGS.findIndex(s => s.k === "CORE SUPPLIES");
+        ok(at === M.SETTINGS.findIndex(s => s.k === "SECOND CORE") + 1 && set["CORE SUPPLIES"] === "STOCK" &&
+           M.SETTINGS[at].list.join() === "STOCK,LOWER", "SETTINGS: CORE SUPPLIES (STOCK / LOWER) after SECOND CORE, STOCK at the start");
+        await t.homeKey(20); await t.turn("SELECT", -M.SETTINGS.length); await t.turn("SELECT", at);
+        await t.turn("K1", 1);
+        ok(U.set("CORE SUPPLIES") === "LOWER" && U.toastNow() === "LOWER FROM THE NEXT POWER-ON",
+           "CORE SUPPLIES LOWER: told as from the next power-on (" + U.toastNow() + ")");
+        t.shot("ui3_settings_supplies_lower");          /* (the firmware's of the same name: run_ui3.sh compares them) */
+        await t.tap("LFO");
+        ok(U.set("CORE SUPPLIES") === "STOCK", "... LFO: STOCK again");
+        if (M.unsavedThing("settings")) { await t.tap("SEL"); await t.tap("SEL"); await t.tap("OCT+"); }   /* (REVERT: as saved) */
+        ok(!M.unsavedThing("settings") && U.set("CORE SUPPLIES") === "STOCK", "(the settings as saved again)");
         await t.homeKey(3);
     }
 
@@ -111,8 +144,8 @@ module.exports = async t => {
     ok(U.screen.name === "EDITOR" && t.top() === "home", "HOME tap at the top of a screen: its combination, an overlay");
     const lineText = l => Array.isArray(l) ? l.map(r => r[0]).join("") : l;      /* (a line coloured already: its runs) */
     const hl = U.homeLines(hc()).map(lineText);
-    ok(hl.length === 11 && hl[0].startsWith("SELECT") && hl[1] === "OP1: SONGS         OP2: EDITOR" && hl[3] === "OP5: DJ            PIT: VISUAL" &&
-       hl[5] === "POLY: LOOPS", "... its lines: SELECT, the screens two a line (OP1: SONGS ... OP5: DJ ... POLY: LOOPS), the white keys, SEQ, PLAY, REC, LFO (and HOME: CLOSE)");
+    ok(hl.length === 11 && hl[0].startsWith("SELECT") && hl[1] === "OP1: SONGS         OP2: EDITOR" && hl[3] === "OP5: DJ            OP6: AUTOMATIONS" &&
+       hl[5] === "MONO: SETTINGS     POLY: LOOPS", "... its lines: SELECT, the screens two a line (OP1: SONGS ... OP6: AUTOMATIONS ... POLY: LOOPS), the white keys, SEQ, PLAY, REC, LFO (and HOME: CLOSE)");
     ok(t.leds[8] > .9 && t.leds[6] === 0 && t.leds[5] === .25 && t.leds[11] === .25 && t.leds[13] === .25,
        "... HOME lit, its members dim (LFO, SEQ, REC), the others dark (EDIT)");
     await t.sleep(900); t.frame();
@@ -401,8 +434,8 @@ module.exports = async t => {
         U.editor.row = 16;
     }
     /* SETTINGS' QUANTIZE (specs/ui/screens/settings.md, editor.md#realtime-takes): where a take's notes land (where the
-     * take is heard stood in for, rows of 0.5 s), REAL TIME's EDx and Kxx; the keys heard as written (a note before
-     * its line waits for it, one just after sounds at once by its track) */
+     * take is heard stood in for, rows of 0.5 s), REAL TIME's EDx and Kxx; the keys heard at once by their track, before
+     * their line or after (tests/playground/editor_takes.js: on the replay itself) */
     {
         const p = M.pattern(U.pattern), keep = p.cells.slice(), realAt = P.at, A = t.PTFM.audio;
         const heard = (row, frac) => { const h = realAt(); P.at = () => ({ row, pass: h ? h.pass : 0, t: P.time() - frac * .5, dur: .5, rpb: 4, pat: U.pattern }); };
@@ -432,10 +465,10 @@ module.exports = async t => {
             t.down("PLAY"); await t.sleep(30); t.up("PLAY"); await t.sleep(100);
             return got.join();
         };
-        ok(await take("ROW", [[5, .3, 2], [9, .6, 4]]) === "5!,10", "QUANTIZE ROW: the nearest row (5.3 on 5, heard at once; 9.6 on 10, waiting for it)");
-        ok(await take("2 ROWS", [[4, .9, 2], [7, .1, 4]]) === "4!,8", "2 ROWS: the nearest line of 2 (4.9 on 4, at once; 7.1 on 8, waiting)");
-        ok(await take("3 ROWS", [[4, .4, 2], [7, .6, 4]]) === "3!,9", "3 ROWS: the nearest line of 3 (4.4 on 3; 7.6 on 9)");
-        ok(await take("4 ROWS", [[5, .9, 2], [10, .1, 4]]) === "4!,12", "4 ROWS: the nearest line of 4 (5.9 on 4; 10.1 on 12)");
+        ok(await take("ROW", [[5, .3, 2], [9, .6, 4]]) === "5!,10!", "QUANTIZE ROW: the nearest row (5.3 on 5, 9.6 on 10), each heard at once");
+        ok(await take("2 ROWS", [[4, .9, 2], [7, .1, 4]]) === "4!,8!", "2 ROWS: the nearest line of 2 (4.9 on 4; 7.1 on 8, heard at once all the same)");
+        ok(await take("3 ROWS", [[4, .4, 2], [7, .6, 4]]) === "3!,9!", "3 ROWS: the nearest line of 3 (4.4 on 3; 7.6 on 9), each heard at once");
+        ok(await take("4 ROWS", [[5, .9, 2], [10, .1, 4]]) === "4!,12!", "4 ROWS: the nearest line of 4 (5.9 on 4; 10.1 on 12), each heard at once");
         const rt = await take("REAL TIME", [[5, .5, 2], [9, 0, 4]]);
         ok(rt === "5d" + Math.floor(tk / 2) + "!,9!", "REAL TIME: the row it falls in, a note delay of its tick (5.5: ED" + Math.floor(tk / 2) + "), at once (" + rt + ")");
         {   /* the note offs: the nearest row, a row after the note at least; REAL TIME a key off at its tick */
@@ -527,13 +560,13 @@ module.exports = async t => {
     /* ---- a FUSION row's tick commands: COIN's first note cut at tick 5 (EC5), its second 5 ticks late (ED5) ---- */
     {
         const AU = t.PTFM.audio, ev = [], wrap = {};
-        for (const k of ["noteOn", "noteOff"]) { wrap[k] = AU[k]; AU[k] = function (id, time) { if (/\//.test(id)) ev.push([k, id, time]); return wrap[k].apply(this, arguments); }; }
+        for (const k of ["noteOn", "noteOff", "cut"]) { wrap[k] = AU[k]; AU[k] = function (id, time) { if (/\//.test(id)) ev.push([k, id, time]); return wrap[k].apply(this, arguments); }; }
         const fus = M.state.carts.find(c => c.type === "FUSION"), slot = fus.slots.findIndex(s => s && s.name === "COIN"), was = U.inst;
         U.setInst(fus.id << 8 | slot);
         t.keyDown(12); await t.sleep(400); t.keyUp(12); await t.sleep(50);
         const tick = 2.5 / M.state.songs[U.song].tempo, on = ev.filter(e => e[0] === "noteOn");
-        const off0 = ev.find(e => e[0] === "noteOff" && e[1] === on[0][1]);
-        ok(on.length === 2 && Math.abs(on[1][2] - on[0][2] - 5 * tick) < .002 && off0 && Math.abs(off0[2] - on[0][2] - 5 * tick) < .01,
+        const cut0 = ev.find(e => e[0] === "cut" && e[1] === on[0][1]);   /* (ECx: a cut, fading out over 64 frames) */
+        ok(on.length === 2 && Math.abs(on[1][2] - on[0][2] - 5 * tick) < .002 && cut0 && Math.abs(cut0[2] - on[0][2] - 5 * tick) < .01,
            "FUSION COIN: the first note cut at tick 5 (EC5), the second starting there (ED5)");
         Object.assign(AU, wrap);
         U.setInst(was);
@@ -767,7 +800,7 @@ module.exports = async t => {
     {
         const hl3 = U.homeLines(U.home()).map(lineText);
         ok(t.top() === "home" && hl3[0] === "SELECT: THE SCREENS, ONE BY ONE" && hl3.includes("WHITE KEY: MUTE A LOOP, HELD: SOLO") &&
-           hl3.includes("SEQ: WHITE KEYS SOLO INSTEAD"), "HOME in LOOPS: its combination, as everywhere; WHITE KEY: MUTE A LOOP, HELD: SOLO; SEQ: solo instead");
+           hl3.includes("SEQ: SOLO INSTEAD  ARP: AUTOMATIONS"), "HOME in LOOPS: its combination, as everywhere; WHITE KEY: MUTE A LOOP, HELD: SOLO; SEQ: SOLO INSTEAD  ARP: AUTOMATIONS");
         await t.tap("SEQ");
         ok(U.homeLines(U.home()).map(lineText).includes("WHITE KEY: SOLO A LOOP"), "... after SEQ: WHITE KEY: SOLO A LOOP");
         await t.tap("SEQ");
@@ -1041,8 +1074,10 @@ module.exports = async t => {
         ok(defInk === Dr.WHITE && dayInk === Dr.BLACK && greenInk === Dr.BLACK,
            "THEMES: text on red white in DEFAULT; the ground's on DAYLIGHT's mid red and GREEN's bright one");
     }
-    await t.tap("HOME"); await t.turn("SELECT", 1); await t.tap("HOME");
-    ok(U.screen.name === "STATUS", "after SETTINGS, the last, HOME, SELECT: STATUS, the first");
+    await t.tap("HOME"); await t.turn("SELECT", 1);
+    const lastOne = U.screen.name;
+    await t.turn("SELECT", 1); await t.tap("HOME");
+    ok(lastOne === "AUTOMATIONS" && U.screen.name === "STATUS", "after SETTINGS, HOME, SELECT: AUTOMATIONS, the last, then STATUS, the first");
     await t.homeKey(1);
     await t.tap("OCT+"); await t.tap("OCT+"); await t.sleep(1700); t.frame();
     ok(U.octave === 2 && t.leds[1] === 1 && t.leds[0] === 0, "OCT +2: OCT+ lit full, OCT- dark");
@@ -1430,7 +1465,7 @@ module.exports = async t => {
     M.state.patterns[pg] = gp;
     M.state.songs.push(Object.assign(M.newSong(), { name: "GLISS", tempo: 255, ticks: 6, order: [pg] }));
     const bends = [], ctl0 = AU.ctl;
-    AU.ctl = (id, time, bend, vol) => { bends.push(bend); return ctl0(id, time, bend, vol); };
+    AU.ctl = (id, time, bend, vol, track) => { bends.push(bend); return ctl0(id, time, bend, vol, track); };
     delete P.kept.song[M.state.songs.length - 1];          /* from its start, not where a song before it stopped */
     P.playSong(M.state.songs.length - 1); await t.sleep(400); P.pauseAll();
     AU.ctl = ctl0;
@@ -1582,6 +1617,21 @@ module.exports = async t => {
     const st1 = U.screen.sub();
     await t.turn("ALGORITHM", -1);
     ok(st0 === "PT/FM" && st1 === "PERFORMANCE" && U.screen.sub() === "PT/FM", "STATUS: ALGORITHM turns the pages too, as SELECT does");
+    /* PERFORMANCE's graph full (specs/ui/screens/status.md): 4 px a sample across the whole box, a 2-px bar and a 2-px gap
+     * from the right (the newest at 236-237), the oldest's bar 1 px at x 1. The worklet's samples faked */
+    {
+        const D = t.PTFM.draw, S = t.PTFM.audio.stats, was = [S.graph, S.graph2];
+        const [r, g, b] = D.rgb[D.GREEN], green = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+        await t.turn("ALGORITHM", 1);
+        S.graph = new Array(60).fill(30); S.graph2 = new Array(60).fill(null);
+        t.frame();
+        const col = x => { let n = 0; for (let y = 200; y < 224; y++) n += t.px(x, y) === green; return n; };
+        const lit = [1, 4, 5, 232, 236, 237].filter(x => col(x) > 0).length, dark = [2, 3, 6, 234, 235, 238].filter(x => !col(x)).length;
+        ok(U.screen.sub() === "PERFORMANCE" && lit === 6 && dark === 6, "STATUS PERFORMANCE's graph full: 4 px a sample across the " +
+           "whole box, the newest at 236-237, the oldest 1 px at x 1 (" + lit + " of 6 bars' columns lit, " + dark + " of 6 gaps dark)");
+        S.graph = was[0]; S.graph2 = was[1];
+        await t.turn("ALGORITHM", -1);
+    }
     /* EDIT on STATUS (specs/ui/screens/status.md#controls): SETTINGS from every page, as HOME + MONO: a plain switch */
     t.frame();
     ok(t.leds[6] === .25, "STATUS: EDIT lit dim (it works here)");
@@ -1716,7 +1766,7 @@ module.exports = async t => {
     ok(U.set("MIDI OUT") === "ALL", "MIDI OUT: KEYS, K1 to ALL");
     await t.tap("LFO");
     ok(U.set("MIDI OUT") === "KEYS", "... LFO: back to KEYS");
-    await t.turn("SELECT", 4);                              /* (MIDI OUT is item 1: MIDI CONTROLLER after the 5 items) */
+    await t.turn("SELECT", 5);                              /* (MIDI OUT is item 1: MIDI CONTROLLER after the 6 items) */
     ok(U.screen.footer()[0] === "EDIT: SWITCH", "MIDI CONTROLLER after the items: the footer says EDIT: SWITCH");
     await t.turn("SELECT", 1);
     ok(U.screen.footer()[0] === "EDIT: LEARN", "LEARN: the footer says EDIT: LEARN");
@@ -1742,7 +1792,10 @@ module.exports = async t => {
     };
     M.state.songs[0xA0].order.push(M.freePattern());           /* (a pattern that is not there) */
     await runTool("CHECK REFERENCES"); await t.sleep(900);
-    ok(t.top() === "list" && U.top().title === "MISSING REFERENCES: 1", "CHECK REFERENCES lists the missing ones");
+    const pos = M.state.songs[0xA0].order.length - 1, missing = ["SONG A0 POSITION " + M.hex(pos) + ": PATTERN " +
+        M.hex(M.state.songs[0xA0].order[pos]), "LOOP 00: A0:13", "LOOP 01: A0:13"];   /* (LOOPS' two loops above: no A0:13 there) */
+    ok(t.top() === "list" && U.top().title === "MISSING REFERENCES: 3" && U.top().lines.join() === missing.join(),
+       "CHECK REFERENCES lists the missing ones: the song's position, then LOOPS' two loops on A0:13 (none on the demo disk)");
     await t.tap("HOME");
     M.state.songs[0xA0].order.pop();
     const spare = 0xE8;                                      /* (a user number nothing uses: F0-FF are the firmware's,
@@ -1874,6 +1927,15 @@ module.exports = async t => {
         await t.turn("PRESETS", 1);
         ok(heldOn && !listOn() && U.inst >> 8 === at(0) && U.inst !== after,
            "... SEL held + PRESETS: the list while held, gone with SEL; PRESETS then the instruments");
+        /* SEL held past the hold delay (its layer up), then PRESETS: the list without SEL's layer over it (dialogs.md#hold-layers) */
+        t.down("SEL"); await t.sleep(U.set("HOLD DELAY") + 100);
+        const layerUp = U.layers.length === 1 && U.layers[0].btn === U.B.SEL && U.layers[0].lines().length > 0;
+        await t.turn("PRESETS", 1);
+        const layerGone = listOn() && U.layers.length === 1 && !U.layers[0].lines().length;
+        t.up("SEL"); await t.sleep(300);
+        await t.tap("SEL"); await t.turn("PRESETS", -1); await t.tap("SEL"); await t.sleep(600);   /* (the cartridge back) */
+        ok(layerUp && layerGone, "... SEL held past its layer, then PRESETS: the list without SEL's layer over it (" + layerUp + ", " +
+           layerGone + ")");
         await t.tap("SEL");
         await t.turn("PRESETS", 1);
         t.keyDown(12); await t.sleep(30);
@@ -2601,6 +2663,8 @@ module.exports = async t => {
     ok(PTFM_helpOk(t),"the help: every page within 40 characters and 17 lines");
     const hs = PTFM_helpSame(t);
     ok(!hs.length, "the help: every page as the specs write it (the firmware's source)" + (hs.length ? ": " + hs.slice(0, 3).join(" | ") : ""));
+    const fwVersion = require("fs").readFileSync(require("path").resolve(__dirname, "../../fw/VERSION"), "utf8").trim();
+    ok(U.version === fwVersion, "the version: fw/VERSION's (" + fwVersion + "), the playground says " + U.version);
 };
 function PTFM_helpOk(t) { return t.PTFM.help.check().length === 0; }
 /* the help's pages against the specs', read as fw/tools/gen_texts.py reads them for the firmware: each screen's Help

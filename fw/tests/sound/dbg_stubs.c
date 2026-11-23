@@ -9,6 +9,8 @@
 #include "../../core/ui/ui_core.h"
 
 int16_t ui_set[S_COUNT];
+int16_t ui_midi_set[S_MIDI_COUNT];
+int ui_key_vol(int n) { (void)n; return 0; }           /* (KEYS FEED's: no keys here) */
 void plat_cpu(plat_cpu_t *c, int reset) { (void)reset; memset(c, 0, sizeof *c); }
 void plat_dbg(plat_dbg_t *d) { memset(d, 0, sizeof *d); }
 uint32_t plat_lock(void) { return 0; }

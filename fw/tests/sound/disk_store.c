@@ -167,20 +167,24 @@ uint32_t plat_ms(void) { return plat_us() / 1000u; }   /* (SYNC EXTERNAL's clock
  *      and core 2 stops there (a fallback in the middle of a half: what is handed over after runs at once, as the
  *      FM-1's plat_c2_post does, and plat_c2_half is 0 for good);
  *   6  a second thread: every job runs there, in order, as core 2 runs them, while this one goes on (plat_c2_wait
- *      and plat_c2_half wait for it to finish what it has).
+ *      and plat_c2_half wait for it to finish what it has);
+ *   7  as 5, but the voice job lost had begun: c2_part (the test's own) runs it part way and leaves it not done, then
+ *      core 2 stops there.
  * The jobs keep their order in every mode: what changes is what core 1 has done meanwhile, so a datum both cores
- * touch in one half makes the sound differ from mode 0's. plat_c2_wait runs what still waits; a job handed over in a
- * half core 2 did not take, or more than a half's blocks waiting, stops the test. */
+ * touch in one half makes the sound differ from mode 0's. plat_c2_wait runs what still waits (1 when something did:
+ * core 1 waited, so the block's split moves differently mode by mode); a job handed over in a half core 2 did not take,
+ * or more than a half's blocks waiting, stops the test. */
 #define C2_QUEUE (PLAT_HALF / 64u)      /* (a half's blocks) */
 static int c2_mode = -1;
 static uint8_t c2_take;                 /* this half's answer */
 static uint8_t c2_on = 1;               /* SETTINGS' SECOND CORE */
-static uint8_t c2_dropped;              /* mode 5: the voice job dropped, core 2 stopped */
+static uint8_t c2_dropped;              /* modes 5 and 7: the voice job dropped, core 2 stopped */
 static uint32_t c2_halves;
 static struct { void (*job)(uint32_t); uint32_t j; } c2_q[C2_QUEUE];
 static uint32_t c2_n;
 uint32_t c2_posts;                      /* blocks handed over, counted (c2_test: the player does hand them over) */
-uint32_t c2_voice_jobs, c2_lost;        /* voice jobs handed over; mode 5's one dropped */
+uint32_t c2_voice_jobs, c2_lost;        /* voice jobs handed over; mode 5's or 7's one dropped */
+void (*c2_part)(void (*job)(uint32_t), uint32_t j);   /* mode 7: the voice job run part way, left not done (the test's) */
 
 /* mode 6's second thread: a ring of jobs, run in order there (the mutex orders memory between the two, as the chip's
  * sync does between the cores) */
@@ -229,8 +233,8 @@ int plat_c2_half(void)
     if (c2_mode < 0) {
         const char *m = getenv("C2_MODE");
         c2_mode = m ? atoi(m) : 0;
-        if (c2_mode < 0 || c2_mode > 6) {
-            fprintf(stderr, "C2_MODE %s: 0-6\n", m);
+        if (c2_mode < 0 || c2_mode > 7 || (c2_mode == 7 && !c2_part)) {
+            fprintf(stderr, "C2_MODE %s: 0-7 (7 with a test's c2_part)\n", m);
             exit(2);
         }
         if (c2_mode == 6 && pthread_create(&c2_th, 0, c2_thread, 0)) {
@@ -239,7 +243,7 @@ int plat_c2_half(void)
         }
     }
     c2_run();                           /* (core 2 finished the half before: first thing) */
-    if ((c2_mode == 4 || c2_mode == 5) && c2_halves < 500u)
+    if ((c2_mode == 4 || c2_mode == 5 || c2_mode == 7) && c2_halves < 500u)
         c2_halves++;
     c2_take = (uint8_t)(c2_mode && c2_on && !(c2_mode == 4 && c2_halves >= 500u) && !c2_dropped);
     return c2_take;
@@ -253,8 +257,10 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
         job(j);
         return;
     }
-    if (c2_mode == 5 && c2_halves >= 300u && j == PLAT_C2_VOICE_JOB) {
-        c2_dropped = 1;                 /* (never run: the player finds it not done) */
+    if ((c2_mode == 5 || c2_mode == 7) && c2_halves >= 300u && j == PLAT_C2_VOICE_JOB) {
+        if (c2_mode == 7)               /* (begun, part way: the player finds it not done) */
+            c2_part(job, j);
+        c2_dropped = 1;                 /* (mode 5: never run, the player finds it not done) */
         c2_lost++;
         return;
     }
@@ -283,7 +289,7 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
     c2_q[c2_n].j = j;
     c2_n++;
     c2_posts++;
-    if (c2_mode == 1 || c2_mode == 4 || c2_mode == 5)
+    if (c2_mode == 1 || c2_mode == 4 || c2_mode == 5 || c2_mode == 7)
         c2_run();
     else if (c2_mode == 2 && c2_n == 2u) {   /* (the block before's, now that this one is handed over) */
         c2_q[0].job(c2_q[0].j);
@@ -293,4 +299,16 @@ void plat_c2_post(void (*job)(uint32_t), uint32_t j)
 }
 
 void plat_c2_enable(int on) { c2_on = (uint8_t)(on != 0); }
-void plat_c2_wait(void) { c2_run(); }
+int plat_c2_wait(void)                  /* (1: a job was still waiting or running, as core 2 not done yet) */
+{
+    int busy;
+    if (c2_mode == 6) {
+        pthread_mutex_lock(&c2_mx);
+        busy = c2_tail != c2_head;
+        pthread_mutex_unlock(&c2_mx);
+    } else {
+        busy = c2_n != 0;
+    }
+    c2_run();
+    return busy;
+}

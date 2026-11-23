@@ -68,7 +68,12 @@ moment.</td></tr>
 <tr><td><b>SAVE CHANGES TO FREE MEMORY</b></td><td>The memory for unsaved edits is three quarters full: a SAVE empties
 it. Shown at most once a minute.</td></tr>
 <tr><td><samp class="msg">NOT ENOUGH STORAGE TO SAVE</samp> <samp class="msg" data-t="# KB MORE NEEDED">12 KB MORE
-NEEDED</samp> <samp class="msg" data-t="CLEAN UP FREES # KB">CLEAN UP FREES 30 KB</samp></td><td>The save does not fit:
+NEEDED</samp> <samp class="msg" data-t="CLEAN UP FREES # KB">CLEAN UP FREES 30 KB</samp></td><td>The save does not fit,
+not even in parts (what fitted is saved): OCT+ runs CLEAN UP; or delete something and save again. Nothing is lost
+meanwhile.</td></tr>
+<tr><td><samp class="msg">TOO MANY RECORDS TO SAVE</samp> <samp class="msg" data-t="# MORE THAN THE FM-1 LISTS">1 MORE THAN
+THE FM-1 LISTS</samp> <samp class="msg">DELETE SOMETHING, THEN SAVE</samp></td><td>The FM-1 lists 560 records at most (each
+song, sample and cartridge is one, a pattern or a LOOPS set one a part) and the save would pass them: nothing is written.
 OCT+ runs CLEAN UP; or delete something and save again. Nothing is lost meanwhile.</td></tr>
 <tr><td><samp class="msg">REVERT TO SAVED?</samp> <samp class="msg" data-t="DROP # UNSAVED CHANGES">DROP 3 UNSAVED
 CHANGES</samp> <samp class="msg">AND RELOAD FROM FLASH</samp></td><td>REVERT ALL asks: OCT+ drops every change since the
@@ -84,7 +89,7 @@ question (the third line only with changes not saved): OCT+ (ERASE) erases every
 restarts the FM-1.</td></tr>
 <tr><td><samp class="msg">ERASING</samp></td><td>FACTORY RESET is erasing: up to two seconds, then the FM-1
 restarts.</td></tr>
-<tr><td><samp class="msg" data-t="REVERT PATTERN %02X TO SAVED?">REVERT PATTERN 0A TO SAVED?</samp></td><td>A screen's
+<tr><td><samp class="msg" data-t="REVERT PATTERN # TO SAVED?">REVERT PATTERN 0A TO SAVED?</samp></td><td>A screen's
 REVERT asks (also for a slot, a cartridge, a song, the loops, the settings): OCT+ REVERT, OCT- KEEP.</td></tr>
 <tr><td><samp class="msg">REVERT THE EFFECTS TO SAVED?</samp> <samp class="msg" data-t="FOR %s">FOR CITY
 LIGHTS</samp></td><td>FX's REVERT asks, naming whose effects.</td></tr>
@@ -117,13 +122,11 @@ deleted with the patterns only it used.</td></tr>
 <tr><td><samp class="msg" data-t="PATTERN # FOR THE EDITOR">PATTERN 0A FOR THE EDITOR</samp></td><td>The pattern picked
 in SONGS' list opens in the EDITOR.</td></tr>
 <tr><td><samp class="msg" data-t="PATTERN # COPIED">PATTERN 03 COPIED</samp></td><td>A position's pattern number copied.</td></tr>
-<tr><td><samp class="msg" data-t="PATTERN %02X MADE">PATTERN 13 MADE</samp> <samp class="msg" data-t="PATTERN # MADE">PATTERN
-13 MADE</samp></td><td>A new empty pattern.</td></tr>
-<tr><td><samp class="msg" data-t="%02X CLONED TO %02X">12 CLONED TO 13</samp> <samp class="msg" data-t="# CLONED TO #">12
-CLONED TO 13</samp></td><td>A copy at a new number.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # MADE">PATTERN 13 MADE</samp></td><td>A new empty pattern.</td></tr>
+<tr><td><samp class="msg" data-t="# CLONED TO #">12 CLONED TO 13</samp></td><td>A copy at a new number.</td></tr>
 <tr><td><samp class="msg" data-t="PATTERN %02X MOVED TO %02X">PATTERN 12 MOVED TO 20</samp></td><td>A pattern moved to
 another number.</td></tr>
-<tr><td><samp class="msg" data-t="PATTERN %02X DELETED">PATTERN 12 DELETED</samp></td><td>A pattern deleted.</td></tr>
+<tr><td><samp class="msg" data-t="PATTERN # DELETED">PATTERN 12 DELETED</samp></td><td>A pattern deleted.</td></tr>
 <tr><td><samp class="msg">ALL 240 PATTERNS USED</samp> <samp class="msg">NO FREE PATTERN</samp>
 <samp class="msg">NO FREE NUMBER</samp></td><td>All 240 pattern numbers (00-EF) are used: delete or CLEAN UP some.</td></tr>
 <tr><td><samp class="msg" data-t="PATTERN # LOADED">PATTERN 1A LOADED</samp></td><td>A pattern copied into the EDITOR's own.</td></tr>
@@ -173,7 +176,7 @@ switch some on first.</td></tr>
 <thead><tr><th>Message</th><th>Means</th></tr></thead>
 <tbody>
 <tr><td><samp class="msg" data-t="COPIED %d">COPIED 3</samp></td><td>That many sounds copied.</td></tr>
-<tr><td><samp class="msg" data-t="SAMPLE %02X DELETED">SAMPLE 0C DELETED</samp></td><td>A sample no instrument used
+<tr><td><samp class="msg" data-t="SAMPLE # DELETED">SAMPLE 0C DELETED</samp></td><td>A sample no instrument used
 deleted (THE SAMPLES list, SEL, DELETE): its row reads (DELETED) until SAVE.</td></tr>
 <tr><td><samp class="msg">NO SAMPLES ON THE FM-1</samp></td><td>REPLACE SAMPLE, CREATE, EDIT on an empty sampler slot or
 ENV on SAMPLE with no sample to pick: upload some from the computer first.</td></tr>
@@ -189,20 +192,20 @@ EDIT) picks a sample to make an instrument from.</td></tr>
 another type than this cartridge: paste it into a cartridge of its own type.</td></tr>
 <tr><td><samp class="msg" data-t="ADDED TO #">ADDED TO FB:07</samp></td><td>ADD TO FAVORITES: the sound is a favourite
 now, in that slot (the first one added).</td></tr>
-<tr><td><samp class="msg" data-t="ALREADY IN #">ALREADY IN FB:07</samp></td><td>ADD TO FAVORITES: the sound is there already,
-in that slot; nothing added.</td></tr>
-<tr><td><samp class="msg">FAVORITES FULL</samp></td><td>ADD TO FAVORITES: not enough empty slots for them all; nothing
-added. REMOVE some, or make another FAVORITES cartridge.</td></tr>
-<tr><td><samp class="msg">NO FAVORITES YET</samp></td><td><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span>
-with no favourite anywhere, or <span class="combo"><kbd>GLO</kbd> held + <kbd>PRESETS</kbd></span> with none in the
-FAVORITES cartridge: add some with ADD TO FAVORITES first.</td></tr>
+<tr><td><samp class="msg">FAVORITES FULL</samp></td><td>ADD TO FAVORITES: not enough empty slots in FB for them all;
+nothing added. REMOVE some first.</td></tr>
+<tr><td><samp class="msg">REMOVED FROM FAVORITES</samp></td><td>REMOVE FROM FAVORITES: the sound (each marked one) is no
+longer a favourite; every slot of FB that pointed at it is empty.</td></tr>
+<tr><td><samp class="msg">NO FAVORITES YET</samp></td><td><span class="combo"><kbd>SEL</kbd> held + <kbd>GLO</kbd></span>,
+or <span class="combo"><kbd>GLO</kbd> held + <kbd>PRESETS</kbd></span>, with no favourite in FB: add some with ADD TO
+FAVORITES first.</td></tr>
 <tr><td><samp class="msg">NO EMPTY SLOT: SWAP INSTEAD</samp></td><td>MOVE in a full cartridge: use SWAP.</td></tr>
 <tr><td><samp class="msg">EMPTY SLOT: SEL, INIT</samp></td><td>EDIT on an empty slot: SEL, INIT makes a sound to start
 from (in a sampler EDIT lists the samples to make one from).</td></tr>
 <tr><td><samp class="msg" data-t="LEVEL SET TO #">LEVEL SET TO -1.5 DB</samp></td><td>AUTO LEVEL set the sound's level.</td></tr>
 <tr><td><samp class="msg">NO SOUND TO MEASURE</samp></td><td>AUTO LEVEL on a silent sound: its level is kept.</td></tr>
 <tr><td><samp class="msg">LEVELS SET</samp></td><td>AUTO LEVEL ALL done.</td></tr>
-<tr><td><samp class="msg" data-t="CARTRIDGE %02X MADE">CARTRIDGE 11 MADE</samp></td><td>A new cartridge.</td></tr>
+<tr><td><samp class="msg" data-t="CARTRIDGE # MADE">CARTRIDGE 11 MADE</samp></td><td>A new cartridge.</td></tr>
 <tr><td><samp class="msg">ALL CARTRIDGE NUMBERS USED</samp></td><td>No cartridge number left: delete one first.</td></tr>
 </tbody>
 </table>
@@ -234,10 +237,15 @@ heard nor written. EDIT, DOUBLE or REC that would pass it are refused, nothing c
 <tr><td><samp class="msg">STAGE NOT WRITTEN: STORAGE BUSY</samp></td><td>The stage cannot change while the memory is
 being written (a save, or a computer sending data): wait, and try again.</td></tr>
 <tr><td><samp class="msg">CANCELLED</samp></td><td>REC disarmed the loops (or ARP did, switching the stage off), a
-count-in was called off, HOME left ADJUST, or a song's recording was cancelled (HOME, or the song ended before its
+count-in was called off, HOME left ADJUST or MOVE, or a song's recording was cancelled (HOME, or the song ended before its
 first row).</td></tr>
 <tr><td><samp class="msg" data-t="#: SHIFT #">LOOP 03: SHIFT +17 ROWS</samp></td><td>ADJUST kept: the loop plays that
 many rows later (-3: earlier).</td></tr>
+<tr><td><samp class="msg" data-t="#: CUT AT #">LOOP 03: CUT AT 2.4.3</samp>, <samp class="msg" data-t="#: CUT REMOVED">LOOP
+03: CUT REMOVED</samp></td><td>CUT HERE (or SEL held + EDIT): the loop wraps there, its own window; REMOVE CUT (SEL held +
+EDIT held): the whole loop again.</td></tr>
+<tr><td><samp class="msg" data-t="MOVED TO #">MOVED TO LOOP 05</samp>, <samp class="msg">NOT MOVED</samp></td><td>MOVE
+kept: the loop is in its new place, with that number (NOT MOVED: kept where it was).</td></tr>
 <tr><td><b>KEYS: 01:04 BRASS, MONO</b></td><td>ENV held or TAKE ITS INSTRUMENT: the loop's sound and MONO / POLY are now
 yours.</td></tr>
 <tr><td><b>LOOP 03: 01:04 BRASS, MONO</b></td><td>APPLY INSTRUMENT: the loop took your sound.</td></tr>
@@ -299,6 +307,21 @@ by itself, keeping the patterns written; the rows waiting for the next are gone:
 WITH THE LOOPS?</samp></td><td>SAVE TO PATTERN onto a pattern with notes asks first.</td></tr>
 <tr><td><samp class="msg">REPLACE THE LOOPS</samp> <samp class="msg" data-t="WITH PATTERN #?">WITH PATTERN
 2A?</samp></td><td>LOAD FROM PATTERN over loops asks first.</td></tr>
+<tr><td><samp class="msg" data-t="LOOPS STORED AS SET #">LOOPS STORED AS SET 03</samp></td><td>STORE AS A SET done: all of
+LOOPS kept as set 03 (SAVE writes it).</td></tr>
+<tr><td><samp class="msg" data-t="SET # HOLDS LOOPS">SET 03 HOLDS LOOPS</samp> <samp class="msg">REPLACE IT WITH
+THESE?</samp></td><td>STORE AS A SET onto a set asks first.</td></tr>
+<tr><td><samp class="msg">ALL 240 SETS USED</samp></td><td>STORE AS A SET's NEW found no free number: delete a set
+first.</td></tr>
+<tr><td><samp class="msg">THE LOOPS ARE TOO BIG FOR A SET</samp></td><td>16 loops each nearly full are more than a
+set holds; nothing was stored.</td></tr>
+<tr><td><samp class="msg">REPLACE THE LOOPS</samp> <samp class="msg" data-t="WITH SET #?">WITH SET 03?</samp></td><td>LOAD
+A SET over loops asks first.</td></tr>
+<tr><td><samp class="msg" data-t="SET # LOADED">SET 03 LOADED</samp></td><td>LOAD A SET done: the loops as the set
+holds them, stopped at their start (SAVE keeps them, REVERT takes them back).</td></tr>
+<tr><td><samp class="msg" data-t="DELETE SET #?">DELETE SET 03?</samp></td><td>LFO in the sets' list asks
+first.</td></tr>
+<tr><td><samp class="msg" data-t="SET # DELETED">SET 03 DELETED</samp></td><td>The set went (SAVE writes it).</td></tr>
 <tr><td><samp class="msg" data-t="CARTRIDGE # IS EMPTY">CARTRIDGE 0A IS EMPTY</samp></td><td>ENV picked a cartridge with no
 sounds.</td></tr>
 </tbody>
@@ -357,6 +380,45 @@ off: switch the filter (or the effect on FX) on.</td></tr>
 </table>
 </section>
 
+<section class="topic" id="messages-automations">
+<h3>AUTOMATIONS</h3>
+<table>
+<thead><tr><th>Message</th><th>Means</th></tr></thead>
+<tbody>
+<tr><td><samp class="msg" data-t="AUTOMATION # RECORDED: #">AUTOMATION 03 RECORDED: 0:42</samp></td><td>HOME + OP6 ended a
+recording; the automation and its length.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # IS FULL: #">AUTOMATION 03 IS FULL: 61:40</samp></td><td>The recording filled the
+most an automation holds (more than the memory for edits takes): it ended there, kept.</td></tr>
+<tr><td><samp class="msg" data-t="NOTHING RECORDED">NOTHING RECORDED</samp></td><td>The recording ended before anything
+was pressed or turned: the slot is as it was.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # PLAYED">AUTOMATION 03 PLAYED</samp></td><td>The automation played to its
+end; what it held is let go.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION STOPPED">AUTOMATION STOPPED</samp></td><td>A key, button or knob of yours
+stopped the automation, and that press did nothing else; or REVERT ALL, or a page writing to the FM-1, ended a recording
+or a playback.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # IS EMPTY">AUTOMATION 03 IS EMPTY</samp></td><td>PLAY or COMPACT on a slot
+that holds none; or HOME, ARP and a white key whose slot is empty, the combination staying open for another key.</td></tr>
+<tr><td><samp class="msg" data-t="ONE AUTOMATION AT A TIME">ONE AUTOMATION AT A TIME</samp></td><td>HOME, ARP and a white
+key while an automation records or plays: an automation cannot start another, so none started.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # COMPACTED: #">AUTOMATION 03 COMPACTED: 0:18</samp></td><td>COMPACT shortened
+the slot's pauses while nothing is held to the limit picked; its new length. SAVE keeps it, REVERT drops it.</td></tr>
+<tr><td><samp class="msg" data-t="NOTHING TO COMPACT">NOTHING TO COMPACT</samp></td><td>COMPACT found no pause while
+nothing is held longer than the limit: the slot is as it was. A shorter limit may find some.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # CLEARED">AUTOMATION 03 CLEARED</samp></td><td>CLEAR emptied the slot (SAVE
+keeps it so).</td></tr>
+<tr><td><samp class="msg">MEMORY FOR EDITS IS FULL</samp></td><td>While recording: the recording stopped there, keeping
+what it has. On COMPACT: no room for the compacted slot, so it is as it was. SAVE, then try again.</td></tr>
+<tr><td><samp class="msg" data-t="AUTOMATION # HOLDS #">AUTOMATION 03 HOLDS 0:42</samp> /
+<samp class="msg" data-t="REPLACE IT?">REPLACE IT?</samp></td><td>REC on a slot that holds one: REPLACE records over it,
+KEEP leaves it.</td></tr>
+<tr><td><samp class="msg" data-t="CLEAR AUTOMATION #?">CLEAR AUTOMATION 03?</samp></td><td>SEL → CLEAR asks first: CLEAR
+or KEEP.</td></tr>
+<tr><td><samp class="msg" data-t="REVERT AUTOMATIONS TO SAVED?">REVERT AUTOMATIONS TO SAVED?</samp></td><td>SEL → REVERT:
+YES brings back the automations as last saved.</td></tr>
+</tbody>
+</table>
+</section>
+
 <section class="topic" id="messages-fx">
 <h3>FX</h3>
 <table>
@@ -385,9 +447,14 @@ copied into yours to edit.</td></tr>
 <tr><td><samp class="msg">16 VOICES: 12 WITHOUT CPU 2</samp></td><td>VOICES 16 picked while the second processor does not
 run: 12 sound until it does.</td></tr>
 <tr><td><samp class="msg">COUNTS ZEROED</samp></td><td>STATUS: MAX, HALF, LATE and STEALS back to zero.</td></tr>
+<tr><td><samp class="msg">LOWER FROM THE NEXT POWER-ON</samp></td><td>CORE SUPPLIES set to LOWER: the chip's voltages stay
+raised until the FM-1 is switched off.</td></tr>
 <tr><td><samp class="msg">NO MISSING REFERENCES</samp></td><td>CHECK REFERENCES found nothing missing.</td></tr>
 <tr><td><samp class="msg" data-t="SAMPLER %02X:%02X: SAMPLE %02X">SAMPLER 01:05: SAMPLE 23</samp></td><td>A line of CHECK
 REFERENCES: slot 05 of sampler 01 plays sample 23, which is not there.</td></tr>
+<tr><td><samp class="msg" data-t="LOOP %02X: %02X:%02X">LOOP 03: 0B:05</samp>
+<samp class="msg" data-t="SET %02X LOOP %02X: %02X:%02X">SET 02 LOOP 03: 0B:05</samp></td><td>A line of CHECK REFERENCES: loop 03
+of LOOPS (or of set 02) plays instrument 0B:05, which is not there.</td></tr>
 <tr><td><samp class="msg" data-t="CARTRIDGE %02X: OLDER FORM">CARTRIDGE 03: OLDER FORM</samp></td><td>A line of CHECK
 REFERENCES, after the missing ones and not counted with them: sampler 03 is still in the form an older PT/FM made. This
 PT/FM leaves it alone; convert it (the install page after an install, or the EDITOR page).</td></tr>

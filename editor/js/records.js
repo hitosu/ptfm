@@ -19,6 +19,8 @@
  *   songs: unpackSong(bytes), packSong(song); the FX setup stays its 64 bytes (fx helpers below)
  *   settings: unpackSettings(bytes), packSettings(s); MIDI map: unpackMidiMap, packMidiMap
  *   the loops: unpackLoops([parts]) -> { the setup, loops: [{ instrument, ..., cells }] }, packLoops(L) -> [parts]
+ *   AUTOMATIONS: unpackAuto(records) -> [16 x slot | null], a slot { screen, events: [{ t, k, id, c }], parts, bad };
+ *     packAutoSlot(screen, events) -> [part payloads], autoWithSlot(records, slot, parts), packAuto(slots) -> records
  *   older versions: upgrade(records) -> the records, each object of an older version converted (the loops' 3 -> 4)
  *   newer versions, for WRITE to an FM-1 that reads an older one: downgrade(an object's records, version) -> { recs,
  *     lost } or null; canDowngrade(kind, from, to) (the loops' 4 -> 3, the samplers' 2 -> 1: given the samplers with the
@@ -28,10 +30,11 @@
 
 /* AUDIO (0x10) is the old form's audio under its sampler's number; SAMPLE (0x11) is a sample of its own */
 const KIND = { DX7: 0x01, JUNO: 0x02, TB303: 0x03, SAMPLER: 0x04, FUSION: 0x05, CHIP: 0x06, FAVORITES: 0x07, AUDIO: 0x10,
-    SAMPLE: 0x11, PATTERN: 0x20, SONG: 0x21, LOOPS: 0x22, DJ: 0x23, SETTINGS: 0x30, MIDIMAP: 0x31, NOTES: 0xE0 };
-/* (0x04 is 2: the sampler cartridge names its samples by number; the old form, version 1, is converted by upgrade()) */
+    SAMPLE: 0x11, PATTERN: 0x20, SONG: 0x21, LOOPS: 0x22, DJ: 0x23, LSET: 0x24, SETTINGS: 0x30, MIDIMAP: 0x31, AUTO: 0x32, NOTES: 0xE0 };
+/* (0x04 is 2: the sampler cartridge names its samples by number; the old form, version 1, is converted by upgrade().
+ * 0x24, a LOOPS set: 16 bytes, then the loops' record of version 4 within it) */
 const VERSION = { 0x01: 1, 0x02: 1, 0x03: 1, 0x04: 2, 0x05: 1, 0x06: 1, 0x07: 1, 0x10: 1, 0x11: 1, 0x20: 1, 0x21: 1, 0x22: 4, 0x23: 1,
-    0x30: 1, 0x31: 1, 0xE0: 1 };
+    0x24: 1, 0x30: 1, 0x31: 1, 0x32: 1, 0xE0: 1 };
 const SAMPLER_VERSION = 2;
 const CART_KINDS = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
 const RECORD_MAX = 4080;
@@ -641,16 +644,18 @@ function packMidiMap(m) {
     return b;
 }
 
-/* ---- the loops (loops.md, version 4): the head (an 8-byte header, the FX setup 8-71, the next loop's mix 72-77, VIEW
- * and K1-K4's jobs 78-79, the loop table from 80, 12 B a loop), then with loops a pattern payload whose track i is loop
+/* ---- the loops (loops.md, version 4): the head (an 8-byte header, the FX setup 8-71, a new loop's defaults 72-77 (read
+ * while byte 79's bit 7 says they are stored, which `head` carries), VIEW and K1-K4's jobs 78-79, the loop table from
+ * 80, 12 B a loop), then with loops a pattern payload whose track i is loop
  * i's stream (lane l of row r at the stream's row 4r + l), its streams spread over parts as a pattern's tracks are ----
  *   { tempo, ticks, countIn, legato (MONO LEGATO: 0 GLIDE, 1 JUMP, 2 LEGATO), swing, grid, quantize, nextMono (the keys'
  *     mode), n, selected, length (in rows, always: a head from before with none, 0, read as 4 bars or the most whole bars
  *     that fit 128 rows), fx (64 B), mix: [6], view (bars a screen: 1, 2, 4), jobs: [K1-K4's, 0-7: LEVEL, PAN, DUCK,
  *     CHORUS SEND, DELAY SEND, REVERB SEND, TEMPO, VIEW], jobsStored,
- *     loops: [{ cart, slot, colour, mono, muted, lanes, base, repeat, shift (0-127, read modulo the length), mixer: [6],
- *     cells: Map("row,lane" -> cell) }] }
- *   (an entry's bit 6, a solo, is never read and written 0: solos are not saved)
+ *     loops: [{ cart, slot, colour, mono, muted, lanes, base, repeat, shift (0-127, read modulo the length), cut (0 none,
+ *     else 1 to the length - 1: its window; its base the length, once), mixer: [6], cells: Map("row,lane" -> cell) }] }
+ *   (a cut: an entry's bit 6 with byte 5 the cut over a base of the length; anything else there reads as no cut, as on
+ *   the FM-1)
  * fields as stored (COUNT-IN 3 and QUANTIZE 5-7, read by the FM-1 as OFF and ROW, kept); the head's and each loop's
  * spare bits travel through `head` and `raw`, and so do VIEW, the jobs and a SHIFT packed as they were read (VIEW 3,
  * jobs not stored, a SHIFT past the length kept byte for byte) */
@@ -665,6 +670,7 @@ function loopsRowsDefault(grid, fx) {
 const loopsView = b78 => [2, 1, 4, 2][b78 >> 6];
 const loopsJobs = (b78, b79) => b79 & 0x40 ? [b78 & 7, b78 >> 3 & 7, b79 & 7, b79 >> 3 & 7] : LOOP_JOBS.slice();
 const loopShift = e => (e[2] >> 7) << 6 | e[3] >> 2;
+const loopCut = (e, rows) => (e[2] & 0x40) && e[4] + 1 === rows && e[5] && e[5] < rows ? e[5] : 0;
 /* a stream's gap past the skip byte's 255 rows is bridged by a cell holding only ED0 (a note delay with no note:
  * nothing), a skip of 255 after the cell before it, as often as needed (read wherever it is) */
 const LOOP_FILL = [0x0E, 0xD0];
@@ -679,10 +685,10 @@ function unpackLoops(parts) {
         mix: Array.from(b.subarray(72, 78)), view: loopsView(b[78]), jobs: loopsJobs(b[78], b[79]), jobsStored: !!(b[79] & 0x40),
         head: b.slice(0, LOOPS_HEAD), loops: [] };
     for (let i = 0; i < n; i++) {
-        const o = LOOPS_HEAD + LOOP_SIZE * i;
+        const o = LOOPS_HEAD + LOOP_SIZE * i, cut = loopCut(b.subarray(o, o + 6), length);
         L.loops.push({ cart: b[o], slot: b[o + 1], colour: b[o + 2] & 15, mono: (b[o + 2] >> 4) & 1, muted: !!(b[o + 2] & 0x20),
-            lanes: (b[o + 3] & 3) + 1, base: b[o + 4] + 1, repeat: b[o + 5], shift: loopShift(b.subarray(o, o + 4)) % length,
-            mixer: Array.from(b.subarray(o + 6, o + 12)), cells: new Map(), raw: b.slice(o, o + LOOP_SIZE) });
+            lanes: (b[o + 3] & 3) + 1, base: b[o + 4] + 1, repeat: cut ? 1 : b[o + 5], shift: loopShift(b.subarray(o, o + 4)) % length,
+            cut, mixer: Array.from(b.subarray(o + 6, o + 12)), cells: new Map(), raw: b.slice(o, o + LOOP_SIZE) });
     }
     if (!n) return L;
     let head = null;
@@ -729,7 +735,7 @@ function loopStream(cells) {
     if (s.length > LOOP_STREAM_MAX) throw new Error("a loop's stream of " + s.length + " B, " + LOOP_STREAM_MAX + " at most");
     return s;
 }
-function packLoops(L) {
+function packLoops(L, pre) {                         /* (pre: bytes part 0 carries before the head, a set's 16) */
     const n = L.loops.length, top = LOOPS_HEAD + LOOP_SIZE * n;
     if (n > LOOPS_MAX) throw new Error(n + " loops, " + LOOPS_MAX + " at most");
     if (L.length && !(L.length >= 1 && L.length <= LOOP_ROWS_MAX)) throw new Error("the loops' length: " + L.length + " rows");
@@ -757,17 +763,20 @@ function packLoops(L) {
         if (!(lp.lanes >= 1 && lp.lanes <= 4 && lp.base >= 1 && lp.base <= LOOP_ROWS_MAX && lp.repeat >= 1 && lp.repeat <= 255))
             throw new Error("loop " + hex2(i) + ": " + lp.lanes + " lanes, a base of " + lp.base + " rows, " + lp.repeat + " repeats");
         if (!(shift >= 0 && shift <= 127)) throw new Error("loop " + hex2(i) + ": a SHIFT of " + shift + " rows");
+        const cut = lp.cut || 0;
+        if (cut && !(cut < length && lp.base === length && lp.repeat === 1))
+            throw new Error("loop " + hex2(i) + ": a cut at " + cut + " (its base " + lp.base + " rows, the length " + length + ")");
         const sh = loopShift(raw) % length === shift ? loopShift(raw) : shift;   /* (as read: kept byte for byte) */
         b[o] = lp.cart; b[o + 1] = lp.slot;
-        b[o + 2] = (sh >> 6 & 1) << 7 | (lp.colour & 15) | (lp.mono ? 0x10 : 0) | (lp.muted ? 0x20 : 0);
+        b[o + 2] = (sh >> 6 & 1) << 7 | (lp.colour & 15) | (lp.mono ? 0x10 : 0) | (lp.muted ? 0x20 : 0) | (cut ? 0x40 : 0);
         b[o + 3] = (sh & 63) << 2 | (lp.lanes - 1);
-        b[o + 4] = lp.base - 1; b[o + 5] = lp.repeat;
+        b[o + 4] = lp.base - 1; b[o + 5] = cut || lp.repeat;
         b.set(lp.mixer, o + 6);
     });
     if (!n) return [b];
     const streams = L.loops.map(lp => loopStream(lp.cells));
     const parts = [];
-    let cur = [], curLen = top + 5;
+    let cur = [], curLen = top + 5 + (pre || 0);
     streams.forEach((s, i) => {
         if (!s) return;
         if (curLen + s.length > RECORD_MAX && (cur.length || !parts.length)) { parts.push(cur); cur = []; curLen = 5; }
@@ -787,6 +796,34 @@ function packLoops(L) {
         for (const i of part) { p.set(streams[i], at); at += streams[i].length; }
         return p;
     });
+}
+
+/* ---- a LOOPS set (loops.md#sets, kind 0x24, version 1): its name (16 characters in 0-11), its solos (12-13: bit i loop
+ * i), 0 0, then the loops' record as it is (version 4), in parts as the loops': part 0 the 16 bytes and the loops' part 0.
+ * Made on the FM-1; the page moves them byte for byte, and its LOOPS tab edits one as LOOPS ----
+ *   unpackLSet([parts]) -> { name, solos, pre (bytes 0-15 as read), loops (unpackLoops') }
+ *   packLSet(set) -> [part payloads]: its name and solos into bytes 0-13 (14-15 as read), the loops packed after them */
+const LSET_PRE = 16;
+function unpackLSet(parts) {
+    const b = parts[0];
+    if (!b || b.length < LSET_PRE + LOOPS_HEAD) throw new Error("the LOOPS set's head is short");
+    return { name: unpackName(b.subarray(0, 12), 16), solos: b[12] | b[13] << 8, pre: b.slice(0, LSET_PRE),
+             loops: unpackLoops([b.subarray(LSET_PRE)].concat(parts.slice(1))) };
+}
+function packLSet(set) {
+    const parts = packLoops(set.loops, LSET_PRE), p0 = new Uint8Array(LSET_PRE + parts[0].length);
+    if (set.pre && set.pre.length === LSET_PRE) p0.set(set.pre);
+    if (unpackName(p0.subarray(0, 12), 16) !== set.name) p0.set(packName(set.name, 16), 0);   /* (as read when unchanged) */
+    const solos = set.solos & ((1 << set.loops.loops.length) - 1);
+    p0[12] = solos & 0xFF; p0[13] = solos >> 8;
+    p0.set(parts[0], LSET_PRE);
+    return [p0].concat(parts.slice(1));
+}
+/* a set's length in bars of its own METRONOME (a bar BEATS A BAR beats, 0 read as 4, of its grid's rows), as the FM-1's
+ * list writes it: `4`; a part bar to tenths, `4.5` (.1 to .9) */
+function barsText(L) {
+    const beats = !L.fx[11] ? 4 : Math.min(16, L.fx[11]), bar = [4, 6, 8, 4][L.grid & 3] * beats, w = Math.floor(L.length / bar), r = L.length % bar;
+    return r ? w + "." + Math.min(9, Math.max(1, Math.floor((r * 20 + bar) / (2 * bar)))) : String(w);
 }
 
 /* ---- older versions, converted (disk.md#versions: only the PC side converts; the FM-1 reads the current ones) ---- */
@@ -841,7 +878,21 @@ function loopHeard(lp, lane, n) {
     if (held && stop >= 0 && !(flat.get(stop) || {}).note)
         flat.set(stop, Object.assign({ ins: -1, vol: -1, cmds: [] }, flat.get(stop) || {}, { note: NOTE_OFF }));
     const sh = ((lp.shift || 0) % n + n) % n;
-    return [...flat].map(([r, c]) => ({ row: (r + sh) % n, note: c.note, ins: -1, vol: c.vol, cmds: c.cmds })).sort((a, b) => a.row - b.row);
+    const heard = [...flat].map(([r, c]) => ({ row: (r + sh) % n, note: c.note, ins: -1, vol: c.vol, cmds: c.cmds })).sort((a, b) => a.row - b.row);
+    const cut = lp.cut || 0;
+    if (!cut || cut >= n) return heard;
+    /* a cut loop's first pass: its rows below the cut again and again over the n rows, a note sounding at the cut ended
+     * at each wrap (a note off there) */
+    const at = new Map(heard.filter(c => c.row < cut).map(c => [c.row, c]));
+    let on = false;
+    for (let r = 0; r < cut; r++) if (at.has(r)) on = soundsAfter(on, at.get(r));
+    const out = [];
+    for (let r = 0; r < n; r++) {
+        const c = at.get(r % cut);
+        if (r % cut === 0 && on && !(c && c.note)) out.push(Object.assign({ ins: -1, vol: -1, cmds: [] }, c || {}, { row: r, note: NOTE_OFF }));
+        else if (c) out.push(Object.assign({}, c, { row: r }));
+    }
+    return out;
 }
 /* the loops' version 4 -> version 3: each lane of a loop a loop of its own (16 at most), written out over the length as
  * it is heard (loopHeard: its repeats, then its rest, turned its SHIFT rows), so it plays the same; QUANTIZE ROW STEP,
@@ -852,10 +903,13 @@ function loopsV4to3(parts) {
     const q = L.quantize === 0 ? 0 : L.quantize === 4 ? 2 : 1;
     if (q === 1 && L.quantize !== 1 + L.grid) lost.add("QUANTIZE " + (L.quantize + 1) + " ROWS (1/8 INSTEAD)");
     if (L.legato) lost.add(L.legato === 2 ? "MONO LEGATO LEGATO" : "MONO LEGATO JUMP");
-    if (L.n && !L.mix.every((v, i) => v === MIX_DEFAULT[i]) && !L.mix.every(v => !v)) lost.add("THE NEXT LOOP'S MIX");
+    /* (a new loop's defaults: version 3 has none, a record without them reads LEVEL 40, PAN 80, DUCK 0, the sends 7F) */
+    if ((L.head[79] & 0x80) && L.mix.join() !== [0x40, 0x80, 0, 0x7F, 0x7F, 0x7F].join()) lost.add("A NEW LOOP'S MIX");
     let selected = L.selected >= L.n ? -1 : null;
     L.loops.forEach((lp, i) => {
         if (lp.mono) lost.add("MONO (PLAYED POLY)");
+        if (lp.cut) lost.add("A LOOP'S CUT (PLAYED AS ITS FIRST PASS)");   /* (at every length: its drift gone, its notes past
+                                                     * the mark too) */
         for (let lane = 0; lane < lp.lanes; lane++) {
             const cells = loopHeard(lp, lane, L.length);
             if (lane && !cells.length) continue;    /* (an empty lane but the first: nothing to keep) */
@@ -1007,6 +1061,166 @@ function upgradeObjects(recs) {
     return out;
 }
 
+/* ---- AUTOMATIONS (kind 0x32, specs/files/automations.md): one file, number 00, a record a slot's part (sub: the slot x
+ * 16 + the part); part 0's byte 0 the screen recorded on (its place in HOME's round), each part then its events' count
+ * (2 B, little-endian) and its events bit-packed from bit 0 up, whole events in a part, a time counting on across the
+ * parts. An event: { t (ms from time 0), k "press" | "release" | "knob", id (a key 0-26, F-3 .. G-5; a button 27-40; a
+ * knob 0-6), c (a knob's clicks, -8 to +7) }. Coded as the firmware codes it (fw/core/ui/scr_auto.c), byte for byte;
+ * fw/tests/auto_vectors.json holds what it records. ---- */
+const AUTO_SLOTS = 16, AUTO_PARTS = 16, AUTO_KEYS = 27, AUTO_KEY_NOTE = 53;     /* (key 0 is F-3) */
+const AUTO_TB = [5, 8, 12, 16, 24];                 /* a time class's bits after its prefix: 0, 10, 110, 1110, 1111 */
+const AUTO_OFF = [0, 32, 288, 4384, 69920];         /* each class's first */
+const AUTO_GAP_MAX = 69920 + 0xFFFFFF;              /* 16,847,135 ms between two events at most (4.7 h) */
+const AUTO_SCREENS = ["STATUS", "SONGS", "EDITOR", "INSTRUMENTS", "PLAYBACK", "VISUAL", "FX", "LOOPS", "DJ", "SETTINGS"];
+const AUTO_WHERE = 0xFF;                            /* a screen past the round (what the FM-1 writes off it): it plays where it is */
+const AUTO_BUTTONS = ["OCT-", "OCT+", "FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"];
+const AUTO_KNOBS = ["SELECT", "ALGORITHM", "K1", "K2", "K3", "K4", "PRESETS"];
+const AUTO_FULL = "THE SLOT IS FULL: 16 PARTS OF 4 KB AT MOST";
+const AUTO_CANCELLED = "CANCELLED IN ONE PASS (+0): THE FM-1 NEVER SEES IT";
+/* a slot's parts (an array by part number: payloads, holes for none) -> { screen (-1: none read), events, parts (how many
+ * read), bad (why it does not read whole: a part cut short, a part missing before others; else null) }. The events are
+ * those the firmware reads in turn (a part's count, then the next part's), each read whole within its part's bytes */
+function unpackAutoSlot(parts) {
+    const out = { screen: -1, events: [], parts: 0, bad: null };
+    let t = 0;
+    for (let part = 0; part < AUTO_PARTS; part++) {
+        const b = parts[part];
+        if (!b) {
+            if (parts.slice(part + 1).some(Boolean)) out.bad = part ? "PART " + part + " IS MISSING: THE FM-1 STOPS BEFORE IT" : "PART 0 IS MISSING: THE FM-1 READS THE SLOT AS EMPTY";
+            break;
+        }
+        const hb = part ? 2 : 3, end = 8 * b.length;
+        if (b.length < hb) { out.bad = "PART " + part + " IS CUT SHORT" + (part ? "" : ": THE FM-1 READS THE SLOT AS EMPTY"); break; }
+        if (!part) out.screen = b[0];
+        const n = b[hb - 2] | b[hb - 1] << 8;
+        let bit = 8 * hb, i = 0;
+        /* (a bit past the part's end reads as 0: an event that ran past it is not taken) */
+        const get = w => { let v = 0; for (let j = 0; j < w; j++, bit++) v |= (bit < end ? b[bit >> 3] >> (bit & 7) & 1 : 0) << j; return v; };
+        for (; i < n; i++) {
+            let c = 0;
+            while (c < 4 && get(1)) c++;
+            const at = t + AUTO_OFF[c] + get(AUTO_TB[c]);
+            let e;
+            if (!get(1)) e = { t: at, k: "press", id: get(6) };
+            else if (!get(1)) e = { t: at, k: "release", id: get(6) };
+            else { const id = get(3), v = get(4); e = { t: at, k: "knob", id, c: v >= 8 ? v - 16 : v }; }
+            if (bit > end) break;
+            t = at;
+            out.events.push(e);
+        }
+        if (i < n) { out.bad = "PART " + part + " IS CUT SHORT: " + i + " OF ITS " + n + " EVENTS READ"; break; }
+        out.parts = part + 1;
+    }
+    return out;
+}
+/* a slot's events -> its parts' payloads (none for no event), as the firmware writes them: a part is full when an event
+ * of the most bits (37) might not fit in its 4,080 bytes, and the next starts on a byte with the next event; the last
+ * byte padded with 0. Throws past 16 parts (AUTO_FULL), on a gap out of 0 .. AUTO_GAP_MAX and on an event its fields
+ * cannot hold (nothing is cut to fit: a press or release of 0-63, a knob 0-7 of -8 to +7 clicks, a time in whole ms) */
+function packAutoSlot(screen, events) {
+    const parts = [];
+    let buf = new Uint8Array(RECORD_MAX), bits = 0, nev = 0, last = 0;
+    const put = (w, v) => { for (let i = 0; i < w; i++, bits++) if (v >>> i & 1) buf[bits >> 3] |= 1 << (bits & 7); };
+    const close = () => {
+        const hb = parts.length ? 2 : 3, nb = (bits + 7) >> 3, p = new Uint8Array(hb + nb);
+        if (!parts.length) p[0] = screen & 0xFF;
+        p[hb - 2] = nev & 0xFF;
+        p[hb - 1] = nev >> 8;
+        p.set(buf.subarray(0, nb), hb);
+        parts.push(p);
+        buf = new Uint8Array(RECORD_MAX); bits = 0; nev = 0;
+    };
+    const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    for (const e of events) {
+        if (!(int(e.t, 0, Number.MAX_SAFE_INTEGER) && (e.k === "knob" ? int(e.id, 0, 7) && int(e.c, -8, 7) : (e.k === "press" || e.k === "release") && int(e.id, 0, 63))))
+            throw new Error("AN EVENT ITS FIELDS CANNOT HOLD: " + JSON.stringify(e).toUpperCase());
+        if ((parts.length ? 2 : 3) + ((bits + 44) >> 3) > RECORD_MAX) {
+            close();
+            if (parts.length >= AUTO_PARTS) throw new Error(AUTO_FULL);
+        }
+        const d = e.t - last;
+        if (!(d >= 0 && d <= AUTO_GAP_MAX)) throw new Error(d < 0 ? "THE EVENTS ARE OUT OF TIME ORDER" : "AT MOST " + autoTime(AUTO_GAP_MAX) + " BETWEEN TWO EVENTS");
+        last = e.t;
+        let c = 0;
+        while (c < 4 && d >= AUTO_OFF[c + 1]) c++;
+        put(c < 4 ? c + 1 : 4, (1 << c) - 1);
+        put(AUTO_TB[c], d - AUTO_OFF[c]);
+        if (e.k === "knob") { put(2, 3); put(3, e.id); put(4, e.c & 15); }     /* (the clicks in two's complement) */
+        else if (e.k === "press") { put(1, 0); put(6, e.id); }
+        else { put(2, 1); put(6, e.id); }
+        nev++;
+    }
+    if (nev) close();
+    return parts;
+}
+/* the file's records -> its 16 slots, each null (no record) or unpackAutoSlot's, with recs: its records' count */
+function unpackAuto(recs) {
+    const by = Array.from({ length: AUTO_SLOTS }, () => []), n = new Array(AUTO_SLOTS).fill(0);
+    for (const r of recs || []) { by[r.sub >> 4 & 15][r.sub & 15] = r.payload; n[r.sub >> 4 & 15]++; }
+    return by.map((parts, s) => n[s] ? Object.assign(unpackAutoSlot(parts), { recs: n[s] }) : null);
+}
+/* the records with a slot's parts in place of its old ones (other slots' records as they were), by sub */
+function autoWithSlot(recs, slot, parts) {
+    return (recs || []).filter(r => (r.sub >> 4) !== slot)
+        .concat(parts.map((payload, k) => ({ sub: slot * 16 + k, ver: VERSION[KIND.AUTO], payload }))).sort((a, b) => a.sub - b.sub);
+}
+/* slots [16 x { screen, events } | null] -> the file's records */
+function packAuto(slots) {
+    let recs = [];
+    (slots || []).forEach((s, i) => { if (s && s.events.length) recs = autoWithSlot(recs, i, packAutoSlot(s.screen, s.events)); });
+    return recs;
+}
+/* the words: a time from the start 0:12.345, a length as the FM-1's grid shows it 0:42, a control, an event */
+const autoTime = ms => Math.floor(ms / 60000) + ":" + String(Math.floor(ms / 1000) % 60).padStart(2, "0") + "." + String(ms % 1000).padStart(3, "0");
+const autoLength = ms => Math.floor(ms / 60000) + ":" + String(Math.floor(ms / 1000) % 60).padStart(2, "0");
+/* a time typed: M:SS.MMM, or seconds (12.5) -> ms, or null */
+function autoParseTime(s) {
+    const m = /^\s*(?:(\d+):)?(\d+)(?:\.(\d{0,3}))?\s*$/.exec(String(s));
+    if (!m || (m[1] != null && m[2].length > 2)) return null;
+    const sec = +m[2], ms = m[3] ? +m[3].padEnd(3, "0") : 0;
+    if (m[1] != null && sec > 59) return null;
+    return (m[1] != null ? +m[1] * 60000 : 0) + sec * 1000 + ms;
+}
+function autoControl(k, id) {
+    if (k === "knob") return AUTO_KNOBS[id] || null;
+    return id < AUTO_KEYS ? "KEY " + noteName(AUTO_KEY_NOTE + id) : AUTO_BUTTONS[id - AUTO_KEYS] || null;
+}
+function autoEventText(e) {
+    const n = autoControl(e.k, e.id);
+    if (e.k === "knob") { const c = (e.c > 0 ? "+" : "") + e.c; return n ? n + " " + c : "KEPT FOR LATER KNOB " + e.id + " " + c; }
+    const does = e.k === "press" ? "DOWN" : "UP";
+    return n ? n + " " + does : "KEPT FOR LATER " + e.id + " " + does;
+}
+/* what the FM-1 does with each event as it plays them: why: [null, or why it skips it], held: what is still down at the
+ * end (let go there), as ids. A pass of its main loop gives an event and those after it at +0 together (a recorded
+ * pass a pass): the UI sees only where each control ends up, so a press and its release in one pass (or a release and
+ * a press), and turns of a knob adding up to nothing, are never seen; of an odd count of changes only the last is */
+function autoScan(events) {
+    const down = new Set(), why = [];
+    let pass = [];
+    const endPass = () => {
+        const by = new Map();
+        for (const i of pass) if (!why[i]) { const e = events[i], key = (e.k === "knob" ? "n" : "p") + e.id; if (!by.has(key)) by.set(key, []); by.get(key).push(i); }
+        for (const [key, rows] of by) {
+            if (key[0] === "n") { if (rows.length > 1 && !rows.reduce((s, i) => s + events[i].c, 0)) for (const i of rows) why[i] = AUTO_CANCELLED; }
+            else for (const i of rows.slice(0, rows.length - rows.length % 2)) why[i] = AUTO_CANCELLED;
+        }
+        pass = [];
+    };
+    events.forEach((e, i) => {
+        if (i && e.t !== events[i - 1].t) endPass();     /* (a gap: the next pass) */
+        let w = null;
+        if (e.k === "knob") w = e.id >= AUTO_KNOBS.length ? "KEPT FOR LATER: THE FM-1 SKIPS IT" : !e.c ? "NO CLICKS: NOTHING TURNS" : null;
+        else if (e.id >= AUTO_KEYS + AUTO_BUTTONS.length) w = "KEPT FOR LATER: THE FM-1 SKIPS IT";
+        else if (e.k === "press") { if (down.has(e.id)) w = "DOWN ALREADY: NOTHING CHANGES"; down.add(e.id); }
+        else { if (!down.has(e.id)) w = "NOT DOWN: THE FM-1 SKIPS IT"; down.delete(e.id); }
+        why.push(w);
+        pass.push(i);
+    });
+    endPass();
+    return { why, held: [...down].sort((a, b) => a - b) };
+}
+
 /* ---- a record's place in the store: a cartridge's kind from its number (one number space) ---- */
 const isCart = k => CART_KINDS.includes(k);
 const hex2 = v => (v < 16 ? "0" : "") + (v & 0xFF).toString(16).toUpperCase();
@@ -1028,5 +1242,7 @@ ED.rec = { KIND, VERSION, CART_KINDS, RECORD_MAX, NAME_CHARS, NOTE_OFF, BitReade
     ptrEncode, ptrDecode, ptrInfo, PAT_ROWS_MAX, unpackPattern, packPattern, cellKey, unpackSong, packSong, newSong, MIX_FIELDS,
     MIX_DEFAULT, SONG_STOP, SONG_LINEAR, SONG_FAST_VOL, fxChain, setFxChain, fxOn, setFxOn, defaultFx, FX_CHAIN_DEFAULT,
     unpackSettings, packSettings, unpackMidiMap, packMidiMap, LOOPS_HEAD, LOOP_SIZE, LOOP_FILL, unpackLoops, packLoops, loopsV3,
-    canConvert, upgrade, loopsV4to3, downgrade, canDowngrade, isCart, hex2, noteName, parseNote };
+    LSET_PRE, unpackLSet, packLSet, barsText, canConvert, upgrade, loopsV4to3, downgrade, canDowngrade, isCart, hex2, noteName, parseNote,
+    AUTO_SLOTS, AUTO_PARTS, AUTO_KEYS, AUTO_GAP_MAX, AUTO_SCREENS, AUTO_WHERE, AUTO_BUTTONS, AUTO_KNOBS, AUTO_FULL, AUTO_CANCELLED, unpackAutoSlot,
+    packAutoSlot, unpackAuto, autoWithSlot, packAuto, autoTime, autoLength, autoParseTime, autoControl, autoEventText, autoScan };
 })(globalThis.ED = globalThis.ED || {});

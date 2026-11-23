@@ -128,7 +128,7 @@ static void legato(const char *name, int cart, int slot, int engine)
             age0 = pl_v[v0].age;
             gen0 = pl_ch[0].gen;
             trig0 = triggers;
-            pos0 = pl_v[v0].u.sm.pos;
+            pos0 = PL_E(&pl_v[v0])->u.sm.pos;
         }
         if (h == 90)                     /* (row 4 started: E-4 legato) */
             break;
@@ -147,16 +147,17 @@ static void legato(const char *name, int cart, int slot, int engine)
     check(what, pl_ch[0].note == 64 && pl_ch[0].bend == 4 * 64);
     if (engine == EN_DX7) {
         snprintf(what, sizeof what, "%s: the voice bent to E-4", name);
-        check(what, pl_v[v0].u.dx.bend == 256 * 21845 + 256 / 3);
+        check(what, PL_E(&pl_v[v0])->u.dx.bend == 256 * 21845 + 256 / 3);
     }
     if (engine == EN_JUNO) {
-        snprintf(what, sizeof what, "%s: the VCF's key follow on E-4 (%d)", name, pl_v[v0].u.ju.pitch88 >> 8);
-        check(what, pl_v[v0].u.ju.pitch88 == 64 << 8 && pl_v[v0].u.ju.bend == 256 * 21845 + 256 / 3);
+        const juno_voice_t *ju = &PL_E(&pl_v[v0])->u.ju;
+        snprintf(what, sizeof what, "%s: the VCF's key follow on E-4 (%d)", name, ju->pitch88 >> 8);
+        check(what, ju->pitch88 == 64 << 8 && ju->bend == 256 * 21845 + 256 / 3);
     }
     if (engine == EN_SAMP) {
-        snprintf(what, sizeof what, "%s: the sample plays on from its place (%d -> %d)", name, (int)pos0,
-                 (int)pl_v[v0].u.sm.pos);
-        check(what, pl_v[v0].u.sm.pos > pos0 && pl_v[v0].u.sm.on);
+        const samp_voice_t *sm = &PL_E(&pl_v[v0])->u.sm;
+        snprintf(what, sizeof what, "%s: the sample plays on from its place (%d -> %d)", name, (int)pos0, (int)sm->pos);
+        check(what, sm->pos > pos0 && sm->on);
     }
 }
 

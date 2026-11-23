@@ -33,7 +33,7 @@ enum { C_HELLO = 0x01, C_LAYOUT = 0x02, C_READ = 0x03, C_DATA = 0x04, C_BEGIN = 
 static const uint8_t ACCEPTS[][2] = {
     { REC_DX7, 1 }, { REC_JUNO, 1 }, { REC_TB303, 1 }, { REC_SAMPLER, REC_SAMPLER_VER }, { REC_FUSION, 1 }, { REC_CHIP, 1 },
     { REC_SAMPLE, 1 }, { REC_PATTERN, 1 }, { REC_SONG, 1 }, { REC_LOOPS, 4 }, { REC_DJ, 1 },
-    { REC_SETTINGS, 1 }, { REC_MIDIMAP, 1 }, { REC_FAV, 1 }
+    { REC_SETTINGS, 1 }, { REC_MIDIMAP, 1 }, { REC_FAV, 1 }, { REC_LSET, REC_LSET_VER }, { REC_AUTO, 1 }
 };
 #define NACCEPT ((int)(sizeof ACCEPTS / sizeof ACCEPTS[0]))
 
@@ -180,13 +180,17 @@ static void layout_part(void)
 }
 
 /* ---- the end ---- */
+#ifdef PTFM_DEBUG
+static uint8_t dbg_wrote;                       /* this seeding wrote a block of the debug part (block_ok) */
+#endif
 static void finish(uint8_t cmd)
 {
     uint8_t ex[8];
     store_lock(0);
     store_mount();                                      /* (it uses the scratch: nothing of ours is left there) */
 #ifdef PTFM_DEBUG
-    plat_dbg_part_recheck();                            /* (the debug part may have been written) */
+    plat_dbg_part_recheck(dbg_wrote);                   /* (the debug part checked again: written by this seeding, taken
+                                                         * whatever crashed in it before; else as at a start) */
 #endif
     /* the player told before it runs again (the audio is silent while active): nothing it held is valid */
     player_all_sound_off();
@@ -229,7 +233,9 @@ static int in_user(uint32_t a, uint32_t n)      /* within a region the layout re
 #ifdef PTFM_DEBUG                                /* (and the debug part's blocks, which the debug page writes) */
 static int block_ok(uint32_t b)
 {
-    return b <= 0xFF && (in_user(b << 12, STORE_BLOCK) || ((b << 12) >= STORE_DBG_START && (b << 12) < STORE_DBG_END));
+    int dbg = (b << 12) >= STORE_DBG_START && (b << 12) < STORE_DBG_END;
+    if (dbg && b <= 0xFF) dbg_wrote = 1;
+    return b <= 0xFF && (in_user(b << 12, STORE_BLOCK) || dbg);
 }
 #else
 static int block_ok(uint32_t b) { return b <= 0xFF && in_user(b << 12, STORE_BLOCK); }
@@ -299,6 +305,7 @@ static void command(uint8_t cmd, const uint8_t *in, uint32_t len)
         player_all_sound_off();                         /* (the audio goes silent with active: its voices let go) */
 #ifdef PTFM_DEBUG
         plat_dbg_part_stop();                           /* (its blocks may be written: nothing runs it till finish) */
+        dbg_wrote = 0;
 #endif
         active = 1;
         store_lock(1);

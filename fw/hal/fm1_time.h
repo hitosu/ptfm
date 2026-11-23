@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
- * Copyright (C) 2026 Vasily Kazantsev (cut: what the controller does not call) */
+ * Copyright (C) 2026 Vasily Kazantsev (cut: what the controller does not call; the counter overridable: the scan's
+ * host test) */
 /* FM-1 time base: TIMER4 free-running from the 24 MHz crystal.
  * TIMER4 is not used by the ROM or the SPL. No interrupts, no ROM calls.
  *
@@ -12,7 +13,9 @@
 #include <stdint.h>
 
 #define FM1_T4_CON (*(volatile uint32_t *)0x10800u)
+#ifndef FM1_T4_CNT
 #define FM1_T4_CNT (*(volatile uint32_t *)0x10804u)
+#endif
 #define FM1_T4_PRD (*(volatile uint32_t *)0x10808u)
 #define FM1_TICKS_PER_US 24u
 

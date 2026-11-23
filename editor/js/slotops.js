@@ -47,7 +47,10 @@ function refs(items, side, cart) {
         if (it.dim || it.id === cart.id) continue;
         const add = (r, n, at) => { const b = it.recs[r].payload; if (at < b.length && names(it, side, n, cart)) out.push({ id: it.id, r, at, slot: b[at] }); };
         if (it.kind === K.PATTERN) it.recs.forEach((rec, r) => { const c = []; cellSlots(rec.payload, c, r); for (const x of c) add(x.r, x.n, x.at); });
-        else if (it.kind === K.LOOPS) { const b = it.recs[0].payload; for (let i = 0; i < b[5]; i++) add(0, b[80 + 12 * i], 81 + 12 * i); }
+        else if (it.kind === K.LOOPS || it.kind === K.LSET) {   /* (a LOOPS set's table after its 16 bytes) */
+            const b = it.recs[0].payload, h = it.kind === K.LSET ? R.LSET_PRE : 0;
+            for (let i = 0; i < b[h + 5]; i++) add(0, b[h + 80 + 12 * i], h + 81 + 12 * i);
+        }
         else if (it.kind === K.FAVORITES) { const b = it.recs[0].payload; for (let i = 0; i < b[9]; i++) if (b[11 + 3 * i] !== 0xFF) add(0, b[10 + 3 * i], 11 + 3 * i); }
         else if (it.kind === K.SETTINGS) { const b = it.recs[0].payload; if (b.length > 123 && (b[123] & 1)) add(0, b[121], 122); }
     }

@@ -495,8 +495,13 @@ PLAT_COLD int rec_stage_merge(int has, const rec_cell_t *c4, int8_t *from)
     }
     if (note >= 0)
         return note;
-    if (end >= 0)
-        *from = -1;
+    if (end >= 0) {                      /* (an end ends it: a note off, a key off; a volume alone goes on with it) */
+        int stop = (c4[end].has & RC_NOTE) != 0;
+        for (l = 0; l < c4[end].n; l++)
+            stop |= c4[end].cmd[l][0] == 0x14u;
+        if (stop)
+            *from = -1;
+    }
     return end;
 }
 PLAT_COLD uint32_t rec_note_offs(uint32_t on, uint32_t tie, uint32_t n, uint32_t nr)
@@ -526,31 +531,39 @@ PLAT_COLD int rec_loops_rows_default(const uint8_t *head)
     most = most < 1u ? 1u : most > 4u ? 4u : most;
     return (int)(most * bar);
 }
-/* the flash's part sub of the loops, in version 4 (another version is as none) */
-static const uint8_t *loops_part(uint32_t sub, uint32_t *len)
+/* the flash's part sub of the loops (kind REC_LOOPS) or of set num (REC_LSET), in its version (another version is as
+ * none) */
+static const uint8_t *loops_part(uint8_t kind, uint8_t num, uint32_t sub, uint32_t *len)
 {
     uint8_t ver;
-    const uint8_t *p = store_get(REC_LOOPS, 0, (uint8_t)sub, len, &ver);
-    return p && ver == REC_LOOPS_VER ? p : 0;
+    const uint8_t *p = store_get(kind, num, (uint8_t)sub, len, &ver);
+    return p && ver == (kind == REC_LSET ? REC_LSET_VER : REC_LOOPS_VER) ? p : 0;
 }
-PLAT_COLD int rec_loops(rec_loops_t *l, int streams)
+/* the loops' record read, LOOPS' own or set num's (its 16 bytes first: *pre, NULL none) */
+static PLAT_COLD int loops_read(uint8_t kind, uint8_t num, rec_loops_t *l, int streams, const uint8_t **pre)
 {
-    uint32_t len, hl, sub, t, n;
-    const uint8_t *h = store_piece(REC_LOOPS, 0, STORE_PC_HEAD, &hl), *f = loops_part(0, &len);
+    uint32_t len, hl, sub, t, n, b0 = kind == REC_LSET ? REC_LSET_PRE : 0u;
+    const uint8_t *h = store_piece(kind, num, STORE_PC_HEAD, &hl), *f = loops_part(kind, num, 0, &len);
     for (t = 0; t < 16u; t++)
         l->trk[t] = l->trk_end[t] = 0;
+    if (pre)
+        *pre = 0;
     if (!h && f) {                       /* (no edit of it: the flash's, before its streams) */
         h = f;
-        hl = len > 5u ? REC_LOOPS_TABLE + REC_LOOPS_ENTRY * (uint32_t)f[5] : len;
+        hl = len > b0 + 5u ? b0 + REC_LOOPS_TABLE + REC_LOOPS_ENTRY * (uint32_t)f[b0 + 5u] : len;
         if (hl > len)
             hl = len;
     }
-    if (!h || hl < REC_LOOPS_TABLE) {
+    if (!h || hl < b0 + REC_LOOPS_TABLE) {
         l->head = 0;
         l->head_len = 0;
         l->n = l->rows = 0;
         return -1;
     }
+    if (pre)
+        *pre = h;
+    h += b0;
+    hl -= b0;
     n = h[5] > REC_LOOPS_MAX ? REC_LOOPS_MAX : h[5];
     if (REC_LOOPS_TABLE + REC_LOOPS_ENTRY * n > hl)
         n = (hl - REC_LOOPS_TABLE) / REC_LOOPS_ENTRY;
@@ -561,9 +574,9 @@ PLAT_COLD int rec_loops(rec_loops_t *l, int streams)
     if (!streams || !n)
         return 0;
     for (sub = 0; f && sub < 16u; sub++) {   /* the flash's streams, in whichever part holds each */
-        const uint8_t *p = sub ? loops_part(sub, &len) : f, *q, *end;
-        uint32_t at = sub ? 0u : REC_LOOPS_TABLE + REC_LOOPS_ENTRY * (uint32_t)(f[5] > 16u ? 16u : f[5]), bits;
-        if (!p || (!sub && !f[5]) || at + 5u > len)
+        const uint8_t *p = sub ? loops_part(kind, num, sub, &len) : f, *q, *end;
+        uint32_t at = sub ? 0u : b0 + REC_LOOPS_TABLE + REC_LOOPS_ENTRY * (uint32_t)(f[b0 + 5u] > 16u ? 16u : f[b0 + 5u]), bits;
+        if (!p || (!sub && !f[b0 + 5u]) || at + 5u > len)
             continue;
         bits = p[at + 3u] | (uint32_t)p[at + 4u] << 8;
         q = p + at + 5u;
@@ -582,7 +595,7 @@ PLAT_COLD int rec_loops(rec_loops_t *l, int streams)
         }
     }
     for (t = 0; t < n; t++) {            /* the edits over them */
-        const uint8_t *s = store_piece(REC_LOOPS, 0, (uint16_t)t, &len);
+        const uint8_t *s = store_piece(kind, num, (uint16_t)t, &len);
         if (s) {
             l->trk[t] = len > 1u ? s : 0;   /* (a lone 0x00: an empty stream) */
             l->trk_end[t] = len > 1u ? s + len : 0;
@@ -592,6 +605,11 @@ PLAT_COLD int rec_loops(rec_loops_t *l, int streams)
         l->trk[t] = l->trk_end[t] = 0;
     return 0;
 }
+PLAT_COLD int rec_loops(rec_loops_t *l, int streams) { return loops_read(REC_LOOPS, 0, l, streams, 0); }
+PLAT_COLD int rec_lset(uint8_t num, rec_loops_t *l, int streams, const uint8_t **pre)
+{
+    return loops_read(REC_LSET, num, l, streams, pre);
+}
 void rec_loop(const rec_loops_t *l, int i, rec_loop_t *o)
 {
     const uint8_t *e = l->head + REC_LOOPS_TABLE + REC_LOOPS_ENTRY * (uint32_t)i;
@@ -599,10 +617,11 @@ void rec_loop(const rec_loops_t *l, int i, rec_loop_t *o)
     o->slot = e[1];
     o->colour = (uint8_t)((e[2] & 15u) > 11u ? 0u : e[2] & 15u);
     o->mono = (uint8_t)(e[2] >> 4 & 1u);
-    o->muted = (uint8_t)(e[2] >> 5 & 1u);             /* (bit 6, a solo, never read: solos are not saved) */
+    o->muted = (uint8_t)(e[2] >> 5 & 1u);
     o->lanes = (uint8_t)((e[3] & 3u) + 1u);
     o->base = (uint8_t)(e[4] + 1u > PAT_ROWS_MAX ? PAT_ROWS_MAX : e[4] + 1u);
-    o->repeats = e[5] ? e[5] : 1u;
+    o->cut = (uint8_t)REC_LOOP_CUT(e, l->rows);
+    o->repeats = o->cut || !e[5] ? 1u : e[5];
     o->shift = (uint8_t)(l->rows ? (uint32_t)REC_LOOP_SHIFT(e) % l->rows : 0u);   /* (a SHIFT not under the length: modulo it) */
     o->mix = e + 6;
 }
@@ -680,7 +699,7 @@ static uint32_t level_pos(uint8_t kind)
          : kind == REC_CHIP ? 181u : 68u;
 }
 
-static const uint8_t *slot_raw(const rec_cart_t *c, uint8_t slot)
+static PLAT_COLD const uint8_t *slot_raw(const rec_cart_t *c, uint8_t slot)
 {
     const uint8_t *s = 0;
     uint32_t len;
@@ -772,6 +791,7 @@ void rec_sampler_inst(const uint8_t *slot, rec_sinst_t *si)   /* (version 2's bi
 }
 
 uint8_t rec_sampler_volume(const uint8_t *slot) { return (uint8_t)rec_bits(slot, 113, 7); }
+int rec_sampler_tune(const uint8_t *slot) { return (int)rec_bits(slot, 97, 8) - 128; }
 
 uint32_t rec_slot_at(const rec_cart_t *c, uint8_t slot) { return REC_CART_HEAD + (uint32_t)SLOT_SIZE[c->kind] * slot; }
 

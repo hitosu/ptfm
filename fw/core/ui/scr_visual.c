@@ -10,6 +10,7 @@
 #include "ui_data.h"
 #include "fxm.h"
 #include "../play/player.h"
+#include "../play/loops.h"
 #include "../store/store.h"
 #include "../store/seed.h"
 
@@ -30,8 +31,9 @@ static struct {                         /* (SIZE: the views' buffers apart, all 
     uint8_t nwave;
     int8_t spec[FFT_N / 2];             /* SPECTRUM: each bin, dB + 128 (the floor -128 dB) */
     uint16_t lv[16];                    /* LEVELS */
-    pl_voice_info_t vi[PL_VOICES_MOST]; /* (the voices heard: the pool's first 16; past them only notes fading out
-                                         * of their places or parked, unheard) */
+    pl_voice_info_t vi[PL_VOICES_MOST]; /* (the voices heard: the pool's 16 engines; a ghost has none, unheard, a muted
+                                         * track's notes among them; DUCK's source's and a TB-303's, muted, keep
+                                         * theirs) */
     int8_t vs[PL_VOICES_MOST][VS_N];    /* VOICES: each voice's scope, / 256 */
 } visb;
 
@@ -167,7 +169,7 @@ static void mas_draw(void)
             g_hline(cx - 2, cy, 5, col);
             g_vline(cx, cy - 2, 5, col);
         }
-        g_text((240 - g_tw(&FONT_S, T("CORNER!"))) / 2, BODY_Y + BODY_H / 2 - 8, &FONT_S, T("CORNER!"), C_YELLOW);
+        g_text_c(0, 240, BODY_Y + BODY_H / 2 - 8, &FONT_S, T("CORNER!"), C_YELLOW);
     }
 }
 
@@ -358,14 +360,20 @@ static void draw(void)
         g_text(210, Y0 + H - 11, &FONT_T, "18K", C_DGREY);
         return;
     }
-    for (int t = 0; t < 16; t++) {                      /* LEVELS: a meter for each track */
-        int x = t * 15, full = H - 20;
+    player_state_t st;
+    ui_player_state(&st);
+    uint32_t lp_sil = st.what == PL_LOOPS ? loops_silent_mask() : 0;
+    for (int t = 0; t < 16; t++) {                      /* LEVELS: a meter for each track (LOOPS playing: each loop); a
+                                                         * muted track's notes are ghosts, nothing measured after the
+                                                         * mute's own block (DUCK's source's and a TB-303's sound on
+                                                         * unheard: measured, grey) */
+        int x = t * 15, full = H - 20, muted = st.what == PL_LOOPS ? (int)(lp_sil >> t & 1u) : ui_muted(t);
         int64_t a = (int64_t)visb.lv[t] * g8 * 4 / 256;
         if (a > 32768) a = 32768;
         int h = (int)(a * full / 32768);
         g_rect(x + 2, Y0 + 2, 11, full, C_DEEP + C_DGREY);
-        g_rect(x + 2, Y0 + H - 18 - h, 11, h, ui_muted(t) ? C_DGREY : h * 100 > full * 85 ? C_RED : C_GREEN);
-        g_text(x + 1, Y0 + H - 13, &FONT_T, ui_hex2(t), ui_muted(t) ? C_DGREY : C_CYAN);
+        g_rect(x + 2, Y0 + H - 18 - h, 11, h, muted ? C_DGREY : h * 100 > full * 85 ? C_RED : C_GREEN);
+        g_text(x + 1, Y0 + H - 13, &FONT_T, ui_hex2(t), muted ? C_DGREY : C_CYAN);
     }
 }
 
@@ -376,8 +384,8 @@ static void knob(int e, int s, int coarse)
     (void)coarse;
     int d = s > 0 ? 1 : -1;
     if (e == K_SELECT) vis.view = (uint8_t)ui_clamp(vis.view + d, 0, V_N - 1);     /* the views, as pages */
-    if (e == K_K1) { vis.zoom = (uint8_t)ui_clamp(vis.zoom + d, 0, 5); ui_show_knob(T("K1 ZOOM"), ui_dec(vis.zoom + 1)); }
-    if (e == K_K2) { vis.gain = (uint8_t)ui_clamp(vis.gain + d, 0, 7); ui_show_knob(T("K2 GAIN"), T(GAIN[vis.gain])); }
+    if (e == K_K1) { vis.zoom = (uint8_t)ui_clamp(vis.zoom + d, 0, 5); ui_show_knob_t(TX("K1 ZOOM"), ui_dec(vis.zoom + 1)); }
+    if (e == K_K2) { vis.gain = (uint8_t)ui_clamp(vis.gain + d, 0, 7); ui_show_knob_t(TX("K2 GAIN"), T(GAIN[vis.gain])); }
     if (e == K_K4 && vis.view == V_MASCOT) {            /* (a touch the help keeps quiet: K4 lifts FOMA or drops it, a
                                                          * turn (24 clicks) the body's height, within it; it flies on) */
         const int32_t y0 = BODY_Y << 4, y1 = (BODY_Y + BODY_H - MAS_S * (MAS_H - 1)) << 4;
@@ -393,8 +401,8 @@ static int tap(int b)
 {
     if (b == B_SEQ) { vis.view = (uint8_t)((vis.view + 1) % V_N); return 1; }
     if (b == B_GLO) {
-        const ui_prop_t items[2] = {{TX("VIEW"), p_view, p_view_change, 0, 0, 0},
-                                    {TX("FREEZE"), p_freeze, p_freeze_change, 0, 0, 0}};
+        static const ui_prop_t items[2] = {{TX("VIEW"), p_view, p_view_change, 0, 0, 0},
+                                           {TX("FREEZE"), p_freeze, p_freeze_change, 0, 0, 0}};
         ui_props(T("VISUAL OPTIONS"), items, 2, B_GLO);
         return 1;
     }

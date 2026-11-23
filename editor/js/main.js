@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Vasily Kazantsev */
-/* EDITOR [beta]'s start (specs/editor.md): one page at a time, the built-in instruments from the page's firmware, both
+/* EDITOR's start (specs/editor.md): one page at a time, the built-in instruments from the page's firmware, both
  * panels back from the browser, FILES built, the keys wired (the header's logo shows FILES; Ctrl+Z / Ctrl+Y; Space plays
  * the picked item), files picked with + ADD FILES. */
 (function (ED) {

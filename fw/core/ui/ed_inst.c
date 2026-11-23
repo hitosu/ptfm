@@ -411,6 +411,14 @@ int ins_rename_cart(uint8_t num, const char *name)
     ins_name_set(rb, 0, 12, name);
     return ui_edit_put(c.kind, num, 0, rec_cart_ver(c.kind), rb, len);
 }
+uint32_t ins_put_need(uint8_t cart, int slot)
+{
+    rec_cart_t c;
+    if (rec_cart(cart, &c)) return 16u;
+    uint32_t per = (((uint32_t)rec_slot_size(c.kind) + 3u) & ~3u) + 8u, n = c.nslots, k = slot < 0 ? n : slot < (int)n ? 1u : (uint32_t)slot - n + 1u;
+    return per * k + (slot < 0 || slot >= (int)n ? ((REC_CART_HEAD + 3u) & ~3u) + 8u : 0u) + 8u;   /* (the slots, a head a slot
+                                                 * past the last brings, an entry more) */
+}
 int ins_copy_cart(uint8_t from, uint8_t to, const char *name)
 {
     rec_cart_t c;

@@ -4,7 +4,8 @@ Status: **settled** (2026-10-09). The record: [the files proposal](../proposals/
 its introduction and sections 2 and 13.
 
 What PT/FM stores, and how: the store in the flash, and every record in it (patterns and their
-commands, songs, the loops, cartridges and instruments, sample audio, settings, the MIDI map), how records refer to
+commands, songs, the loops and their sets, cartridges and instruments, sample audio, settings, the MIDI map,
+AUTOMATIONS), how records refer to
 each other, how edits reach the flash, how a data blob gets onto the device, and the disks that carry
 sets of files between computers. The UI ([../ui/README.md](../ui/README.md)) says what the screens
 show and do; these files say what is kept.
@@ -31,12 +32,13 @@ show and do; these files say what is kept.
 | [patterns.md](patterns.md) | patterns: tracks, rows, a cell's bytes, parts, FUSION patterns |
 | [commands.md](commands.md) | commands: tracker effects, time, the instruments' parameters, mixer and FX, PT/FM's own, the punch-ins |
 | [songs.md](songs.md) | songs: the order, the mixer, the FX setup |
-| [loops.md](loops.md) | LOOPS' loops: one length, the setup, the loop table, each loop's notes as one stream |
+| [loops.md](loops.md) | LOOPS' loops: one length, the setup, the loop table, each loop's notes as one stream; LOOPS sets |
 | [dj.md](dj.md) | DJ's setup and stand: its FX setup and properties, and the decks as they stand (SAVE, power-on) |
 | [instruments.md](instruments.md) | cartridges and instruments: DX7, Juno-106, TB-303, sample instruments, FUSION |
 | [ptr.md](ptr.md) | sample audio: PTR, PT/FM's lossless coding |
 | [settings.md](settings.md) | the settings record |
 | [midi.md](midi.md) | the MIDI map: MIDI learn's mappings of an outside controller onto the FM-1's controls |
+| [automations.md](automations.md) | AUTOMATIONS: 16 slots of the FM-1's controls as worked, their events bit-packed |
 | [references.md](references.md) | what refers to what, reference updates, integrity |
 | [ram.md](ram.md) | editing, saving and RAM: the edit memory, where the RAM goes, what writing costs |
 | [blob.md](blob.md) | the data blob, seeding and converters |

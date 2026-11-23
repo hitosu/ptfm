@@ -41,8 +41,8 @@ switching off. A fresh FM-1 opens on it.</li>
 hears them.</li>
 </ul>
 <p>From the cell's <kbd>SEL</kbd> menu (nothing marked):</p>
-<figure data-shot="editor-menu"><figcaption>The cell's menu (SEL): MARK and the pipette first, the block's actions,
-then the pattern's own: NEW, LOAD, STORE, RECORD PATTERN.</figcaption></figure>
+<figure data-shot="editor-menu"><figcaption>The cell's menu (SEL): MARK and the pipette first, then the block's
+actions; the pattern's own (NEW, LOAD, STORE, RECORD PATTERN) below them, as it scrolls.</figcaption></figure>
 <dl class="params">
 <dt>NEW PATTERN</dt><dd>Empties the EDITOR's own pattern (8 tracks × 64 rows) and opens it.</dd>
 <dt>LOAD A PATTERN</dt><dd>Copies a numbered pattern into the EDITOR's own, to start from it
@@ -50,7 +50,7 @@ then the pattern's own: NEW, LOAD, STORE, RECORD PATTERN.</figcaption></figure>
 <dt>STORE IN A PATTERN</dt><dd>Gives what the EDITOR shows a number, so songs can play it: pick a pattern, or
 <b>+ NEW PATTERN</b> for the first free number (<samp class="msg" data-t="STORED IN PATTERN #">STORED IN PATTERN
 1A</samp>); the EDITOR follows it there. Storing over a pattern that holds anything asks first
-(<samp class="msg" data-t="PATTERN %02X WILL BE REPLACED">PATTERN 0C WILL BE REPLACED</samp>,
+(<samp class="msg" data-t="PATTERN # WILL BE REPLACED">PATTERN 0C WILL BE REPLACED</samp>,
 <samp class="msg">DO YOU WANT TO CONTINUE?</samp>).</dd>
 </dl>
 <aside class="note">Opening another pattern empties the EDITOR's own. When it holds anything, a question asks first:
@@ -66,15 +66,15 @@ next PLAY resumes what played before. <kbd>HOME</kbd> closes. Its <kbd>SEL</kbd>
 menu:</p>
 <dl class="params">
 <dt>NEW</dt><dd>An empty pattern, 8 tracks × 64 rows, at the first free number
-(<samp class="msg" data-t="PATTERN %02X MADE">PATTERN 13 MADE</samp>); with all 240 used,
+(<samp class="msg" data-t="PATTERN # MADE">PATTERN 13 MADE</samp>); with all 240 used,
 <samp class="msg">ALL 240 PATTERNS USED</samp>.</dd>
 <dt>CLONE</dt><dd>A copy of the highlighted pattern at the first free number
-(<samp class="msg" data-t="%02X CLONED TO %02X">12 CLONED TO 13</samp>).</dd>
+(<samp class="msg" data-t="# CLONED TO #">12 CLONED TO 13</samp>).</dd>
 <dt>MOVE</dt><dd>To another free number: SELECT carries it, SEL puts it down
 (<samp class="msg" data-t="PATTERN %02X MOVED TO %02X">PATTERN 12 MOVED TO 20</samp>); with none free,
 <samp class="msg">NO FREE NUMBER</samp>. Songs using it ask to follow (<a href="#basics-references">references</a>).
 </dd>
-<dt>DELETE</dt><dd>Deletes it (<samp class="msg" data-t="PATTERN %02X DELETED">PATTERN 12 DELETED</samp>), asking
+<dt>DELETE</dt><dd>Deletes it (<samp class="msg" data-t="PATTERN # DELETED">PATTERN 12 DELETED</samp>), asking
 first when something uses it.</dd>
 </dl>
 </section>
@@ -154,8 +154,11 @@ adding on each pass, until PLAY or REC stops it.</p>
 none). With COUNT-IN set to KEY, your first note starts it.</li>
 <li>Or hold <kbd>PLAY</kbd> and press a key: the take starts on that note at once. Hold PLAY alone to see both ways
 (LET GO: START THE TAKE, PRESS A KEY: START ON THAT NOTE).</li>
-<li>Play. Notes land on SETTINGS' QUANTIZE grid (2, 3 or 4 rows, a row, or REAL TIME); letting go of a key writes a
-note off. A melody stays on the cursor's track; a chord spreads to the next tracks.</li>
+<li>Play. Each key sounds the moment you press it; its note lands on SETTINGS' QUANTIZE grid (2, 3 or 4 rows, a row,
+or REAL TIME) and plays there from the next pass. Letting go of a key writes a note off. A melody stays on the
+cursor's track; a chord spreads to the next tracks. Press a held key harder and the take writes the swell as volumes
+on the next rows, each with a volume slide on the row before it (none while you hold it steady); the replay plays it
+smoothly from there.</li>
 <li>Press <kbd>PLAY</kbd> or <kbd>REC</kbd> to stop (<samp class="msg">TAKE STOPPED</samp>). REC stays on and the
 cursor goes back to the row the take started on.</li>
 </ol>

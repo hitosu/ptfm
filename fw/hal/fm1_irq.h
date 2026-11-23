@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Copyright (C) 2026 Kerem Kilic (the second core's faults told apart by cnum)
- * Copyright (C) 2026 Vasily Kazantsev (cut: what the controller does not call; core 2's faults) */
+ * Copyright (C) 2026 Vasily Kazantsev (cut: what the controller does not call; core 2's faults; a crash's culprit
+ * registers and core 2's PC, after the AC79 SDK's exception handler) */
 /* FM-1 interrupt / exception HAL.
  *
  *   fm1_irq_init()        first thing in cstart: all ICFG off, pendings and
@@ -34,7 +35,16 @@
 #define FM1_DBG_MSG (*(volatile uint32_t *)0x1EEE244u)
 #define FM1_DBG_MSG_CLR (*(volatile uint32_t *)0x1EEE248u)
 #define FM1_DBG_EN (*(volatile uint32_t *)0x1EEE340u)
-#define FM1_C0_WR_ERR (*(volatile uint32_t *)0x1EEE360u)   /* C0_WR_LIMIT_ERR_NUM: the write limits core 1 hit, a bit each */
+/* the debug unit's culprit registers, 8 words from 0x1EEE360 (the AC79 SDK's csfr.h, its exception handler's in
+ * cpu/wl82/debug.c): 0-2 the write limits core 1, core 2 and the DMAs hit, a bit a window (C0 / C1 / PRP
+ * _WR_LIMIT_ERR_NUM); 3 the DMA that hit one (PRP_WR_LIMIT_ID); 4 and 5 the bus master of an invalid AXI read and
+ * write (AXI_RD_INV_ID, AXI_WR_INV_ID: 0x100 core 1, as the SDK's handler reads it); 6 and 7 the DMA of an MMU write
+ * and read error (PRP_MMU_ERR_WID / RID) */
+#define FM1_DBG_ID(i) (*(volatile uint32_t *)(0x1EEE360u + 4u * (i)))
+/* core 2's debug bank (core 1's + 0x200): CMD_PAUSE (written -1, it stops at an instruction's end) and PCRS (its PC),
+ * as the SDK's handler reads the other core's */
+#define FM1_C1_PAUSE (*(volatile uint32_t *)0x1EEF298u)
+#define FM1_C1_PCRS (*(volatile uint32_t *)0x1EEF27Cu)
 
 enum { FM1_IRQ_EXCEPTION = 1, FM1_IRQ_ALNK0 = 11, FM1_IRQ_SPI1 = 16, FM1_IRQ_UART1 = 20,
        FM1_IRQ_SARADC = 24, FM1_IRQ_SPI2 = 37, FM1_IRQ_TIMER5 = 63, FM1_IRQ_SOFT0 = 120 };
@@ -78,9 +88,10 @@ static uint32_t fm1_stack_out(uint32_t usp, uint32_t ssp)
  * file-local object would let the compiler assume its zero initial value and
  * fold the magic check away. */
 fm1_crash_t fm1_crash __attribute__((section(".noinit")));
-/* what the crash screen shows beyond the record (this start's only, not kept across the restart): the write limits hit
- * (FM1_C0_WR_ERR's bits: fm1_guard.h's windows 0-3) and both stack pointers as the fault found them */
-static struct { uint32_t wr, usp, ssp; } fm1_crash_more;
+/* what the crash screen shows beyond the record (this start's only, not kept across the restart): the culprit
+ * registers (FM1_DBG_ID; the write limits' bits are fm1_guard.h's windows 0-3), both stack pointers as the fault found
+ * them, and where core 2 was, paused at the fault (c2_pc_ok: it ran, c2_pc read) */
+static struct { uint32_t bus[8], usp, ssp, c2_pc, c2_pc_ok; } fm1_crash_more;
 /* core 2 started and not held since (fm1_cpu1.h keeps it): the crash record's c2 */
 static volatile uint8_t fm1_c1_runs;
 
@@ -91,7 +102,14 @@ static volatile uint8_t fm1_c1_runs;
 #define FM1_C1_FAULT_MAGIC 0x43324658u       /* "C2FX" */
 typedef struct {
     uint32_t magic, count, vec, pc, rets, emu, dbg, sp, uptime_ms;
+    uint32_t shown;                          /* FM1_C1_FAULT_SHOWN(count) once a screen showed this one (main.c; the
+                                              * words after an older build's record: anything else) */
+    uint32_t bad_d, bad_n;                   /* a bad write refused (vec FM1_C1_BAD_*): its destination and length */
 } fm1_c1_fault_t;
+#define FM1_C1_FAULT_SHOWN(n) ((n) ^ 0x53484F57u)   /* ("SHOW") */
+/* the record's vec for a fill or copy refused (fm1_cpu1.h's fm1_c2_dest_ok; its pc the caller): + 1 a copy, + 2 on
+ * core 1 (core 2 off, its job run there) */
+enum { FM1_C1_BAD_FILL = 0x100, FM1_C1_BAD_COPY = 0x101 };
 fm1_c1_fault_t fm1_c1_fault __attribute__((section(".c2_keep")));
 void fm1_c1_park(void);
 void __attribute__((section(".c2_top"), noreturn, used, noinline)) fm1_c1_park(void)
@@ -143,7 +161,7 @@ static void fm1_irq_enable_all(void)
 void fm1_fault_c(uint32_t *f)
 {
     static volatile uint32_t in_fault;
-    uint32_t i, count = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0;
+    uint32_t i, dbg, count = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.count : 0;
     uint32_t early = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.early : 0;
     if (fm1_cnum()) {                         /* core 2's own: its record, then its park (before in_fault: core 1's
                                                * faults stay its own) */
@@ -169,7 +187,21 @@ void fm1_fault_c(uint32_t *f)
         fm1_cpu1_halt();
         *(volatile uint32_t *)0x10000u |= 1u << 4;
     }
-    fm1_crash_more.wr = FM1_C0_WR_ERR;        /* (before the limits go off below) */
+    /* the debug unit's words first (before the limits go off below, and before core 2's pause could add a flag),
+     * then core 2 paused where it is and its PC read, as soon as can be: a stray write of its own lies a few hundred
+     * of its instructions back (the SDK's handler: pause, hold, PC; main.c's fm1_fault holds it) */
+    for (i = 0; i < 8u; i++)
+        fm1_crash_more.bus[i] = FM1_DBG_ID(i);
+    dbg = FM1_DBG_MSG;
+    fm1_crash_more.c2_pc_ok = 0;
+    if (fm1_c1_runs) {
+        uint32_t t0 = *(volatile uint32_t *)0x10804u;
+        FM1_C1_PAUSE = 0xFFFFFFFFu;
+        while (*(volatile uint32_t *)0x10804u - t0 < 240u)   /* (10 us, TIMER4: it stops) */
+            ;
+        fm1_crash_more.c2_pc = FM1_C1_PCRS;
+        fm1_crash_more.c2_pc_ok = 1;
+    }
     fm1_crash_more.usp = f[22];
     fm1_crash_more.ssp = f[23];
     /* the stack check and the write limits off: on an overflowed stack, or in a guard band, what the report pushes
@@ -184,7 +216,7 @@ void fm1_fault_c(uint32_t *f)
     fm1_crash.pc = f[16];
     fm1_crash.rets = f[25];
     fm1_crash.emu = FM1_EMU_MSG;
-    fm1_crash.dbg = FM1_DBG_MSG;
+    fm1_crash.dbg = dbg;
     fm1_crash.sp = f[24];
     fm1_crash.psr = f[20];
     fm1_crash.icfg = f[21];

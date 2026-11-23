@@ -140,7 +140,11 @@ instrument only.
 | 0x45 | TUNE | 1/128 of a semitone, 0x80 none |
 | 0x48-0x4B, 0x4C-0x4F | the envelope's R1-R4, L1-L4 | 0-99 |
 
-START acts from the next note; END and the loop's points move under a sounding note.
+START acts from the next note; END and the loop's points move under a sounding note. A loop needs room, LOOP END
+past LOOP START + 1 (and END taken for LOOP END when it comes first): a note started without it does not loop, and a
+sounding note whose points are turned to leave none loops no more, playing on to END as with LOOP OFF. The loop's
+end is the lesser of LOOP END and END at every moment, each kept as turned: END turned down past LOOP END brings the
+loop's end down with it, and turned up again brings it back (the loop keeping its room meanwhile).
 
 ### CHIP
 

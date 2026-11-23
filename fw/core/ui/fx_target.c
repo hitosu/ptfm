@@ -199,16 +199,17 @@ int fxt_mix_get(const fxt_t *t, int col, uint8_t *six)
         memcpy(six, s.mix[col], 6);
         return 1;
     }
-    if (t->what == FT_LOOPS && col >= 0 && col < loops_n()) { memcpy(six, loops_mix(col), 6); return 1; }
+    if (t->what == FT_LOOPS && col >= 0 && col <= loops_n()) { memcpy(six, loops_mix(col), 6); return 1; }   /* (loops_n():
+                                                         * NEW, the next loop's own) */
     return 0;
 }
 int fxt_mix_set(const fxt_t *t, int col, int k, int v, int button)
 {
     uint32_t len;
     uint8_t ver;
-    if (t->what == FT_LOOPS) {
+    if (t->what == FT_LOOPS) {                          /* (loops_n(): NEW, RAM's: no edit) */
         uint32_t was = ui_edit_used();
-        if (col < 0 || col >= loops_n()) return -1;
+        if (col < 0 || col > loops_n()) return -1;
         return loops_done(t, loops_set_mix(col, k, v), was);
     }
     const uint8_t *p = store_get(t->kind, t->num, t->sub, &len, &ver);

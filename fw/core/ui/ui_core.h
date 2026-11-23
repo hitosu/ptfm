@@ -95,6 +95,9 @@ struct ui_screen {
     /* the instrument the keys play here and the footer names, in place of the current one (LOOPS: a re-record's
      * loop's, the pattern recorder's); 0xFFFF the current one; NULL the same */
     uint16_t (*inst)(void);
+    /* a held key's pressure past its step (ui.c's keys_press, specs/hardware.md#the-keys-velocity): its note's volume
+     * now, vol 1-127 (the EDITOR's take, LOOPS' stage: written as a volume alone); NULL: heard only */
+    void (*pressure)(int n, int vol);
 };
 enum { UI_ARP_PREVIEW = 1, UI_ARP_PATTERN, UI_ARP_NONE };  /* the EDITOR's row preview (ARP held + SELECT: its
                                          * rhythm), LOOPS' RECORD PATTERN, DJ's nothing */
@@ -109,14 +112,31 @@ const ui_screen_t *ui_screen_named(const char *name);
 
 /* ----------------------------------------------------------------- the frame --- */
 void ui_toast(const char *text);                        /* 2 s in the header, white */
+void ui_toast_t(txt_t t);                               /* a fixed text's: ui_toast_t(TX("SAVED")) */
 void ui_toast_runs(const g_run_t *r, int n);            /* in colours (a key yellow) */
 const char *ui_toast_now(void);                         /* the toast showing now, or NULL */
 void ui_toastf(const char *fmt, ...);                   /* with %s %d %x %02X ... (ui_fmt) */
 void ui_show_knob(const char *name, const char *value); /* a knob turned: its name and value in the header's place
                                                         * (as a toast's, white), 1.2 s after the last click */
+void ui_show_knob_t(txt_t name, const char *value);    /* ... its name a fixed text: TX("K3 VOLUME") */
 const char *ui_knob_now(void);                          /* the knob turned showing now, or NULL */
 void ui_refuse(int b);                                 /* a refusal: the button blinks fast for 0.6 s */
+void ui_refuse_t(int b, txt_t t);                      /* ... and why: the toast of TX text t */
 void ui_panel(int x, int y, int w, int h, const char *title, int col);     /* a box over the body */
+void ui_panel_s(int x, int y, int w, int h, const char *title, int col);   /* the same, its title in FONT_S */
+int ui_hints(int x, int y, const txt_t *t);    /* a hint line from x as g_runs draws it: keys yellow, what they do light
+                                                 * grey, in turns (TX texts, 0 ends): the end x */
+/* rows of one line or two in FONT_S (dialogs.md#rows-in-s), each row's lines (1 or 2) counted once a draw into nl[]:
+ * ui_row_lines a row's (2 when its name, two spaces and its value pass `room` characters); ui_rows_top the first row
+ * shown of n, `lines` lines in view, the selected row sel whole and kept `mid` lines down while it can; ui_rows_draw the
+ * rows in view from y0, row(i, y, its lines, whole: both its lines in view, on: selected) each (its box the caller's),
+ * and the lines the rows take (lines + 1 when a two-line row is cut at the bottom) */
+int ui_row_lines(const char *name, const char *value, int room);
+int ui_rows_top(int n, int sel, int lines, int mid, const uint8_t *nl);
+int ui_rows_draw(int n, int sel, int lines, int mid, const uint8_t *nl, int y0, void (*row)(int i, int y, int k, int whole, int on));
+#define UI_ROW 16                       /* a row in FONT_S */
+#define UI_T_ON_S 2                     /* FONT_T beside FONT_S, on its baseline: 2 px lower (T's capitals end on its
+                                         * row 9, S's on its 11) */
 void ui_dirty(void);                                    /* redraw soon (the next pass) */
 
 /* ------------------------------------------------------------------- overlays ---
@@ -155,8 +175,6 @@ typedef struct ui_mitem {
     int n;                              /* a group's count */
 } ui_mitem_t;
 void ui_menu(const char *key, const char *title, const ui_mitem_t *items, int n, void (*pick)(int id), int opener);
-void ui_menu_name(int id, const char *name);    /* (right after ui_menu) an item named as made, not a fixed text: a
-                                                 * cartridge's (`FB FAVORITES`) */
 
 /* RECORD PATTERN (specs/ui/dialogs.md#record-pattern, ui_recpat.c): the dialog the EDITOR's SEL menu opens. What is
  * set (ui_rp) stays for the next time until power-off. */
@@ -198,6 +216,8 @@ int ui_rp_plan(int n, int start, int wrap, int sr, int once, uint8_t *on, uint8_
 /* a question: every one is a yes or a no, in its own words. done(1) yes (OCT+), done(0) no (OCT-),
  * done(-1) cancelled (HOME) */
 void ui_ask(const char *const *lines, int nlines, const char *yes, const char *no, void (*done)(int answer));
+void ui_ask_t(const char *const *lines, int nlines, txt_t yes, txt_t no, void (*done)(int answer));   /* its answers
+                                                 * fixed texts: TX("YES"), TX("NO") */
 
 /* properties (GLO): SELECT picks, K1 changes at once, EDIT / LFO an item's own, the opener closes */
 typedef struct ui_prop {
@@ -208,7 +228,8 @@ typedef struct ui_prop {
     void (*reset)(void);                /* LFO on it */
     int (*col)(int on);                 /* its value's colour; NULL: white / light grey */
 } ui_prop_t;
-void ui_props(const char *title, const ui_prop_t *items, int n, int opener);
+void ui_props(const char *title, const ui_prop_t *items, int n, int opener);   /* (items read while it is open, not
+                                                                                 * copied: a static const list) */
 void ui_props_for(const char *name);    /* (right after ui_props) a second title line, white: whose they are */
 
 /* text entry, the arcade way: done(name) or done(NULL) cancelled */
@@ -221,11 +242,14 @@ int ui_blocking(void);
 /* the song list (ENV on STATUS, PLAYBACK ...): the songs, their tempo and length; ENV picks (pick may be
  * NULL: ENV just closes it); PLAY plays the highlighted one (play may be NULL). Songs by their numbers. */
 void ui_song_list(const char *title, int current, void (*pick)(int song), void (*play)(int song));
-/* the cartridge list's panel (dialogs.md#the-cartridge-list; PRESETS', LOOPS', INSTRUMENTS'): titled, its head, 13
- * lines, line i showing number ids[i] and cartridge who[i] (its name, type and slots used), n of them in the order
+/* the cartridge list's panel (dialogs.md#the-cartridge-list; PRESETS', LOOPS', INSTRUMENTS'): titled, its head, 10
+ * lines of 16 px, line i showing number ids[i] and cartridge who[i] (its name, type and slots used), n of them in the order
  * given, line sel boxed (afloat: yellow, a cartridge being moved), kept in the middle while it can. The slots used are
  * kept for the lines shown while the store stays as it was */
 void ui_cart_lines(const char *title, const uint8_t *ids, const uint8_t *who, int n, int sel, int afloat);
+#define UI_CL_TYPE 134                  /* the cartridge list's columns in FONT_T (after the ID and the name in FONT_S at 8
+                                         * and 32): the type, the slots (to 234) */
+#define UI_CL_SLOTS 192
 /* the same with `more` lines of the caller's after the n cartridges (sel counting them too: INSTRUMENTS' ALL SAMPLES):
  * the y of the first of them when it shows, else -1 */
 int ui_cart_lines_more(const char *title, const uint8_t *ids, const uint8_t *who, int n, int more, int sel, int afloat);
@@ -294,6 +318,8 @@ extern ui_cur_t ui_cur;
 int ui_muted(int t);
 void ui_mutes_changed(void);            /* to the player */
 int ui_midi(int n);                     /* key n's MIDI note at the octave */
+int ui_key_vol(int n);                  /* the volume key n's press plays and records at: a MIDI note's velocity, the
+                                         * key's own (KEYS VELOCITY on: sensed, or MIRROR's), else KEYS VOLUME */
 /* the current place (and so the instrument): ref; a favourite's source becomes the current instrument, an empty or a
  * missing favourite keeps the instrument as it is (specs/ui/screens/instruments.md#favorites) */
 void ui_set_inst(uint16_t ref);
@@ -326,6 +352,12 @@ void ui_go_deep(const ui_screen_t *s, void (*back)(void), int locked);
 int ui_is_deep(void);
 
 int ui_keys_held(void);                 /* note keys down that play */
+int ui_key_free(int n);                 /* key n down, sounding freely (its screen let it play: its release not the
+                                         * screen's) */
+void ui_key_take(int n);                /* ... taken by the current screen: its free note let go, its release the screen's
+                                         * key(n, 0) from here (LOOPS' keys held into PLAY) */
+void ui_key_lit(int n);                 /* key n played a note the screen took (LOOPS' stage): lit from its press, then by
+                                         * its note, as a key played freely (specs/ui/leds.md#keys) */
 int ui_over9000(void);                  /* the header's OVER 9000 shows (either core over 90 % for a second) */
 int ui_cpu_now(void);                   /* the sound's CPU share as the screens show it, %: its mean over ~0.1 s */
 int ui_cpu2_now(void);                  /* the same of core 2 (its blocks' time over the half; 0 while it does not run) */
@@ -343,13 +375,15 @@ void ui_key_line(g_run_t *runs, int *n, const char *line);
 /* --------------------------------------------------------------------- settings --- */
 #define UI_LONG_HOLD 2000               /* a hold no slow tap should reach, whatever HOLD DELAY says, ms (LOOPS' EDIT) */
 enum {
-    S_OUTPUT, S_LINE_GAIN, S_USB_GAIN, S_VOICES, S_SECOND_CORE, S_THEME, S_KEYS_VOLUME, S_KEYS_GAIN, S_KEYS_FX, S_KEYS_OCTAVE,
+    S_OUTPUT, S_LINE_GAIN, S_USB_GAIN, S_VOICES, S_SECOND_CORE, S_SUPPLIES, S_THEME, S_KEYS_VELOCITY, S_KEYS_VOLUME,
+    S_KEYS_GAIN, S_KEYS_FX,
+    S_KEYS_OCTAVE,
     S_KNOB_SPEED,
     S_HOLD_DELAY, S_COMBO_GRACE, S_PLAYBACK_SCROLL, S_PRESETS_LIST, S_COUNT_IN, S_QUANTIZE, S_ARP_RHYTHM, S_ARP_PATTERN,
     S_ARP_LATCH,
     S_POWER_ON, S_TUNING, S_TOOLS, S_ABOUT, S_COUNT
 };
-enum { S_MIDI_IN_CH, S_MIDI_OUT, S_MIDI_OUT_CH, S_SYNC, S_CLOCK_OUT, S_MIDI_COUNT };
+enum { S_MIDI_IN_CH, S_MIDI_OUT, S_MIDI_OUT_CH, S_SYNC, S_CLOCK_OUT, S_MIDI_CTL_AT, S_MIDI_COUNT };
 extern int16_t ui_set[S_COUNT];         /* each setting's value: a number, or an index in its list */
 extern int16_t ui_midi_set[S_MIDI_COUNT];
 void ui_settings_load(void);            /* from the settings record, else the defaults */
@@ -403,6 +437,9 @@ int ui_edit_loops(int r, uint32_t was); /* a change of LOOPS' made (play/loops.h
                                          * before it), told as an edit's (MEMORY FOR EDITS IS FULL ...): 0 done */
 int ui_edit_reserve(uint32_t n);        /* room for an edit of several pieces first (store_edit_reserve): 0 there,
                                          * -1 the edit memory full (its question up) */
+uint16_t ui_edit_fails(void);           /* the edits refused since power-on, each told (a change of several writes compares
+                                         * it before and after: one refused, its references are not saved) */
+void ui_edit_too_big(void);             /* an edit refused as TOO BIG FOR ONE RECORD (told; counted as ui_edit_fails) */
 int ui_edit_revert(uint8_t kind, uint8_t num, uint8_t sub);    /* REVERT: the thing as the flash has it (a pattern, a
                                          * cartridge, LOOPS whole); 0 done */
 int ui_edit_revert_slot(uint8_t cart, uint8_t slot);           /* REVERT of one slot */
@@ -422,11 +459,16 @@ int ui_edit_count(void);                /* things changed */
 int ui_fmt(char *dst, int max, const char *fmt, ...);
 const char *ui_hex2(int v);             /* `0B` (a rotating buffer: a few at once) */
 const char *ui_dec(int v);              /* `12` (a rotating buffer) */
+const char *ui_txt_t(txt_t t, const char *v);   /* text t (TX("...")) with v for its `#`: ui_txt_v(T(t), v) */
+const char *ui_txt_h(txt_t t, int v);   /* ... with v hex: ui_txt_v(T(t), ui_hex2(v)) */
+const char *ui_txt_d(txt_t t, int v);   /* ... with v decimal: ui_txt_v(T(t), ui_dec(v)) */
 void ui_ref_text(char *dst, uint16_t ref);              /* `0B:05` */
 void ui_note_name(char *dst, int midi);                 /* `C-4`, `C#4`; `---` none (-1), `===` off (1) */
 void ui_page_of(char *dst, int i, int n);               /* `3/18` */
 void ui_of(char *dst, int i, int n);                    /* `00/11` */
 void ui_fmt_time(char *dst, uint32_t secs);             /* `03:12` */
+void ui_fmt_list_time(char *dst, uint32_t secs);        /* the song list's TIME: `03:12`, past 99:59 hours and minutes,
+                                                         * `1H41`, at most `99H59`, then `99H+` (dialogs.md#the-song-list) */
 int ui_voices_col(int n, int limit);                    /* a count of voices against the limit in force (VOICES; 16
                                                          * is 12 without core 2): red at it, yellow from 4 under */
 int ui_clamp(int v, int a, int b);

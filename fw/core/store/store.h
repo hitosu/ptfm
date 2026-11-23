@@ -27,8 +27,14 @@ enum {
                                          * audio, never read nor touched (specs/files/instruments.md#the-old-form) */
     REC_SAMPLE = 0x11,                  /* a sample, 00-FF: its entry, then its audio (specs/files/instruments.md#samples) */
     REC_PATTERN = 0x20, REC_SONG = 0x21, REC_LOOPS = 0x22, REC_DJ = 0x23,
-    REC_SETTINGS = 0x30, REC_MIDIMAP = 0x31
+    REC_LSET = 0x24,                    /* a LOOPS set (specs/files/loops.md#sets): 16 bytes (its name, its solos), then
+                                         * the loops' record as it is; in parts as the loops' */
+    REC_SETTINGS = 0x30, REC_MIDIMAP = 0x31,
+    REC_AUTO = 0x32                     /* AUTOMATIONS (specs/files/automations.md): number 00, a record a slot's part (sub:
+                                         * the slot x 16 + the part) */
 };
+#define REC_LSET_VER 1                  /* a set's version: the loops' record's version 4 within it */
+#define REC_LSET_PRE 16u                /* its bytes before the loops' record (part 0's) */
 #define REC_SAMPLER_VER 2               /* the sampler cartridge's version this firmware reads and writes: instruments only.
                                          * Another (version 1, the old form) is never touched, its number taken */
 /* audio to the store (specs/files/store.md#audio): both kinds, the samples and the old form's; a record of either may
@@ -116,7 +122,8 @@ const builtin_rec_t *store_builtin_at(int i);
  * slots (id 0-255) and its head (STORE_PC_HEAD: the record's 10 bytes before its slots), in the version this firmware
  * reads alone (a sampler's REC_SAMPLER_VER: instruments only); LOOPS' head (STORE_PC_HEAD: its record before the
  * streams, the loop table's end), its streams' head (STORE_PC_PHEAD: the loops, rows - 1, 0) and each loop's stream
- * (id 0-15, STORE_LOOP_STREAM_MAX at most; the flash's LOOPS lies under them only in version 4); every other record
+ * (id 0-15, STORE_LOOP_STREAM_MAX at most; the flash's LOOPS lies under them only in version 4); a LOOPS set's the
+ * same, its head the set's 16 bytes then LOOPS' head (REC_LSET_PRE; its version REC_LSET_VER); every other record
  * whole. A piece changed again is rewritten where it lies; one that becomes what the flash holds goes (nothing unsaved
  * by it). Payloads are copied in (never from the edit memory itself). Every change is made with the audio context held
  * off and told to the watch (store_set_watch) meanwhile, so what plays hears it from its next row or note.
@@ -239,7 +246,8 @@ int store_read(uint8_t kind, uint8_t num, uint8_t sub, uint32_t off, void *dst, 
 enum {
     STORE_OK = 0, STORE_BUSY = 1,
     STORE_ERR_FULL = -1,                /* fewer than 2 free blocks would be left, even after compaction, or (what
-                                         * it writes, the EDITOR's pattern and deletes apart) fewer than 10 */
+                                         * it writes, the EDITOR's pattern and deletes apart) fewer than 10; or the
+                                         * map would list more than STORE_MAP_MAX (store_save_over) */
     STORE_ERR_BIG = -2,                 /* a record over 4 KB */
     STORE_ERR_MANY = -3,                /* more records than a save takes (STORE_SAVE_MAX) */
     STORE_ERR_NUM = -4,                 /* (no longer returned: F0-FF are edited as any number) */
@@ -255,9 +263,13 @@ void store_save_cancel(void);           /* drops a save not yet committed */
 int store_save_status(uint8_t *percent);/* STORE_BUSY while writing, then its result once (STORE_OK when idle) */
 int store_save_run(void);               /* commit and write it all now: the result */
 uint32_t store_save_short(void);        /* the last save refused for room (STORE_ERR_FULL): the bytes it lacked */
+/* the last save refused for the list of records (STORE_ERR_FULL, specs/files/store.md#the-list-of-records): how many
+ * more records than STORE_MAP_MAX the map would list (0: refused for room, or not refused). Before that refusal as many
+ * deleted records as the save needs are reclaimed (their copies spoilt); the map lists what a mount would list */
+int store_save_over(void);
 
 /* ---- the figures (STATUS' STORAGE) ---- */
-#define STORE_NKINDS 15
+#define STORE_NKINDS 16
 extern const uint8_t store_kinds[STORE_NKINDS];        /* the kinds the counts below are by */
 typedef struct {
     uint32_t user_bytes, user_free;     /* the user area: its size; free = free blocks and the open block's tail,
@@ -302,9 +314,10 @@ int store_check(store_problem_t *out, int max);
 
 /* ---- for seeding (seed.c) ---- */
 #define STORE_SEED_SCRATCH 1152         /* seeding's messages in the scratch: one in (unpacked), one out (packed) */
-#define STORE_MAP_MAX 560               /* the records the store lists at most, the map's room (8 B each): past it a mount
-                                         * drops records and counts their blocks free; the LAYOUT reports it
-                                         * (specs/files/blob.md#seeding) */
+#define STORE_MAP_MAX 560               /* the records the store lists at most, the map's room (8 B each): a save that
+                                         * would list more is refused (store_save_over); past it a mount (a store filled
+                                         * some other way) drops records and counts their blocks free; the LAYOUT reports
+                                         * it (specs/files/blob.md#seeding) */
 void store_lock(int on);                /* while seeding: store_get answers NULL, no save starts */
 int store_saving(void);                 /* a save is being made (its list) or written */
 /* STATUS' USER FLASH MAP (specs/ui/screens/status.md): the user area KB by KB in the flash's order (its two regions one

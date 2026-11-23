@@ -5,14 +5,15 @@
  * controller's start screen (REC mirror mode, HOME general mode, SELECT the channel), then the controller: its
  * protocol (ctl.h) on PT/FM's input, LEDs, USB-MIDI and screen.
  *
- *   ctlmode_start()         once, from the main loop, the tracker ended: the start screen
+ *   ctlmode_start(at)       once, from the main loop, the tracker ended: the start screen; at: SETTINGS' CONTROLLER
+ *                           AFTERTOUCH (general mode's: 0 OFF, 1 CHANNEL, 2 POLY)
  *   ctlmode_poll()          the main loop's pass: the start, then the panel to MIDI, MIDI to the LEDs, the screen
  *   ctlmode_sysex(msg, n)   a SysEx in (F0 .. F7): the page's question */
 #ifndef PTFM_CTLMODE_H
 #define PTFM_CTLMODE_H
 #include <stdint.h>
 
-void ctlmode_start(void);
+void ctlmode_start(int aftertouch);
 void ctlmode_poll(void);
 void ctlmode_sysex(const uint8_t *msg, uint32_t n);
 

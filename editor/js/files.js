@@ -11,8 +11,8 @@
 const M = ED.model, R = ED.rec, K = R.KIND, U = ED.ui, app = ED.app;
 const h = U.h, $ = U.$, kb = U.kb, plural = U.plural, COL = U.COL;
 const H2 = M.H2;
-const SYS_KINDS = [K.SETTINGS, K.MIDIMAP, K.LOOPS, K.DJ];
-const GROUPS = ["SONGS", "PATTERNS", "CARTRIDGES", "SAMPLERS", "SAMPLES", "SYSTEM"];
+const SYS_KINDS = [K.SETTINGS, K.MIDIMAP, K.LOOPS, K.DJ, K.AUTO];
+const GROUPS = ["SONGS", "PATTERNS", "CARTRIDGES", "SAMPLERS", "SAMPLES", "LOOPS SETS", "SYSTEM"];
 const ui = { active: "L", sel: { L: new Set(), R: new Set() }, anchor: { L: null, R: null }, focus: { L: null, R: null },
     view: { L: "details", R: "details" }, filter: { L: "", R: "" }, sort: { L: { k: "src", d: 1 }, R: { k: "num", d: 1 } },
     closed: { L: [], R: [] }, order: { L: [], R: [] }, show: "L", need: null, fresh: new Set(), users: { L: new Map(), R: new Map() } };
@@ -169,7 +169,7 @@ function buildPanel(side) {
         p.revert = h("button", { class: "btn", title: "PUT BACK WHAT THIS PANEL SHOWED AFTER THE LAST READ OR WRITE", onclick: () => F.revert() }, "REVERT"),
         h("button", { class: "btn danger", title: "EMPTY THIS PANEL (THE BUILT-IN INSTRUMENTS STAY)", onclick: () => deleteAll("R") }, "DELETE ALL"),
     ] : [
-        h("button", { class: "btn primary", title: "ADD FILES: DISKS, MOD, S3M, XM, MIDI, DX7 .SYX, SOUNDS", onclick: () => $("#filepick").click() }, "+ ADD FILES"),
+        h("button", { class: "btn primary", title: "ADD FILES: DISKS, MOD, S3M, XM, MIDI, DX7 .SYX, JUNO-106 .SYX, .106, .PAT, JUNO TAPES, SOUNDS", onclick: () => $("#filepick").click() }, "+ ADD FILES"),
         h("button", { class: "btn", title: "MAKE A NEW SONG, PATTERN, CARTRIDGE, SAMPLER OR SYSTEM ITEM HERE", onclick: e => {
             const r = e.currentTarget.getBoundingClientRect();
             U.menu(r.left, r.bottom + 2, NEW_KINDS.map(x => x === "-" ? x : { label: x[1], fn: () => makeNew(x[0]) }));
@@ -282,7 +282,7 @@ function rowEl(side, it, pend, real) {
         h("span", { class: "c-deps", title: "WITH WHAT IT USES" }, deps && deps !== own ? kb(deps) : ""),
         h("span", { class: "c-used", title: used ? "USED BY " + used : "USED BY NOTHING" }, used ? String(used) : ""),
         h("span", { class: "c-act" }, canPlay(it) ? h("button", { class: "act", "data-act": "play", title: "PLAY (SPACE)" }, isPlaying(it) ? "■" : "▶") : null,
-            !it.dim ? h("button", { class: "act ed", "data-act": "edit", title: "EDIT IN A TAB (ENTER)" }, "✎") : null));
+            hasTab(it) ? h("button", { class: "act ed", "data-act": "edit", title: "EDIT IN A TAB (ENTER)" }, "✎") : null));
 }
 function lrowEl(side, it, real) {
     const sel = ui.sel[side].has(it.id);
@@ -308,7 +308,7 @@ function tileEl(side, it, real) {
 function emptyEl(side, filtered) {
     if (filtered) return h("div", { class: "empty" }, "NOTHING MATCHES THE FILTER.");
     if (side === "L") return h("div", { class: "empty" }, h("b", null, "THE TABLE IS EMPTY"), h("br"),
-        "DROP FILES HERE: DISKS (.PTFMDSK), MOD, S3M, XM, MIDI, DX7 .SYX, SOUNDS.", h("br"),
+        "DROP FILES HERE: DISKS (.PTFMDSK), MOD, S3M, XM, MIDI, DX7 .SYX, JUNO-106 .SYX, .106, .PAT, JUNO TAPES, SOUNDS.", h("br"),
         h("button", { class: "linkbtn", onclick: () => $("#filepick").click() }, "ADD FILES"));
     return h("div", { class: "empty" }, "NOTHING HERE.");
 }
@@ -412,7 +412,11 @@ function selectIds(side, ids) {
     const el = ids[0] && P[side].list.querySelector(`[data-id="${CSS.escape(ids[0])}"]`);
     if (el) el.scrollIntoView({ block: "nearest" });
 }
-function openTab(it) { if (ED.tabs && it && !it.dim) ED.tabs.open(it); }
+/* an item with a tab: every kind read (a LOOPS set LOOPS' own, specs/editor.md) */
+const hasTab = it => !!it && !it.dim;
+function openTab(it) {
+    if (ED.tabs && hasTab(it)) ED.tabs.open(it);
+}
 function play(it) { if (ED.player && it) ED.player.toggle(it); }
 function wireList(p) {
     const side = p.side, list = p.list;
@@ -544,10 +548,10 @@ function renderSelbar(side) {
         h("span", null, " · " + (one && one.fw ? "IN FW" : one && M.isLong(one) ? M.longText(one) : kb(own)) + (all > own ? " · " + kb(all) + " WITH WHAT " + (one ? "IT USES" : "THEY USE") : ""))));
     p.selbar.append(h("span", { class: "acts" },
         one && canPlay(one) ? h("button", { class: "btn small", onclick: () => play(one) }, isPlaying(one) ? "■ STOP" : "▶ PLAY") : null,
-        one && !one.dim ? h("button", { class: "btn small", onclick: () => openTab(one) }, "✎ EDIT") : null,
+        one && hasTab(one) ? h("button", { class: "btn small", onclick: () => openTab(one) }, "✎ EDIT") : null,
         h("button", { class: "btn small danger", onclick: () => askDelete(side, ids) }, "DELETE"),
         side === "L" ? h("button", { class: "btn small", title: "SAVE WHAT IS PICKED AS A DISK (.PTFMDSK), WITH WHAT IT USES, NUMBERED AS ON AN EMPTY FM-1",
-            onclick: () => ED.fm1.downloadSelection(ids) }, "DOWNLOAD AS DISK") : null, moveBtn));
+            onclick: () => ED.fm1.downloadSelection(ids, { order: ui.order.L }) }, "DOWNLOAD AS DISK") : null, moveBtn));
     if (one) {
         const usesIds = fixed(one) ? [] : U.uniq(Object.values(one.link).filter(t => t && t !== M.BUILTIN));
         const bi = fixed(one) ? [] : U.uniq(M.refs(one).filter(f => one.link[M.lk(f.sp, f.num)] === M.BUILTIN).map(f => f.num));
@@ -574,7 +578,7 @@ function showMenu(x, y, side) {
     const nSamples = side === "L" ? ED.optimize.samplesOf(real, ids).length : 0;
     U.menu(x, y, [
         { label: one && isPlaying(one) ? "STOP" : "PLAY", fn: () => play(one), off: !one || !canPlay(one), key: "SPACE" },
-        { label: "EDIT IN A TAB", fn: () => openTab(one), off: !one || one.dim, key: "ENTER" },
+        { label: "EDIT IN A TAB", fn: () => openTab(one), off: !hasTab(one), key: "ENTER" },
         { label: "RENAME", fn: () => startRename(side, one.id), off: !one || !canRename(one), key: "F2" },
         side === "R" ? { label: "SET NUMBER…", fn: () => askNumber(one.id), off: !one || !M.canRenumber(one), key: "F4" } : null,
         "-",
@@ -633,7 +637,7 @@ function canRename(it) {
 const NAME_W = it => it.kind === K.SONG ? 16 : M.isCart(it.kind) ? 12 : it.kind === K.SAMPLE ? 10 : 16;
 function renamed(it, v, items) {
     if (it.kind === K.PATTERN) return Object.assign({}, it, { name: v });
-    if (it.kind === K.SONG || M.isCart(it.kind)) {
+    if (it.kind === K.SONG || it.kind === K.LSET || M.isCart(it.kind)) {   /* (a LOOPS set's name as a song's: bytes 0-11) */
         const b = it.recs[0].payload.slice();
         b.set(R.packName(v, NAME_W(it)), 0);
         return Object.assign({}, it, { recs: [Object.assign({}, it.recs[0], { payload: b })].concat(it.recs.slice(1)) });
@@ -728,7 +732,8 @@ function transfer(from, ids, o) {
         return false;
     }
     const stamp = "FM-1 " + U.nowLabel();
-    const r = M.transfer(app.st, from, ids, { layout: app.st.fm1.layout, stamp, builtins });
+    /* (order: the panel's, top to bottom; of several FAVORITES moved, the bottom-most is the one FB takes) */
+    const r = M.transfer(app.st, from, ids, { layout: app.st.fm1.layout, stamp, builtins, order: ui.order[from] });
     if (!r.ok) {
         if (r.need) {
             ui.need = { blocks: Math.ceil(r.need / 4096), msg: r.msg.replace(/ NOTHING MOVED\.$/, "."), until: Date.now() + 6000 };
@@ -754,9 +759,15 @@ function transfer(from, ids, o) {
     const go = () => app.commit(r.st, r.msg, { ok: true, select: { side: to, ids: r.ids } });
     const rep = (r.replaced || []).map(id => app.st[to].find(x => x.id === id)).filter(Boolean);
     if (rep.length) {
+        /* (FB: its favourites give way to the moved item's, its name and number staying) */
+        const fv = r.fav, line = x => x.kind === K.FAVORITES && fv ? fv.name + " HOLDS " + plural(fv.had, "FAVORITE") + ": " +
+            (fv.had === 1 ? "IT GIVES" : "THEY GIVE") + " WAY TO " + plural(fv.now, "FAVORITE") + " FROM " + fv.from +
+            (fv.left ? "; " + fv.left + " OTHER FAVORITES NOT PUT ON" : "") : M.nameOf(x, app.st[to]) + ": THE ONE YOU MOVE TAKES THE PLACE OF THIS PANEL'S";
         U.dialog({ title: "REPLACE ON THE FM-1 PANEL?", body: h("div", null,
-            h("ul", null, rep.map(x => h("li", null, M.nameOf(x, app.st[to]) + ": THE ONE YOU MOVE TAKES THE PLACE OF THIS PANEL'S"))),
-            h("p", { class: "dim" }, "THE FM-1 KEEPS ONE OF EACH. NOTHING CHANGES ON THE FM-1 UNTIL WRITE; UNDO TAKES IT BACK.")),
+            h("ul", null, rep.map(x => h("li", null, line(x)))),
+            h("p", { class: "dim" }, (!fv ? "THE FM-1 KEEPS ONE OF EACH." : rep.every(x => x.kind === K.FAVORITES) ?
+                "THE FM-1 KEEPS ONE FAVORITES, FB: ITS NAME AND NUMBER STAY." : "THE FM-1 KEEPS ONE FAVORITES, FB, AND ONE OF EACH SYSTEM ITEM.") +
+                " NOTHING CHANGES ON THE FM-1 UNTIL WRITE; UNDO TAKES IT BACK.")),
             buttons: [{ label: "REPLACE", cls: "primary", onClick: go }, { label: "CANCEL" }] });
     } else go();
     return true;
@@ -823,7 +834,7 @@ function deleteAll(side) {
             buttons: [{ label: "DELETE ALL", cls: "primary danger", onClick: () => { ui.sel.L.clear(); app.commit(M.deleteAll(app.st, "L"), "THE TABLE IS EMPTY"); } }, { label: "CANCEL" }] });
     } else {
         U.dialog({ title: "EMPTY THE FM-1 PANEL?", body: h("div", null,
-            h("p", null, "EVERYTHING GOES BUT THE BUILT-IN INSTRUMENTS; CHANGED BUILT-INS GO BACK TO THE FIRMWARE'S. SETTINGS, MIDI MAP, LOOPS AND DJ SETUP GO BACK TO THEIR DEFAULTS."),
+            h("p", null, "EVERYTHING GOES BUT THE BUILT-IN INSTRUMENTS; CHANGED BUILT-INS GO BACK TO THE FIRMWARE'S. SETTINGS, MIDI MAP, LOOPS, DJ SETUP AND AUTOMATIONS GO BACK TO THEIR DEFAULTS."),
             h("p", { class: "dim" }, "THE FM-1 ITSELF CHANGES ONLY WITH WRITE, WHICH THEN EMPTIES ITS USER AREA. UNDO BRINGS THE PANEL BACK.")),
             buttons: [{ label: "DELETE ALL", cls: "primary danger", onClick: () => { ui.sel.R.clear(); app.commit(M.deleteAll(app.st, "R"), "THE FM-1 PANEL IS EMPTY: A WRITE WOULD EMPTY THE FM-1"); } }, { label: "CANCEL" }] });
     }
@@ -833,7 +844,7 @@ function deleteAll(side) {
 const NEW_KINDS = [[K.SONG, "SONG (WITH AN EMPTY PATTERN)"], [K.PATTERN, "PATTERN"], "-",
     [K.DX7, "DX7 CARTRIDGE"], [K.JUNO, "JUNO-106 CARTRIDGE"], [K.TB303, "TB-303 CARTRIDGE"], [K.CHIP, "CHIP CARTRIDGE"],
     [K.FUSION, "FUSION CARTRIDGE"], [K.SAMPLER, "SAMPLER (ITS INSTRUMENTS NAME SAMPLES)"], [K.FAVORITES, "FAVORITES (INSTRUMENTS OF ANY CARTRIDGE)"], "-",
-    [K.SETTINGS, "SETTINGS"], [K.MIDIMAP, "MIDI MAP"], [K.LOOPS, "LOOPS"], [K.DJ, "DJ SETUP"]];
+    [K.SETTINGS, "SETTINGS"], [K.MIDIMAP, "MIDI MAP"], [K.LOOPS, "LOOPS"], [K.DJ, "DJ SETUP"], [K.AUTO, "AUTOMATIONS (16 EMPTY SLOTS)"]];
 async function makeNew(kind) {
     const mk = (k, recs, more) => Object.assign({ id: M.newId(), side: "L", kind: k, num: null, orig: null, link: {}, recs, src: "NEW" }, more);
     const one = (k, payload) => [{ sub: 0, ver: R.VERSION[k], payload }];
@@ -847,6 +858,7 @@ async function makeNew(kind) {
             if (kind === K.SONG) made.unshift(mk(K.SONG, one(K.SONG, R.packSong(R.newSong("NEW SONG"))), { link: { [M.lk("p", 0)]: pat.id } }));
         } else if (kind === K.SAMPLER) made = [mk(kind, one(kind, R.packSampler({ name: "NEW SAMPLER", instruments: [] })))];
         else if (kind === K.FAVORITES) made = [mk(kind, one(kind, R.packCart(kind, { name: "MY FAVORITES", slots: [] })), { name: "MY FAVORITES" })];
+        else if (kind === K.AUTO) made = [mk(kind, [])];     /* (its 16 slots empty: no record) */
         else if (M.isCart(kind)) {
             const name = "NEW " + M.ENGINE[kind];
             made = [mk(kind, one(kind, R.packCart(kind, { name, slots: [ED.defs.newSlot(kind, name)] })))];

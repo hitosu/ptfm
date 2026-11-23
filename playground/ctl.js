@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Vasily Kazantsev */
+ * Copyright (C) 2026 Vasily Kazantsev
+ * The keys' pressure (the rest it leans from, its log scale) after Charles Vestal's measurements, fm1-velocity */
 /* PT/FM UI playground: SETTINGS' MIDI CONTROLLER (specs/ui/screens/settings.md#midi-controller,
  * specs/controller.md). Once started, PT/FM has ended (only reloading the page brings it back, as only
  * switching the FM-1 off and on does): the panel works this alone. Its start screen (REC mirror, HOME general,
@@ -9,7 +10,11 @@
  *
  *   PTFM.ctl.start()                 the tracker ends; the start screen
  *   PTFM.ctl.on                      started
- *   PTFM.ctl.button(id, down), note(n, down), encoder(id, step, ms), master(v 0-1)
+ *   PTFM.ctl.button(id, down), note(n, down, vel, reading), encoder(id, step, ms), master(v 0-1)   (vel: the key's,
+ *                                    KEYS VELOCITY's, as the tracker left it, 0 none: the mode's own; reading: its
+ *                                    landing, for the aftertouch)
+ *   PTFM.ctl.pressure(n, reading)    a held key pressed as hard as the panel's drag says (general mode's aftertouch)
+ *   PTFM.ctl.poll(ms)                the aftertouch's steps up to ms (every 5 ms, as the firmware's main loop): render's
  *   PTFM.ctl.render(lcd, dev)        the screen and the LEDs */
 (function () {
     "use strict";
@@ -27,7 +32,8 @@
     const chOf = mode => s.chan ? s.chan - 1 : mode === MIRROR ? 15 : 0;
     function log(e) {                                    /* a line; a knob or MASTER turned again: its line */
         const last = s.log[s.log.length - 1];
-        if (last && (e.kind === "knob" || e.kind === "master") && last.kind === e.kind && last.id === e.id) {
+        if (last && (e.kind === "knob" || e.kind === "master" || e.kind === "pressure" || e.kind === "poly") && last.kind === e.kind &&
+            last.id === e.id) {
             e.sum = e.kind === "knob" && s.mode === MIRROR ? last.sum + e.val : e.val;
             s.log[s.log.length - 1] = e;
         } else {
@@ -39,11 +45,70 @@
     }
     const msg = (kind, id, val, bytes) => log({ kind, id, val, bytes });
 
+    /* general mode's aftertouch, fw/core/ctl.h's in the same integers (SETTINGS' CONTROLLER AFTERTOUCH, specs/controller.md
+     * #3-general-mode): F3-C5's pressure, pressing harder than the key rests, from its reading (the panel's: its landing,
+     * then as a drag moves it), worked out every 5 ms; only with KEYS VELOCITY not CONSTANT */
+    const AT_KEYS = 20, AT_MS = 5, AT_SETTLE = 250, AT_DEAD = 164, AT_SPAN = 1884;
+    C.lg = x => {                                        /* log2 in Q12 (press.h's press_lg) */
+        let e = 0;
+        while (x >>> (e + 1)) e++;
+        let f = (e >= 16 ? x >>> (e - 16) : x << (16 - e)) & 0xFFFF;
+        f += Math.floor(Math.floor(f * (65536 - f) / 65536) * 22479 / 65536);
+        return (e << 12) + (f >>> 4);
+    };
+    /* (press.h's press_step: a key's word w, its reading d, dt ms since its last step: [its word, its pressure]; the
+     * tracker's keys take it too, ui.js) */
+    C.press = (w, d, dt) => {
+        if (!d) return [0, 0];
+        const r16 = (d > 186 ? d - 185 : 1) << 4;
+        let rest = w & 0x3FFF, s = w >>> 14 & 0x7FF, c = w >>> 25;
+        if (!rest) { rest = r16; s = 0; c = Math.floor(AT_SETTLE * 2 / 5); }
+        else { const u = Math.floor((Math.min(dt, 255) * 2 + 2) / 5); c = c > u ? c - u : 0; }
+        if (r16 > rest) rest = r16;
+        else if (c) rest -= Math.floor((rest - r16) / 4);
+        else if (rest > r16) { const step = (rest - r16) >> 10; rest -= step || 1; }
+        const lean = C.lg(rest) - C.lg(r16);
+        let x = lean > AT_DEAD ? Math.trunc(((lean - AT_DEAD) * 127 + (AT_SPAN >> 1)) / AT_SPAN) : 0;
+        if (x > 127) x = 127;
+        s = s + Math.trunc(((x << 4) - s) * 11 / 64);
+        return [(rest | s << 14 | c << 25) >>> 0, (s + 8) >> 4];
+    };
+    const atMode = () => ["OFF", "CHANNEL", "POLY"].indexOf(PTFM.ui && PTFM.ui.set ? PTFM.ui.set("CONTROLLER AFTERTOUCH") : "CHANNEL");
+    const sensing = () => !(PTFM.ui && PTFM.ui.set && PTFM.ui.set("KEYS VELOCITY") === "CONSTANT");
+    function atSend() {                                  /* (ctl.h's ctl_at_send) */
+        if (s.mode !== GENERAL || !s.atMode) return;
+        const ch = chOf(s.mode);
+        if (s.atMode === 1) {
+            let m = 0;
+            for (let k = 0; k < AT_KEYS; k++) if (s.keys.has(k) && s.press[k] > m) m = s.press[k];
+            if (m !== s.chSent) { s.chSent = m; msg("pressure", 0, m, [0xD0 | ch, m]); }
+            return;
+        }
+        for (let k = 0; k < AT_KEYS; k++)
+            if (s.keys.has(k) && s.press[k] !== s.atSent[k]) {
+                s.atSent[k] = s.press[k];
+                msg("poly", k, s.press[k], [0xA0 | ch, s.note[k], s.press[k]]);
+            }
+    }
+    C.pressure = function (k, reading) { if (s && k < AT_KEYS && s.keys.has(k)) s.reading[k] = reading; };
+    C.poll = function (now) {
+        if (!s || s.mode !== GENERAL || !s.atMode) return;
+        if (s.atT == null) s.atT = now;
+        while (now - s.atT >= AT_MS) {
+            s.atT += AT_MS;
+            for (let k = 0; k < AT_KEYS; k++)
+                [s.at[k], s.press[k]] = C.press(s.at[k], s.keys.has(k) && sensing() ? s.reading[k] || 0 : 0, AT_MS);
+            atSend();
+        }
+    };
+
     C.start = function () {
         const held = b => PTFM.ui && PTFM.ui.held(b);
         s = { mode: null, chan: 0, armed: new Set([REC, HOME].filter(b => !held(b))), held: new Set(), keys: new Set(),
               log: [], sent: 0, oct: 0, val: GEN_VAL0.slice(), click: [0, 0, 0, 0, 0, 0, 0], playing: false, note: [],
-              master: null, ign: new Set() };   /* (armed: REC and HOME not held as it starts; one held must come up first) */
+              master: null, ign: new Set(), atMode: atMode(), at: new Array(AT_KEYS).fill(0),
+              press: new Array(AT_KEYS).fill(0), atSent: new Array(AT_KEYS).fill(0), chSent: 0, reading: [], atT: null };
+              /* (armed: REC and HOME not held as it starts; one held must come up first) */
         C.on = true;
         D.theme(D.THEMES[0]);                            /* (the controller's own colours, whatever THEME was) */
     };
@@ -76,15 +141,20 @@
             msg("mmc", id, s.playing ? 1 : 0, [0xF0, 0x7F, 0x7F, 0x06, s.playing ? 2 : 1, 0xF7]);
         }
     };
-    C.note = function (k, down) {
+    C.note = function (k, down, vel, reading) {
         if (s.mode === null) return;
         const ch = chOf(s.mode);
         if (down) s.keys.add(k); else s.keys.delete(k);
+        s.reading[k] = down ? reading || 0 : 0;
         if (down) {
             const n = NOTE0 + k + (s.mode === GENERAL ? 12 * s.oct : 0);
             s.note[k] = n;
-            msg("on", k, n, [0x90 | ch, n, s.mode === MIRROR ? 127 : 100]);
-        } else if (s.note[k] != null) msg("off", k, s.note[k], [0x80 | ch, s.note[k], 0]);
+            msg("on", k, n, [0x90 | ch, n, vel >= 1 && vel <= 127 ? vel : s.mode === MIRROR ? 127 : 100]);
+        } else if (s.note[k] != null) {
+            if (k < AT_KEYS && s.atSent[k]) { s.atSent[k] = 0; msg("poly", k, 0, [0xA0 | ch, s.note[k], 0]); }
+            msg("off", k, s.note[k], [0x80 | ch, s.note[k], 0]);
+            atSend();                                    /* (CHANNEL: the highest of those still held) */
+        }
     };
     C.encoder = function (e, step, ms) {
         if (s.mode === null) {                           /* the start: SELECT the channel, DEFAULT then 1-16 */
@@ -125,6 +195,11 @@
             if (e.kind === "knob" && s.mode === MIRROR && e.sum > 0) at(116, "+", col);
             if (e.sum < 0) at(116, "-", col);
             at(122, String(Math.abs(e.sum)), col);
+        } else if (e.kind === "pressure" || e.kind === "poly") {   /* (general mode's aftertouch: its line follows it) */
+            col = D.LGREEN;
+            at(2, e.kind === "poly" ? NN[e.bytes[1] % 12] + (Math.floor(e.bytes[1] / 12) - 1) : "KEYS", col);
+            at(62, e.kind === "poly" ? "POLY PRESS" : "CHAN PRESS", col);
+            at(122, String(e.val), col);
         } else if (e.kind === "program") {
             col = D.YELLOW; at(2, "PRESETS", col); at(62, "PROGRAM", col); at(110, String(e.val), col);
         } else if (e.kind === "mmc") {
@@ -141,6 +216,7 @@
         else if (e.bytes) at(170, "F0 .. F7", D.DGREY);
     }
     C.render = function (lcd, dev) {
+        C.poll(PTFM.ui && PTFM.ui.now ? PTFM.ui.now() : performance.now());
         D.noclip();
         D.clear(D.BLACK);
         const centre = (f, t, y, c) => D.text(D.centre(f, t, 0, 240), y, f, t, c);

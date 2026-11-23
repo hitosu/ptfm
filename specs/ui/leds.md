@@ -23,7 +23,8 @@ steps and what sounds.
 - **HOME** is lit while the help is open ([help.md](help.md)).
 - **HOME's combination** ([controls.md](controls.md#homes-combination)), tapped open or held: **HOME
   breathes** (dim to full and back, starting full), the members that can act light dim (PLAY's red,
-  REC, LFO, SEQ; SEQ lit while the white keys solo), every other button is dark. Once a member has
+  REC, LFO, SEQ, ARP; SEQ lit while the white keys solo, ARP while they play or record the automations, REC while they
+  record them), every other button is dark. Once a member has
   acted, only its own lights stay.
 - **PLAY** (green and red): [transport.md](transport.md#plays-two-leds).
 - **REC:** lit while writing is on (EDITOR); blinking during a realtime take.
@@ -31,8 +32,8 @@ steps and what sounds.
   song is armed or a count-in runs, full while a song records or the stage holds notes and is on (REC sends them); LFO
   dim, full while OVERWRITE is on; EDIT dim on a loop, on `+ NEW LOOP` dim while the stage holds notes or is off, else
   dark; SEQ dim in PLAY mode, full in
-  CONTROL mode or held; ENV dim; ARP full while the stage is on or the pattern recorder is open, else dim. ADJUST open:
-  SEL full, HOME dim, REC, LFO, EDIT, GLO, ENV, SEQ and ARP dark. The pattern recorder open: ARP full, REC dim, SEL
+  CONTROL mode or held; ENV dim; ARP full while the stage is on or the pattern recorder is open, else dim. ADJUST or MOVE
+  open: SEL full, HOME dim, REC, LFO, EDIT, GLO, ENV, SEQ and ARP dark. The pattern recorder open: ARP full, REC dim, SEL
   full while it waits for a key (else dim), GLO, SEQ, EDIT, LFO and ENV dark.
 - **SAVE** follows its own rule, not the dim one: dim while there are unsaved changes, dark when there
   is nothing to save; blinking dim while a save waits for a pause ([saving.md](saving.md)).
@@ -55,7 +56,8 @@ steps and what sounds.
 - **HOME's combination** (tapped open or held): the black keys are the screens, the current one
   bright, the others dim, a key with no screen dark; the white keys are the tracks, dim while they
   play, dark while muted, bright while soloed (in LOOPS, the loops, key 1 the top one, lit as in
-  CONTROL mode, below). Once a member has acted, only its keys stay lit (after SELECT, the screens).
+  CONTROL mode, below); after ARP, the automations: dim where a slot holds one, dark where it is empty; after REC too, every one dim (each
+  records, one holding an automation asking first). Once a member has acted, only its keys stay lit (after SELECT, the screens).
 - **FX held:** the white keys are the punch-in effects: keys 1, 5, 9 and 13 dim, where each group of
   four starts, and the one running bright; the others dark. FX LIVE lights them the same.
   While a punch-in is held on by ARP, the FX button is full ([screens/fx.md](screens/fx.md#punch-in-effects)).
@@ -74,7 +76,10 @@ steps and what sounds.
 **With no layer up, a played key lights with its note:** full while the note is loud, dim once it has
 fallen under half its loudest, dark under an eighth (or once it ends). A plucked or struck sound
 flashes and fades, a held pad stays lit: the keys show what sounds, not only what is pressed. A key
-lights at once when pressed, before its sound's level is known.
+lights at once when pressed, before its sound's level is known. A FUSION key lights with its layers, whatever
+notes they play. On LOOPS the keys' notes sound through the stage's lanes (the stage off, lanes of their own), and a
+key lights with its lane's note: in MONO a glide or a legato to another key moves the light there, and a note its
+lane's next note replaces lights nothing more.
 
 ## Levels and rates
 

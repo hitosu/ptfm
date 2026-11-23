@@ -32,6 +32,18 @@ typedef struct {
 } plat_input_t;
 void plat_input(plat_input_t *in);
 uint32_t plat_notes(void);              /* the note keys held now (any context) */
+/* The keys' velocity (specs/hardware.md#the-keys-velocity). plat_key_touch: SETTINGS' KEYS VELOCITY, 0 CONSTANT, 1 SOFT, 2
+ * NORMAL, 3 HARD, from now on (the start's settings first): the FM-1 reads the keys' touch while it is on, and a key's
+ * press reaches plat_input's notes once its velocity is known (at most ~10 ms after its contact). plat_key_vel: the
+ * velocity of the press of key n held now, 1-127, as plat_input (or plat_fast's tick) gave it; 0 none: KEYS VELOCITY
+ * CONSTANT, a platform that cannot tell (plat_weak.c's), a press not read in time; then it plays at KEYS VOLUME. Main loop,
+ * and plat_fast's fn */
+void plat_key_touch(int curve);
+int plat_key_vel(int n);
+/* plat_key_reading: key n's latest driven reading while it is held and read (F3-C5, KEYS VELOCITY not CONSTANT): the
+ * driven landing's scale, lower pressed harder; 0 none (not held, the top row, not read, a platform that reads none:
+ * plat_weak.c's). MIDI CONTROLLER's aftertouch (ctl.h). Main loop only */
+int plat_key_reading(int n);
 
 /* ---- LEDs ----
  * id: a button 0-13 (B_*), a note key 14 + n (n 0-26), PLAY's green 41. level 0 off .. 255 full; 64 is
@@ -61,8 +73,18 @@ typedef struct {
     uint32_t c2_last_us, c2_max_us, c2_sum_us;   /* core 2's jobs' time (the second core, below): the last half's,
                                          * the most since reset, summed since power-on over the same halves */
     uint8_t c2_state, c2_why;           /* core 2: PLAT_C2_STARTING .. _STOPPED; stopped, why (PLAT_C2_WHY_*) */
+    uint8_t c2_bad;                     /* a fill (1) or copy (2) of core 2's code refused in this run, its destination
+                                         * out of the RAM (written nowhere): its destination, length and caller; 0 none
+                                         * (a platform with one core: never) */
+    uint32_t c2_bad_d, c2_bad_n, c2_bad_from;
 } plat_cpu_t;
 void plat_cpu(plat_cpu_t *c, int reset);
+/* Where the sound's work stands in a half (a store, no call: the FM-1 keeps the byte where a watchdog restart does not
+ * clear it, and PT/FM FROZE names it; plat_weak.c's for the others): PLAT_AT_* */
+extern volatile uint8_t plat_sound_at;
+enum { PLAT_AT_START = 1, PLAT_AT_NOTES, PLAT_AT_GHOSTS, PLAT_AT_VOICES, PLAT_AT_EFFECTS, PLAT_AT_OUTPUT,
+       PLAT_AT_VOICE = 16 };            /* + the engine (0 DX7, 1 JUNO-106, 2 SAMPLER, 3 TB-303, 4 CHIP): a voice made.
+                                         * PLAT_AT_GHOSTS: the notes taken from their engines coming back */
 /* SETTINGS' OUTPUT and LINE GAIN (specs/ui/screens/settings.md): the platform applies them to what
  * app_audio gives, with MASTER, then the soft ceiling. Stereo and 0 dB until the app sets them. */
 void plat_output(int mono, int line_gain_db);
@@ -72,8 +94,9 @@ void plat_usb_gain(int db);
 
 /* ---- the second core (specs/second-core.md) ----
  * Core 1 runs the app; core 2 may take each block's effects and output stage, handed over block by block as core 1
- * makes them (block j of the half: job(j)), and the block's voice job (core 2's places: the one job that runs from
- * the image and reads the flash). A platform with one core never takes a half (plat_weak.c's defaults).
+ * makes them (block j of the half: job(j)), and the block's voice job (the places from the block's split on: the one
+ * job that runs from the image and reads the flash). A platform with one core never takes a half (plat_weak.c's
+ * defaults).
  * plat_c2_half: at a half's start, every half (audio context, after the platform made sure core 2 finished the half
  * before): 1 this half's jobs go to core 2, each by plat_c2_post as it is made (CUT's halves hand over only their
  * voice jobs); 0 core 1 runs them itself, and VOICES 16 counts as 12. The answer holds for the whole half; a job not
@@ -82,7 +105,13 @@ int plat_c2_half(void);
 void plat_c2_post(void (*job)(uint32_t), uint32_t j);
 #define PLAT_C2_VOICE_JOB 0x100u        /* a voice job's j (no block's number): the platform may tell them apart */
 void plat_c2_enable(int on);            /* SETTINGS' SECOND CORE (main loop): from the next half */
-void plat_c2_wait(void);                /* core 1 (audio context): until core 2 has finished what it was handed */
+void plat_supplies(int stock);          /* SETTINGS' CORE SUPPLIES (main loop; the start's settings first, before any
+                                         * sound or core 2): stock, the chip's core supplies raised to the FM-1's stock
+                                         * firmware's levels now, up only; 0, left as they are (only a power-off lowers
+                                         * them: specs/hardware.md#the-chip) */
+int plat_c2_wait(void);                 /* core 1 (audio context): until core 2 has finished what it was handed; 1 when it
+                                         * had not yet (core 1 waited: the split's margin, specs/second-core.md#the-split),
+                                         * 0 when it had or nothing was handed over */
 enum { PLAT_C2_STARTING, PLAT_C2_ON, PLAT_C2_OFF, PLAT_C2_STOPPED };      /* plat_cpu_t's c2_state */
 enum { PLAT_C2_WHY_NONE, PLAT_C2_WHY_NO_ANSWER, PLAT_C2_WHY_MISREAD, PLAT_C2_WHY_STUCK, PLAT_C2_WHY_FAULT,
        PLAT_C2_WHY_CRASH };             /* its c2_why: what stopped core 2 (STATUS' DEVICE) */
@@ -168,7 +197,7 @@ int plat_usb_power(void);
  * knobs' clicks since the last call: plat_input no longer gets them) and the time in ms; NULL: no more. 1 the
  * platform does (the FM-1), 0 it cannot (fn never runs: the caller ticks from the main loop). For the controller
  * inside PT/FM (ctlmode.c), whose keys must not wait for the main loop. What fn may call: plat_midi_tx (the
- * controller alone sends then), plat_led; nothing else of plat.h. Main loop only. */
+ * controller alone sends then), plat_led, plat_key_vel; nothing else of plat.h. Main loop only. */
 int plat_fast(void (*fn)(const plat_input_t *in, uint32_t ms));
 
 /* ---- memory ----
@@ -176,6 +205,11 @@ int plat_fast(void (*fn)(const plat_input_t *in, uint32_t ms));
  * the variables; the two share 432 KB), elsewhere it is an ordinary variable. */
 #ifndef PLAT_POOL
 #define PLAT_POOL
+#endif
+/* A few bytes the FM-1 keeps where a watchdog restart does not clear them (its records), so PT/FM FROZE can name
+ * where the sound's work stood (an engine's marks): PLAT_NOINIT. Elsewhere an ordinary variable. */
+#ifndef PLAT_NOINIT
+#define PLAT_NOINIT
 #endif
 /* The sound's files are built for speed (-O2: build.py's HOT); a function of theirs that runs seldom (a request, a
  * song's start, a tick's or a row's work, AUTO LEVEL's setup, LOOPS' editing, the main loop's) is marked PLAT_COLD:
@@ -193,8 +227,13 @@ int plat_fast(void (*fn)(const plat_input_t *in, uint32_t ms));
 #endif
 #ifdef PTFM_DEBUG
 int plat_dbg_part(void);
-void plat_dbg_part_recheck(void);
+void plat_dbg_part_recheck(int written); /* (after a seeding; written: it wrote the part's blocks, so a crash in
+                                         * the part before does not keep it off) */
 void plat_dbg_part_stop(void);          /* (nothing calls into it until the next recheck: a seeding may write it) */
+/* plat_dbg_part()'s answer as a byte, for the sound's probes that call into the part from the audio interrupt (the
+ * ghosts' figures: player.c's PL_GFC): each such call behind it, a load and no call. Set and cleared by the main loop
+ * alone (the start's check, a recheck, a seeding's start), never while the audio interrupt runs */
+extern volatile uint8_t plat_dbg_in;
 #endif
 /* The spare zone's memory (specs/files/ram.md#the-edit-memory-and-the-spare-zone): spare.c's own 24 KB, marked
  * PLAT_SPARE, and the room the platform has right after it, plat_spare_room() bytes, the zone's too. On the FM-1
@@ -225,6 +264,12 @@ void plat_ram(plat_ram_t *r);
 void plat_idle(void);
 uint32_t plat_lock(void);
 void plat_unlock(uint32_t was);
+/* plat_step: the part of the main loop's pass now running, kept for the freeze record (a watchdog restart shows at
+ * the next start where the main loop stood: specs/hardware.md, Updates and rescue). A store: called freely. The
+ * platform's own steps (the flash's, the screen's) number from PLAT_STEP_N up */
+enum { PLAT_STEP_LOOP = 1, PLAT_STEP_SEED, PLAT_STEP_STORE, PLAT_STEP_AHEAD, PLAT_STEP_MIDI, PLAT_STEP_DJ, PLAT_STEP_UI,
+       PLAT_STEP_DRAW, PLAT_STEP_REMOTE, PLAT_STEP_DEBUG, PLAT_STEP_CTL, PLAT_STEP_N };
+void plat_step(uint32_t step);
 
 /* ---- the rest ---- */
 int plat_battery(void);                 /* 0..100 %, or -1 not known */

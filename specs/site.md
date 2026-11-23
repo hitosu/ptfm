@@ -51,7 +51,7 @@ One page, dark ("studio night"), for a phone first and a computer:
 4. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
    punch-ins, LOOPS, DJ, MIDI and sync, kept on the FM-1, music included (the demo disk links INSTALL).
 5. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;
-   the EDITOR: a beta, a computer).
+   the EDITOR: a computer).
 6. **The footer:** the repository, the licence, the root page; custom firmware at one's own risk; not affiliated
    with M-VAVE. The credits stay in the README.
 

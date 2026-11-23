@@ -83,7 +83,12 @@ const SETTINGS = [
       set: (p, v) => { p[1] = [8, 12, 16][v]; } },   /* (anything else reads as 16, the default) */
     /* byte 123 bit 1 set: OFF (bit 0 is the current instrument's) */
     { n: "SECOND CORE", at: 123, list: ["ON", "OFF"], def: 0, get: p => p[123] >> 1 & 1, set: (p, v) => { p[123] = (p[123] & ~2) | (v ? 2 : 0); } },
+    /* byte 123 bit 3 set: LOWER */
+    { n: "CORE SUPPLIES", at: 123, list: ["STOCK", "LOWER"], def: 0, get: p => p[123] >> 3 & 1, set: (p, v) => { p[123] = (p[123] & ~8) | (v ? 8 : 0); } },
     { n: "THEME", at: 2, list: THEMES, def: 0, ...u8(2) },
+    /* byte 123 bits 5-4: 0 NORMAL (the default, a record from before it), 1 HARD, 2 CONSTANT, 3 SOFT */
+    { n: "KEYS VELOCITY", at: 123, list: ["CONSTANT", "SOFT", "NORMAL", "HARD"], def: 2,
+      get: p => ((p[123] >> 4 & 3) + 2) & 3, set: (p, v) => { p[123] = (p[123] & ~0x30) | ((v + 2) & 3) << 4; } },
     { n: "KEYS VOLUME", at: 3, min: 1, max: 127, def: 0x60, hex: true, ...u8(3) },
     { n: "KEYS GAIN", at: 124, min: -24, max: 12, def: 0, unit: " DB", get: p => (p[124] << 24) >> 24, set: (p, v) => { p[124] = v & 255; } },
     { n: "KEYS", at: 125, list: ["THROUGH FX", "DRY"], def: 0, get: p => p[125] === 1 ? 1 : 0, set: (p, v) => { p[125] = v ? 1 : 0; } },
@@ -109,6 +114,10 @@ const MIDI_SETTINGS = [
     { n: "MIDI OUT CHANNEL", at: 117, min: 1, max: 16, def: 1, get: p => 1 + (p[117] & 15), set: (p, v) => { p[117] = v - 1; } },
     { n: "SYNC", at: 118, list: ["INTERNAL", "EXTERNAL"], def: 0, ...u8(118) },
     { n: "CLOCK OUT", at: 119, list: ["OFF", "ON"], def: 0, ...u8(119) },
+    /* byte 123 bits 7-6: 0 CHANNEL (the default, a record from before it), 1 POLY, 2 OFF */
+    { n: "CONTROLLER AFTERTOUCH", at: 123, list: ["OFF", "CHANNEL", "POLY"], def: 1,
+      get: p => (p[123] >> 6) === 1 ? 2 : (p[123] >> 6) === 2 ? 0 : 1,
+      set: (p, v) => { p[123] = (p[123] & 0x3F) | (v === 2 ? 1 : v === 0 ? 2 : 0) << 6; } },
 ];
 /* the current instrument at the last SAVE (bytes 121-122, set when byte 123's bit 0 is): F0:00 when not set */
 const curInst = p => p[123] & 1 ? p[121] << 8 | p[122] : 0xF000;
@@ -263,7 +272,7 @@ const shiftParse = (txt, n) => {
 
 /* ---- kinds ---- */
 const KIND_NAME = { 0x01: "DX7", 0x02: "JUNO-106", 0x03: "TB-303", 0x04: "SAMPLER", 0x05: "FUSION", 0x06: "CHIP", 0x10: "OLD SAMPLE AUDIO", 0x11: "SAMPLE", 0x20: "PATTERN",
-    0x21: "SONG", 0x22: "LOOPS", 0x23: "DJ", 0x30: "SETTINGS", 0x31: "MIDI MAP", 0xE0: "NOTES" };
+    0x21: "SONG", 0x22: "LOOPS", 0x23: "DJ", 0x24: "LOOPS SET", 0x30: "SETTINGS", 0x31: "MIDI MAP", 0xE0: "NOTES" };
 
 ED.defs = { H, sgn, list, FX, FX_NAMES, FX_CODES, NV, knobSteps, knobValue, knobText, knobStep, fxDefaults, METRONOME_SOUNDS,
     SETTINGS, MIDI_SETTINGS, newSettings, curInst, setCurInst, GATE_STEPS, gateGet, gateSet, THEMES, DX7_OP, DX7_VOICE, JUNO, TB303, CHIP, SAMPLER_INST, ENV,

@@ -136,23 +136,24 @@ static void advance(void)
     rec_pat_t p;
     if (!rec_pattern(pat(), &p) && p.step) ed.row = ui_clamp(ed.row + p.step, 0, rows() - 1);
 }
-/* a key's note at a cell: the current instrument and KEYS VOLUME; the cell's commands stay */
-static void note_into(rec_cell_t *c, int m)
+/* a note at a cell: the current instrument and its volume (a key's: ui_key_vol); the cell's commands stay */
+static void note_into(rec_cell_t *c, int m, int vol)
 {
     c->has |= RC_NOTE | RC_INS | RC_VOL;
     c->note = (uint8_t)m;
     c->cart = (uint8_t)(ui_cur.inst >> 8);
     c->slot = (uint8_t)ui_cur.inst;
-    c->vol = (uint8_t)ui_set[S_KEYS_VOLUME];
+    c->vol = (uint8_t)vol;
 }
-static void write_note(int r, int t, int m, rec_cell_t *c) { cell_at(r, t, c); note_into(c, m); }
+/* key n's note at a cell */
+static void write_note(int r, int t, int n, rec_cell_t *c) { cell_at(r, t, c); note_into(c, ui_midi(n), ui_key_vol(n)); }
 static void sound(int n, int down)
 {
     int m = ui_midi(n);
     if (m < 12 || m > 127) return;
     if (!down) { player_key_off((uint8_t)m); return; }
     pl_inst_t in = {(uint8_t)(ui_cur.inst >> 8), (uint8_t)ui_cur.inst};
-    player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]);
+    player_key_on((uint8_t)m, in, (uint8_t)ui_key_vol(n));
 }
 
 static void start_take(int now)
@@ -184,7 +185,7 @@ static void stop_recording(void)
         player_pause();
         ed.take = 0;
         ed.row = ed.take_row;                           /* (back where it started: to hear it, or record again) */
-        ui_toast(T("TAKE STOPPED"));
+        ui_toast_t(TX("TAKE STOPPED"));
     }
 }
 
@@ -198,7 +199,7 @@ static const uint8_t QUANT_ROWS[5] = {2, 3, 4, 1, 0};   /* SETTINGS' QUANTIZE: 2
 /* where a take's key lands by QUANTIZE (specs/ui/screens/editor.md#realtime-takes), from where the loop is (st: its row
  * and tick): the nearest line of 2, 3 or 4 rows from the pattern's start (halves up), ROW the nearest row; REAL TIME the
  * row it falls in, its tick a note delay EDx (at most 15). *row, *delay; returns how many rows on from the one playing
- * it is: > 0 it waits for its line (past the pattern's end: row 0, the take going round), else it sounds at once */
+ * it is: > 0 its line ahead (past the pattern's end: row 0, the take going round), else its row started */
 static int landing(const player_state_t *st, int *row, int *delay)
 {
     int q = QUANT_ROWS[ui_set[S_QUANTIZE]], sp = st->speed ? st->speed : 1, tk = st->tick < sp ? st->tick : 0;
@@ -244,7 +245,7 @@ static void key_down(int n)
         ui_consume(B_PLAY);
         ed.armed = 0;
         ed.play_panel = 0;
-        write_note(ed.row, ed.track, m, &c);
+        write_note(ed.row, ed.track, n, &c);
         take_cmd(&c, 0x0E, 0xD, 0);
         if (!put(ed.row, ed.track, &c)) return;         /* (the edit memory full: no take, as one it ends) */
         start_take(1);
@@ -261,7 +262,7 @@ static void key_down(int n)
     /* a take started at once, its loop not seen playing yet (the player takes the request a half or two later): the key
      * lands on the take's first row too, with the first key's chord, heard there (its row's count: row + 1) */
     if (recording() && ed.take_now && !ed.take_seen) {
-        write_note(ed.take_row, t, m, &c);
+        write_note(ed.take_row, t, n, &c);
         take_cmd(&c, 0x0E, 0xD, 0);
         if (put(ed.take_row, t, &c)) {
             keep_held(n, t, ed.take_row + 1, 0);
@@ -269,13 +270,13 @@ static void key_down(int n)
         }
         return;
     }
-    /* a take: the note lands as QUANTIZE says and is heard as written, by its track (at its line, or at once), not as
-     * the keys; a chord spreading */
+    /* a take: the note lands as QUANTIZE says and is heard at once by its track (not as the keys), standing in for its
+     * cell on a line ahead that pass; a chord spreading */
     if (taking(&st)) {
         if (st.pat != pat()) return;
         int row, d, ahead = landing(&st, &row, &d);
         uint8_t x[2] = {0x0E, (uint8_t)(0xD0 | d)};     /* (EDx) */
-        write_note(row, t, m, &c);
+        write_note(row, t, n, &c);
         take_cmd(&c, 0x0E, 0xD, d ? x : 0);
         if (put(row, t, &c)) {
             keep_held(n, t, (int32_t)st.rows_played + ahead, d);
@@ -292,7 +293,7 @@ static void key_down(int n)
     if (held && ed.chord_row >= 0) { row = ed.chord_row; t = maxt + 1; }
     else { ed.chord_row = row; advance(); }
     if (t >= tracks()) return;
-    write_note(row, t, m, &c);
+    write_note(row, t, n, &c);
     if (put(row, t, &c)) keep_held(n, t, -1, 0);
 }
 static void key_up(int n)
@@ -306,20 +307,23 @@ static void key_up(int n)
     if (!any) ed.chord_row = -1;
     player_state_t st;
     if (t < 0 || from < 0 || !taking(&st) || st.pat != pat()) return;
-    /* a take's: its note off on the nearest row (REAL TIME: a key off Kxx at its tick, on the row it falls in), a row
-     * after its note at least (past the pattern's end: the next pass's rows, the take going round), heard there as
-     * written; a note there ends it already. REAL TIME let go in its note's own row after its delay: Kxx in its cell */
+    /* a take's: its note let go now, its note off on the nearest row (REAL TIME: a key off Kxx at its tick, on the row it
+     * falls in), a row after its note at least (past the pattern's end: the next pass's rows, the take going round),
+     * standing in for itself there that pass; a note there ends it already (nothing written). REAL TIME let go in its
+     * note's own row after its delay: Kxx in its cell */
     int sp = st.speed ? st.speed : 1, tk = st.tick < sp ? st.tick : 0, real = !QUANT_ROWS[ui_set[S_QUANTIZE]];
     int32_t now = (int32_t)st.rows_played, at = now + (!real && 2 * tk >= sp);
     if (at <= from && !(real && at == from && tk > d)) at = from + 1;
     int row = (st.row + (int)(at - now)) % rows(), own = at == from;
     rec_cell_t c;
     cell_at(row, t, &c);
-    if ((c.has & RC_NOTE) && !own) return;
     uint8_t x[2] = {0x14, (uint8_t)tk};                 /* (Kxx) */
-    if (real && !take_cmd(&c, 0x14, -1, x)) return;
-    if (!real) { c.has |= RC_NOTE; c.note = REC_NOTE_OFF; }  /* (the cell's commands stay) */
-    if (put(row, t, &c)) player_take_cell(t, row, at > now ? (uint32_t)at : 0, 1);
+    if (((c.has & RC_NOTE) && !own) || (real && !take_cmd(&c, 0x14, -1, x))) at = now;   /* (nothing written) */
+    else {
+        if (!real) { c.has |= RC_NOTE; c.note = REC_NOTE_OFF; }  /* (the cell's commands stay) */
+        if (!put(row, t, &c)) at = now;
+    }
+    player_take_cell(t, row, at > now ? (uint32_t)at : 0, 1);   /* (let go now, written or not) */
 }
 
 /* ------------------------------------------------------------------------ K1-K4 on a cell --- */
@@ -376,21 +380,21 @@ static void cell_knob(int e, int s, int coarse)
     char v[40];
     if (e == K_K1) {
         ed.slot = ui_clamp(ed.slot + sign(s), 0, slots(&c));
-        if (!ed.slot) { ui_show_knob(T("K1"), T("VOLUME")); return; }
+        if (!ed.slot) { ui_show_knob_t(TX("K1"), T("VOLUME")); return; }
         if (ed.slot - 1 < c.n) {
             char w[32];
             ui_cmd_words(c.cmd[ed.slot - 1][0], c.cmd[ed.slot - 1][1], eng, w, sizeof w);
             ui_fmt(v, sizeof v, T("CMD %d %s"), ed.slot, w);
         } else ui_fmt(v, sizeof v, T("CMD %d EMPTY"), ed.slot);
-        ui_show_knob(T("K1"), v);
+        ui_show_knob_t(TX("K1"), v);
         return;
     }
     if (ed.slot == 0) {                                 /* the volume: K3 by 16, K4 by 1; past 7F: its default */
-        if (e == K_K2) { ui_show_knob(T("K3, K4"), T("THE VOLUME")); return; }
+        if (e == K_K2) { ui_show_knob_t(TX("K3, K4"), T("THE VOLUME")); return; }
         int step = e == K_K3 || coarse ? 16 : 1, cv = (c.has & RC_VOL) ? c.vol : 0x80, nv = cv + s * step;
         if (nv > 0x7F) c.has &= (uint8_t)~RC_VOL;
         else { c.has |= RC_VOL; c.vol = (uint8_t)ui_clamp(nv, 0, 0x7F); }
-        ui_show_knob(T("VOLUME"), (c.has & RC_VOL) ? ui_hex2(c.vol) : T(".. AS THE INSTRUMENT"));
+        ui_show_knob_t(TX("VOLUME"), (c.has & RC_VOL) ? ui_hex2(c.vol) : T(".. AS THE INSTRUMENT"));
     } else {
         int k = ed.slot - 1;
         uint8_t *x = k < c.n ? c.cmd[k] : 0, nx[2];
@@ -421,11 +425,11 @@ static void cell_knob(int e, int s, int coarse)
                 cmd_text3(c.cmd[k], a);
                 int ne = ui_cmd_entry(c.cmd[k][0], c.cmd[k][1]);
                 ui_fmt(v, sizeof v, "%s %s", a, ne > 0 ? T(UI_ENTRIES[ne].name) : "");
-                ui_show_knob(T("K2"), v);
-            } else ui_show_knob(T("K2"), T("NO COMMAND"));
+                ui_show_knob_t(TX("K2"), v);
+            } else ui_show_knob_t(TX("K2"), T("NO COMMAND"));
         } else if (!x) { ui_show_knob(e == K_K3 ? T("K3") : T("K4"), T("K2 PICKS A COMMAND")); return; }
         else if (ent->digits == 2 || ent->digits == 1) {
-            if (e == K_K3 && ent->digits == 1) { ui_show_knob(T("K3"), T("K4 SETS IT")); return; }
+            if (e == K_K3 && ent->digits == 1) { ui_show_knob_t(TX("K3"), T("K4 SETS IT")); return; }
             int d = sign(s);
             if (e == K_K3) x[1] = (uint8_t)(ui_clamp((x[1] >> 4) + d, 0, 15) << 4 | (x[1] & 15));
             else x[1] = (uint8_t)((x[1] & 0xF0) | ui_clamp((x[1] & 15) + d, 0, 15));
@@ -450,7 +454,7 @@ static void cell_knob(int e, int s, int coarse)
                 }
                 char nm[32];
                 ui_cmd_code_name(x[0], eng, nm, sizeof nm);
-                ui_show_knob(T("K3"), nm);
+                ui_show_knob_t(TX("K3"), nm);
             } else {
                 x[1] = (uint8_t)ui_clamp(x[1] + s * (coarse ? 16 : 1), 0, ui_cmd_max(x[0], eng));
                 show_cmd(0, x, eng);
@@ -573,7 +577,7 @@ static void take_inst(int from)
     cell_at(ed.row, ed.track, &c);
     int ref = (c.has & RC_INS) ? c.cart << 8 | c.slot : ed_inst_at(pat(), ed.row, ed.track);
     char nm[16], rt[8], v[48];
-    if (ref < 0 || !ui_inst_name((uint16_t)ref, nm)) { ui_refuse(from); ui_toast(T("NO INSTRUMENT HERE")); return; }
+    if (ref < 0 || !ui_inst_name((uint16_t)ref, nm)) { ui_refuse_t(from, TX("NO INSTRUMENT HERE")); return; }
     ui_set_inst((uint16_t)ref);
     ui_ref_text(rt, (uint16_t)ref);
     int eng = ui_cart_kind((uint8_t)(ref >> 8));
@@ -613,7 +617,7 @@ static void load_go(void)
 {
     if (ed_copy_pattern((uint8_t)load_from, UI_EDITOR_PATTERN)) return;
     go_to(UI_EDITOR_PATTERN);
-    ui_toast(ui_txt_v(T("PATTERN # LOADED"), ui_hex2(load_from)));
+    ui_toast(ui_txt_h(TX("PATTERN # LOADED"), load_from));
 }
 static void load_pick(int n) { load_from = n; ed_own_ask(load_go); }
 static void store_go(void)
@@ -622,19 +626,18 @@ static void store_go(void)
     if (ed_copy_pattern((uint8_t)from, (uint8_t)store_to)) return;
     if (from == UI_EDITOR_PATTERN) ed_own_empty();      /* (its notes moved into the numbered one) */
     go_to(store_to);
-    ui_toast(ui_txt_v(T("STORED IN PATTERN #"), ui_hex2(store_to)));
+    ui_toast(ui_txt_h(TX("STORED IN PATTERN #"), store_to));
 }
 static void store_own(void) { if (own()) store_go(); else ed_own_ask(store_go); }   /* (from a numbered one: as any move) */
 static void store_answer(int a) { if (a == 1) store_own(); }
 static void store_pick(int n)
 {
-    if (n == ED_PICK_NEW && (n = rec_free_pattern()) < 0) { ui_toast(T("NO FREE PATTERN")); return; }
+    if (n == ED_PICK_NEW && (n = rec_free_pattern()) < 0) { ui_toast_t(TX("NO FREE PATTERN")); return; }
     store_to = n;
     if (!ed_pattern_holds((uint8_t)n)) { store_own(); return; }
-    static char l0[32];                                 /* (the question copies its lines) */
-    ui_fmt(l0, sizeof l0, T("PATTERN %02X WILL BE REPLACED"), n);
-    const char *lines[2] = {l0, T("DO YOU WANT TO CONTINUE?")};
-    ui_ask(lines, 2, T("YES"), T("NO"), store_answer);
+    const char *lines[2] = {ui_txt_h(TX("PATTERN # WILL BE REPLACED"), n), T("DO YOU WANT TO CONTINUE?")};   /* (the
+                                                         * question copies its lines) */
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), store_answer);
 }
 
 /* SEL -> RECORD PATTERN (ui_recpat.c): REC puts its notes into the cursor's track from the cursor's
@@ -663,7 +666,7 @@ static void f_rp(int t, int r, rec_cell_t *c, void *a)
 {
     const uint8_t *const *plan = a;                     /* (on, off: a row each) */
     (void)t;
-    if (plan[0][r]) note_into(c, ui_rp.note);
+    if (plan[0][r]) note_into(c, ui_rp.note, ui_set[S_KEYS_VOLUME]);
     else if (plan[1][r] && empty(c)) { memset(c, 0, sizeof *c); c->has = RC_NOTE; c->note = REC_NOTE_OFF; }
 }
 static int rp_write(void)
@@ -674,15 +677,14 @@ static int rp_write(void)
     notes = ui_rp_plan(rows(), ed.row, 0, ui_rp_step_rows(song_rpb()), 0, on, off);
     if (!each_track(ed.track, ed.track, f_rp, plan)) return 0;
     if (ed.note_ed) ed.nf_changed = 1;
-    ui_toast(ui_txt_v(notes == 1 ? T("PATTERN: # NOTE") : T("PATTERN: # NOTES"), ui_dec(notes)));
+    ui_toast(ui_txt_d(notes == 1 ? TX("PATTERN: # NOTE") : TX("PATTERN: # NOTES"), notes));
     return 1;
 }
 static void record_pattern(void)
 {
     rec_cell_t c;
-    char title[36];
     cell_at(ed.row, ed.track, &c);
-    ui_fmt(title, sizeof title, "%s", ui_txt_v(T("RECORD PATTERN INTO TRACK #"), ui_hex2(ed.track)));
+    const char *title = ui_txt_h(TX("RECORD PATTERN INTO TRACK #"), ed.track);   /* (the recorder copies it) */
     ui_rp_open_t o = {B_SEL, title, song_rpb(), (c.has & RC_NOTE) && c.note != REC_NOTE_OFF ? c.note : 60, TX("TO THE END"),
                       rp_sound, rp_song, rp_pause, rp_where, rp_write};
     ui_rp_open(&o);
@@ -699,20 +701,20 @@ static void block_pick(int a)
     case M_TAKE: take_inst(B_SEL); return;
     case M_MARK:
         ed.marking = 1; ed.ar = ed.row; ed.at = ed.track; block_of_anchor();
-        ui_toast(T("SELECT, ALG: MARK  SEL: ITS MENU"));
+        ui_toast_t(TX("SELECT, ALG: MARK  SEL: ITS MENU"));
         return;
     case M_COPY:
-        if (ed_clip_copy(pat(), b[0], b[1], b[2], b[3])) { ui_toast(T("BLOCK TOO BIG TO COPY")); return; }
+        if (ed_clip_copy(pat(), b[0], b[1], b[2], b[3])) { ui_toast_t(TX("BLOCK TOO BIG TO COPY")); return; }
         ui_fmt(v, sizeof v, T("COPIED %d X %d"), b[1] - b[0] + 1, b[3] - b[2] + 1);
         ui_toast(v);
         return;
     case M_CUT:
-        if (ed_clip_copy(pat(), b[0], b[1], b[2], b[3])) { ui_toast(T("BLOCK TOO BIG TO COPY")); return; }
+        if (ed_clip_copy(pat(), b[0], b[1], b[2], b[3])) { ui_toast_t(TX("BLOCK TOO BIG TO COPY")); return; }
         each_track(b[2], b[3], f_clear, 0);
         ed.block = 0;
         return;
     case M_PASTE: case M_PASTE_MIX:
-        if (!ed_clip_rows()) { ui_toast(T("NOTHING COPIED")); return; }
+        if (!ed_clip_rows()) { ui_toast_t(TX("NOTHING COPIED")); return; }
         paste_r0 = ed.row; paste_t0 = ed.track; paste_mix = a == M_PASTE_MIX;
         each_track(ed.track, ed.track + ed_clip_tracks() - 1, f_paste, 0);
         return;
@@ -728,13 +730,11 @@ static void block_pick(int a)
         each_track(b[2], ed.block ? b[3] : tracks() - 1, f_rows, &ins);
         return;
     }
-    case M_TRANSPOSE: ed.tmode = 1; ed.transpose = 0; memcpy(ed.tb, b, sizeof ed.tb); ui_toast(T("K1: TRANSPOSE, SEL: DONE")); return;
+    case M_TRANSPOSE: ed.tmode = 1; ed.transpose = 0; memcpy(ed.tb, b, sizeof ed.tb); ui_toast_t(TX("K1: TRANSPOSE, SEL: DONE")); return;
     case M_INTERP: each_track(b[2], b[3], f_interp, 0); return;
     case M_REVERT: {
-        static char q[36];
-        if (own()) ui_fmt(q, sizeof q, "%s", T("REVERT THE PATTERN TO SAVED?"));
-        else ui_fmt(q, sizeof q, T("REVERT PATTERN %02X TO SAVED?"), pat());
-        ui_ask_revert(q, 0, revert_go);
+        ui_ask_revert(own() ? T("REVERT THE PATTERN TO SAVED?") : ui_txt_h(TX("REVERT PATTERN # TO SAVED?"), pat()), 0,
+                      revert_go);       /* (it copies its lines) */
         return;
     }
     case M_NEW_PAT: ed_own_ask(own_new); return;
@@ -750,7 +750,7 @@ static void transpose(int d)
     ed.transpose += d;
     char v[8];
     ui_fmt(v, sizeof v, "%s%02X", ed.transpose > 0 ? "+" : ed.transpose < 0 ? "-" : "", ed.transpose < 0 ? -ed.transpose : ed.transpose);
-    ui_show_knob(T("TRANSPOSE"), v);
+    ui_show_knob_t(TX("TRANSPOSE"), v);
 }
 static void block_menu(void)
 {
@@ -801,8 +801,7 @@ static void block_menu(void)
     }
 #undef ADD
     if (ed.block) ui_fmt(title, sizeof title, T("BLOCK %d X %d"), b[1] - b[0] + 1, b[3] - b[2] + 1);
-    else ui_fmt(title, sizeof title, "%s", T("CELL"));
-    ui_menu("block", title, items, n, block_pick, B_SEL);
+    ui_menu("block", ed.block ? title : T("CELL"), items, n, block_pick, B_SEL);   /* (it copies its title) */
 }
 
 /* ------------------------------------------------------------------- GLO: the properties --- */
@@ -823,7 +822,7 @@ static void resize(int ntrk, int nrows, int step)
     ui_fmt(l0, sizeof l0, k == 1 ? T("THIS DROPS %d CELL") : T("THIS DROPS %d CELLS"), k);
     lines[0] = l0;
     lines[1] = T("MAKE THE PATTERN SMALLER?");
-    ui_ask(lines, 2, T("YES"), T("NO"), resize_answer);
+    ui_ask_t(lines, 2, TX("YES"), TX("NO"), resize_answer);
 }
 static int cur_step(void) { rec_pat_t p; return rec_pattern(pat(), &p) ? 1 : p.step; }
 static const char *p_tracks(void) { return ui_dec(tracks()); }
@@ -841,12 +840,10 @@ static void c_rows(int d, int c) { resize(tracks(), ui_clamp(rows() + d * (c ? 1
 static void c_step(int d, int c) { (void)c; resize(tracks(), rows(), ui_clamp(cur_step() + d, 0, 16)); }
 static void props(void)
 {
-    char title[32];
-    ui_prop_t items[4] = {{TX("TRACKS"), p_tracks, c_tracks, 0, 0, 0}, {TX("ROWS"), p_rows, c_rows, 0, 0, 0},
-                          {TX("EDIT STEP"), p_step, c_step, 0, 0, 0}, {TX("USED BY"), p_used, 0, 0, 0, 0}};
+    static const ui_prop_t items[4] = {{TX("TRACKS"), p_tracks, c_tracks, 0, 0, 0}, {TX("ROWS"), p_rows, c_rows, 0, 0, 0},
+                                       {TX("EDIT STEP"), p_step, c_step, 0, 0, 0}, {TX("USED BY"), p_used, 0, 0, 0, 0}};
     if (own()) { ui_props(T("PATTERN PROPERTIES"), items, 3, B_GLO); return; }     /* (its own: no number, no USED BY) */
-    ui_fmt(title, sizeof title, T("PATTERN %02X PROPERTIES"), pat());
-    ui_props(title, items, 4, B_GLO);
+    ui_props(ui_txt_h(TX("PATTERN # PROPERTIES"), pat()), items, 4, B_GLO);   /* (it copies its title) */
 }
 
 /* ------------------------------------------------------------------------ the note editor --- */
@@ -998,7 +995,7 @@ static void nf_knob(int s, int big)
         int cv = (c.has & RC_VOL) ? c.vol : 0x80, nv = cv + d * (big ? 16 : 1);
         if (nv > 0x7F) c.has &= (uint8_t)~RC_VOL;
         else { c.has |= RC_VOL; c.vol = (uint8_t)ui_clamp(nv, 0, 0x7F); }
-        ui_show_knob(T("VOLUME"), (c.has & RC_VOL) ? ui_hex2(c.vol) : T("AS THE INSTRUMENT"));
+        ui_show_knob_t(TX("VOLUME"), (c.has & RC_VOL) ? ui_hex2(c.vol) : T("AS THE INSTRUMENT"));
     } else {
         int k = l - L_CMD;
         uint8_t *x = k < c.n ? c.cmd[k] : 0;
@@ -1145,7 +1142,7 @@ static void draw_note_editor(void)
         if (on) { g_hline(0, y, 240, C_DGREY); g_hline(0, y + 23, 240, C_DGREY); }
         g_text(4, y + 6, &FONT_T, lab, on ? C_WHITE : C_CYAN);
         g_textn(52, y + 4, &FONT_S, a, 23, on && ed.nf_part == 0 ? C_WHITE : k);
-        if (b[0]) g_text(236 - g_tw(&FONT_S, b), y + 4, &FONT_S, b, on && ed.nf_part == 1 ? C_WHITE : k);
+        if (b[0]) g_text_r(236, y + 4, &FONT_S, b, on && ed.nf_part == 1 ? C_WHITE : k);
         if (on && !a[0]) g_text(52, y + 4, &FONT_S, "...", C_WHITE);
     }
     const char *big = ed.nf_line == L_NOTE ? T("OCTAVE") : ed.nf_line == L_INST ? T("CARTRIDGE") : ed.nf_line == L_VOL ? T("BY 16")
@@ -1333,7 +1330,7 @@ static int tap(int b)
         }
         else arp_off();
         const char *rh = T(UI_SETTINGS[S_ARP_RHYTHM].list[ui_set[S_ARP_RHYTHM]]);
-        ui_toast(ed.arp ? ui_txt_v(T("ROW PREVIEW #"), rh) : T("ROW PREVIEW OFF"));
+        ui_toast(ed.arp ? ui_txt_t(TX("ROW PREVIEW #"), rh) : T("ROW PREVIEW OFF"));
         return 1;
     }
     return 0;
@@ -1357,15 +1354,15 @@ static int sel_lines(const char **lines, int max)
 }
 static void rec(void)
 {
-    if (ed.armed) { ed.armed = 0; ui_toast(T("TAKE CANCELLED")); return; }
+    if (ed.armed) { ed.armed = 0; ui_toast_t(TX("TAKE CANCELLED")); return; }
     if (ed.take) { stop_recording(); return; }
     ed.rec = !ed.rec;
     player_state_t st;
     ui_player_state(&st);
     if (ed.rec) {                                       /* (the EDITOR's loop plays on: the keys write step by step) */
-        if (st.playing && st.what == PL_SONG) { player_pause(); ui_toast(T("SONG PAUSED: WRITING")); }
-        else ui_toast(T("REC ON: KEYS WRITE"));
-    } else ui_toast(T("REC OFF: KEYS PLAY"));
+        if (st.playing && st.what == PL_SONG) { player_pause(); ui_toast_t(TX("SONG PAUSED: WRITING")); }
+        else ui_toast_t(TX("REC ON: KEYS WRITE"));
+    } else ui_toast_t(TX("REC OFF: KEYS PLAY"));
 }
 static int play_down(void)
 {
@@ -1378,11 +1375,11 @@ static int play_down(void)
         else player_play_pattern(pat(), (uint8_t)ed.row);
         return 2;
     }
-    if (ed.armed) { ed.armed = 0; ui_toast(T("TAKE CANCELLED")); return 2; }
+    if (ed.armed) { ed.armed = 0; ui_toast_t(TX("TAKE CANCELLED")); return 2; }
     if (ed.take) { stop_recording(); return 2; }
     if (st.playing && st.what == PL_LOOP) {
         player_pause();
-        ui_toast(T("LOOP STOPPED: PLAY FOR A TAKE"));
+        ui_toast_t(TX("LOOP STOPPED: PLAY FOR A TAKE"));
         return 2;
     }
     if (st.playing) player_pause();
@@ -1392,6 +1389,41 @@ static void play_up(int used)
 {
     ed.play_panel = 0;
     if (!used && ed.rec && !recording()) start_take(0);
+}
+/* a held key's pressure in a take (ui.c's keys_press, past its step): its volume alone on its track's next row, heard
+ * as the loop reaches it; a row with a note left as it is; the edit memory short (256 B left): none (the take's notes
+ * are never refused for it) */
+static void pressure(int n, int vol)
+{
+    player_state_t st;
+    rec_cell_t c;
+    int t = edb.held_track[n], row;
+    if (t < 0 || edb.held_at[n] < 0 || !taking(&st) || st.pat != pat() || (int32_t)st.rows_played + 1 <= edb.held_at[n] ||
+        store_edit_room() < 256u)
+        return;                                         /* (a take's key only, past its note's row: a note landing ahead
+                                                         * not yet there) */
+    row = (st.row + 1) % rows();
+    cell_at(row, t, &c);
+    if (c.has & RC_NOTE) return;
+    c.has |= RC_VOL;
+    c.vol = (uint8_t)vol;
+    ed_put_cell(pat(), row, t, &c);
+    /* the row playing slides toward it (Axy: x or y a tick, on its ticks but the first): from the volume in force there
+     * (the latest at or before it, its note's at the most), as near as the slide's whole steps get; the next row's
+     * volume sets it exactly. No slide where none comes nearer, nor where the row has no room for one */
+    {
+        int r = st.row, k = rows(), s = 2 * ((int)st.speed - 1), d, x;
+        uint8_t a[2] = {0x0A, 0};
+        do
+            cell_at(r, t, &c);
+        while (!(c.has & RC_VOL) && --k && (r = (r ? r : rows()) - 1) >= 0);
+        d = vol - c.vol;                 /* (a slide's step: 2 of the cells' 0-127 a tick, the replay's 1 of 0-64) */
+        x = s > 0 && (c.has & RC_VOL) ? ((d < 0 ? -d : d) + s / 2) / s : 0;
+        a[1] = (uint8_t)((x > 15 ? 15 : x) << (d > 0 ? 4 : 0));
+        cell_at(st.row, t, &c);
+        if (take_cmd(&c, 0x0A, -1, x ? a : 0))
+            ed_put_cell(pat(), st.row, t, &c);
+    }
 }
 static int key(int n, int down)
 {
@@ -1416,7 +1448,7 @@ static int key(int n, int down)
         if (ed.fusion < 0 || !ui_inst_name((uint16_t)ed.fusion, nm)) return 0;
         int m = ui_midi(n);                             /* the FUSION as it is being written */
         if (m < 12 || m > 127) return 1;
-        if (down) { pl_inst_t in = {(uint8_t)(ed.fusion >> 8), (uint8_t)ed.fusion}; player_key_on((uint8_t)m, in, (uint8_t)ui_set[S_KEYS_VOLUME]); }
+        if (down) { pl_inst_t in = {(uint8_t)(ed.fusion >> 8), (uint8_t)ed.fusion}; player_key_on((uint8_t)m, in, (uint8_t)ui_key_vol(n)); }
         else player_key_off((uint8_t)m);
         return 1;
     }
@@ -1425,8 +1457,8 @@ static int key(int n, int down)
 }
 static int back(void)
 {
-    if (ed.armed) { ed.armed = 0; ui_toast(T("TAKE CANCELLED")); return 1; }
-    if (ed.floating) { ed.floating = 0; ui_toast(T("CANCELLED")); return 1; }
+    if (ed.armed) { ed.armed = 0; ui_toast_t(TX("TAKE CANCELLED")); return 1; }
+    if (ed.floating) { ed.floating = 0; ui_toast_t(TX("CANCELLED")); return 1; }
     if (ed.tmode) { ed.tmode = 0; return 1; }
     if (ed.note_ed) { nf_close(0); return 1; }          /* HOME: dropping them */
     if (ed.block) { ed.block = 0; ed.marking = 0; return 1; }
@@ -1490,7 +1522,7 @@ static void tick(void)
         if (!on) {                                      /* (something else plays now: the take is over) */
             ed.take = 0;
             ed.row = ed.take_row;
-            ui_toast(T("TAKE STOPPED"));
+            ui_toast_t(TX("TAKE STOPPED"));
         }
         ui_dirty();
     }
@@ -1531,10 +1563,9 @@ static void draw(void)
     ui_grid(pat(), &g);
     if (ed.play_panel) {                                /* (specs/ui/screens/editor.md#recording) */
         ui_panel(4, BODY_Y + 150, 232, 40, 0, C_LGREY);
-        g_run_t a[2] = {{T("LET GO"), C_YELLOW}, {T(": START THE TAKE"), C_LGREY}};
-        g_run_t k[2] = {{T("PRESS A KEY"), C_YELLOW}, {T(": START ON THAT NOTE"), C_LGREY}};
-        g_runs(10, BODY_Y + 156, &FONT_T, a, 2);
-        g_runs(10, BODY_Y + 172, &FONT_T, k, 2);
+        static const txt_t A[] = {TX("LET GO"), TX(": START THE TAKE"), 0}, K[] = {TX("PRESS A KEY"), TX(": START ON THAT NOTE"), 0};
+        ui_hints(10, BODY_Y + 156, A);
+        ui_hints(10, BODY_Y + 172, K);
     }
 }
 
@@ -1545,7 +1576,7 @@ const ui_screen_t SCR_EDITOR = {
     .enter = enter, .leave = leave, .draw = draw, .sub = sub, .page = page, .seq = seq, .footer = footer,
     .knob = knob, .mark = mark, .tap = tap, .key = key, .back = back, .lit = lit, .sel_lines = sel_lines,
     .play_down = play_down, .play_up = play_up, .rec = rec, .hold = hold, .tick = tick, .armed = armed,
-    .recording = recording, .own_arp = UI_ARP_PREVIEW, .cursor = state_cursor,
+    .recording = recording, .own_arp = UI_ARP_PREVIEW, .cursor = state_cursor, .pressure = pressure,
 };
 
 void ed_editor_goto(uint8_t p, int row, int track)

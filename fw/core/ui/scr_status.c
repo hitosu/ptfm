@@ -11,6 +11,9 @@
 #include "../fx/fx.h"
 #include "../eng/dx7/dx7.h"
 #include "../spare.h"
+#ifdef PTFM_DEBUG
+#include "../dbg.h"                                     /* (the keys' readings: plat_keys) */
+#endif
 
 #ifndef PTFM_VERSION
 #define PTFM_VERSION "DEV"              /* the build gives the stamp: `2026-10-12 03:00`, ` DEV` after it in a dev build */
@@ -76,7 +79,7 @@ static void sample(void)
 static void fig(int x, int y, const char *name, const char *value, int col, int w)
 {
     g_text(x, y, &FONT_T, name, C_CYAN);
-    g_text(x + w - g_tw(&FONT_T, value), y, &FONT_T, value, col);
+    g_text_r(x + w, y, &FONT_T, value, col);
 }
 
 static void enter(const ui_screen_t *from) { (void)from; if (!up0) up0 = 1; }
@@ -85,6 +88,13 @@ static void knob(int e, int s, int coarse)
 {
     (void)coarse;
     if (e == K_SELECT || e == K_ALG) page = ui_clamp(page + (s > 0 ? 1 : -1), 0, NPAGES - 1);
+#ifdef PTFM_DEBUG
+    if (e == K_K1 && page == NPAGES - 1) {              /* the debug build's DEVICE: K1 switches WAIT 1 / WAIT 2 */
+        plat_keys_t k;
+        plat_keys(&k, 0);
+        plat_keys(&k, k.wait == 2 ? 1 : 2);
+    }
+#endif
 }
 static void list_play(int song) { ui_cur.song = (uint8_t)song; ui_play_song((uint8_t)song, 0); ui_go_name("SONGS"); }
 static int tap(int b)
@@ -95,7 +105,7 @@ static int tap(int b)
         player_state_t st;
         player_state(&st, 1);
         avg_sum = avg2_sum = avg_n = avg2_n = 0;
-        ui_toast(T("COUNTS ZEROED"));
+        ui_toast_t(TX("COUNTS ZEROED"));
         return 1;
     }
     if (b == B_ENV) {                                   /* the song list: PLAY plays the highlighted song */
@@ -114,7 +124,7 @@ static const char *footer(uint8_t *col)
     store_usage(&u);
     char k[12];
     kb(k, u.user_free);
-    ui_fmt(b, sizeof b, "%s", ui_txt_v(T("FREE #"), k));
+    ui_fmt(b, sizeof b, "%s", ui_txt_t(TX("FREE #"), k));
     *col = (uint8_t)free_col(u.user_free, u.user_bytes);
     return b;
 }
@@ -125,8 +135,7 @@ static void draw_ptfm(void)
     int y0 = BODY_Y + 8;
     g_run_t name[5] = {{T("P"), C_LRED}, {T("T"), C_LCYAN}, {"/", C_YELLOW}, {T("F"), C_LGREEN}, {T("M"), C_LMAGENTA}};
     g_runs(g_centre(&FONT_L, T("PT/FM"), 0, 240), y0, &FONT_L, name, 5);
-    const char *full = T("POCKET TRACKER / FUSION MACHINE");
-    g_text(g_centre(&FONT_T, full, 0, 240), y0 + 34, &FONT_T, full, C_LGREY);
+    g_text_c(0, 240, y0 + 34, &FONT_T, T("POCKET TRACKER / FUSION MACHINE"), C_LGREY);
     char by[64], stamp[40], st2[44];
     int dev;
     version_parts(stamp, &dev);
@@ -189,8 +198,8 @@ static void draw_ptfm(void)
     g_run_t l4[2] = {{T("FLASH FREE "), C_CYAN}, {k, (uint8_t)free_col(u.user_free, u.user_bytes)}};
     g_runs(L, y + 48, &FONT_T, l4, 2);
     int bat = plat_battery(), usb = bat < 0 || plat_usb_power(), bars = bat >= 67 ? 3 : bat >= 34 ? 2 : bat >= 10 ? 1 : 0;   /* (USB: charging, as the header's) */
-    if (usb) ui_fmt(a, sizeof a, "%s", T("USB")); else ui_fmt(a, sizeof a, "%d/3", bars);
-    g_run_t l5[2] = {{T("BATTERY "), C_CYAN}, {a, usb ? C_LBLUE : bars >= 2 ? C_GREEN : bars == 1 ? C_YELLOW : C_RED}};
+    if (!usb) ui_fmt(a, sizeof a, "%d/3", bars);
+    g_run_t l5[2] = {{T("BATTERY "), C_CYAN}, {usb ? T("USB") : a, usb ? C_LBLUE : bars >= 2 ? C_GREEN : bars == 1 ? C_YELLOW : C_RED}};
     g_runs(L, y + 60, &FONT_T, l5, 2);
     uint32_t up = ui_now() / 1000;
     ui_fmt(b, sizeof b, "%02u:%02u:%02u", up / 3600, up / 60 % 60, up % 60);
@@ -214,13 +223,12 @@ static void draw_performance(void)
      * NOW, the rest blank */
     static const uint8_t HEAD_X[3] = {96, 156, 210};
     const char *head[3] = {T("NOW"), T("AVERAGE"), T("MOST")};
-    for (int i = 0; i < 3; i++) g_text(HEAD_X[i] - g_tw(&FONT_T, head[i]), y, &FONT_T, head[i], C_CYAN);
+    for (int i = 0; i < 3; i++) g_text_r(HEAD_X[i], y, &FONT_T, head[i], C_CYAN);
     for (int n = 0; n < 2; n++) {
         int cy = y + 12 + 12 * n;
         g_text(0, cy, &FONT_T, n ? T("CPU 2") : T("CPU 1"), C_CYAN);
         if (n && c.c2_state != PLAT_C2_ON) {
-            const char *off = T("OFF");
-            g_text(HEAD_X[0] - g_tw(&FONT_T, off), cy, &FONT_T, off, C_DGREY);
+            g_text_r(HEAD_X[0], cy, &FONT_T, T("OFF"), C_DGREY);
             break;
         }
         uint32_t sum = n ? avg2_sum : avg_sum, cnt = n ? avg2_n : avg_n;
@@ -228,7 +236,7 @@ static void draw_performance(void)
                      pct(n ? c.c2_max_us : c.max_us, c.half_us)};
         for (int i = 0; i < 3; i++) {
             ui_fmt(v, sizeof v, "%d%%", f3[i]);
-            g_text(HEAD_X[i] - g_tw(&FONT_T, v), cy, &FONT_T, v, cpu_col(f3[i]));
+            g_text_r(HEAD_X[i], cy, &FONT_T, v, cpu_col(f3[i]));
         }
     }
     ui_fmt(v, sizeof v, "%u US", c.max_us); fig(0, y + 36, T("WORST HALF"), v, cpu_col(mx), w);
@@ -251,8 +259,8 @@ static void draw_performance(void)
         {PL_ENG_SAMPLER, ENG_SAMPLER, "1.1%"}, {PL_ENG_CHIP, ENG_CHIP, "2.5%"}};
     uint32_t now = ui_now();
     if (!eng_at || (int32_t)(now - eng_at) >= 100) {   /* (| 1: maybe 1 ms ahead) */
-        pl_voice_info_t vi[PL_VOICES];
-        int nv = ui_player_voices(vi, PL_VOICES);
+        pl_voice_info_t vi[PL_ENGINES];
+        int nv = ui_player_voices(vi, PL_ENGINES);
         uint32_t fus, fh;
         memset(eng_count, 0, sizeof eng_count);
         for (int i = 0; i < nv; i++) if (vi[i].on && vi[i].engine >= 1 && vi[i].engine <= PL_ENG_CHIP) eng_count[vi[i].engine]++;
@@ -271,23 +279,25 @@ static void draw_performance(void)
     g_box(0, gy, 240, gh, C_DGREY);
     g_hline(1, gy + gh - 50, 238, C_DEEP + C_YELLOW);
     g_hline(1, gy + gh - 80, 238, C_DEEP + C_RED);
-    for (int i = 0; i < ngraph; i++) {                  /* core 1's bars, core 2's marks (white) at its share's height */
-        int h = (graph[i] * (gh - 2) + 50) / 100, x = 239 - ngraph * 2 + i * 2;
-        g_vline(x, gy + gh - 1 - h, h, cpu_col(graph[i]));
-        if (graph2[i] != NO_C2) g_rect(x, gy + gh - 1 - (graph2[i] * (gh - 2) + 50) / 100, 2, 1, C_WHITE);
+    for (int i = 0; i < ngraph; i++) {                  /* core 1's bars, core 2's marks (white) at its share's height: 4 px
+                                                         * a sample from the right, a 2-px bar and a 2-px gap (the 60th's
+                                                         * bar 1 px, inside the box's edge) */
+        int h = (graph[i] * (gh - 2) + 50) / 100, x = 240 - (ngraph - i) * 4, w2 = x < 1 ? 1 : 2;
+        if (x < 1) x = 1;
+        g_rect(x, gy + gh - 1 - h, w2, h, cpu_col(graph[i]));
+        if (graph2[i] != NO_C2) g_rect(x, gy + gh - 1 - (graph2[i] * (gh - 2) + 50) / 100, w2, 1, C_WHITE);
     }
     g_text(2, gy + 2, &FONT_T, T("CPU, LAST 30 S"), C_DGREY);
 }
 static void bar(int y, const char *name, uint32_t size, uint32_t used, int col, int fcol)
 {
-    char f[16], k[12];
+    char k[12];
     g_text(0, y, &FONT_T, name, C_LGREY);
     g_box(60, y, 120, 10, C_DGREY);
     uint32_t w = size ? (used >= size ? 118 : used * 118 / size) : 0;
     g_rect(61, y + 1, (int)w, 8, col);
     kb(k, size > used ? size - used : 0);
-    ui_fmt(f, sizeof f, "%s", ui_txt_v(T("# FREE"), k));
-    g_text(186, y, &FONT_T, f, fcol);
+    g_text(186, y, &FONT_T, ui_txt_t(TX("# FREE"), k), fcol);
 }
 static void draw_storage(void)
 {
@@ -328,7 +338,7 @@ static void legend(int x, int y, int col, const char *name, const char *size, in
 {
     g_rect(x, y + 3, 6, 6, col);
     g_text(x + 10, y, &FONT_T, name, C_LGREY);
-    if (right) g_text(right - g_tw(&FONT_T, size), y, &FONT_T, size, size_col);
+    if (right) g_text_r(right, y, &FONT_T, size, size_col);
     else g_text(x + 10 + g_tw(&FONT_T, name) + 6, y, &FONT_T, size, size_col);
 }
 static uint32_t kind_bytes(const store_usage_t *u, uint8_t lo, uint8_t hi)
@@ -343,10 +353,9 @@ static void draw_flash_map(void)
     static const uint8_t COL[8] = {C_DEEP + C_LGREY, C_DEEP + C_LGREY, C_YELLOW, C_LBLUE, C_CYAN, C_GREEN, C_LGREEN, C_LGREY};
     store_usage_t u;
     store_usage(&u);
-    char v[32], k[12];
+    char k[12];
     kb(k, u.user_bytes);
-    ui_fmt(v, sizeof v, "%s", ui_txt_v(T("FLASH #, A SQUARE 1K"), k));
-    g_text(0, BODY_Y + 2, &FONT_T, v, C_CYAN);
+    g_text(0, BODY_Y + 2, &FONT_T, ui_txt_t(TX("FLASH #, A SQUARE 1K"), k), C_CYAN);
     int n = store_kb_map(kb_at, UI_SCRATCH), nfree = 0, y = MAP_Y;
     for (int i = 0; i < n; i++) nfree += kb_at[i] == STORE_KB_FREE;
     for (int i = 0, seen = 0; i < n; i++)               /* (KEPT FOR SAVING: an amount, drawn as the last free KB) */
@@ -357,9 +366,11 @@ static void draw_flash_map(void)
         {REC_SONG, REC_SONG, C_GREEN}, {REC_LOOPS, REC_LOOPS, C_LGREEN}, {REC_DJ, 0xFF, C_LGREY}};
     const char *name[6] = {T("SAMPLES"), T("INSTRUMENTS"), T("PATTERNS"), T("SONGS"), T("LOOPS"), T("OTHER")};
     for (int i = 0; i < 6; i++, y += 12) {
-        uint32_t b = kind_bytes(&u, KINDS[i].lo, KINDS[i].hi);
-        if (KINDS[i].lo == REC_DJ) b += kind_bytes(&u, REC_AUDIO_OLD, REC_AUDIO_OLD);   /* (OTHER holds the old form's
-                                                         * audio too, as the map colours it: the rows add up to every kind) */
+        uint32_t b = kind_bytes(&u, KINDS[i].lo, KINDS[i].hi), sets = kind_bytes(&u, REC_LSET, REC_LSET);
+        if (KINDS[i].lo == REC_DJ) b += kind_bytes(&u, REC_AUDIO_OLD, REC_AUDIO_OLD) - sets;   /* (OTHER holds the old form's
+                                                         * audio too, as the map colours it: the rows add up to every kind;
+                                                         * LOOPS' sets are LOOPS') */
+        if (KINDS[i].lo == REC_LOOPS) b += sets;
         kb(k, b);
         legend(0, y, KINDS[i].col, name[i], k, C_WHITE, 150);
     }
@@ -394,10 +405,9 @@ static void draw_ram_map(void)
 {
     ui_ram_t r;
     ui_ram(&r);
-    char v[32], k[12], k2[12];
+    char k[12], k2[12];
     kb(k, r.total);
-    ui_fmt(v, sizeof v, "%s", ui_txt_v(T("RAM #, A SQUARE 1K"), k));
-    g_text(0, BODY_Y + 2, &FONT_T, v, C_CYAN);
+    g_text(0, BODY_Y + 2, &FONT_T, ui_txt_t(TX("RAM #, A SQUARE 1K"), k), C_CYAN);
     uint32_t sys_rest = r.system > r.ram_text + r.pool_system ? r.system - r.ram_text - r.pool_system : 0;
     const struct { uint32_t bytes; uint8_t col; } SEG[13] = {   /* in the order they lie */
         {r.ram_text, C_MAGENTA}, {r.effects, C_GREEN}, {r.edits_used, C_YELLOW},
@@ -415,7 +425,7 @@ static void draw_ram_map(void)
     y += 8;
     kb(k, r.edits_used); kb(k2, r.edits);
     char ev[24];
-    ui_fmt(ev, sizeof ev, "%s", ui_txt_v(ui_txt_v(T("# OF #"), k), k2));
+    ui_fmt(ev, sizeof ev, "%s", ui_txt_v(ui_txt_t(TX("# OF #"), k), k2));
     static const uint8_t COL[10] = {C_GREEN, C_YELLOW, C_LBLUE, C_LRED, C_LCYAN, C_LGREEN, C_LGREY, C_DEEP + C_LGREY,
                                     C_BROWN, C_MAGENTA};
     const uint32_t bytes[10] = {r.effects, 0, r.screen, r.dx7, r.sound, r.loops, r.variables, r.spare, r.dj, r.system};
@@ -450,8 +460,8 @@ static void draw_device(void)
 {
     int y = BODY_Y + 2, bat = plat_battery(), usb = bat < 0 || plat_usb_power(), bars = bat >= 67 ? 3 : bat >= 34 ? 2 : bat >= 10 ? 1 : 0;
     char v[32];
-    if (usb) ui_fmt(v, sizeof v, "%s", T("USB POWER")); else ui_fmt(v, sizeof v, "%d/3 BARS", bars);
-    fig(0, y, T("BATTERY"), v, usb ? C_LBLUE : bars >= 2 ? C_GREEN : bars == 1 ? C_YELLOW : C_RED, 236);
+    if (!usb) ui_fmt(v, sizeof v, "%d/3 BARS", bars);
+    fig(0, y, T("BATTERY"), usb ? T("USB POWER") : v, usb ? C_LBLUE : bars >= 2 ? C_GREEN : bars == 1 ? C_YELLOW : C_RED, 236);
     fig(0, y + 14, T("FIRMWARE"), PTFM_VERSION, C_LGREY, 236);
     char o[24];
     ui_setting_text(&UI_SETTINGS[S_OUTPUT], ui_set[S_OUTPUT], o);
@@ -467,8 +477,38 @@ static void draw_device(void)
     fig(0, y + 84, T("VOICES"), o, C_LGREY, 236);
     fig(0, y + 98, T("THEME"), g_theme_name(ui_set[S_THEME]), C_LGREY, 236);
     plat_cpu_t c;
+    memset(&c, 0, sizeof c);
     plat_cpu(&c, 0);
     fig(0, y + 112, T("SECOND CORE"), c2_text(&c), c.c2_state == PLAT_C2_STOPPED ? C_RED : C_LGREY, 236);
+    if (c.c2_bad) {                      /* (a bad write refused: where it would have gone, and from where) */
+        ui_fmt(v, sizeof v, "%s %08X +%u", c.c2_bad == 2 ? T("BAD COPY TO") : T("BAD FILL TO"), (unsigned)c.c2_bad_d,
+               (unsigned)c.c2_bad_n);
+        g_text(0, y + 126, &FONT_T, v, C_RED);
+        ui_fmt(v, sizeof v, "%s %08X", T("ASKED FROM"), (unsigned)c.c2_bad_from);
+        g_text(0, y + 138, &FONT_T, v, C_RED);
+    }
+#ifdef PTFM_DEBUG
+    {                                    /* the keys' readings (the debug build's: specs/debug.md#the-keys-bytes) */
+        plat_keys_t k;
+        char nm[8], w[44];
+        plat_keys(&k, 0);
+        ui_setting_text(&UI_SETTINGS[S_KEYS_VELOCITY], k.curve, o);
+        ui_fmt(v, sizeof v, T("%s  WAIT %d (K1)"), o, k.wait);
+        fig(0, y + 154, T("KEYS VELOCITY"), v, C_LGREY, 236);
+        if (k.key < 27u) {
+            ui_note_name(nm, 53 + k.key);
+            ui_fmt(w, sizeof w, T("LAST %s V%u T%u D%u/%u L%u"), nm, k.vel, k.touch, k.d1, k.d2, k.land);
+        } else {
+            ui_fmt(w, sizeof w, "%s", T("LAST: NONE YET"));
+        }
+        g_text(0, y + 166, &FONT_T, w, C_LGREY);
+        ui_fmt(w, sizeof w, T("PRESSES %u GRAZES %u LATE %u LOST %u"), k.presses, k.grazes, k.lates, k.lost);
+        g_text(0, y + 178, &FONT_T, w, k.lates || k.lost ? C_YELLOW : C_LGREY);
+        ui_fmt(w, sizeof w, T("SCAN TICK %u.%02u US, MOST %u.%02u US"), k.tick_10ns / 100u, k.tick_10ns % 100u,
+               k.tick_most_10ns / 100u, k.tick_most_10ns % 100u);
+        g_text(0, y + 190, &FONT_T, w, C_LGREY);
+    }
+#endif
 }
 static void draw(void)
 {

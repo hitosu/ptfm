@@ -71,7 +71,7 @@ playground), and its item leaves this file: the specs and the proposals are the 
 - **A save cut short** ([files/store.md](files/store.md#saving)): spoiling it at the next power-on, its records'
   kind bytes programmed to 0 (the only write a power-on makes), is *(proposed)*.
 - **The spare zone** ([files/ram.md](files/ram.md#the-edit-memory-and-the-spare-zone)): what it is for beyond
-  what borrows from it now (about 49 KB; DJ's 13 KB borrowed from its top, USB audio's 6.5 KB in reserve): left
+  what borrows from it now (about 33 KB; DJ's 13 KB borrowed from its top, USB audio's 6.5 KB in reserve): left
   to a later review of the RAM.
 - **The staging's place:** the update loader kept at 0x0E0000, between the user area's two regions; moving the
   staging to the flash's end, 12 KB for PT/FM's loader (a bigger one, as the FM-1's own firmware's, staged over the
@@ -87,10 +87,16 @@ playground), and its item leaves this file: the specs and the proposals are the 
 
 ## The firmware
 
+- **The keys' aftertouch, further** ([proposals/202611221230-key-velocity.md](proposals/202611221230-key-velocity.md),
+  section 7): a held key's pressure makes its own notes louder (LOOPS' stage's keys too), and an EDITOR take and LOOPS'
+  stage write it as volumes alone ([hardware.md](hardware.md#the-keys-velocity)); open: AUTOMATIONS' events, other
+  destinations (a modulation, MIDI OUT's channel pressure in play). Also open there: a key's own calibration, the top
+  row read through PA10, the release's velocity.
 - **The second core, what is left** ([second-core.md](second-core.md)):
   - the effects that run at 29.4 kHz (the REVERB, the DELAY) at the full rate, with the RAM left over;
   - the voices split by cost between the cores (core 2 taking some of core 1's 12), if core 1 runs short;
-  - raised supplies, only if some FM-1 misreads at the boot loader's levels (the one measured showed none).
+  - write limits for core 2 and the DMAs over core 1's stacks and bands, so that a stray write by either faults where
+    it is made, not later on core 1 ([hardware.md](hardware.md#updates-and-rescue)).
 - **The click at power-on: whether to work it out.** It is quieter, not gone
   ([hardware.md](hardware.md#sound): PC6 held low until 150 ms of silence have gone through the codec). What is
   left likely comes from the speaker's amplifier powering up, which no line the firmware drives is known to
@@ -143,8 +149,31 @@ playground), and its item leaves this file: the specs and the proposals are the 
     corrects it). 48 kHz would still need the resampler.
   - **The kernel in an assembly file of its own** (both channels' chains interleaved, loads beside the
     multiplies): the build allows no inline assembly; what it would save is unknown until measured.
-- **Parked notes on the FM-1** ([ui/screens/settings.md](ui/screens/settings.md#voices)): whether a note coming
-  back (its 5.8 ms fade in) is ever heard as one, and what parking costs (a parked voice runs its envelopes only).
+- **Ghost notes on the FM-1** ([ui/screens/settings.md](ui/screens/settings.md#voices)), each decided by the debug
+  build's ghost figures over GHOST NOTES, DJ HEAVY and the loop station ([debug.md](debug.md#the-ghosts-bytes)):
+  - **the budget's numbers:** the weights measured on the FM-1 (GHOST NOTES), 44 units of about 1 µs a block; 4
+    returns a block and the budget, to be tuned together from the next runs; the free engine's and the tails'
+    searches, not charged;
+  - **the walk while ghosts wait and none can begin:** 33 µs a block at 24 ghosts on the FM-1 (about 12 by the PC's
+    count of the device's code); a walk that returns at once when no ghost can begin and none is under way, or one
+    pass in place of four;
+  - **the muted ghosts' walk:** a muted track's ghosts looked at each block (24 cold calls at most); one mask of the
+    tracks muted a walk, if MUTES and SOLO AND BACK cost more than OVER THE COUNT;
+  - **the Juno-106's loudness bound** at a return: loose (about 27 dB over on average), so a Juno-106 ghost let go may
+    come back inaudible and be freed by the quiet rule 4 blocks on; a tighter bound (the note's peak against its bound
+    when it lost its engine, or one from its patch's filter) if those returns show;
+  - **the walks over 40 voices** each tick and block (a track's following, its commands, FILTER's held notes), against
+    0.27's figures for the same runs;
+  - **more notes heard cost more CPU:** DJ HEAVY at VOICES 12 and 16 and the loop station, against 0.27's figures
+    (the voices on average, the late halves, the CPU). At 16 on the FM-1 with the split fixed: 15 late halves in 30 s
+    (0.27: 1-3), core 1 63.8 % on average (61.0-61.4), 75 notes back (JUNO-106 about 85 µs a half more); the loop
+    station as 0.27 (57.4 %, none late). With the split moving each block: 5 late halves at 16 and 4 at 12 (the fixed
+    split in the same run 16 and 80), core 1 60.4 and 59.8 %, the loop station 40.4 %. What is left falls on rows that
+    start 9 notes at once, their starts and REPLAY core 1's before the hand-over: to try, a row's starts handed to core
+    2 with their voices (adding the block's starts to core 1's share in the split did no better in a model of the two
+    cores);
+  - **more ghosts:** whether 24 are enough where the loops sound far past the count;
+  - whether a return's 5.8 ms fade in is ever heard as one.
 - **A safe start:** a crash caused by stored data comes back after a reinstall (the user area stays). Wanted: a
   key held at power-on that skips reading the records, and a way to erase them from there.
 - **The autotests' stretches** ([debug.md](debug.md#the-scenarios)) *(proposed)*: the demo songs are measured from

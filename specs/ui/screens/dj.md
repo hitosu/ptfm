@@ -151,12 +151,17 @@ played:**
 ### Voices
 
 - **One pool, SETTINGS' VOICES (8, 12 or 16); when it is full, the deck lower in the mix gives way.** A note finding
-  no free voice takes one from the deck the crossfader favours less (with the crossfader in the middle, the
+  no free engine takes one from the deck the crossfader favours less (with the crossfader in the middle, the
   right deck), in the pool's order ([settings.md](settings.md#voices): release tails, then held notes, the
-  quietest first; a held note taken is parked and comes back when a voice is free); only when that deck has
-  none, its own deck's.
-- **A deck faded out completely** (the crossfader at the other end) keeps time and takes free voices, but never
-  one from the deck heard.
+  quietest first; a held note taken goes on as a ghost and comes back when an engine is free); only when that deck
+  has none, its own deck's. Either deck's ghosts come back in the pool's order as any
+  ([settings.md](settings.md#coming-back)); a held ghost taking a release tail's engine follows the same rule.
+- **A deck faded out completely** (the crossfader at the other end) keeps time and takes free engines, but never
+  one from the deck heard: a note of it that finds none of its own deck's is not played, and its held ghosts with no
+  tail of their own deck to take are passed by in the returns, the ghosts after them going on, so they never hold
+  back the deck heard. An engine a return under way holds is silent, as a free one, so a faded-out deck's note may
+  take the other deck's. A muted track's note starts as a ghost on either deck: the mute comes first
+  ([settings.md](settings.md#muted-tracks)).
 - **The CPU** stays what one song costs at that VOICES; a song alone on DJ has every voice it has on SONGS.
   DJ has no VOICES of its own: 16 as everywhere, the notes past 10 on the second core
   ([../../second-core.md](../../second-core.md#the-voices-on-core-2)), 12 while it does not run. The header's CPU
@@ -314,21 +319,22 @@ Each deck's 8 white keys, the left deck's 1-8, the right deck's 9-16, in one of 
 PLAY's pads 5-8, stopping the deck with an effect, one at a time: the record's, BRAKE and BACKSPIN | the tails',
 ECHO OUT and REVERB OUT. **Each works while held:**
 - **held, it stops:** the stop runs from the press; once the deck has stopped it stands silent there (the pad
-  lit), its place counting on meanwhile ([Landing in time](#landing-in-time));
-- **let go, it plays on** where it would have been, in time (after BRAKE or BACKSPIN spinning up in about 0.1 s;
-  after ECHO OUT or REVERB OUT dry, the tail already sent ringing out under it). Let go before it has stopped,
-  the deck comes back from there just the same: a tap is a dip;
+  lit), its notes cut as it stops (its ghosts too: none of them comes back when it plays on), its place counting on
+  meanwhile ([Landing in time](#landing-in-time));
+- **let go, it plays on** where it would have been, in time (after BRAKE or BACKSPIN spinning up in about 0.1 s,
+  its sound rising from 1/16 with its pitch; after ECHO OUT or REVERB OUT dry, the tail already sent ringing out
+  under it). Let go before it has stopped, the deck comes back from there just the same: a tap is a dip;
 - **the deck's PLAY key while the pad is held turns what letting go does:** a press, it stays stopped; another,
   it plays on again; the footer says which (`LET GO STAYS  OP1 PLAYS ON`). Let go staying, the deck is paused
   where the stop left it (a stop still running runs to its end first), and its PLAY plays on from there (after
   BRAKE or BACKSPIN spinning up).
 
 The stops:
-- **BRAKE:** the deck's rows slow and its notes' pitch falls with them, to a stop in 0.5 s: a turntable's STOP,
-  one bend over the deck's voices.
+- **BRAKE:** the deck's rows slow and its notes' pitch falls with them, to a stop in 0.5 s, its sound fading out
+  with its speed: a turntable's STOP, one bend and one fade over the deck's voices.
 - **BACKSPIN:** the record spun back by hand: from the row heard the rows run backwards, three times as fast and
   slowing, the notes' pitch high and falling with them (each note forwards *(proposed: what slides, arpeggios
-  and retriggers do backwards)*), to a stop in 1 s,
+  and retriggers do backwards)*), to a stop in 1 s, its sound fading out over its last 0.1 s,
   back from where it was. Inside a LOOP or REPEAT set the rows go backwards round it (from its start to its
   end), so a loop stays where it is.
 - **ECHO OUT:** the deck's whole sound goes into the DELAY (DJ's settings, on for its echoes even when the DELAY

@@ -1,7 +1,7 @@
 # The screen's frame
 
-Status: **settled** (2026-10-09). The record: [the UI proposal](../proposals/202610072229-ui.md),
-section 3.
+Status: **settled** (2026-10-09). The records: [the UI proposal](../proposals/202610072229-ui.md),
+section 3; [menus and lists in 8 × 16](../proposals/202611131620-bigger-lists.md) (the fonts' uses).
 
 What every screen shares: the 240 × 240 screen, how numbers and IDs are written, the header at the
 top, the footer at the bottom, and the fonts. Each screen draws only its body, between them
@@ -85,6 +85,9 @@ screen (2026-10-10):
   - PRESETS too, though the footer shows the instrument: `PRESETS 01:03 E.PIANO`; with SEL (held, or tapped
     first) the cartridge, `CARTRIDGE 01 KEYS/ORGANS`. Where a screen refuses the turn, its toast says why instead.
   - `12 VOICES` stays decimal; it is a count of voices, not an index.
+- **While an automation records or plays** ([screens/automations.md](screens/automations.md)), on every screen: a red
+  ● (recording) or a green ▶ (playing) at the left, then `AUTO 03` in S in the same colour, in place of the name,
+  subpage, page and SEQ's place; a toast, a knob turned and the help still show in its place.
 - **OVER 9000:** when the sound takes more than 90 % of either core for a second (the mean of the halves' own
   times over each second, each core's apart: 172 halves of 5.8 ms, or a few more as the main loop comes round),
   `!!! OVER 9000 !!!` shows in the header's middle, red in S, and nothing else of the header's text: the
@@ -156,14 +159,14 @@ heights never change, and the smaller text is centred in the same space.
 
 | Font | Size | Across the screen | Used for |
 |---|---|---|---|
-| T | 6 × 12 | 40 characters | numbers, cells, lists, the footer |
-| S | 8 × 16 | 30 characters | the header, labels, notes |
+| T | 6 × 12 | 40 characters | numbers, cells, the wide tables (the pattern list, CHECK REFERENCES' list, CLEAN UP's checklist), the questions' lines, the figures beside S's names, the hold layers that do not fit S, the footer |
+| S | 8 × 16 | 30 characters | the header, labels, notes; menus, properties, SETTINGS, the song and cartridge lists' names, the hold layers that fit, in 16-px rows ([dialogs.md](dialogs.md#rows-in-s)) |
 | B | 12 × 24, Terminus bold | 20 characters | the focus row's notes in the 2-track view, the note editor |
 | L | 16 × 32 (S doubled) | 15 characters | the note editor's note |
 
 - **All from Terminus** (SIL OFL 1.1). B is Terminus's 12 × 24 bold, `ter-u24b`.
 - **Capitals only, everywhere,** the help included. The fonts hold the printable ASCII characters but
-  the lowercase letters, 69 glyphs:
+  the lowercase letters (a lowercase letter is drawn as its capital), 69 glyphs:
   - space, `A`-`Z`, `0`-`9`;
   - the characters names may use: `: . - ? | / \ * # $ @ %` ([dialogs.md](dialogs.md));
   - the other signs: `= + < > ( ) , ! ~ ' ; _ " & [ ] { } ^` and the backtick (`~` for XM's

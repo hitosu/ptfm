@@ -15,23 +15,30 @@
  * - phases in uint32_t (MSFA's int32_t overflow, without the undefined behaviour)
  *
  *   dx7_init()                 once: the tables into RAM
- *   dx7_note_on(v, vced, note, velocity)   vced: a patch in the 156-byte layout Dx7Note::init
- *                              reads (the player unpacks a cartridge's slot into it, as Dexed's
- *                              unpackProgram); as Dexed's keydown: transpose, init, LFO key down,
- *                              oscillator sync if the patch asks for it
+ *   dx7_note_on(v, vced, note, velocity, mod_velocity)   vced: a patch in the 156-byte layout
+ *                              Dx7Note::init reads (the player unpacks a cartridge's slot into it, as
+ *                              Dexed's unpackProgram); as Dexed's keydown: transpose, init, LFO key down,
+ *                              oscillator sync if the patch asks for it. FM-1: velocity is the carriers'
+ *                              (the operators on the output), mod_velocity the other operators' (Dexed:
+ *                              one velocity for all six, both the same)
  *   dx7_note_off(v)            key up
  *   dx7_cut(v)                 silence now (no release)
  *   dx7_render(v, buf)         ADDS DX7_N samples to buf, the 16-bit scale (MSFA's >> 13, times
  *                              DX7_OUT_Q16, the engine's output scale: PT/FM's reference voice comes out at
  *                              -20 dB RMS); FM-1: the operators' scratch on its own stack (512 B), so two cores
  *                              render at once
- *   dx7_skip(v)                FM-1 addition: a block without its sound (a parked voice): its LFO,
- *                              envelopes and oscillators go on as dx7_render's would
+ *   dx7_skip(v)                FM-1 addition: a block without its sound (what dx7_forward's work stands for):
+ *                              its LFO, envelopes and oscillators go on as dx7_render's would
+ *   dx7_forward(v, on, off, steps)   FM-1 addition: a note just started worked on over its time, in stretches of
+ *                              blocks, to where dx7_skip's blocks would leave its envelopes and LFO (a ghost's
+ *                              return: ../fwd.h)
+ *   dx7_heard(v)               FM-1 addition: the most it still reaches, from its carriers' envelopes (../fwd.h)
  *   dx7_active(v)              any carrier envelope still sounding (Dx7Note::isPlaying)
  */
 #ifndef DX7_H
 #define DX7_H
 #include <stdint.h>
+#include "../fwd.h"                      /* FM-1 addition: the forward work's contract, FWD_HELD */
 
 #define DX7_LG_N 6
 #define DX7_N (1 << DX7_LG_N)
@@ -78,11 +85,26 @@ typedef struct {
 
 void dx7_init(void);
 uint32_t dx7_ram(void);                 /* the bytes of its tables in RAM (STATUS' RAM MAP: DX7) */
-void dx7_note_on(dx7_voice_t *v, const uint8_t *vced, int note, int velocity);
+void dx7_note_on(dx7_voice_t *v, const uint8_t *vced, int note, int velocity, int mod_velocity);
 void dx7_note_off(dx7_voice_t *v);
 void dx7_cut(dx7_voice_t *v);           /* FM-1 addition: silence now */
 void dx7_render(dx7_voice_t *v, int32_t *buf);
 void dx7_skip(dx7_voice_t *v);           /* FM-1 addition: a block of time, no sound */
+/* FM-1 addition: the forward work (../fwd.h), in blocks of DX7_N frames. Its six envelopes, its pitch envelope and its
+ * LFO (its phase, delay and sample-and-hold) come out as those blocks of dx7_skip (and dx7_note_off at the let-go)
+ * leave them, exactly; the operators' phases, gains and frequencies are left as the note on left them (the next block
+ * makes them again; gain_out 0 in a fresh state, so that block ramps up from silence). Its steps: a stretch of an
+ * envelope a step, the stretch each moving part is in counted again in each call (one standing for good costs
+ * nothing); the LFO's move a step (once for the held time, once for the release); the note off 7 (the stretches it
+ * starts). A call leaves *steps at -8 at the lowest (one entered with 1: its 7 parts' stretches, one taken, the LFO);
+ * its note off done once, the pitch envelope's key telling it was */
+int dx7_forward(dx7_voice_t *v, uint32_t *on, uint32_t *off, int32_t *steps);
+/* FM-1 addition: the most the note still reaches without a new stage rising (../fwd.h), on dx7_render's scale with no
+ * gain in it (the note's level and the rest apply to dx7_render's output): its carriers' envelope gains summed (a
+ * carrier's stage rising now at its target), times the output scale. The block rendered next peaks at most 1 over it
+ * but where a hold ends into a rising stage, and never more than 1 over the larger of it and dx7_heard after that
+ * block; the LFO's amplitude modulation only lowers the peak. 0 for a voice cut */
+int32_t dx7_heard(const dx7_voice_t *v);
 int dx7_active(const dx7_voice_t *v);
 int dx7_carrier(int algorithm, int op);  /* FM-1 addition: operator op (1..6) of the algorithm (0..31) is a carrier */
 void dx7_live(dx7_voice_t *v, int at, int value);   /* FM-1 addition: byte `at` of the 156 turned while it sounds */
