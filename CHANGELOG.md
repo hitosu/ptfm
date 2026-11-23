@@ -273,6 +273,8 @@ Each change is one entry, its kind first:
   erasing by hand, ghost notes, PT/FM FROZE and CORE 2 FAULTED in troubleshooting, the bigger lists, one FAVORITES,
   CORE SUPPLIES, the 560 records, with pictures of a cut loop, MOVE, erasing by hand and VISUAL's LEVELS on LOOPS; the
   demo disk's numbers in the data appendix and in MIDI's bank select are put right.
+- FEATURE: The site's landing shows the fourth video, PT/FM 1.0 IS OUT!: a card under the third video's, the same kind;
+  the third video's card is labelled UPDATE now, the fourth's LATEST.
 
 ## 0.27 (2026-11-08)
 

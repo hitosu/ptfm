@@ -17,8 +17,9 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 **Current version: 1.0** (2026-11-23); what changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 **Videos** on YouTube: [INTRODUCING PT/FM](https://youtu.be/95bZPtyD5rE),
-[PT/FM: UNDER THE HOOD](https://youtu.be/M6I354-Xu5I) and
-[WHAT'S NEW IN PT/FM 0.27](https://youtu.be/oSuT1VmGyvw).
+[PT/FM: UNDER THE HOOD](https://youtu.be/M6I354-Xu5I),
+[WHAT'S NEW IN PT/FM 0.27](https://youtu.be/oSuT1VmGyvw) and
+[PT/FM 1.0 IS OUT!](https://youtu.be/HcKRg8zOFaM).
 
 **Status:** the firmware runs on the FM-1 and is being made lighter, so more voices play at once
 (`dist/firmware/install.html` installs it and uploads the demo disk). Its **MIDI CONTROLLER** (SETTINGS' MIDI

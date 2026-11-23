@@ -46,8 +46,9 @@ One page, dark ("studio night"), for a phone first and a computer:
    Below, a small card for the next video, PT/FM: UNDER THE HOOD (`youtu.be/M6I354-Xu5I`): its YouTube thumbnail
    (section 5) under a small play button, NEXT and its length, its title, one line on what it shows, WATCH ON YOUTUBE;
    pressed as the panel is, its player takes the thumbnail's place and the card widens to the panel's width (on a
-   phone too, where the thumbnail is beside the title and the line below both). Below it, the same card for the
-   latest video, WHAT'S NEW IN PT/FM 0.27 (`youtu.be/oSuT1VmGyvw`), LATEST and its length.
+   phone too, where the thumbnail is beside the title and the line below both). Below it, the same card for
+   WHAT'S NEW IN PT/FM 0.27 (`youtu.be/oSuT1VmGyvw`), UPDATE and its length, and below that for the latest video, PT/FM
+   1.0 IS OUT! (`youtu.be/HcKRg8zOFaM`), LATEST and its length.
 4. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
    punch-ins, LOOPS, DJ, MIDI and sync, kept on the FM-1, music included (the demo disk links INSTALL).
 5. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;
@@ -80,7 +81,7 @@ Each of the four pages links to the landing from its `PT/FM`: the install page's
 | `hero.html`, `images.py hero` | `site/img/hero.webp`, `hero-phone.webp`, `og.jpg`: the FM-1 in 3D from `panel/layout.js` with the EDITOR's screen, rendered in the browser (three.js), saved as PNG, then cut to the page's sizes |
 | `images.py card` | `site/img/card.png`, on no page: the picture of the firmware's card in The Firmware Hub's catalogue (`fmhub.json`), `playback-acid.png` with `PT/FM` in the start screen's letter colours where the screen's name stands, nothing where its page stood, in the screen's own Terminus 8x16: not a real screen |
 | `pixfont.py` | `site/fonts/ptfm-pixel*.woff2` from `assets/fonts/ter-u16n.bdf` |
-| `images.py video` | `site/img/under-the-hood.webp`, `whats-new-0-27.webp`: each video's own YouTube thumbnail (1280 x 720), 640 px wide |
+| `images.py video` | `site/img/under-the-hood.webp`, `whats-new-0-27.webp`, `ptfm-1-0.webp`: each video's own YouTube thumbnail (1280 x 720), 640 px wide |
 
 The screens are made again when the screens they show change, the picture when the panel or its screen does, a
 video's thumbnail when YouTube's is replaced.
