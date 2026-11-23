@@ -43,12 +43,12 @@ One page, dark ("studio night"), for a phone first and a computer:
    (section 5), dimmed, under a play button lit as PLAY's LED and the video's title; the first press puts YouTube's
    player (`youtube-nocookie.com`, playing at once) in the panel's place. Until then nothing comes from YouTube; a
    press with a modifier key, or without scripts, opens YouTube as a link. WATCH ON YOUTUBE below it, a link.
-   Below, a small card for the next video, PT/FM: UNDER THE HOOD (`youtu.be/M6I354-Xu5I`): its YouTube thumbnail
-   (section 5) under a small play button, NEXT and its length, its title, one line on what it shows, WATCH ON YOUTUBE;
-   pressed as the panel is, its player takes the thumbnail's place and the card widens to the panel's width (on a
-   phone too, where the thumbnail is beside the title and the line below both). Below it, the same card for
-   WHAT'S NEW IN PT/FM 0.27 (`youtu.be/oSuT1VmGyvw`), UPDATE and its length, and below that for the latest video, PT/FM
-   1.0 IS OUT! (`youtu.be/HcKRg8zOFaM`), LATEST and its length.
+   Below, a small card for each later video, the newest on top (a new video's card goes first): PT/FM 1.0 IS OUT!
+   (`youtu.be/HcKRg8zOFaM`, LATEST), WHAT'S NEW IN PT/FM 0.27 (`youtu.be/oSuT1VmGyvw`, UPDATE), PT/FM: UNDER THE HOOD
+   (`youtu.be/M6I354-Xu5I`, DEEP DIVE). A card: its YouTube thumbnail (section 5) under a small play button, its label
+   and length, its title, one line on what it shows, WATCH ON YOUTUBE; pressed as the panel is, its player takes the
+   thumbnail's place and the card widens to the panel's width (on a phone too, where the thumbnail is beside the title
+   and the line below both).
 4. **Features:** a real PT/FM screen each (section 5): the six kinds of instrument, 16 voices, effects and
    punch-ins, LOOPS, DJ, MIDI and sync, kept on the FM-1, music included (the demo disk links INSTALL).
 5. **The four pages,** a card each with what it is for (INSTALL: Chrome or Edge, a computer or an Android phone;

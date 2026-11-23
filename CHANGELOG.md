@@ -275,6 +275,8 @@ Each change is one entry, its kind first:
   demo disk's numbers in the data appendix and in MIDI's bank select are put right.
 - FEATURE: The site's landing shows the fourth video, PT/FM 1.0 IS OUT!: a card under the third video's, the same kind;
   the third video's card is labelled UPDATE now, the fourth's LATEST.
+- CHANGE: The landing's video cards under INTRODUCING PT/FM go newest first: PT/FM 1.0 IS OUT!, WHAT'S NEW IN PT/FM 0.27,
+  then PT/FM: UNDER THE HOOD, labelled DEEP DIVE now.
 
 ## 0.27 (2026-11-08)
 
