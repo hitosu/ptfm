@@ -73,6 +73,19 @@ static void s_editor_grid(void)
     turn(K_SELECT, 4);
     turn(K_ALG, 2);
 }
+/* PLAYBACK following ACID TEST into its third pattern, the acid line on tracks 05-06 (the card's picture: fmhub.json) */
+static void s_playback_acid(void)
+{
+    go_to(K_OP1, "SONGS");
+    turn(K_SELECT, 4);
+    tap(B_PLAY);
+    run(36000);
+    go_to(K_OP4, "PLAYBACK");
+    player_state_t st;
+    player_state(&st, 0);
+    check(st.what == PL_SONG && st.playing && st.song == 0xA4, "ACID TEST plays on into PLAYBACK");
+    run(400);
+}
 
 static const sshot_t SHOTS[] = {
     {"instruments-all", s_instruments_all, 0, 0},
@@ -85,6 +98,7 @@ static const sshot_t SHOTS[] = {
     {"status-storage", s_status_storage, 0, 0},
     {"songs-list", s_songs_list, 0, 0},
     {"editor-grid", s_editor_grid, 0, 0},
+    {"playback-acid", s_playback_acid, 0, 0},
 };
 #define NSHOTS ((int)(sizeof SHOTS / sizeof SHOTS[0]))
 

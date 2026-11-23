@@ -150,6 +150,7 @@ The layout in full, with what is committed: `specs/layout.md`.
 | `README.md` | for users: what PT/FM is, the folders, the licence |
 | `CHANGELOG.md` | what changes from version to version, an entry a change with its kind first (FEATURE, CHANGE, BUG, REMOVED): the top section, Next version, since the last release (at a release, that release's) |
 | `LICENSE` | GPL-3.0-only |
+| `fmhub.json` | the firmware's card in The Firmware Hub's catalogue of FM-1 firmwares, read from `main` every three hours: its nine fields only (another field voids the file); `what` plain English, no links, 300 characters at most; `image` a path in the repository, `site/img/card.png`, made by `site/tools/images.py card` from `site/screens/playback-acid.png` (`site/tools/shots.sh`; renaming it breaks the card) |
 | `specs/` | the specifications, one subject per file; `specs/proposals/` the drafts; `specs/reports/` a report for each version (`<version>.md`: the work done, why and how, with its commits) |
 | `fw/` | the firmware, engine only, no data but the built-in instruments (`fw/README.md`): `core/` (`store/`, `play/`, `eng/`, `fx/`, `midi/`, `ui/`, `plat.h`, `app.c`), `device/`, `hal/`, `stub/` (the start check), `loader/` (the update loader), `tools/` (build, packager, install page, generators), `web/` (the install page's template, `seed.js`), `tests/` |
 | `emulator/` | the firmware in a browser (`specs/emulator.md`, `emulator/README.md`): the web platform, the worklet, the page, `build.py` |

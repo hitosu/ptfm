@@ -25,6 +25,10 @@ ProTracker tradition, whose tracks play synth engines and samples side by side.
 page) turns the FM-1 into a USB-MIDI controller, for the virtual FM-1 or any synth or DAW
 ([specs/controller.md](specs/controller.md)).
 
+**Other firmwares:** PT/FM reads only its own songs and sounds; another firmware's projects and samples it cannot
+read, and it saves over them. Installing another firmware loses what PT/FM keeps on the FM-1: the EDITOR's READ, then
+DOWNLOAD DISK, keeps a copy to put back once PT/FM is installed again.
+
 ## What is here
 
 | Folder | What |

@@ -8,6 +8,7 @@ proposed details marked *(proposed)*.
 ```
 ptfm/
   AGENTS.md  README.md  CHANGELOG.md  LICENSE  .gitignore
+  fmhub.json    the firmware's card in The Firmware Hub's catalogue: its text, links and picture (a screen of site/)
   specs/        these specifications (Markdown)
   fw/           the firmware's sources: the engine only, no data
   emulator/     the emulator's sources: the web hardware layer (C), the page, the audio worklet

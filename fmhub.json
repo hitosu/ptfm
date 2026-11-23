@@ -1,0 +1,11 @@
+{
+  "what": "A tracker: patterns up to 16 tracks wide play DX7 FM, Juno-106, TB-303 and chip synths, samples and FUSION (a chord, layer or kit on each key), up to 16 voices. A loop station, two DJ decks, effects with punch-ins, automations, velocity keys, MIDI and clock in and out, USB audio.",
+  "author": "hitosu",
+  "kinds": ["tracker"],
+  "play": "https://hitosu.github.io/ptfm/emulator/",
+  "editor": "https://hitosu.github.io/ptfm/editor/",
+  "cheat": "https://hitosu.github.io/ptfm/manual/",
+  "image": "site/img/card.png",
+  "color": "#5DFF7A",
+  "sounds": "licensed: patches and samples from free sources, each named with its licence in demo-disk/CREDITS.md: CC0 1.0, BSD-2-Clause, CC BY-SA 4.0, GPL-3.0, MIT; the other patches and the songs own"
+}

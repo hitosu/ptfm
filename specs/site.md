@@ -75,9 +75,10 @@ Each of the four pages links to the landing from its `PT/FM`: the install page's
 
 | Tool | Makes |
 |---|---|
-| `shots.sh` (`shots.c`) | `site/screens/*.png`: the screens, made as the manual's are (all of `fw/core` on the PC, the demo disk, a script a screen; core 2 taken as running, so VOICES 16 is 16); also STATUS's first page (`status-ptfm.png`, PT/FM's name), on the landing only in the video's panel, for links from elsewhere too |
+| `shots.sh` (`shots.c`) | `site/screens/*.png`: the screens, made as the manual's are (all of `fw/core` on the PC, the demo disk, a script a screen; core 2 taken as running, so VOICES 16 is 16); also STATUS's first page (`status-ptfm.png`, PT/FM's name), on the landing only in the video's panel, for links from elsewhere too; and PLAYBACK on ACID TEST (`playback-acid.png`), on no page: what the card's picture is made from (`images.py card`) |
 | `tools/build_manual.py` | `site/screens/manual/*.png`: the manual's screenshots, made with the manual ([manual.md](manual.md)) |
 | `hero.html`, `images.py hero` | `site/img/hero.webp`, `hero-phone.webp`, `og.jpg`: the FM-1 in 3D from `panel/layout.js` with the EDITOR's screen, rendered in the browser (three.js), saved as PNG, then cut to the page's sizes |
+| `images.py card` | `site/img/card.png`, on no page: the picture of the firmware's card in The Firmware Hub's catalogue (`fmhub.json`), `playback-acid.png` with `PT/FM` in the start screen's letter colours where the screen's name stands, nothing where its page stood, in the screen's own Terminus 8x16: not a real screen |
 | `pixfont.py` | `site/fonts/ptfm-pixel*.woff2` from `assets/fonts/ter-u16n.bdf` |
 | `images.py video` | `site/img/under-the-hood.webp`, `whats-new-0-27.webp`: each video's own YouTube thumbnail (1280 x 720), 640 px wide |
 

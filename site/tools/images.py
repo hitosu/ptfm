@@ -10,6 +10,9 @@
   python3 -I site/tools/images.py video THUMB.png NAME
                                                   a video's YouTube thumbnail (1280 x 720) -> site/img/NAME.webp
                                                   (640 px, the video card's picture at twice its size)
+  python3 -I site/tools/images.py card            site/screens/playback-acid.png -> site/img/card.png, the picture of
+                                                  the firmware's card in The Firmware Hub's catalogue (fmhub.json):
+                                                  the screen with PT/FM in its header alone, not a real screen
 """
 import sys
 from pathlib import Path
@@ -19,6 +22,11 @@ from PIL import Image
 SITE = Path(__file__).resolve().parents[1]
 CROP_PHONE = (.20, .08, .92, .92)         # fractions of the picture: the FM-1 close, for narrow screens
 CROP_OG = (.20, .04, 1.0, .787)           # 1200 x 630's shape out of a 16 : 9 picture
+# the card: the header's text is Terminus 8x16 (assets/fonts/ter-u16n.bdf, as the FM-1 draws it) in 8-pixel cells from
+# x 2, rows 0-15, on black
+CARD_SCREEN = "screens/playback-acid.png"       # PLAYBACK (8 cells), a space, the page 02/05: cells at x 2-113
+CARD_LOGO = ((255, 125, 115), (131, 234, 238), (246, 226, 115), (131, 234, 131), (238, 133, 238))  # the start
+                                                # screen's PT/FM, a colour a letter
 
 
 def crop(im, box):
@@ -50,6 +58,40 @@ def hero(src):
         print(out / name, (out / name).stat().st_size, "B")
 
 
+def read_bdf(path):
+    """code -> the glyph's 16 rows of 8 bits (every Terminus 8x16 glyph fills its cell)"""
+    glyphs, code, rows = {}, None, None
+    for line in path.read_text(encoding="latin-1").splitlines():
+        p = line.split()
+        if not p:
+            continue
+        if p[0] == "ENCODING":
+            code = int(p[1])
+        elif p[0] == "BITMAP":
+            rows = []
+        elif p[0] == "ENDCHAR":
+            glyphs[code], rows = rows, None
+        elif rows is not None:
+            rows.append(int(p[0], 16))
+    return glyphs
+
+
+def card():
+    im = Image.open(SITE / CARD_SCREEN).convert("RGB")
+    font = read_bdf(SITE.parent / "assets" / "fonts" / "ter-u16n.bdf")
+    im.paste((0, 0, 0), (2, 0, 114, 16))                # PLAYBACK and its page gone
+    for i, (ch, colour) in enumerate(zip("PT/FM", CARD_LOGO)):  # PT/FM where PLAYBACK stood, nothing after it
+        rows = font[ord(ch)]
+        assert len(rows) == 16, ch
+        for y, bits in enumerate(rows):
+            for x in range(8):
+                if bits >> (7 - x) & 1:
+                    im.putpixel((2 + 8 * i + x, y), colour)
+    dest = SITE / "img" / "card.png"
+    im.save(dest, optimize=True)
+    print(dest, dest.stat().st_size, "B")
+
+
 def video(src, name):
     dest = SITE / "img" / (name + ".webp")
     scaled(Image.open(src).convert("RGB"), 640).save(dest, "WEBP", quality=82, method=6)
@@ -59,6 +101,8 @@ def video(src, name):
 if __name__ == "__main__":
     if sys.argv[1:2] == ["video"] and len(sys.argv) == 4:
         video(sys.argv[2], sys.argv[3])
+    elif sys.argv[1:] == ["card"]:
+        card()
     elif len(sys.argv) == 3 and sys.argv[1] in ("screens", "hero"):
         (screens if sys.argv[1] == "screens" else hero)(sys.argv[2])
     else:
